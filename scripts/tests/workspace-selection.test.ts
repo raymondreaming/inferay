@@ -1,24 +1,15 @@
 import { expect, test } from "bun:test";
 import { createWorkspaceSession } from "@workspace/services/workspaceSession.ts";
-import { project } from "../../src/shared/lib/native.tsx";
 
 // Exercise the production queue through its injected persistence port.
 function model(send: (path: string, body: any) => Promise<any>) {
-	const session = createWorkspaceSession(
-		{
-			initialize: async () =>
-				(await send("/api/agent/state/initialize", {})).state,
-			load: async () => (await send("/api/agent/state", {})).state,
-			save: async (action) =>
-				(await send("/api/agent/state/workspace-action", { action })).state,
-		},
-		{
-			select: (state, groupId, paneId) =>
-				project("workspaceSelection", { state, groupId, paneId }),
-			forRepository: (state, cwd) =>
-				project("repositorySelection", { state, cwd }),
-		},
-	);
+	const session = createWorkspaceSession({
+		initialize: async () =>
+			(await send("/api/agent/state/initialize", {})).state,
+		load: async () => (await send("/api/agent/state", {})).state,
+		save: async (action) =>
+			(await send("/api/agent/state/workspace-action", { action })).state,
+	});
 	return {
 		initializeAgentState: session.initialize,
 		mutateAgentWorkspaceState: session.mutate,
@@ -104,11 +95,15 @@ test("selection after queued creation is preserved even when it matches the old 
 				],
 			};
 		} else {
-			state = project("workspaceSelection", {
-				state,
-				groupId: "g",
-				paneId: body.action.paneId,
-			});
+			state = {
+				...state,
+				selectedGroupId: "g",
+				groups: state.groups.map((group) =>
+					group.id === "g"
+						? { ...group, selectedPaneId: body.action.paneId }
+						: group,
+				),
+			};
 		}
 		return { state };
 	});

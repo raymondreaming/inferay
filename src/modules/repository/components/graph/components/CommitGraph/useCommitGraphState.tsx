@@ -5,6 +5,8 @@ import type {
 	GraphLines,
 	GraphPresentation,
 	GraphRow,
+	GraphViewport,
+	GitGraphActionRequest as NativeGitGraphActionRequest,
 } from "@contracts";
 import { runtimeGitGraphLaneColors } from "@design-system/styles.stylex.ts";
 import { resolveGitCommitAvatars } from "@repository/services/gitApi.ts";
@@ -23,8 +25,6 @@ import {
 } from "solid-js";
 import { getGraphLineLayerStyle } from "./styles.ts";
 import { useGraphViewport } from "./useGraphViewport.tsx";
-
-export { DEFAULT_GIT_GRAPH_HISTORY_LIMIT } from "@repository/model/gitGraph.ts";
 
 export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 	const trackResize = createPointerResize();
@@ -216,15 +216,11 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 	const revealKeyboardRow = (index: number, repeat: boolean) => {
 		const scroller = scrollerRef.current;
 		if (!scroller || index < 0) return;
-		const rowTop = index * ROW_HEIGHT;
-		const padding = ROW_HEIGHT * 2;
-		const top =
-			rowTop < scroller.scrollTop + padding
-				? Math.max(0, rowTop - padding)
-				: rowTop + ROW_HEIGHT >
-						scroller.scrollTop + scroller.clientHeight - padding
-					? rowTop + ROW_HEIGHT - scroller.clientHeight + padding
-					: scroller.scrollTop;
+		const top = rustProject<number>("graphReveal", {
+			index,
+			scrollTop: scroller.scrollTop,
+			height: scroller.clientHeight,
+		});
 		if (Math.abs(top - scroller.scrollTop) > 0.5)
 			scroller.scrollTo({ top, behavior: repeat ? "instant" : "smooth" });
 	};
@@ -247,71 +243,38 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 			event.preventDefault();
 			return;
 		}
-		const _source4Value = graphModel(),
-			_sourceValue0 = _props();
-		if (
-			event.key !== "ArrowUp" &&
-			event.key !== "ArrowDown" &&
-			event.key !== "ArrowLeft" &&
-			event.key !== "ArrowRight" &&
-			event.key !== "Home" &&
-			event.key !== "End"
-		)
-			return;
-		if (!_source4Value.selectableItems.length) return;
+		const model = graphModel(),
+			props = _props(),
+			current = props.commits.find(
+				(commit) => commit.id === props.selectedHash,
+			);
+		const branchTarget =
+			event.key === "ArrowUp"
+				? current?.navigation.branchNewer
+				: current?.navigation.branchOlder;
+		const next = rustProject<{
+			handled: boolean;
+			selectItem: string | null;
+			selectIndex: number | null;
+			openItem: string | null;
+		}>("graphNavigation", {
+			key: event.key,
+			items: model.selectableItems,
+			current: props.selectedHash,
+			branch: event.altKey,
+			branchTarget,
+			canOpen: !!props.onOpenSelection,
+		});
+		if (!next.handled) return;
 		keyboardNavigationRef.current = true;
 		setHoveredRow(null);
 		event.preventDefault();
-		const currentIndex = _sourceValue0.selectedHash
-			? (_source4Value.itemIndexes.get(_sourceValue0.selectedHash) ?? -1)
-			: -1;
-		if (
-			event.altKey &&
-			(event.key === "ArrowUp" || event.key === "ArrowDown") &&
-			_sourceValue0.selectedHash
-		) {
-			const current = _sourceValue0.commits[currentIndex];
-			const next =
-				event.key === "ArrowUp"
-					? current?.navigation?.branchNewer
-					: current?.navigation?.branchOlder;
-			if (next) {
-				const nextIndex = _source4Value.itemIndexes.get(next) ?? -1;
-				_sourceValue0.onSelect?.(next);
-				revealKeyboardRow(nextIndex, event.repeat);
-			}
-			return;
+		if (next.openItem) props.onOpenSelection?.(next.openItem);
+		if (next.selectItem) {
+			props.onSelect?.(next.selectItem);
+			if (next.selectIndex !== null)
+				revealKeyboardRow(next.selectIndex, event.repeat);
 		}
-		if (
-			event.key === "ArrowRight" &&
-			currentIndex >= 0 &&
-			_sourceValue0.onOpenSelection
-		) {
-			_sourceValue0.onOpenSelection(
-				_source4Value.selectableItems[currentIndex]!,
-			);
-			return;
-		}
-		if (event.key === "ArrowRight") return;
-		const nextIndex =
-			event.key === "Home"
-				? 0
-				: event.key === "End"
-					? _source4Value.selectableItems.length - 1
-					: currentIndex < 0
-						? event.key === "ArrowUp"
-							? _source4Value.selectableItems.length - 1
-							: 0
-						: Math.max(
-								0,
-								Math.min(
-									_source4Value.selectableItems.length - 1,
-									currentIndex + (event.key === "ArrowUp" ? -1 : 1),
-								),
-							);
-		const next = _source4Value.selectableItems[nextIndex]!;
-		_sourceValue0.onSelect?.(next);
-		revealKeyboardRow(nextIndex, event.repeat);
 	};
 	const startColumnResize = (
 		column: keyof ColumnWidths,
@@ -324,54 +287,35 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 		const move = (moveEvent: PointerEvent) => {
 			setters().setWidths((current) => ({
 				...current,
-				[column]: Math.max(
-					MIN_COLUMN_WIDTHS[column],
-					Math.min(MAX_COLUMN_WIDTH, startWidth + moveEvent.clientX - startX),
-				),
+				[column]: rustProject<number>("resizeGraphColumn", {
+					column,
+					width: startWidth + moveEvent.clientX - startX,
+				}),
 			}));
 		};
 		trackResize(event.pointerId, move);
 	};
 	return merge(_props, graphModel, viewportModel, preferences, {
 		get emptyLabel() {
-			const _sourceValue1 = _props();
-			return _sourceValue1.emptyLabel === undefined
-				? "No matching commits"
-				: _sourceValue1.emptyLabel;
+			return _props().emptyLabel ?? "No matching commits";
 		},
 		get searchActive() {
-			const _sourceValue1 = _props();
-			return _sourceValue1.searchActive === undefined
-				? false
-				: _sourceValue1.searchActive;
+			return _props().searchActive ?? false;
 		},
 		get selectedIds() {
-			const _sourceValue1 = _props();
-			return _sourceValue1.selectedIds === undefined
-				? EMPTY_SELECTED_IDS
-				: _sourceValue1.selectedIds;
+			return _props().selectedIds ?? EMPTY_SELECTED_IDS;
 		},
 		get class() {
-			const _sourceValue1 = _props();
-			return _sourceValue1.class === undefined ? "" : _sourceValue1.class;
+			return _props().class ?? "";
 		},
 		get embedded() {
-			const _sourceValue1 = _props();
-			return _sourceValue1.embedded === undefined
-				? false
-				: _sourceValue1.embedded;
+			return _props().embedded ?? false;
 		},
 		get hasMore() {
-			const _sourceValue1 = _props();
-			return _sourceValue1.hasMore === undefined
-				? false
-				: _sourceValue1.hasMore;
+			return _props().hasMore ?? false;
 		},
 		get loadingMore() {
-			const _sourceValue1 = _props();
-			return _sourceValue1.loadingMore === undefined
-				? false
-				: _sourceValue1.loadingMore;
+			return _props().loadingMore ?? false;
 		},
 		get setHiddenRefs() {
 			const _source3Value = setters();
@@ -427,7 +371,6 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 		startColumnResize,
 	});
 }
-export { resolveGitCommitAvatars } from "@repository/services/gitApi.ts";
 export interface GraphSelectionIntent {
 	additive: boolean;
 	range: boolean;
@@ -503,37 +446,13 @@ export interface CommitGraphProps {
 	onCompareWithWip?: (itemId: string) => void;
 	onOpenSelection?: (itemId: string) => void;
 }
-export interface GitGraphActionRequest {
-	action:
-		| "createBranch"
-		| "createTag"
-		| "cherryPick"
-		| "revert"
-		| "stashPush"
-		| "stashApply"
-		| "stashPop"
-		| "stashDrop"
-		| "stashRename"
-		| "renameBranch"
-		| "deleteBranch"
-		| "deleteTag"
-		| "setUpstream"
-		| "pushSetUpstream"
-		| "deleteRemoteBranch"
-		| "pushTag"
-		| "deleteRemoteTag"
-		| "forcePushWithLease"
-		| "resetSoft"
-		| "resetMixed"
-		| "resetHard"
-		| "fetch"
-		| "pull"
-		| "push";
-	target?: string;
-	targets?: string[];
+export type GitGraphActionRequest = Pick<
+	NativeGitGraphActionRequest,
+	"action" | "target" | "targets"
+> & {
 	itemId: string;
 	suggestedName?: string;
-}
+};
 export interface GraphPreferences {
 	columns: ColumnVisibility;
 	widths: ColumnWidths;
@@ -543,17 +462,7 @@ export interface GraphPreferences {
 	pinnedRefs: string[];
 }
 export const TOP_PADDING = ROW_HEIGHT;
-const ROW_OVERSCAN = 12;
 export const EMPTY_SELECTED_IDS: readonly string[] = [];
-export const MIN_COLUMN_WIDTHS: ColumnWidths = {
-	date: 84,
-	refs: 96,
-	graph: 48,
-	message: 160,
-	author: 88,
-	sha: 56,
-};
-export const MAX_COLUMN_WIDTH = 480;
 export function preferencesKey(repositoryKey?: string) {
 	return `commit-graph-columns-v12:${repositoryKey ?? "default"}`;
 }
@@ -568,22 +477,6 @@ export function loadPreferences(repositoryKey?: string): GraphPreferences {
 }
 export function nextGitGraphHistoryLimit(current: number): number {
 	return rustProject("nextHistoryLimit", current);
-}
-function graphVirtualRange(
-	itemCount: number,
-	scrollTop: number,
-	viewportHeight: number,
-) {
-	const count = Math.max(0, Math.floor(itemCount));
-	const viewport = Math.max(0, viewportHeight);
-	const scroll = Math.max(0, scrollTop);
-	return {
-		start: Math.max(0, Math.floor(scroll / ROW_HEIGHT) - ROW_OVERSCAN),
-		end: Math.min(
-			count,
-			Math.ceil((scroll + viewport) / ROW_HEIGHT) + ROW_OVERSCAN,
-		),
-	};
 }
 export function moveGraphColumn(
 	order: readonly ColumnKey[],
@@ -632,7 +525,6 @@ export function buildCommitGraphViewModel({
 		...geometry,
 		hiddenRefDetails: presentation.hiddenRefDetails,
 		hiddenRefNames: new Set(presentation.hiddenRefNames),
-		itemIndexes: new Map(selectableItems.map((id, index) => [id, index])),
 		matchingHashes: new Set(selectableItems),
 		pinnedRefNames: new Set(presentation.pinnedRefNames),
 		reachableHistory: new Set(presentation.reachableHistory),
@@ -647,10 +539,13 @@ function projectCommitGraphViewport(
 	viewportHeight: number,
 	displayColumns: number[],
 ) {
-	const { start: visibleStart, end: visibleEnd } = graphVirtualRange(
-		itemCount,
-		Math.max(0, scrollTop - TOP_PADDING),
-		viewportHeight,
+	const { visibleStart, visibleEnd } = rustProject<GraphViewport>(
+		"graphViewport",
+		{
+			count: itemCount,
+			scrollTop,
+			height: viewportHeight,
+		},
 	);
 	return {
 		visibleStart,

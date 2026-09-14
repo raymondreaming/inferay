@@ -1,10 +1,10 @@
+import type { AgentDirectory } from "@contracts";
 import { iconSize } from "@design-system/styles.stylex.ts";
 import { useQueryResource } from "@shared/hooks/useQueryResource.tsx";
 import { setInputValue } from "@shared/lib/dom.tsx";
 import { IconFolder } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
-	type DirectoryPick,
 	loadDirectoryQuickPicks,
 	searchDirectories,
 } from "@workspace/services/workspaceApi.ts";
@@ -13,7 +13,6 @@ import { DirectoryResult } from "./DirectoryResult.tsx";
 import { SelectedDirectoryChip } from "./SelectedDirectoryChip.tsx";
 import { styles } from "./styles.ts";
 
-type QuickPick = DirectoryPick;
 export function InlineDirectoryPicker(props: {
 	onSelect: (path: string | null) => void;
 	onCancel?: () => void;
@@ -29,13 +28,13 @@ export function InlineDirectoryPicker(props: {
 		() => loadDirectoryQuickPicks,
 		() => ({
 			quickPicks: [],
-			homePath: "",
+			home: "",
 		}),
 		() => ({
 			queryKey: ["agent", "directories", "quick"],
 		}),
 	);
-	const _source2 = useQueryResource<QuickPick[]>(
+	const _source2 = useQueryResource<AgentDirectory[]>(
 		() => {
 			const query = deferredQuery();
 			return (signal) => searchDirectories(query, signal);
@@ -136,8 +135,8 @@ export function InlineDirectoryPicker(props: {
 		}
 	};
 	const shortenPath = (path: string) =>
-		_source.data.homePath && path.startsWith(_source.data.homePath)
-			? `~${path.slice(_source.data.homePath.length)}`
+		_source.data.home && path.startsWith(_source.data.home)
+			? `~${path.slice(_source.data.home.length)}`
 			: path;
 	return (
 		<>

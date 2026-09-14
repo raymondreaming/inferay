@@ -1,4 +1,9 @@
-import type { AgentSavedState, AgentWorkspaceAction } from "@contracts";
+import type {
+	AgentDirectory,
+	AgentSavedState,
+	AgentWorkspaceAction,
+	DirectoryQuickPicks,
+} from "@contracts";
 import {
 	fetchJson,
 	fetchJsonOr,
@@ -7,42 +12,26 @@ import {
 } from "@shared/lib/native.tsx";
 import type { WorkspacePanelPort } from "@workspace/services/workspacePanels.ts";
 
-export type DirectoryPick = {
-	readonly name: string;
-	readonly path: string;
-	readonly isGitRepo: boolean;
-};
-
-export async function loadDirectoryQuickPicks(): Promise<{
-	quickPicks: DirectoryPick[];
-	homePath: string;
-}> {
-	const data = await fetchJsonOr<{
-		quickPicks?: DirectoryPick[];
-		home?: string;
-	}>("/api/agent/directories?quickPicks=true", {});
-	return {
-		quickPicks: data.quickPicks ?? [],
-		homePath: data.home ?? "",
-	};
+export function loadDirectoryQuickPicks() {
+	return fetchJsonOr<DirectoryQuickPicks>(
+		"/api/agent/directories?quickPicks=true",
+		{ quickPicks: [], home: "" },
+	);
 }
 
 export async function searchDirectories(
 	query: string,
 	signal?: AbortSignal,
-): Promise<DirectoryPick[]> {
+): Promise<AgentDirectory[]> {
 	if (!query) return [];
 	const data = await fetchJsonOr<{
-		directories?: Array<Pick<DirectoryPick, "name" | "path">>;
+		directories?: AgentDirectory[];
 	}>(
 		`/api/agent/directories?${new URLSearchParams({ q: query })}`,
 		{},
 		{ signal },
 	);
-	return (data.directories ?? []).map((directory) => ({
-		...directory,
-		isGitRepo: false,
-	}));
+	return data.directories ?? [];
 }
 
 export async function initializeWorkspaceState(): Promise<AgentSavedState> {

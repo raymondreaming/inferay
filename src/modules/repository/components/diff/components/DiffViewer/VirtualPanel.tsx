@@ -1,21 +1,20 @@
-import type { GitDiffLine, MinimapSegment } from "@contracts";
-import type { DiffScrollSource } from "@repository/model/diff.ts";
+import type { DiffScrollSource, GitDiffLine, MinimapSegment } from "@contracts";
 import {
 	type SyntaxToken,
 	useSyntaxHighlight,
 } from "@shared/hooks/useSyntaxHighlight.tsx";
-import {
-	assignRef,
-	createReducer,
-	domStyle,
-	type RefCell,
-} from "@shared/lib/dom.tsx";
+import { assignRef, domStyle, type RefCell } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { createEffect, createMemo, For, onSettled } from "solid-js";
+import {
+	createEffect,
+	createMemo,
+	createSignal,
+	For,
+	onSettled,
+} from "solid-js";
 import { DiffGutterRow } from "./DiffGutterRow.tsx";
 import { DiffMinimap } from "./DiffMinimap.tsx";
 import { DiffRow } from "./DiffRow.tsx";
-import { diffViewportReducer, INITIAL_DIFF_VIEWPORT_STATE } from "./model.ts";
 import * as inlineStyles from "./styles.ts";
 import { DIFF_CONFIG, diffStyles, GUTTER_W, LINE_H } from "./styles.ts";
 
@@ -49,11 +48,10 @@ export const VirtualPanel = function VirtualPanel(props: {
 	filePath?: string;
 	highlightedRange?: readonly [number, number];
 }) {
-	const [viewport, dispatchViewport] = createReducer(
-		diffViewportReducer,
-		INITIAL_DIFF_VIEWPORT_STATE,
-	);
-	const _source = createMemo(() => viewport());
+	const equals = (previous: number, next: number) =>
+		!(Math.abs(previous - next) > 0.5);
+	const [scrollTop, setScrollTop] = createSignal(0, { equals });
+	const [viewHeight, setViewHeight] = createSignal(600, { equals });
 	const rafRef = {
 		current: 0,
 	} as {
@@ -70,16 +68,9 @@ export const VirtualPanel = function VirtualPanel(props: {
 		(scrollRef) => {
 			const el = scrollRef.current;
 			if (!el) return;
-			dispatchViewport({
-				type: "measure",
-				height: el.clientHeight,
-			});
-			const obs = new ResizeObserver((e) =>
-				dispatchViewport({
-					type: "measure",
-					height:
-						e[0]?.contentRect.height ?? INITIAL_DIFF_VIEWPORT_STATE.viewHeight,
-				}),
+			setViewHeight(el.clientHeight || 600);
+			const obs = new ResizeObserver(([entry]) =>
+				setViewHeight(entry?.contentRect.height || 600),
 			);
 			obs.observe(el);
 			return obs.disconnect.bind(obs);
@@ -100,10 +91,7 @@ export const VirtualPanel = function VirtualPanel(props: {
 			const leftChanged = Math.abs(last.left - sl) > 0.5;
 			if (topChanged) {
 				last.top = st;
-				dispatchViewport({
-					type: "scroll",
-					top: st,
-				});
+				setScrollTop(st);
 			}
 			if (leftChanged) last.left = sl;
 		});
@@ -125,14 +113,12 @@ export const VirtualPanel = function VirtualPanel(props: {
 		),
 	);
 	const start = createMemo(() =>
-		Math.max(0, Math.floor(_source().scrollTop / LINE_H) - OVERSCAN),
+		Math.max(0, Math.floor(scrollTop() / LINE_H) - OVERSCAN),
 	);
 	const end = createMemo(() => {
-		const _sourceValue = _source();
 		return Math.min(
 			props.rowCount === undefined ? props.lines.length : props.rowCount,
-			Math.ceil((_sourceValue.scrollTop + _sourceValue.viewHeight) / LINE_H) +
-				OVERSCAN,
+			Math.ceil((scrollTop() + viewHeight()) / LINE_H) + OVERSCAN,
 		);
 	});
 	const lineContents = createMemo(() =>
@@ -152,7 +138,7 @@ export const VirtualPanel = function VirtualPanel(props: {
 			rowCount: props.rowCount ?? props.lines.length,
 			scrollRef: props.scrollRef,
 			side: props.side,
-			viewHeight: _source().viewHeight,
+			viewHeight: viewHeight(),
 		}),
 		({ top, source, rowCount, scrollRef, side, viewHeight }) => {
 			const element = scrollRef.current;
@@ -163,30 +149,24 @@ export const VirtualPanel = function VirtualPanel(props: {
 			if (element.scrollTop !== nextScrollTop)
 				element.scrollTop = nextScrollTop;
 			lastScrollRef.current.top = nextScrollTop;
-			dispatchViewport({ type: "scroll", top: nextScrollTop });
+			setScrollTop(nextScrollTop);
 		},
 	);
 	const scrollToLine = (lineIndex: number) => {
-		const _sourceValue2 = _source();
+		const height = viewHeight();
 		if (!props.scrollRef.current) return;
 		const maxScrollTop = Math.max(
 			0,
 			(props.rowCount === undefined ? props.lines.length : props.rowCount) *
 				LINE_H -
-				_sourceValue2.viewHeight,
+				height,
 		);
 		const nextScrollTop = roundToDevicePixel(
-			Math.min(
-				Math.max(0, lineIndex * LINE_H - _sourceValue2.viewHeight / 2),
-				maxScrollTop,
-			),
+			Math.min(Math.max(0, lineIndex * LINE_H - height / 2), maxScrollTop),
 		);
 		props.scrollRef.current.scrollTop = nextScrollTop;
 		lastScrollRef.current.top = nextScrollTop;
-		dispatchViewport({
-			type: "scroll",
-			top: nextScrollTop,
-		});
+		setScrollTop(nextScrollTop);
 		props.onScroll?.(nextScrollTop, props.scrollRef.current.scrollLeft, true);
 	};
 	const visibleRows = createMemo(() => {
@@ -313,8 +293,8 @@ export const VirtualPanel = function VirtualPanel(props: {
 							props.rowCount === undefined ? props.lines.length : props.rowCount
 						}
 						segments={props.minimapSegments}
-						scrollTop={_source().scrollTop}
-						viewHeight={_source().viewHeight}
+						scrollTop={scrollTop()}
+						viewHeight={viewHeight()}
 						totalHeight={total()}
 						onScrollTo={scrollToLine}
 					/>

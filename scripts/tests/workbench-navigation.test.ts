@@ -1,39 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { parse } from "@babel/parser";
 import type { PanelAction, PanelSession } from "@contracts";
 import { QueryClient } from "@tanstack/query-core";
 import { createWorkspacePanelModel } from "@workspace/services/workspacePanels.ts";
 import { project } from "../../src/shared/lib/native.tsx";
-
-// Load the production models without compiling the Solid UI runtime. The
-// transition itself runs through the built Rust Wasm, just as in the renderer.
-function functions(
-	path: string,
-	names: string[],
-	bindings: Record<string, unknown>,
-) {
-	const source = readFileSync(new URL(path, import.meta.url), "utf8");
-	const declarations = parse(source, {
-		sourceType: "module",
-		plugins: ["typescript", "jsx"],
-	}).program.body.flatMap((node) => {
-		const declaration =
-			node.type === "ExportNamedDeclaration" ? node.declaration : node;
-		return declaration?.type === "FunctionDeclaration" &&
-			names.includes(declaration.id?.name ?? "")
-			? [source.slice(declaration.start!, declaration.end!)]
-			: [];
-	});
-	expect(declarations).toHaveLength(names.length);
-	const code = new Bun.Transpiler({ loader: "tsx" }).transformSync(
-		declarations.join("\n"),
-	);
-	return new Function(
-		...Object.keys(bindings),
-		`${code}\nreturn { ${names.join(",")} };`,
-	)(...Object.values(bindings));
-}
 
 function setup() {
 	const client = new QueryClient({
@@ -46,12 +15,7 @@ function setup() {
 		sent.push(body);
 		return read();
 	};
-	const model = createWorkspacePanelModel(
-		client,
-		send,
-		(session, action, now) => project("panelPreview", { session, action, now }),
-		empty,
-	);
+	const model = createWorkspacePanelModel(client, send, empty);
 	const key = model.queryOptions("repo").queryKey;
 	client.setQueryData(key, empty);
 	return {
@@ -73,6 +37,20 @@ function setup() {
 }
 
 describe("navigation while native persistence is pending", () => {
+	test("disposing a panel model lets pending reads and saves settle", async () => {
+		const { model, select, current, mutation, setRead, empty } = setup();
+		const response = Promise.withResolvers<{ session: PanelSession }>();
+		setRead(() => response.promise);
+		const reading = model.queryOptions("repo").queryFn();
+		const request = select("a");
+		model.dispose();
+		model.dispose();
+		mutation.onError(new Error("offline"), request);
+		response.resolve({ session: empty });
+		expect((await reading).selectedCommitHash).toBeNull();
+		expect(current().selectedCommitHash).toBeNull();
+	});
+
 	test("the query mutation queue saves in order while navigation stays ahead", async () => {
 		const { client, select, current, mutation, setRead, sent } = setup();
 		const started = Promise.withResolvers<void>();
@@ -201,102 +179,6 @@ describe("navigation while native persistence is pending", () => {
 		});
 		expect(current().detachedFilePanels[0].initialFile).toBe(initialFile);
 	});
-});
-
-test("compact diff facts preserve full-payload presentation for every view", () => {
-	const { buildDiffViewerModel } = functions(
-		"../../src/modules/repository/services/diffPresentation.ts",
-		["buildDiffViewerModel"],
-		{ rustProject: project },
-	);
-	const line = (content: string, type = "context") => ({
-		number: 1,
-		type,
-		content,
-	});
-	const base = {
-		oldLines: [line("old")],
-		newLines: [line("new", "add")],
-		isBinary: false,
-		metadata: {
-			maxOldLineChars: 3,
-			maxNewLineChars: 3,
-			maxInlineLineChars: 3,
-			maxConflictLineChars: 0,
-			splitChangeRanges: [[0, 1]],
-			inlineChangeRanges: [[0, 2]],
-		},
-	};
-	for (const path of ["file.rs", "file.md", "file.mdx", "README.MD"])
-		for (const viewMode of ["split", "hunks"])
-			for (const diff of [
-				base,
-				{ ...base, isBinary: true },
-				{ ...base, oldLines: [], newLines: [] },
-				{
-					...base,
-					oldLines: [],
-					newLines: [line("File is too large to display.")],
-				},
-				{ ...base, compactLines: [] },
-				{ ...base, compactLines: [line("Diff unavailable")] },
-				{
-					...base,
-					newLines: [
-						line("# Title"),
-						line("gone", "remove"),
-						line("body", "add"),
-					],
-				},
-				{
-					...base,
-					mergeConflictContent: "<<<<<<< ours\na\n=======\nb\n>>>>>>> theirs",
-				},
-			])
-				expect(buildDiffViewerModel(diff, path, viewMode)).toEqual(
-					project("diffViewer", { diff, filePath: path, viewMode }),
-				);
-});
-
-test("repository tab selection matches native preference order", () => {
-	const state = {
-		selectedGroupId: "active",
-		groups: [
-			{ id: "other", selectedPaneId: "remembered" },
-			{ id: "active", selectedPaneId: "elsewhere" },
-		],
-		repositories: {
-			workspaces: [
-				{
-					cwd: "/repo",
-					entries: [
-						{ groupId: "other", pane: { id: "first" } },
-						{ groupId: "other", pane: { id: "remembered" } },
-						{ groupId: "active", pane: { id: "current" } },
-					],
-				},
-			],
-		},
-	};
-	expect(
-		project<{ groupId: string; paneId: string } | null>("repositorySelection", {
-			state,
-			cwd: "/repo",
-		}),
-	).toEqual({ groupId: "active", paneId: "current" });
-	state.selectedGroupId = "unrelated";
-	expect(
-		project<{ groupId: string; paneId: string } | null>("repositorySelection", {
-			state,
-			cwd: "/repo",
-		}),
-	).toEqual({ groupId: "other", paneId: "remembered" });
-	expect(
-		project<{ groupId: string; paneId: string } | null>("repositorySelection", {
-			state,
-			cwd: "/missing",
-		}),
-	).toBeNull();
 });
 
 test("file navigation preserves object identity without serializing file payloads", async () => {

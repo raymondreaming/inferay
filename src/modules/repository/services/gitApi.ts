@@ -1,4 +1,6 @@
 import type {
+	ComparisonPlan,
+	DiffRequest,
 	FileContent,
 	ForgeAccount,
 	GitActionResponse,
@@ -7,14 +9,11 @@ import type {
 	GithubRepo,
 	GitRefOperationPreflight,
 	GitStatusResult,
-	HunkDiff,
-} from "@contracts";
-import type { DiffRequest } from "@repository/model/diff.ts";
-import type {
 	GraphData,
 	GraphSemanticPreferences,
-} from "@repository/model/gitGraph.ts";
-import { fetchJson, postJson, request, sendJson } from "@shared/lib/native.tsx";
+	HunkDiff,
+} from "@contracts";
+import { fetchJson, postJson, request } from "@shared/lib/native.tsx";
 
 export function loadGitStatuses(cwds: readonly string[], signal?: AbortSignal) {
 	return postJson<GitStatusResult[]>("/api/git/statuses", { cwds }, { signal });
@@ -32,12 +31,13 @@ export async function commitGitChanges(
 	cwd: string,
 	message: string,
 ): Promise<boolean> {
-	const response = await sendJson(
+	const response = await postJson<{ success?: boolean }>(
 		"/api/git/commit",
 		{ cwd, message },
 		{ signal: AbortSignal.timeout(35_000) },
+		{ server: true },
 	);
-	return ((await response.json()) as { success?: boolean }).success === true;
+	return response.success === true;
 }
 
 export function checkoutGitBranch(cwd: string, branch: string) {
@@ -48,7 +48,12 @@ export function checkoutGitBranch(cwd: string, branch: string) {
 }
 
 export function runGitOperation(cwd: string, endpoint: string, input: object) {
-	return postJson<GitActionResponse>(`/api/git/${endpoint}`, { cwd, ...input });
+	return postJson<GitActionResponse>(
+		`/api/git/${endpoint}`,
+		{ cwd, ...input },
+		undefined,
+		{ server: true },
+	);
 }
 
 export async function generateCommitMessage(cwd: string) {
@@ -166,6 +171,7 @@ export async function loadGitDiff(
 		{ signal },
 		{
 			message: (status) => `Diff request failed (HTTP ${status})`,
+			server: true,
 		},
 	);
 }
@@ -214,7 +220,7 @@ export async function loadGitCommitDetails(
 	const result = await fetchJson<{ details?: GitCommitDetails }>(
 		`/api/git/commit-details?${new URLSearchParams({ cwd, hash, ...(parent ? { parent } : {}) })}`,
 		{ signal },
-		{ message: "Failed to fetch commit details" },
+		{ message: "Failed to fetch commit details", server: true },
 	);
 	return result.details ?? null;
 }
@@ -227,7 +233,7 @@ export async function loadGitComparisonDetails(
 	signal?: AbortSignal,
 ): Promise<{
 	details: GitComparisonDetails | null;
-	plan: import("@contracts").ComparisonPlan | null;
+	plan: ComparisonPlan | null;
 } | null> {
 	if (!cwd || (!selectionKey && (!fromHash || !toHash || fromHash === toHash)))
 		return null;
@@ -241,6 +247,6 @@ export async function loadGitComparisonDetails(
 					body: `{"selection":${selectionKey}}`,
 				}
 			: { signal },
-		{ message: "Failed to compare commits" },
+		{ message: "Failed to compare commits", server: true },
 	);
 }

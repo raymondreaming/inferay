@@ -1,8 +1,8 @@
+import type { DiffViewMode } from "@contracts";
 import { iconSize } from "@design-system/styles.stylex.ts";
 import { IconGitBranch, IconLayoutGrid } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { DiffViewButton } from "./DiffViewButton.tsx";
-import type { DiffViewMode } from "./model.ts";
 import { diffStyles } from "./styles.ts";
 export function DiffViewToolbar(_props: {
 	viewMode: DiffViewMode;

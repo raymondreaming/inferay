@@ -1,5 +1,4 @@
-import { project } from "@shared/lib/native.tsx";
-import { traceUi } from "@shared/lib/uiPerformance.ts";
+import { traceUi } from "@shared/lib/native.tsx";
 import { configureWorkspacePanels } from "@workspace/hooks/useWorkspacePanelSession.tsx";
 import { configureWorkspaceState } from "@workspace/hooks/useWorkspaceState.tsx";
 import {
@@ -12,20 +11,12 @@ import {
 /** Choose the native persistence and projection implementations before rendering. */
 export function configureNativeWorkspace() {
 	configureGitOperations(runGitOperation);
-	configureWorkspacePanels(saveWorkspacePanel, (session, action, now) =>
-		project("panelPreview", { session, action, now }),
-	);
+	configureWorkspacePanels(saveWorkspacePanel);
 	configureWorkspaceState(
 		{
 			initialize: initializeWorkspaceState,
 			load: loadWorkspaceState,
 			save: saveWorkspaceAction,
-		},
-		{
-			select: (state, groupId, paneId) =>
-				project("workspaceSelection", { state, groupId, paneId }),
-			forRepository: (state, cwd) =>
-				project("repositorySelection", { state, cwd }),
 		},
 		() => traceUi("selection-published"),
 	);

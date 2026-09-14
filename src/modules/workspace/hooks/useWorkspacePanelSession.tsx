@@ -11,21 +11,15 @@ import {
 import { useMutation } from "@tanstack/solid-query";
 import {
 	createWorkspacePanelModel,
-	type PanelProjection,
 	panelSessionQuery,
 	type WorkspacePanelPort,
 } from "@workspace/services/workspacePanels.ts";
 
-let panelDependencies:
-	| { send: WorkspacePanelPort; preview: PanelProjection }
-	| undefined;
-export function configureWorkspacePanels(
-	send: WorkspacePanelPort,
-	preview: PanelProjection,
-) {
+let panelDependencies: { send: WorkspacePanelPort } | undefined;
+export function configureWorkspacePanels(send: WorkspacePanelPort) {
 	if (panelDependencies)
 		throw new Error("Workspace panels are already configured");
-	panelDependencies = { send, preview };
+	panelDependencies = { send };
 }
 function dependencies() {
 	if (!panelDependencies)
@@ -40,6 +34,7 @@ import {
 	type Accessor,
 	createMemo,
 	createSignal,
+	onCleanup,
 	onSettled,
 	untrack,
 } from "solid-js";
@@ -63,21 +58,18 @@ export function usePanelVisibility() {
 }
 export function useWorkspacePanelSession(_workspaceId: Accessor<string>) {
 	const visibility = usePanelVisibility();
-	const model = createMemo(() => {
-		const { send, preview } = dependencies();
-		return createWorkspacePanelModel(
-			queryClient,
-			send,
-			preview,
-			emptyPanelSession,
-		);
-	});
+	const model = createWorkspacePanelModel(
+		queryClient,
+		dependencies().send,
+		emptyPanelSession,
+	);
+	onCleanup(() => model.dispose());
 	const query = useQuery(
-		() => model().queryOptions(_workspaceId()),
+		() => model.queryOptions(_workspaceId()),
 		() => queryClient,
 	);
 	const mutation = useMutation(
-		() => model().mutationOptions(_workspaceId()),
+		() => model.mutationOptions(_workspaceId()),
 		() => queryClient,
 	);
 	const mutate = createMemo(() => mutation.mutate);
@@ -118,7 +110,7 @@ export function useWorkspacePanelSession(_workspaceId: Accessor<string>) {
 					...loadPanelVisibility(),
 					graphVisible: true,
 				});
-			mutate()(model().preview(_workspaceId(), action));
+			mutate()(model.preview(_workspaceId(), action));
 		});
 	const error = createMemo(() =>
 		query.error

@@ -134,15 +134,13 @@ export function WorkspaceSidebar() {
 					}
 				: current;
 		});
-		await mutateAgentWorkspaceState((state) =>
-			state.selectedGroupId
-				? {
-						type: "setGridDimensions",
-						groupId: state.selectedGroupId,
-						...patch,
-					}
-				: null,
-		);
+		const groupId = workspaces().selectedGroupId;
+		if (groupId)
+			await mutateAgentWorkspaceState({
+				type: "setGridDimensions",
+				groupId,
+				...patch,
+			});
 	};
 	const updateInfo = createMemo(() => _source.data.update);
 	const updateAvailable = createMemo(() => {

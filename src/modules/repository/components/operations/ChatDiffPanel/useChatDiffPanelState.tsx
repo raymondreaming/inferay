@@ -1,6 +1,9 @@
-import type { GitActionResponse } from "@contracts";
+import type {
+	DiffViewMode,
+	GitActionResponse,
+	GitRefOperationRequest,
+} from "@contracts";
 import type { SelectedFile } from "@repository/components/changes/components/ChangesPanel/index.tsx";
-import type { DiffViewMode } from "@repository/components/diff/components/DiffViewer/index.tsx";
 import type {
 	GitGraphActionRequest,
 	GraphSelectionIntent,
@@ -8,7 +11,6 @@ import type {
 import type { GraphPreferences } from "@repository/components/graph/components/CommitGraph/useCommitGraphState.tsx";
 import type { useGitDiff } from "@repository/hooks/useGitDiff.tsx";
 import type { useGitGraph } from "@repository/hooks/useGitGraph.tsx";
-import type { GitRefOperationRequest } from "@repository/model/operations.ts";
 import { preflightGitRefOperation } from "@repository/services/gitApi.ts";
 import { useBackgroundQuery as useQuery } from "@shared/hooks/useQueryResource.tsx";
 import { queryClient } from "@shared/lib/dom.tsx";

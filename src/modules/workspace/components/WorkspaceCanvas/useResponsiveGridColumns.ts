@@ -1,5 +1,5 @@
+import { project } from "@shared/lib/native.tsx";
 import { type Accessor, createEffect } from "solid-js";
-import { MIN_RESPONSIVE_PANE_WIDTH } from "./dockGeometry.ts";
 
 /** Keeps a grid within the number of pane columns its container can display. */
 export function useResponsiveGridColumns(
@@ -15,14 +15,10 @@ export function useResponsiveGridColumns(
 			if (!element || !grid) return;
 			const update = (width: number) => {
 				if (width <= 0) return;
-				const next = Math.max(
-					1,
-					Math.min(
-						4,
-						configuredColumns,
-						Math.floor(width / MIN_RESPONSIVE_PANE_WIDTH),
-					),
-				);
+				const next = project<number>("responsiveDockColumns", {
+					width,
+					columns: configuredColumns,
+				});
 				setAvailableColumns((current) => (current === next ? current : next));
 			};
 			update(element.getBoundingClientRect().width);

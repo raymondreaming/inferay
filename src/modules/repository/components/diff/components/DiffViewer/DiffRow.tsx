@@ -1,16 +1,16 @@
 import type { GitDiffLine } from "@contracts";
+import type { SyntaxToken } from "@shared/hooks/useSyntaxHighlight.tsx";
 import { type CSSProperties, domStyle } from "@shared/lib/dom.tsx";
-import type { SyntaxToken } from "@shared/model/syntax.ts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, For } from "solid-js";
 import { DiffGutterCells } from "./DiffGutterCells.tsx";
-import { MAX_RENDERED_LINE_CHARS } from "./model.ts";
 import * as inlineStyles from "./styles.ts";
 import { DIFF_CONFIG, diffStyles, LINE_H } from "./styles.ts";
 
 type DiffRowStyle = CSSProperties & {
 	"--hover-bg"?: string;
 };
+const MAX_RENDERED_LINE_CHARS = 4000;
 function getDiffRowBg(line: GitDiffLine, isHighlighted?: boolean) {
 	const isAdd = line.type === "add";
 	const isRemove = line.type === "remove";

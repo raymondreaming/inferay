@@ -1,6 +1,15 @@
-import type { HunkDiff } from "@contracts";
-import { buildDiffViewerModel } from "@repository/services/diffPresentation.ts";
-import { assignRef, listenWindowEvent } from "@shared/lib/dom.tsx";
+import type {
+	DiffNavigation,
+	DiffNavigationAction,
+	DiffViewMode,
+	HunkDiff,
+} from "@contracts";
+import {
+	assignRef,
+	listenWindowEvent,
+	type RefCell,
+} from "@shared/lib/dom.tsx";
+import { project } from "@shared/lib/native.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
 	createEffect,
@@ -16,16 +25,7 @@ import { BinaryPreview } from "./BinaryPreview.tsx";
 import { DiffHeader } from "./DiffHeader.tsx";
 import { DiffPanels } from "./DiffPanels.tsx";
 import { DiffViewToolbar } from "./DiffViewToolbar.tsx";
-import {
-	type DiffNavigationState,
-	type DiffViewMode,
-	diffNavigationReducer,
-	INITIAL_DIFF_NAVIGATION_STATE,
-} from "./model.ts";
 import { diffStyles, LINE_H } from "./styles.ts";
-
-export type { DiffViewMode };
-export { diffNavigationReducer, INITIAL_DIFF_NAVIGATION_STATE };
 
 export const DiffViewer = function DiffViewer(props: {
 	diff: HunkDiff;
@@ -38,16 +38,8 @@ export const DiffViewer = function DiffViewer(props: {
 	hideToolbar?: boolean;
 	startAtFirstChange?: boolean;
 }) {
-	const containerRef = {
-		current: null,
-	} as {
-		current: HTMLDivElement | null;
-	};
-	const rightRef = {
-		current: null,
-	} as {
-		current: HTMLDivElement | null;
-	};
+	const containerRef: RefCell<HTMLDivElement | null> = { current: null };
+	const rightRef: RefCell<HTMLDivElement | null> = { current: null };
 	const [internalViewMode, setInternalViewMode] =
 		createSignal<DiffViewMode>("split");
 	const viewMode = createMemo(() => props.viewMode ?? internalViewMode());
@@ -57,29 +49,30 @@ export const DiffViewer = function DiffViewer(props: {
 	const diffIdentity = createMemo(
 		() => `${props.filePath}:${props.staged ? "staged" : "unstaged"}`,
 	);
-	const [navigationState, setNavigationState] =
-		createSignal<DiffNavigationState>(() => {
+	const [navigationState, setNavigationState] = createSignal<DiffNavigation>(
+		() => {
 			diffIdentity();
-			return INITIAL_DIFF_NAVIGATION_STATE;
-		});
-	const dispatchNavigation = (
-		action: Parameters<typeof diffNavigationReducer>[1],
-	) => setNavigationState((current) => diffNavigationReducer(current, action));
+			return {};
+		},
+	);
+	const dispatchNavigation = (action: DiffNavigationAction) =>
+		setNavigationState(
+			(state) =>
+				project<DiffNavigation | null>("diffNavigation", { state, action }) ??
+				state,
+		);
 	const _source = navigationState;
 	const stats = createMemo(() => props.diff.metadata.stats);
-	const _source2 = createMemo(() =>
-		buildDiffViewerModel(props.diff, props.filePath, viewMode()),
+	const viewer = createMemo(() => props.diff.viewer);
+	const changeRanges = createMemo(() =>
+		viewMode() === "hunks"
+			? props.diff.metadata.inlineChangeRanges
+			: props.diff.metadata.splitChangeRanges,
 	);
-	const totalChanges = createMemo(() => _source2().changePositions.length);
-	const firstChangeLine = createMemo(() => _source2().changePositions[0]);
-	const initialScrollIdentityRef = {
-		current: null,
-	} as {
-		current: string | null;
-	};
-	const initialScrollFrameRef = {
-		current: 0,
-	};
+	const totalChanges = createMemo(() => changeRanges().length);
+	const firstChangeLine = createMemo(() => changeRanges()[0]?.[0]);
+	let initialScrollIdentity: string | null = null;
+	let initialScrollFrame = 0;
 	let clearScrollTimer: ReturnType<typeof setTimeout> | undefined;
 	let clearHighlightTimer: ReturnType<typeof setTimeout> | undefined;
 	const cancelNavigationTimers = () => {
@@ -96,10 +89,7 @@ export const DiffViewer = function DiffViewer(props: {
 		},
 	);
 	const scrollToChangeIdx = (changeIdx: number) => {
-		const _source2Value = _source2();
-		if (changeIdx < 0 || changeIdx >= _source2Value.changePositions.length)
-			return;
-		const lineIdx = _source2Value.changePositions[changeIdx];
+		const lineIdx = changeRanges()[changeIdx]?.[0];
 		if (lineIdx === undefined) return;
 		cancelNavigationTimers();
 		const scrollPos = Math.max(0, (lineIdx - 5) * LINE_H);
@@ -119,34 +109,14 @@ export const DiffViewer = function DiffViewer(props: {
 			}, 1500);
 		}, 100);
 	};
-	const stepChange = (dir: 1 | -1) => {
-		const _source2Value3 = _source2();
-		if (_source2Value3.changePositions.length === 0) return;
-		const currentScroll = rightRef.current?.scrollTop ?? 0;
+	const stepChange = (direction: 1 | -1) => {
 		// Jumps place the change five rows below the viewport top.
-		const currentLine = Math.round(currentScroll / LINE_H) + 5;
-		const idx =
-			dir === 1
-				? _source2Value3.changePositions.findIndex((pos) => pos > currentLine)
-				: (() => {
-						const _source2Value2 = _source2();
-						for (
-							let i = _source2Value2.changePositions.length - 1;
-							i >= 0;
-							i--
-						) {
-							const p = _source2Value2.changePositions[i];
-							if (p !== undefined && p < currentLine) return i;
-						}
-						return -1;
-					})();
-		scrollToChangeIdx(
-			idx !== -1
-				? idx
-				: dir === 1
-					? 0
-					: _source2Value3.changePositions.length - 1,
-		);
+		const index = project<number | null>("nextDiffChange", {
+			ranges: changeRanges(),
+			line: Math.round((rightRef.current?.scrollTop ?? 0) / LINE_H) + 5,
+			direction,
+		});
+		if (index !== null) scrollToChangeIdx(index);
 	};
 	const goToNextChange = () => stepChange(1);
 	const goToPrevChange = () => stepChange(-1);
@@ -202,21 +172,21 @@ export const DiffViewer = function DiffViewer(props: {
 				viewMode(),
 			] as const,
 		([identity, firstLine, startAtFirstChange, mode]) => {
-			if (initialScrollFrameRef.current) {
-				cancelAnimationFrame(initialScrollFrameRef.current);
-				initialScrollFrameRef.current = 0;
+			if (initialScrollFrame) {
+				cancelAnimationFrame(initialScrollFrame);
+				initialScrollFrame = 0;
 			}
 			if (!startAtFirstChange || mode !== "split") {
-				initialScrollIdentityRef.current = null;
+				initialScrollIdentity = null;
 				return;
 			}
 			if (firstLine === undefined) return;
 			const scrollIdentity = `${identity}:first-change`;
-			if (initialScrollIdentityRef.current === scrollIdentity) return;
+			if (initialScrollIdentity === scrollIdentity) return;
 			const scrollTop = Math.max(0, (firstLine - 5) * LINE_H);
-			initialScrollFrameRef.current = requestAnimationFrame(() => {
-				initialScrollIdentityRef.current = scrollIdentity;
-				initialScrollFrameRef.current = 0;
+			initialScrollFrame = requestAnimationFrame(() => {
+				initialScrollIdentity = scrollIdentity;
+				initialScrollFrame = 0;
 				const scrollers = containerRef.current?.querySelectorAll<HTMLElement>(
 					"[data-diff-scroll-side]",
 				);
@@ -226,9 +196,9 @@ export const DiffViewer = function DiffViewer(props: {
 				}
 			});
 			return () => {
-				if (!initialScrollFrameRef.current) return;
-				cancelAnimationFrame(initialScrollFrameRef.current);
-				initialScrollFrameRef.current = 0;
+				if (!initialScrollFrame) return;
+				cancelAnimationFrame(initialScrollFrame);
+				initialScrollFrame = 0;
 			};
 		},
 	);
@@ -238,26 +208,26 @@ export const DiffViewer = function DiffViewer(props: {
 	const bodyKind = createMemo(() =>
 		props.diff.isBinary
 			? "binary"
-			: !_source2().conflict && _source2().message
+			: !viewer().conflict && viewer().message
 				? "message"
-				: _source2().isMarkdown
+				: viewer().markdown !== null
 					? "markdown"
 					: "panels",
 	);
 	const Panels = () => (
 		<DiffPanels
 			diff={props.diff}
-			mode={_source2().conflict ? "conflict" : viewMode()}
+			mode={viewer().conflict ? "conflict" : viewMode()}
 			scrollRef={rightRef}
-			ext={_source2().extension}
+			ext={viewer().extension}
 			filePath={props.filePath}
 			disableTokenize={disableTokenize()}
-			externalScrollTop={_source().externalScrollTop}
-			externalScrollSource={_source().externalScrollSource}
+			externalScrollTop={_source().scroll?.top}
+			externalScrollSource={_source().scroll?.source}
 			highlightedRange={
-				_source().highlightedChangeIdx === undefined
+				_source().highlight === undefined
 					? undefined
-					: _source2().changeRanges[_source().highlightedChangeIdx!]
+					: changeRanges()[_source().highlight!]
 			}
 		/>
 	);
@@ -265,7 +235,7 @@ export const DiffViewer = function DiffViewer(props: {
 		<Switch
 			fallback={
 				<Show
-					when={_source2().conflict}
+					when={viewer().conflict}
 					fallback={
 						<>
 							<Show when={!props.hideToolbar}>
@@ -289,15 +259,13 @@ export const DiffViewer = function DiffViewer(props: {
 			</Match>
 			<Match when={bodyKind() === "message"}>
 				<div {...stylex.attrs(diffStyles.centerBody)}>
-					<p {...stylex.attrs(diffStyles.centerMessage)}>
-						{_source2().message}
-					</p>
+					<p {...stylex.attrs(diffStyles.centerMessage)}>{viewer().message}</p>
 				</div>
 			</Match>
 			<Match when={bodyKind() === "markdown"}>
 				<div {...stylex.attrs(diffStyles.markdownBody)}>
 					<div {...stylex.attrs(diffStyles.markdownInner)}>
-						<MarkdownPreview content={_source2().markdownContent} />
+						<MarkdownPreview content={viewer().markdown!} />
 					</div>
 				</div>
 			</Match>
@@ -318,7 +286,7 @@ export const DiffViewer = function DiffViewer(props: {
 			}}
 			{...stylex.attrs(
 				diffStyles.shell,
-				_source2().navigable && diffStyles.shellRelative,
+				viewer().navigable && diffStyles.shellRelative,
 			)}
 		>
 			{!(props.hideHeader === undefined ? false : props.hideHeader) && (
@@ -326,7 +294,7 @@ export const DiffViewer = function DiffViewer(props: {
 					filePath={props.filePath}
 					staged={props.staged}
 					onClose={props.onClose}
-					{...(_source2().navigable
+					{...(viewer().navigable
 						? {
 								stats: stats(),
 								totalChanges: totalChanges(),

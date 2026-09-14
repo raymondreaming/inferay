@@ -1,12 +1,10 @@
-import type { HunkDiff } from "@contracts";
-import type { DiffRequest } from "@repository/model/diff.ts";
+import type { DiffRequest, HunkDiff } from "@contracts";
 import { loadGitDiff } from "@repository/services/gitApi.ts";
 import { useBackgroundQuery as useQuery } from "@shared/hooks/useQueryResource.tsx";
 import { prefetchSyntaxPreview } from "@shared/hooks/useSyntaxHighlight.tsx";
 import { queryClient } from "@shared/lib/dom.tsx";
 import { type Accessor, createMemo, onSettled } from "solid-js";
 
-export type { DiffRequest } from "@repository/model/diff.ts";
 export function useGitDiff(
 	_request: Accessor<DiffRequest | null> = () => null,
 ) {

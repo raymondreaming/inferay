@@ -3,12 +3,9 @@ import type {
 	GitCommitDetails,
 	GitComparisonDetails,
 	GitGraphItemKind,
+	GraphData,
+	GraphSemanticPreferences,
 } from "@contracts";
-import {
-	DEFAULT_GIT_GRAPH_HISTORY_LIMIT,
-	type GraphData,
-	type GraphSemanticPreferences,
-} from "@repository/model/gitGraph.ts";
 import {
 	loadGitCommitDetails,
 	loadGitComparisonDetails,
@@ -27,11 +24,10 @@ import {
 	untrack,
 } from "solid-js";
 
-export type {
-	GraphData,
-	GraphSemanticPreferences,
-} from "@repository/model/gitGraph.ts";
-
+export const DEFAULT_GIT_GRAPH_HISTORY_LIMIT = project<number>(
+	"nextHistoryLimit",
+	0,
+);
 const EMPTY_GRAPH = project<GraphData>("emptyGitGraph", null);
 export function useGitGraph(
 	_cwd: Accessor<string | undefined>,
@@ -57,15 +53,14 @@ export function useGitGraph(
 			cwd: _cwd(),
 			query,
 		});
-	const readGraph = createMemo(createGitGraphReader);
+	const readGraph = createGitGraphReader();
 	const _source3 = usePollingQuery<GraphData>(
 		() => {
-			const read = readGraph();
 			const cwd = _cwd(),
 				limit = _limit(),
 				search = searchQuery();
 			const preferences = { ..._preferences() };
-			return (signal) => read(cwd, limit, search, preferences, signal);
+			return (signal) => readGraph(cwd, limit, search, preferences, signal);
 		},
 		() => 3000,
 		() => EMPTY_GRAPH,

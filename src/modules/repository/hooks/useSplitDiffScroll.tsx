@@ -1,8 +1,7 @@
-import type { DiffScrollSource } from "@repository/model/diff.ts";
+import type { DiffScrollSource } from "@contracts";
 import type { RefCell } from "@shared/lib/dom.tsx";
 import type { Accessor } from "solid-js";
 
-export type { DiffScrollSource };
 export function useSplitDiffScroll(
 	masterRef: Accessor<RefCell<HTMLDivElement | null>>,
 	_lineHeight: Accessor<number>,

@@ -1,4 +1,5 @@
-import type { DockTree } from "@contracts";
+import type { DockLayout, DockRequest, DockTree } from "@contracts";
+import { DockSession } from "@shared/lib/native.tsx";
 import { saveWorkspaceDock } from "@workspace/services/workspaceApi.ts";
 import {
 	type Accessor,
@@ -8,45 +9,46 @@ import {
 	onSettled,
 	untrack,
 } from "solid-js";
-import {
-	type DockLayout,
-	previewDockLayout,
-	rememberDockLayout,
-} from "./dockLayoutCache.ts";
-
-type DockInput = Parameters<typeof previewDockLayout>[0];
+import { beginDockLayout } from "./dockLayoutCache.ts";
 
 /** Persists dock layouts sequentially while exposing the latest rendered tree. */
 export function useDockLayout(
-	input: Accessor<DockInput>,
+	input: Accessor<DockRequest>,
 	active: Accessor<boolean>,
 ) {
-	const [layout, setLayout] = createSignal<DockLayout>(() =>
-		previewDockLayout(input()),
-	);
+	const model = new DockSession();
+	const initial = beginDockLayout(model, untrack(input))!;
+	const [layout, setLayout] = createSignal<DockLayout>(initial.layout!);
 	const tree = createMemo(() => layout().tree);
 	const [error, setError] = createSignal<string | null>(null);
-	const revision = { current: 0 };
 	const requests = { current: Promise.resolve() };
-	let lastRequested: string | null = null;
-	const update = (action?: object, target = input()) => {
-		const requestRevision = ++revision.current;
+	const update = (
+		action?: Record<string, unknown>,
+		target = input(),
+		deduplicate = false,
+	) => {
 		const request = { ...target, action };
-		if (!action) setLayout(previewDockLayout(request));
+		const pending = beginDockLayout(model, request, deduplicate);
+		if (!pending) return Promise.resolve(true);
+		if (pending.layout) setLayout(pending.layout);
 		const result = requests.current.then(async () => {
 			try {
 				const saved = await saveWorkspaceDock<DockLayout>(request);
-				rememberDockLayout(request.workspaceId, saved);
-				if (requestRevision === revision.current) {
-					setLayout(saved);
+				const accepted: DockLayout | null = JSON.parse(
+					model.accept(
+						pending.revision,
+						request.workspaceId,
+						JSON.stringify(saved),
+					),
+				);
+				if (accepted?.canvas && "tree" in accepted) {
+					setLayout(accepted);
 					setError(null);
 				}
 				return true;
 			} catch {
-				if (requestRevision === revision.current) {
-					lastRequested = null;
+				if (model.fail(pending.revision))
 					setError("Could not save pane layout. Please retry.");
-				}
 				return false;
 			}
 		});
@@ -54,15 +56,14 @@ export function useDockLayout(
 		return result;
 	};
 	createEffect(
-		() => (active() ? JSON.stringify(input()) : null),
-		(key) => {
-			if (!key || key === lastRequested) return;
-			lastRequested = key;
-			void update(undefined, JSON.parse(key) as DockInput);
+		() => (active() ? input() : null),
+		(target) => {
+			if (target) void update(undefined, target, true);
 		},
 	);
 	onSettled(() => () => {
-		revision.current++;
+		model.dispose();
+		void requests.current.then(() => model.free());
 	});
 	const treeRef = { current: untrack(tree) } as { current: DockTree | null };
 	createEffect(tree, (next) => {

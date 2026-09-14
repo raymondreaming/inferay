@@ -1,14 +1,13 @@
 import type {
+	AgentWorkspaceAction,
 	Group,
 	RepositoryWorkspaceIndex,
 	WorkspaceAgentKind,
+	WorkspaceSnapshot,
 } from "@contracts";
-import type { WorkspaceSnapshot } from "@workspace/model/workspace.ts";
 import {
 	createWorkspaceSession,
-	type WorkspaceMutation,
 	type WorkspacePersistencePort,
-	type WorkspaceSelectionPort,
 	type WorkspaceSession,
 } from "@workspace/services/workspaceSession.ts";
 import {
@@ -33,14 +32,12 @@ const [published, setPublished] = createStore<WorkspaceSnapshot>({
 let configuredSession: WorkspaceSession | undefined;
 export function configureWorkspaceState(
 	port: WorkspacePersistencePort,
-	selection: WorkspaceSelectionPort,
 	onSelection?: () => void,
 ) {
 	if (configuredSession)
 		throw new Error("Workspace state is already configured");
 	configuredSession = createWorkspaceSession(
 		port,
-		selection,
 		(next) =>
 			setPublished(
 				reconcile(next, (item) => item.id ?? item.cwd ?? item.pane?.id),
@@ -55,7 +52,7 @@ function workspaceSession(): WorkspaceSession {
 }
 export const initializeAgentState = () => workspaceSession().initialize();
 export const loadCanonicalAgentState = () => workspaceSession().load();
-export const mutateAgentWorkspaceState = (action: WorkspaceMutation) =>
+export const mutateAgentWorkspaceState = (action: AgentWorkspaceAction) =>
 	workspaceSession().mutate(action);
 export const changePaneAgentKind = (
 	paneId: string,

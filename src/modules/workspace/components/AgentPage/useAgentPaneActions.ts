@@ -1,4 +1,4 @@
-import type { WorkspaceAgentKind } from "@contracts";
+import type { AgentWorkspaceAction, WorkspaceAgentKind } from "@contracts";
 import type { AgentChatHandle } from "@conversation/components/AgentChatView/index.tsx";
 import {
 	hasId,
@@ -6,7 +6,6 @@ import {
 	REMOVE_AGENT_PANE_REQUEST_EVENT,
 	type RemoveAgentPaneRequestDetail,
 } from "@shared/lib/dom.tsx";
-import type { AgentGroupsAction } from "@workspace/model/workspace.ts";
 import { type Accessor, createEffect, createMemo, merge } from "solid-js";
 import type { AgentPaneActionsArgs } from "./types.ts";
 
@@ -38,7 +37,7 @@ export function useAgentPaneActions(options: Accessor<AgentPaneActionsArgs>) {
 	const actions = createMemo(() => {
 		const current = options();
 		const groupId = current.selectedGroupId ?? "";
-		const send = (action: AgentGroupsAction) => {
+		const send = (action: AgentWorkspaceAction) => {
 			if (current.selectedGroupId) current.dispatchAgentGroupAction(action);
 		};
 		return {
@@ -66,9 +65,7 @@ export function useAgentPaneActions(options: Accessor<AgentPaneActionsArgs>) {
 	});
 	const handleChatRef = (id: string, handle: AgentChatHandle | null) => {
 		const current = options();
-		handle
-			? current.chatRefs.current?.set(id, handle)
-			: current.chatRefs.current?.delete(id);
+		handle ? current.chatRefs.set(id, handle) : current.chatRefs.delete(id);
 	};
 	return merge(() => actions(), { handleChatRef, removePane });
 }

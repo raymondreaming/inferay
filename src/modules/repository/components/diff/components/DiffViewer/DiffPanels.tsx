@@ -1,10 +1,8 @@
-import type { HunkDiff } from "@contracts";
+import type { DiffScrollSource, DiffViewMode, HunkDiff } from "@contracts";
 import { useSplitDiffScroll } from "@repository/hooks/useSplitDiffScroll.tsx";
-import type { DiffScrollSource } from "@repository/model/diff.ts";
 import type { RefCell } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, omit, Show } from "solid-js";
-import type { DiffViewMode } from "./model.ts";
 import { diffStyles, LINE_H } from "./styles.ts";
 import { VirtualPanel } from "./VirtualPanel.tsx";
 export const DiffPanels = function DiffPanels(_props: {

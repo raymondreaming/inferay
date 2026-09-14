@@ -1,3 +1,4 @@
+import type { AgentWorkspaceAction, WorkspaceView } from "@contracts";
 import { chatSessionCache } from "@conversation/components/AgentChatView/chatSessionCache.ts";
 import type { AgentChatHandle } from "@conversation/components/AgentChatView/index.tsx";
 import {
@@ -7,7 +8,6 @@ import {
 import {
 	FOCUS_AGENT_CHAT_COMPOSER_EVENT,
 	type FocusAgentChatComposerDetail,
-	hasId,
 	listenWindowEvent,
 } from "@shared/lib/dom.tsx";
 import {
@@ -16,13 +16,13 @@ import {
 	clearAgentChatPaneState,
 	listenAgentLayoutMode,
 	loadAgentLayoutMode,
+	project,
 	wsClient,
 } from "@shared/lib/native.tsx";
 import {
 	mutateAgentWorkspaceState,
 	useWorkspaceState,
 } from "@workspace/hooks/useWorkspaceState.tsx";
-import type { AgentGroupsAction } from "@workspace/model/workspace.ts";
 import {
 	createEffect,
 	createMemo,
@@ -31,12 +31,6 @@ import {
 	onSettled,
 } from "solid-js";
 import { RepositorySurface } from "./RepositorySurface.tsx";
-import {
-	retainWorkspaceViews,
-	type WorkspaceView,
-	workspaceViewKey,
-	workspaceViews,
-} from "./retainedWorkspaces.ts";
 import { useAgentPaneActions } from "./useAgentPaneActions.ts";
 export function AgentPage() {
 	const [layoutMode, setLayoutMode] = createSignal(loadAgentLayoutMode);
@@ -47,7 +41,6 @@ export function AgentPage() {
 		() => false,
 		() => false,
 	);
-	const _source = createMemo(() => workspace());
 	createEffect(
 		() =>
 			workspace().groups.flatMap((group) => group.panes.map((pane) => pane.id)),
@@ -65,26 +58,17 @@ export function AgentPage() {
 			setThemeId(loadAppThemeId());
 		});
 	});
-	const chatRefs = {
-		current: null,
-	} as {
-		current: Map<string, AgentChatHandle> | null;
-	};
-	if (chatRefs.current === null) {
-		chatRefs.current = new Map();
-	}
-	const composerFocusFrameRef = {
-		current: 0,
-	};
+	const chatRefs = new Map<string, AgentChatHandle>();
+	let composerFocusFrame = 0;
 	const focusChatComposer = (paneId: string) => {
-		if (composerFocusFrameRef.current) {
-			cancelAnimationFrame(composerFocusFrameRef.current);
+		if (composerFocusFrame) {
+			cancelAnimationFrame(composerFocusFrame);
 		}
 		let attempts = 0;
 		const focusComposer = () => {
-			const handle = chatRefs.current?.get(paneId);
+			const handle = chatRefs.get(paneId);
 			if (handle) {
-				composerFocusFrameRef.current = 0;
+				composerFocusFrame = 0;
 				const activeElement = document.activeElement;
 				const activePaneId =
 					activeElement instanceof Element
@@ -105,12 +89,12 @@ export function AgentPage() {
 			}
 			attempts += 1;
 			if (attempts < 12) {
-				composerFocusFrameRef.current = requestAnimationFrame(focusComposer);
+				composerFocusFrame = requestAnimationFrame(focusComposer);
 			} else {
-				composerFocusFrameRef.current = 0;
+				composerFocusFrame = 0;
 			}
 		};
-		composerFocusFrameRef.current = requestAnimationFrame(focusComposer);
+		composerFocusFrame = requestAnimationFrame(focusComposer);
 	};
 	createEffect(
 		() => [focusChatComposer],
@@ -126,41 +110,36 @@ export function AgentPage() {
 			);
 			return () => {
 				stopListening();
-				if (composerFocusFrameRef.current) {
-					cancelAnimationFrame(composerFocusFrameRef.current);
+				if (composerFocusFrame) {
+					cancelAnimationFrame(composerFocusFrame);
 				}
 			};
 		},
 	);
 	const theme = createMemo(() => getThemeById(themeId()));
-	const currentGroup = createMemo(() => {
-		const _sourceValue = _source();
-		return _sourceValue.groups.find(
-			hasId.bind(null, _sourceValue.selectedGroupId),
-		);
-	});
 	const activeViewKey = createMemo(() =>
-		workspaceViewKey(
-			currentGroup()?.id ?? "",
+		JSON.stringify([
+			workspace().selectedGroupId ?? "",
 			workspace().repositories.activePath,
-		),
+		]),
 	);
 	const retainedViews = createMemo<WorkspaceView[]>((previous) =>
-		retainWorkspaceViews(
-			previous ?? [],
-			workspaceViews(workspace().groups, workspace().repositories),
-			activeViewKey(),
-		),
+		project("retainedWorkspaces", {
+			groups: workspace().groups,
+			repositories: workspace().repositories,
+			previous: previous?.map((view) => view.key) ?? [],
+			activeKey: activeViewKey(),
+		}),
 	);
 	const cleanupPane = (paneId: string) => {
 		wsClient.send({
 			type: "chat:destroy",
 			paneId,
 		});
-		chatRefs.current?.delete(paneId);
+		chatRefs.delete(paneId);
 		clearAgentChatPaneState(paneId);
 	};
-	const dispatchAgentGroupAction = (action: AgentGroupsAction) => {
+	const dispatchAgentGroupAction = (action: AgentWorkspaceAction) => {
 		if (action.type === "reorderPanes") {
 			setWorkspace((current) => ({
 				...current,
@@ -179,7 +158,7 @@ export function AgentPage() {
 		void mutateAgentWorkspaceState(action);
 	};
 	const _source2 = useAgentPaneActions(() => {
-		const _sourceValue2 = _source();
+		const _sourceValue2 = workspace();
 		return {
 			chatRefs,
 			cleanupPane,
@@ -195,6 +174,7 @@ export function AgentPage() {
 				{(view) => (
 					<RepositorySurface
 						view={view()}
+						group={workspace().groups[view().groupIndex]!}
 						active={view().key === activeViewKey()}
 						layoutMode={layoutMode()}
 						theme={theme()}

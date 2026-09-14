@@ -1,71 +1,68 @@
-import type { RepositoryWorkspace } from "@contracts";
+import type {
+	RepositoryTabDrag,
+	RepositoryTabsSnapshot,
+	RepositoryWorkspace,
+} from "@contracts";
+import { RepositoryTabs } from "@shared/lib/native.tsx";
 import { type Accessor, createMemo, createSignal, onCleanup } from "solid-js";
+
+type Move = { sequence: number; cwd: string; before: string | null };
 
 export function useRepositoryTabDrag(
 	workspaces: Accessor<RepositoryWorkspace[]>,
 	persist: (cwd: string, beforeCwd: string | null) => Promise<unknown>,
 ) {
-	const [pendingOrder, setPendingOrder] = createSignal<string[] | null>(null);
-	const [dragging, setDragging] = createSignal<string | null>(null);
-	const [target, setTarget] = createSignal<{ before: string | null } | null>(
-		null,
+	const model = new RepositoryTabs();
+	const [state, setState] = createSignal<RepositoryTabsSnapshot>(
+		JSON.parse(model.snapshot()),
 	);
-	const [error, setError] = createSignal("");
 	const ordered = createMemo(() => {
 		const rows = workspaces();
-		const order = pendingOrder();
-		if (!order) return rows;
-		const ranks = new Map(order.map((cwd, index) => [cwd, index]));
-		return [...rows].sort(
-			(a, b) =>
-				(ranks.get(a.cwd) ?? order.length) - (ranks.get(b.cwd) ?? order.length),
-		);
+		void state();
+		return (
+			JSON.parse(
+				model.order(JSON.stringify(rows.map((row) => row.cwd))),
+			) as number[]
+		).map((index) => rows[index]!);
 	});
 	let container: HTMLDivElement | undefined;
 	let cancel: (() => void) | undefined;
-	let suppressClick = false;
 	let disposed = false;
-	let request = 0;
 	onCleanup(() => {
 		disposed = true;
 		cancel?.();
+		model.free();
 	});
-	const move = (cwd: string, before: string | null) => {
-		const current = ordered().map((row) => row.cwd);
-		if (!current.includes(cwd) || before === cwd) return;
-		const next = current.filter((path) => path !== cwd);
-		const index = before === null ? next.length : next.indexOf(before);
-		if (index < 0) return;
-		next.splice(index, 0, cwd);
-		if (next.every((path, i) => path === current[i])) return;
-		const id = ++request;
-		setPendingOrder(next);
-		setError("");
-		void persist(cwd, before)
+	const sync = () =>
+		setState(JSON.parse(model.snapshot()) as RepositoryTabsSnapshot);
+	const persistMove = (serialized: string) => {
+		const next = JSON.parse(serialized) as Move | null;
+		sync();
+		if (!next) return;
+		void persist(next.cwd, next.before)
 			.then((saved) => {
-				if (!disposed && id === request && !saved)
-					setError("Tab order could not be saved. Please try again.");
+				if (!disposed) {
+					model.settle(next.sequence, Boolean(saved));
+					sync();
+				}
 			})
 			.catch(() => {
-				if (!disposed && id === request)
-					setError("Tab order could not be saved. Please try again.");
-			})
-			.finally(() => {
-				if (!disposed && id === request) setPendingOrder(null);
+				if (!disposed) {
+					model.settle(next.sequence, false);
+					sync();
+				}
 			});
 	};
 	return {
 		ordered,
-		dragging,
-		target,
-		error,
+		dragging: () => state().dragging,
+		target: () => state().target,
+		error: () => state().error,
 		setContainer: (element: HTMLDivElement) => {
 			container = element;
 		},
 		consumeClick: (event: MouseEvent) => {
-			const suppressed = suppressClick && event.detail !== 0;
-			suppressClick = false;
-			return suppressed;
+			return model.consume_click(event.detail);
 		},
 		onKeyDown: (event: KeyboardEvent, cwd: string) => {
 			if (!event.altKey || !event.shiftKey) return;
@@ -74,62 +71,57 @@ export function useRepositoryTabDrag(
 			if (!direction) return;
 			event.preventDefault();
 			cancel?.();
-			const rows = ordered();
-			const from = rows.findIndex((row) => row.cwd === cwd);
-			const to = from + direction;
-			if (from < 0 || to < 0 || to >= rows.length) return;
-			move(cwd, rows[direction < 0 ? to : to + 1]?.cwd ?? null);
+			persistMove(
+				model.keyboard(
+					JSON.stringify(ordered().map((row) => row.cwd)),
+					cwd,
+					direction,
+				),
+			);
 		},
 		onPointerDown: (event: PointerEvent, cwd: string) => {
 			if (event.button !== 0 || !event.isPrimary || !container) return;
 			cancel?.();
-			suppressClick = false;
 			const tabs = container;
 			const pointerId = event.pointerId;
-			const startX = event.clientX;
-			const startY = event.clientY;
-			let x = startX;
-			let y = startY;
-			let active = false;
-			let before: string | null = null;
-			let valid = false;
+			model.begin(cwd, event.clientX, event.clientY);
+			let x = event.clientX;
+			let y = event.clientY;
 			let frame = 0;
 			let lastTime = 0;
-			const update = () => {
-				const bounds = tabs.getBoundingClientRect();
-				valid =
-					x >= bounds.left - 24 &&
-					x <= bounds.right + 24 &&
-					y >= bounds.top - 24 &&
-					y <= bounds.bottom + 24;
-				const others = Array.from(
-					tabs.querySelectorAll<HTMLButtonElement>("[data-repository-tab]"),
-				).filter((tab) => tab.dataset.repositoryTab !== cwd);
-				before =
-					others.find((tab) => {
-						const rect = tab.getBoundingClientRect();
-						return x < rect.left + rect.width / 2;
-					})?.dataset.repositoryTab ?? null;
-				setTarget(valid ? { before } : null);
+			const update = (elapsed = 0) => {
+				const hit = JSON.parse(
+					model.hit(
+						JSON.stringify({
+							rect: tabs.getBoundingClientRect(),
+							x,
+							y,
+							cwd,
+							elapsed,
+							tabs: [
+								...tabs.querySelectorAll<HTMLButtonElement>(
+									"[data-repository-tab]",
+								),
+							].map((tab) => {
+								const rect = tab.getBoundingClientRect();
+								return {
+									cwd: tab.dataset.repositoryTab,
+									left: rect.left,
+									width: rect.width,
+								};
+							}),
+						}),
+					),
+				) as RepositoryTabDrag;
+				tabs.scrollLeft += hit.scroll;
+				sync();
 			};
 			const scroll = (time: number) => {
-				const elapsed = lastTime ? Math.min(time - lastTime, 32) : 16;
+				update(lastTime ? Math.min(time - lastTime, 32) : 16);
 				lastTime = time;
-				const rect = tabs.getBoundingClientRect();
-				const edge = Math.min(40, rect.width / 3);
-				if (valid && edge > 0) {
-					const speed =
-						x < rect.left + edge
-							? -Math.min(1, (rect.left + edge - x) / edge)
-							: x > rect.right - edge
-								? Math.min(1, (x - rect.right + edge) / edge)
-								: 0;
-					tabs.scrollLeft += speed * elapsed * 0.6;
-				}
-				update();
 				frame = requestAnimationFrame(scroll);
 			};
-			const cleanup = () => {
+			const detach = () => {
 				cancelAnimationFrame(frame);
 				window.removeEventListener("pointermove", pointerMove);
 				window.removeEventListener("pointerup", pointerUp);
@@ -137,21 +129,23 @@ export function useRepositoryTabDrag(
 				window.removeEventListener("keydown", onEscape);
 				window.removeEventListener("blur", cleanup);
 				cancel = undefined;
+			};
+			const cleanup = () => {
+				detach();
 				if (!disposed) {
-					setDragging(null);
-					setTarget(null);
+					model.cancel();
+					sync();
 				}
 			};
 			const pointerMove = (next: PointerEvent) => {
 				if (next.pointerId !== pointerId) return;
 				x = next.clientX;
 				y = next.clientY;
-				if (!active && Math.hypot(x - startX, y - startY) < 5) return;
+				const state = model.pointer_move(x, y);
+				if (state === 0) return;
 				next.preventDefault();
-				if (!active) {
-					active = true;
-					suppressClick = true;
-					setDragging(cwd);
+				if (state === 1) {
+					sync();
 					frame = requestAnimationFrame(scroll);
 				}
 				update();
@@ -160,9 +154,11 @@ export function useRepositoryTabDrag(
 				if (next.pointerId !== pointerId) return;
 				x = next.clientX;
 				y = next.clientY;
-				if (active) update();
-				cleanup();
-				if (active && valid) move(cwd, before);
+				if (model.active()) update();
+				detach();
+				persistMove(
+					model.drop(JSON.stringify(ordered().map((row) => row.cwd))),
+				);
 			};
 			const pointerCancel = (next: PointerEvent) => {
 				if (next.pointerId === pointerId) cleanup();

@@ -1,5 +1,8 @@
-import type { GitActionResponse } from "@contracts";
-import type { GitRefOperationRequest } from "@repository/model/operations.ts";
+import type {
+	GitActionResponse,
+	GitGraphActionRequest,
+	GitRefOperationRequest,
+} from "@contracts";
 import { project } from "@shared/lib/native.tsx";
 
 type GitOperationPort = (
@@ -43,12 +46,7 @@ export function createGitOperations(
 	return {
 		runGraphRefOperation: (input: GitRefOperationRequest) =>
 			run("ref-operation", input.operation, input, "Git operation failed"),
-		runGraphActionRequest: (input: {
-			action: string;
-			target?: string;
-			targets?: string[];
-			name?: string;
-			message?: string;
-		}) => run("graph-action", input.action, input, "Git action failed"),
+		runGraphActionRequest: (input: GitGraphActionRequest) =>
+			run("graph-action", input.action, input, "Git action failed"),
 	};
 }

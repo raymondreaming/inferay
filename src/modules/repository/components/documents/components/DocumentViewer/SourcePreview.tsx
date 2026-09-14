@@ -1,8 +1,5 @@
 import type { FileContent } from "@contracts";
-import {
-	shouldDisableSnippetHighlighting,
-	useSyntaxHighlight,
-} from "@shared/hooks/useSyntaxHighlight.tsx";
+import { useSyntaxHighlight } from "@shared/hooks/useSyntaxHighlight.tsx";
 import { domStyle } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, createMemo, createSignal, For } from "solid-js";
@@ -45,13 +42,9 @@ export const SourcePreview = function SourcePreview(_props: {
 			) + SOURCE_OVERSCAN_LINES,
 		);
 	});
-	const syntaxEnabled = createMemo(
-		() => !shouldDisableSnippetHighlighting(lines()),
-	);
 	const _source = useSyntaxHighlight(() => ({
 		filePath: _props.file.path,
 		lines: lines(),
-		enabled: syntaxEnabled(),
 	}));
 	const visibleLines = createMemo(() =>
 		lines()
