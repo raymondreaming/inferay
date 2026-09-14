@@ -15,14 +15,12 @@ import {
 } from "solid-js";
 import type { ChatMessage } from "../AgentChatView/types.ts";
 import { ChatRenderRow } from "./ChatRenderRow.tsx";
-import { chatViewportState } from "./chatViewportCache.ts";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
-export type ChatVirtualizerControls = {
-	scrollToEnd: (behavior?: ScrollBehavior) => void;
-	isAtEnd: () => boolean;
-	getDistanceFromEnd: () => number;
-};
+import {
+	type ChatVirtualizerControls,
+	chatViewportState,
+} from "./useChatViewport.tsx";
 export const ChatMessageList = function ChatMessageList(_props: {
 	active?: boolean;
 	paneId: string;

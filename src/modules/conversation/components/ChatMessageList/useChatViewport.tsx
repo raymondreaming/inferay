@@ -1,6 +1,6 @@
-import type { ChatScrollState } from "@contracts";
+import type { ChatScrollSnapshot, ChatScrollState } from "@contracts";
 import { listenWindowEvent } from "@shared/lib/dom.tsx";
-import { project } from "@shared/lib/native.tsx";
+import { ChatViewportRetention, project } from "@shared/lib/native.tsx";
 import {
 	type Accessor,
 	createEffect,
@@ -8,8 +8,29 @@ import {
 	onSettled,
 	untrack,
 } from "solid-js";
-import { chatViewportState } from "./chatViewportCache.ts";
-import type { ChatVirtualizerControls } from "./index.tsx";
+export type ChatVirtualizerControls = {
+	scrollToEnd: (behavior?: ScrollBehavior) => void;
+	isAtEnd: () => boolean;
+	getDistanceFromEnd: () => number;
+};
+type ChatViewportState = {
+	snapshot: ChatScrollSnapshot;
+	heights: Map<string, number>;
+	width: number | null;
+};
+const viewportRetention = new ChatViewportRetention(16);
+const retainedViewports = new Map<string, ChatViewportState>();
+export const chatViewportState = (paneId: string) => {
+	const state = retainedViewports.get(paneId) ?? {
+		snapshot: { atBottom: true, fromBottom: 0, top: 0 },
+		heights: new Map<string, number>(),
+		width: null,
+	};
+	retainedViewports.set(paneId, state);
+	for (const evicted of JSON.parse(viewportRetention.touch(paneId)) as string[])
+		retainedViewports.delete(evicted);
+	return state;
+};
 
 export function useChatViewport(
 	_isSelected: Accessor<boolean | undefined> = () => undefined,

@@ -1,7 +1,7 @@
 import type { MdInlineToken } from "@contracts";
+import { project } from "@shared/lib/native.tsx";
 import type { JSX } from "@solidjs/web";
 import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
-import { markdownImageSource } from "./imageSource.ts";
 export type InlineAppearance = Partial<
 	Record<
 		MdInlineToken["type"] | "boldItalicEm",
@@ -34,7 +34,11 @@ export function MarkdownInline(
 function InlineToken(props: InlineProps & { token: MdInlineToken }) {
 	const kind = createMemo(() => props.token.type);
 	const appearance = createMemo(() => props.appearance[kind()]);
-	const imageSource = createMemo(() => markdownImageSource(props.token.href));
+	const imageSource = createMemo(() =>
+		project<string | undefined>("markdownImageSource", {
+			href: props.token.href,
+		}),
+	);
 	const [failedSource, setFailedSource] = createSignal<string>();
 	const Children = () => (
 		// JSX marks fallback text for Solid SSR escaping.

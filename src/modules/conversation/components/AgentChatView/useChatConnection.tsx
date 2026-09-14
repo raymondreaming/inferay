@@ -5,6 +5,7 @@ import type {
 } from "@contracts";
 import {
 	ChatReplica,
+	ChatSessionRetention,
 	clearAgentChatPaneState,
 	project as rustProject,
 	traceUi,
@@ -20,12 +21,77 @@ import {
 	untrack,
 } from "solid-js";
 import type { QueuedChatMessage } from "../../hooks/useAgentChatComposerState.tsx";
-import { chatSessionCache } from "./chatSessionCache.ts";
-import {
-	admittedTranscriptMessages,
-	type TranscriptEnvelope,
-} from "./transcriptSplice.ts";
 import type { ChatLoadingState, ChatMessage } from "./types.ts";
+
+export function admittedTranscriptMessages(
+	admission: Extract<
+		import("@contracts").TranscriptAdmission,
+		{ kind: "sync" | "patch" }
+	>,
+	before: ChatMessage[],
+	event: {
+		messages?: import("@contracts").ChatTranscriptMessage[];
+		transcriptUpdate?: import("@contracts").ChatTranscriptUpdate;
+	},
+): ChatMessage[] {
+	if (admission.kind === "sync") return event.messages!;
+	return event.transcriptUpdate!.messages.map((change, index) =>
+		change.appendContent === undefined
+			? { ...change.message, content: change.message.content! }
+			: {
+					...change.message,
+					content:
+						before[admission.start + index]!.content + change.appendContent,
+				},
+	);
+}
+
+type RetainedChatSession = {
+	paneId: string;
+	replica: ChatReplica;
+	messages: ChatMessage[];
+	nativeTranscript: ChatMessage[] | null;
+	checkpoints: CheckpointMeta[];
+	runStatus: ChatLoadingState;
+	expandedTools: Set<string>;
+};
+const retention = new ChatSessionRetention(16, 64 * 1024 * 1024);
+const retainedSessions = new Map<string, RetainedChatSession>();
+export const chatSessionCache = {
+	take(identity: string) {
+		const session = retainedSessions.get(identity);
+		if (!session) return;
+		retention.take(identity);
+		retainedSessions.delete(identity);
+		return session;
+	},
+	retain(identity: string, session: RetainedChatSession) {
+		const previous = retainedSessions.get(identity);
+		retainedSessions.delete(identity);
+		if (previous && previous.replica !== session.replica)
+			previous.replica.free();
+		const size =
+			session.messages.reduce(
+				(sum, message) => sum + message.content.length * 4 + 1024,
+				0,
+			) +
+			session.checkpoints.length * 1024;
+		const [kept, evicted] = JSON.parse(
+			retention.retain(identity, session.paneId, size),
+		) as [boolean, string[]];
+		if (kept) retainedSessions.set(identity, session);
+		else session.replica.free();
+		for (const key of evicted) retainedSessions.get(key)?.replica.free();
+		for (const key of evicted) retainedSessions.delete(key);
+	},
+	setPaneIds(ids: Iterable<string>) {
+		const evicted = JSON.parse(
+			retention.set_pane_ids(JSON.stringify([...ids])),
+		) as string[];
+		for (const key of evicted) retainedSessions.get(key)?.replica.free();
+		for (const key of evicted) retainedSessions.delete(key);
+	},
+};
 
 const DEFAULT_CHAT_RUN_STATUS: ChatLoadingState = {
 	isLoading: false,
@@ -160,7 +226,9 @@ export function useChatConnection(
 			);
 			if (!plan) return;
 			const _optionsValue2 = _options();
-			const msg = rawMessage as TranscriptEnvelope & {
+			const msg = rawMessage as {
+				messages?: import("@contracts").ChatTranscriptMessage[];
+				transcriptUpdate?: import("@contracts").ChatTranscriptUpdate;
 				pendingSteers?: QueuedChatMessage[];
 				message?: QueuedChatMessage;
 				queue?: QueuedChatMessage[];
@@ -178,10 +246,7 @@ export function useChatConnection(
 			if (update.kind === "ignore") return;
 			if (update.kind === "sync" || update.kind === "patch") {
 				const before = nativeTranscript ?? [];
-				const inserted = admittedTranscriptMessages(update, before, {
-					messages: msg.messages,
-					transcriptUpdate: msg.transcriptUpdate,
-				});
+				const inserted = admittedTranscriptMessages(update, before, msg);
 				const pending = nativeTranscriptShared ? before.slice() : before;
 				pending.splice(update.start, update.deleteCount, ...inserted);
 				nativeTranscript = pending;

@@ -11,6 +11,7 @@ pub mod documents;
 pub mod git_actions;
 pub mod graph;
 pub mod graph_response;
+pub mod image;
 pub mod markdown;
 pub mod panels;
 pub mod repository_tabs;
@@ -42,6 +43,7 @@ fn flag(value: &Value) -> bool {
 
 pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
     Ok(match operation {
+        "markdownImageSource" => image::source(input),
         "syntaxInput" => json!(inferay_core::syntax::input(
             &serde_json::from_value::<Vec<String>>(input["lines"].clone())
                 .map_err(|e| e.to_string())?,
