@@ -61,11 +61,7 @@ impl DocumentReplica {
         if self.view.active_path.as_deref() == Some(path) {
             self.selection += 1;
             self.view.active_path = index
-                .and_then(|i| {
-                    self.view
-                        .paths
-                        .get(i.min(self.view.paths.len().saturating_sub(1)))
-                })
+                .and_then(|i| self.view.paths.get(i.saturating_sub(1)))
                 .cloned();
         }
         self.view.paths.len()
@@ -152,6 +148,17 @@ mod tests {
         assert!(model.receive(pending, "c", "c"));
         assert_eq!(model.view.active_path.as_deref(), Some("a"));
         assert_eq!(model.view.paths, ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn closing_active_tab_selects_previous_neighbor() {
+        let mut model = replica(&["a", "b", "c"], Some("b"));
+        model.close("b");
+        assert_eq!(model.view.active_path.as_deref(), Some("a"));
+        model.close("a");
+        assert_eq!(model.view.active_path.as_deref(), Some("c"));
+        model.close("c");
+        assert!(model.view.active_path.is_none());
     }
 
     #[test]

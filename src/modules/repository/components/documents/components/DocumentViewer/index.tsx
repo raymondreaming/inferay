@@ -216,12 +216,14 @@ function useDocumentSession(props: DocumentViewerProps) {
 			fail(cause, "File could not open", version);
 		}
 	};
-	createEffect(
-		() => (props.openRequest ? JSON.stringify(props.openRequest) : null),
-		(request) => {
-			if (request) void openFile(JSON.parse(request));
-		},
+	// Panel focus and tab persistence replace the session object. Only a new
+	// request may open a file; replaying the old request undoes selection/close.
+	const openRequest = createMemo(() =>
+		props.openRequest ? JSON.stringify(props.openRequest) : null,
 	);
+	createEffect(openRequest, (request) => {
+		if (request) void openFile(JSON.parse(request));
+	});
 	const closeViewer = () => {
 		controller.abort();
 		model.clear();

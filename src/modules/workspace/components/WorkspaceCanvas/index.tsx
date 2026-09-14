@@ -273,6 +273,9 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 		readonly edge: DockEdge;
 	} | null>(null);
 	const auxiliaryPanels = () => props.auxiliaryPanels ?? EMPTY_AUXILIARY_PANELS;
+	const rowsOnly = createMemo(
+		() => props.layoutMode === "rows" && auxiliaryPanels().length === 0,
+	);
 	const panelKey = createMemo(() =>
 		JSON.stringify([
 			...props.panes.map((pane) => pane.id),
@@ -590,7 +593,7 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 	return (
 		<>
 			{(() => {
-				if (props.layoutMode === "rows" && auxiliaryPanels().length === 0) {
+				if (rowsOnly()) {
 					return (
 						<div
 							ref={[
