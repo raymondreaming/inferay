@@ -63,6 +63,10 @@ Core `path_security.rs` normalizes paths against a caller-supplied working direc
 
 `native/core/clippy.toml` and its Cargo lint settings prohibit filesystem, process, network, environment, and terminal access throughout the core crate, including aliases and `Path` methods. Native boundary checks run this compiler-backed gate for every module; there is no migrated-file allowlist. Core tests use supplied facts, while platform integration tests belong to the owning adapter crate.
 
+## Floating surfaces
+
+Use `surfaceStyles.overlay` from the design system on the visible container of dialogs, modals, menus, and popovers. It owns the background, border, shadow, and `effect.floatingSurfaceBlur`; local styles own layout and radius. The root appearance mode sets `--inferay-overlay-blur` (56px in glass mode, none otherwise). Do not override those surface properties in individual dialogs or introduce modal-specific blur tokens. Use `shared/ui/Modal` for full-window dialogs such as Settings and Skills; it owns the native dialog lifecycle, focus restoration, backdrop dismissal, close control, and glass surface. Callers supply layout, content, and guarded dismissal. Backdrops only dim the workspace. Never put a filtered or translucent-opacity ancestor around a glass surface: it creates a backdrop root that prevents the surface from blurring the underlying workspace. Use an alpha background color for dimming instead.
+
 ## Solid 2 reactivity
 
 Use Solid's fine-grained graph directly. Derive values with `createMemo`; do not mirror a derived value into a signal through an effect. Use `createEffect` only to synchronize with an external system such as the DOM, a browser listener, timer, native subscription, or query observer, and return its cleanup from the same effect.
@@ -70,6 +74,8 @@ Use Solid's fine-grained graph directly. Derive values with `createMemo`; do not
 Keep a hook when it owns a cohesive browser or query lifecycle. Do not create a hook only to forward props, wrap a memo, or hide one event handler; place those directly in the owning component. Keep feature state and mutations together, and pass narrow accessors or callbacks to children instead of broad mutable state objects.
 
 ## Network boundary
+
+Inferay's agents use local Git, the GitHub CLI, and direct service connectors such as Linear MCP. Agent launches disable the inherited GitKraken MCP server without modifying the user's global provider configuration. Keep integration failures specific to the actual service; do not route authentication through GitKraken. Historical chat can still display past GitKraken tool calls.
 
 `src/shared/lib/native.tsx` is the sole low-level browser HTTP client. It applies a timeout to every request. Do not use `fetch()` elsewhere. Keep endpoint-specific orchestration in services, and pass side-effecting operations into presentational children as callbacks. Services must check failed HTTP responses before reporting a mutation as saved.
 

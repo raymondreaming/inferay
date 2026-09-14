@@ -235,10 +235,37 @@ fn claude_invocation_args(run: &ClaudeRun<'_>, mcp_config: Option<&Path>) -> Vec
         run.session_id,
         mcp_config,
     );
-    if let Some(instructions) = run.developer_instructions {
-        arguments.extend(["--append-system-prompt".into(), instructions.into()]);
-    }
+    arguments.extend([
+        "--settings".into(),
+        claude_mcp_policy(run.env),
+        "--append-system-prompt".into(),
+        format!(
+            "{}\n\n{DIRECT_INTEGRATIONS}",
+            run.developer_instructions.unwrap_or_default()
+        ),
+    ]);
     arguments
+}
+
+const DIRECT_INTEGRATIONS: &str = "Inferay uses local Git and the GitHub CLI directly. GitKraken tools are disabled in Inferay. Use the direct Linear MCP tools for Linear; discover the available tools before claiming access is missing. If a direct integration is unavailable, report that specific connection failure rather than asking the user to connect GitKraken.";
+pub(crate) fn mcp_overrides(env: &HashMap<OsString, OsString>) -> HashMap<String, bool> {
+    env.get(OsStr::new("INFERAY_MCP_OVERRIDES"))
+        .and_then(|value| serde_json::from_str(&value.to_string_lossy()).ok())
+        .unwrap_or_default()
+}
+
+pub(crate) fn claude_mcp_policy(env: &HashMap<OsString, OsString>) -> String {
+    let mut denied = vec![
+        json!({"serverName":"GitKraken"}),
+        json!({"serverName":"gitkraken"}),
+    ];
+    denied.extend(
+        mcp_overrides(env)
+            .into_iter()
+            .filter(|(_, enabled)| !enabled)
+            .map(|(name, _)| json!({"serverName":name})),
+    );
+    json!({"deniedMcpServers": denied}).to_string()
 }
 
 /// Config with no MCP servers, for turns that cannot use them.
@@ -331,11 +358,11 @@ pub async fn run_codex(
             )
             .await?;
         let mut start_params = codex_thread_params(run.invocation);
-        configure_codex_transport(&mut start_params, &config["config"]);
+        configure_codex_session(&mut start_params, &config["config"], run.env);
         start_params["dynamicTools"] = inferay_core::prompts::tools::tool_definitions();
         let thread_response = if let Some(thread_id) = &run.invocation.session_id {
             let mut params = codex_thread_params(run.invocation);
-            configure_codex_transport(&mut params, &config["config"]);
+            configure_codex_session(&mut params, &config["config"], run.env);
             params["threadId"] = json!(thread_id);
             rpc.request(
                 "thread/resume",
@@ -580,7 +607,21 @@ pub async fn run_codex(
 // fallback lives only in that process, so restarting it repeats the entire retry
 // budget. Use HTTP for the built-in OpenAI provider; leave custom providers alone.
 // Built-in providers cannot be overridden, hence the separate provider ID.
-fn configure_codex_transport(params: &mut Value, config: &Value) {
+fn configure_codex_session(params: &mut Value, config: &Value, env: &HashMap<OsString, OsString>) {
+    params["config"] = json!({});
+    if let Some(servers) = config["mcp_servers"].as_object() {
+        let overrides = mcp_overrides(env);
+        for name in servers.keys().filter(|name| !name.contains('.')) {
+            let enabled = if name.eq_ignore_ascii_case("gitkraken") {
+                Some(false)
+            } else {
+                overrides.get(name).copied()
+            };
+            if let Some(enabled) = enabled {
+                params["config"][format!("mcp_servers.{name}.enabled")] = json!(enabled);
+            }
+        }
+    }
     let provider = config["model_provider"].as_str().unwrap_or("openai");
     if provider != "openai" {
         return;
@@ -600,7 +641,7 @@ fn configure_codex_transport(params: &mut Value, config: &Value) {
         http_provider["base_url"] = json!(base_url);
     }
     params["modelProvider"] = json!("inferay_openai_http");
-    params["config"] = json!({"model_providers.inferay_openai_http": http_provider});
+    params["config"]["model_providers.inferay_openai_http"] = http_provider;
 }
 
 fn codex_thread_params(invocation: &CodexInvocationContext) -> Value {
@@ -609,7 +650,7 @@ fn codex_thread_params(invocation: &CodexInvocationContext) -> Value {
         "approvalPolicy": "never",
         "sandbox": "danger-full-access",
         "model": invocation.model,
-        "developerInstructions": invocation.developer_instructions,
+        "developerInstructions": format!("{}\n\n{DIRECT_INTEGRATIONS}", invocation.developer_instructions.as_deref().unwrap_or_default()),
         "ephemeral": false
     })
 }
@@ -642,6 +683,82 @@ fn codex_user_input(text: &str, images: &[PathBuf]) -> Vec<Value> {
             .map(|path| json!({"type":"localImage", "path":path})),
     );
     input
+}
+
+/// Inspect the same thread-scoped tool inventory used by chat, without a model turn.
+pub(crate) async fn inspect_codex_mcp(
+    binary: &Path,
+    cwd: &Path,
+    env: &HashMap<OsString, OsString>,
+) -> Result<(Value, Vec<Value>), String> {
+    let mut child = spawn_codex_app_server(binary, cwd, env).map_err(|e| e.to_string())?;
+    let stderr = tokio::spawn(drain_bounded(child.stderr.take().expect("piped stderr")));
+    let mut rpc = CodexConnection {
+        stdin: child.stdin.take().expect("piped stdin"),
+        stdout: BufReader::new(child.stdout.take().expect("piped stdout")).lines(),
+        request_id: 0,
+    };
+    let mut context = AgentProtocolContext::new(cwd.to_owned());
+    let mut protocol = CodexProtocolState::default();
+    let (emissions, _receiver) = mpsc::unbounded_channel();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(45), async {
+        rpc.request(
+            "initialize",
+            json!({
+                "clientInfo": {"name": "inferay", "version": env!("CARGO_PKG_VERSION")},
+                "capabilities": {"experimentalApi": true}
+            }),
+            (&mut context, &mut protocol, &emissions),
+        )
+        .await?;
+        rpc.write(&json!({"method": "initialized"})).await?;
+        let config = rpc
+            .request(
+                "config/read",
+                json!({"cwd": cwd, "includeLayers": false}),
+                (&mut context, &mut protocol, &emissions),
+            )
+            .await?;
+        let mut params = json!({"cwd": cwd, "ephemeral": true});
+        configure_codex_session(&mut params, &config["config"], env);
+        let thread = rpc
+            .request(
+                "thread/start",
+                params,
+                (&mut context, &mut protocol, &emissions),
+            )
+            .await?;
+        let mut servers = Vec::new();
+        let mut cursor = Value::Null;
+        loop {
+            let page = rpc
+                .request(
+                    "mcpServerStatus/list",
+                    json!({
+                        "threadId": thread["thread"]["id"], "limit": 100, "cursor": cursor
+                    }),
+                    (&mut context, &mut protocol, &emissions),
+                )
+                .await?;
+            crate::mcp_icons::register(&page);
+            if let Some(data) = page["data"].as_array() {
+                servers.extend(data.iter().cloned());
+            }
+            cursor = page["nextCursor"].clone();
+            if cursor.is_null() {
+                break;
+            }
+        }
+        Ok((config["config"]["mcp_servers"].clone(), servers))
+    })
+    .await
+    .unwrap_or_else(|_| Err("Codex connection check timed out".into()));
+    if let Some(pid) = child.id() {
+        tree_kill(pid);
+    }
+    let _ = child.kill().await;
+    stderr.abort();
+    result
 }
 
 struct CodexConnection {
@@ -1061,6 +1178,32 @@ fn tree_kill(pid: u32) {
 mod runner_tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn session_policy_disables_gitkraken_without_replacing_other_connectors() {
+        for provider in ["openai", "custom"] {
+            let config = json!({
+                "model_provider": provider,
+                "mcp_servers": {
+                    "GitKraken": {"command": "gk", "enabled": true},
+                    "linear": {"url": "https://mcp.linear.app/mcp"}
+                }
+            });
+            let original = config.clone();
+            let mut params = json!({});
+            configure_codex_session(&mut params, &config, &HashMap::new());
+            assert_eq!(params["config"]["mcp_servers.GitKraken.enabled"], false);
+            assert!(params["config"].get("mcp_servers.linear.enabled").is_none());
+            assert_eq!(config, original);
+        }
+        let mut params = json!({});
+        configure_codex_session(
+            &mut params,
+            &json!({"model_provider": "custom"}),
+            &HashMap::new(),
+        );
+        assert_eq!(params["config"], json!({}));
+    }
 
     #[tokio::test]
     async fn concrete_runner_delivers_result_session_and_failure_events() {

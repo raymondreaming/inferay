@@ -11,14 +11,18 @@ pub struct AgentCommandResolver {
     home_directory: PathBuf,
     is_windows: bool,
     availability_cache: Mutex<[Option<bool>; 2]>,
+    mcp_preferences_path: PathBuf,
+    mcp_preferences: Mutex<HashMap<String, HashMap<String, bool>>>,
 }
 
 impl AgentCommandResolver {
-    pub fn new(home_directory: impl Into<PathBuf>) -> Self {
+    pub fn new(home_directory: impl Into<PathBuf>, mcp_preferences_path: PathBuf) -> Self {
         Self {
             home_directory: home_directory.into(),
             is_windows: cfg!(target_os = "windows"),
             availability_cache: Mutex::new([None, None]),
+            mcp_preferences: Mutex::new(crate::json_file::read_lossy(&mcp_preferences_path)),
+            mcp_preferences_path,
         }
     }
 
@@ -105,6 +109,12 @@ impl AgentCommandResolver {
 
     pub fn create_agent_env(&self, kind: AgentKind) -> HashMap<OsString, OsString> {
         let mut environment: HashMap<_, _> = std::env::vars_os().collect();
+        environment.insert(
+            "INFERAY_MCP_OVERRIDES".into(),
+            serde_json::to_string(&self.mcp_overrides(kind))
+                .expect("MCP preferences serialize")
+                .into(),
+        );
         if kind == AgentKind::Claude {
             environment.remove(OsStr::new("CLAUDECODE"));
         }
@@ -135,6 +145,31 @@ impl AgentCommandResolver {
             );
         }
         environment
+    }
+
+    pub fn mcp_overrides(&self, kind: AgentKind) -> HashMap<String, bool> {
+        self.mcp_preferences
+            .lock()
+            .expect("MCP preferences lock")
+            .get(kind.as_str())
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub fn set_mcp_enabled(
+        &self,
+        kind: AgentKind,
+        name: &str,
+        enabled: bool,
+    ) -> Result<(), String> {
+        let mut preferences = self.mcp_preferences.lock().expect("MCP preferences lock");
+        let mut next = preferences.clone();
+        next.entry(kind.as_str().into())
+            .or_default()
+            .insert(name.into(), enabled);
+        crate::json_file::write(&self.mcp_preferences_path, &next)?;
+        *preferences = next;
+        Ok(())
     }
 
     pub fn has_agent_cli(&self, kind: AgentKind) -> bool {
@@ -182,4 +217,31 @@ fn javascript_dirname(path: &Path) -> PathBuf {
         .filter(|parent| !parent.as_os_str().is_empty())
         .map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+#[test]
+fn mcp_controls_persist_per_provider_and_feed_agent_launches() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("mcp-preferences.json");
+    let resolver = AgentCommandResolver::new(root.path(), path.clone());
+    resolver
+        .set_mcp_enabled(AgentKind::Codex, "linear", false)
+        .unwrap();
+    resolver
+        .set_mcp_enabled(AgentKind::Claude, "linear", true)
+        .unwrap();
+    let restored = AgentCommandResolver::new(root.path(), path);
+    assert_eq!(
+        restored.mcp_overrides(AgentKind::Codex).get("linear"),
+        Some(&false)
+    );
+    assert_eq!(
+        restored.mcp_overrides(AgentKind::Claude).get("linear"),
+        Some(&true)
+    );
+    assert_eq!(
+        crate::agent_runner::mcp_overrides(&restored.create_agent_env(AgentKind::Codex))
+            .get("linear"),
+        Some(&false)
+    );
 }

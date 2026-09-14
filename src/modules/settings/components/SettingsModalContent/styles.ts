@@ -5,6 +5,26 @@ import {
 	controlSize,
 } from "../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
+	mcpName: { display: "flex", alignItems: "center", gap: "10px", minWidth: 0 },
+	mcpIcon: {
+		display: "inline-flex",
+		alignItems: "center",
+		justifyContent: "center",
+		width: "28px",
+		height: "28px",
+		flexShrink: 0,
+		borderRadius: "7px",
+		backgroundColor: color.surfaceControl,
+		fontSize: "11px",
+	},
+	mcpImage: { width: "22px", height: "22px", objectFit: "contain" },
+	mcpActions: {
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "flex-end",
+		flexWrap: "wrap",
+		gap: "6px",
+	},
 	banner: {
 		paddingBlockEnd: controlSize._3,
 	},

@@ -44,6 +44,7 @@ import {
 } from "../Settings/index.tsx";
 import { SettingsErrorBanner } from "../SettingsStatus/index.tsx";
 import { GithubSettings } from "./GithubSettings.tsx";
+import { McpSettings } from "./McpSettings.tsx";
 import { styles } from "./styles.ts";
 
 export type SettingsModalSection = "all" | SettingsModalTarget;
@@ -84,6 +85,7 @@ export function SettingsModalContent(props: { section: SettingsModalSection }) {
 	};
 	return (
 		<SettingsStack>
+			{show("mcp") && <McpSettings />}
 			{show("agents") && (
 				<>
 					<SettingsSection

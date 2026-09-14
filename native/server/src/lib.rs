@@ -1,5 +1,6 @@
 use inferay_presentation::appearance::normalize_background_settings;
 mod files;
+mod mcp_connections;
 mod mcp_icons;
 use files::{image_content_type, is_image_extension};
 mod agent_context_store;
@@ -81,6 +82,8 @@ pub fn export_renderer_types(config: &ts_rs::Config) -> Result<(), ts_rs::Export
     files::DirectoryQuickPicks::export_all(config)?;
     markdown_stream::Input::export_all(config)?;
     agent_account::AgentAccountProviderStatus::export_all(config)?;
+    mcp_connections::McpProviderStatus::export_all(config)?;
+    mcp_connections::McpAction::export_all(config)?;
     forge::ForgeAccount::export_all(config)?;
     forge::GithubRepo::export_all(config)?;
     markdown::PreparedMarkdown::export_all(config)?;
@@ -132,6 +135,7 @@ struct ServerState {
     public_dir: PathBuf,
     allowed_paths: AllowedPaths,
     agent_command_resolver: Arc<AgentCommandResolver>,
+    mcp_connections: mcp_connections::Connections,
     agent_state_store: Arc<Mutex<AgentStateStore>>,
     background_dir: PathBuf,
     client_storage: Arc<tokio::sync::Mutex<client_storage::ClientStorage>>,
@@ -317,7 +321,10 @@ fn build_router_with_connection_reset(
         agent_runner::RuntimePidTracker::new(config.user_data_dir.join("runtime-pids.json"));
     let orphan_cleaner = pid_tracker.clone();
     tokio::spawn(async move { orphan_cleaner.cleanup_orphans().await });
-    let agent_command_resolver = Arc::new(AgentCommandResolver::new(config.home_directory.clone()));
+    let agent_command_resolver = Arc::new(AgentCommandResolver::new(
+        config.home_directory.clone(),
+        config.user_data_dir.join("mcp-preferences.json"),
+    ));
     let agent_context_store = Arc::new(tokio::sync::Mutex::new(AgentContextStore::new(
         config.user_data_dir.join("agent-context.json"),
     )));
@@ -347,6 +354,7 @@ fn build_router_with_connection_reset(
         public_dir: config.app_root.join("public"),
         allowed_paths,
         agent_command_resolver,
+        mcp_connections: Default::default(),
         agent_state_store,
         background_dir: config.user_data_dir.join("backgrounds"),
         client_storage,
@@ -491,6 +499,27 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             }
 
             ("/api/agents/account-status", "GET") => agent_account::account_status(&state).await,
+            ("/api/agents/mcp-action", "POST") => mcp_connections::act(&state, request).await,
+            ("/api/agents/mcp-status", "GET") => {
+                let kind = match query_value(&request, "provider").as_deref() {
+                    Some("codex") => inferay_core::agent_kind::AgentKind::Codex,
+                    Some("claude") => inferay_core::agent_kind::AgentKind::Claude,
+                    _ => {
+                        return api_http_response(
+                            Err(ApiError(
+                                StatusCode::BAD_REQUEST,
+                                "Unknown agent provider".into(),
+                            )),
+                            &request_headers,
+                        );
+                    }
+                };
+                Ok(json!(mcp_connections::status(
+                    &state,
+                    kind,
+                    query_value(&request, "refresh").as_deref() == Some("true")
+                )))
+            }
             ("/api/workspace/panels", "POST") => workspace_panels::handle(&state, request).await,
             ("/api/workspace/dock", "POST") => workspace_dock::handle(&state, request).await,
 

@@ -2,7 +2,12 @@ import {
 	loadAgentContext,
 	saveAgentContext,
 } from "@context/services/contextApi.ts";
-import type { AgentAccountProviderStatus, GithubRepo } from "@contracts";
+import type {
+	AgentAccountProviderStatus,
+	GithubRepo,
+	McpAction,
+	McpProviderStatus,
+} from "@contracts";
 import {
 	fetchJson,
 	fetchJsonOr,
@@ -65,6 +70,21 @@ export async function fetchAgentAccountStatuses(signal?: AbortSignal) {
 		providers?: AgentAccountProviderStatus[];
 	}>("/api/agents/account-status", { signal });
 	return Array.isArray(payload.providers) ? payload.providers : [];
+}
+
+export function fetchMcpStatus(
+	provider: "codex" | "claude",
+	signal?: AbortSignal,
+	refresh = false,
+) {
+	return fetchJson<McpProviderStatus>(
+		`/api/agents/mcp-status?provider=${provider}&refresh=${refresh}`,
+		{ signal },
+	);
+}
+
+export function updateMcpConnection(action: McpAction) {
+	return postJson<{ message: string }>("/api/agents/mcp-action", action);
 }
 
 export async function connectGithub() {

@@ -45,7 +45,7 @@ pub fn register(page: &Value) {
             });
         if let Some(icon) = icon {
             registry.servers.insert(source.server_id, icon.to_owned());
-        } else {
+        } else if server.get("serverInfo").is_some_and(Value::is_object) {
             registry.servers.remove(&source.server_id);
         }
     }
@@ -209,6 +209,8 @@ mod tests {
             Some(("image/png".into(), b"hello".to_vec()))
         );
         assert_eq!(get("missing").await, None);
+        register(&json!({"data":[{"name":"test_icon_server","serverInfo":null}]}));
+        assert!(manifest().get("testiconserver").is_some());
         register(&json!({"data":[{"name":"test_icon_server","serverInfo":{}}]}));
         assert!(manifest().get("testiconserver").is_none());
     }

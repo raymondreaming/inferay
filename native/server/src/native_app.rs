@@ -476,3 +476,56 @@ mod update_tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 }
+
+/// Interactive provider login needs a terminal for its OAuth callback fallback.
+pub(super) async fn open_terminal_command(binary: &Path, args: &[&str]) -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let line = std::iter::once(binary.to_string_lossy().into_owned())
+            .chain(args.iter().map(|arg| (*arg).to_owned()))
+            .map(|arg| format!("'{}'", arg.replace('\'', "'\\''")))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let script = format!(
+            "tell application \"Terminal\"\nactivate\ndo script \"{}\"\nend tell",
+            line.replace('\\', "\\\\").replace('"', "\\\"")
+        );
+        let mut command = tokio::process::Command::new("osascript");
+        command.args(["-e", &script]);
+        command
+    };
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        if args
+            .iter()
+            .any(|arg| arg.contains(['%', '&', '|', '<', '>', '^', '\n', '\r']))
+        {
+            return Err("This server name cannot be passed to the Windows terminal".into());
+        }
+        let mut command = tokio::process::Command::new("cmd.exe");
+        command.args(["/c", "start", ""]).arg(binary).args(args);
+        command
+    };
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let mut command = {
+        let mut command = tokio::process::Command::new("x-terminal-emulator");
+        command.arg("-e").arg(binary).args(args);
+        command
+    };
+    let status = tokio::time::timeout(
+        Duration::from_secs(10),
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .status(),
+    )
+    .await
+    .map_err(|_| "Opening the sign-in terminal timed out".to_string())?
+    .map_err(|error| error.to_string())?;
+    if !status.success() {
+        return Err("Could not open the sign-in terminal".into());
+    }
+    Ok(true)
+}

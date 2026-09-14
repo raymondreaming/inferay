@@ -1,36 +1,20 @@
-import type { CSSProperties } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
 	breakpoint,
 	color,
 	controlSize,
 	font,
-	layer,
 	motion,
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
-	backdrop: {
-		backdropFilter: "blur(7px)",
-		backgroundColor: "rgba(0, 0, 0, 0.4)",
-		display: "grid",
-		inset: controlSize._0,
-		overflow: "hidden",
-		placeItems: "center",
-		position: "fixed",
-		zIndex: layer.criticalOverlay,
-	},
 	modal: {
-		borderRadius: radius._2xl,
 		display: "grid",
 		gridTemplateColumns: {
 			default: "3.5rem minmax(0, 1fr)",
 			[breakpoint.tablet]: "12.5rem minmax(0, 1fr)",
 		},
 		height: "min(42rem, calc(100dvh - 3rem))",
-		maxHeight: "calc(100dvh - 3rem)",
-		maxWidth: "calc(100dvw - 3rem)",
-		overflow: "hidden",
 		width: "min(58rem, calc(100dvw - 3rem))",
 	},
 	sidebar: {
@@ -86,11 +70,6 @@ export const styles = stylex.create({
 		gap: controlSize._4,
 		minHeight: controlSize._0,
 		overflowY: "auto",
-	},
-	navGroup: {
-		display: "flex",
-		flexDirection: "column",
-		gap: controlSize._0_5,
 	},
 	navGroupLabel: {
 		color: color.textMuted,
@@ -161,12 +140,6 @@ export const styles = stylex.create({
 		minWidth: controlSize._0,
 		position: "relative",
 	},
-	close: {
-		position: "absolute",
-		right: controlSize._3,
-		top: controlSize._3,
-		zIndex: layer.control,
-	},
 	content: {
 		flex: 1,
 		minHeight: controlSize._0,
@@ -193,24 +166,3 @@ export const styles = stylex.create({
 		paddingRight: controlSize._8,
 	},
 });
-export function getSettingsModalHostDivStyle(): CSSProperties {
-	return {
-		boxSizing: "border-box",
-		display: "grid",
-		inset: 0,
-		padding: 24,
-		placeItems: "center",
-		position: "fixed",
-	} as CSSProperties;
-}
-export function getSettingsModalHostSectionStyle(): CSSProperties {
-	return {
-		display: "grid",
-		gridTemplateColumns: "clamp(56px, 22vw, 200px) minmax(0, 1fr)",
-		height: "min(672px, calc(100vh - 48px))",
-		maxHeight: "calc(100vh - 48px)",
-		maxWidth: "calc(100vw - 48px)",
-		overflow: "hidden",
-		width: "min(928px, calc(100vw - 48px))",
-	} as CSSProperties;
-}

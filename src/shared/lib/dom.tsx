@@ -286,6 +286,7 @@ export function dispatchToggleActiveGitSidebar(): void {
 export const OPEN_SETTINGS_MODAL_EVENT = "inferay-open-settings-modal";
 export type SettingsModalTarget =
 	| "agents"
+	| "mcp"
 	| "appearance"
 	| "workspace"
 	| "github";
