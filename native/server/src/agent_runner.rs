@@ -414,7 +414,7 @@ pub async fn run_codex(
         let mut icon_request = rpc
             .send(
                 "mcpServerStatus/list",
-                json!({"threadId":thread_id,"limit":100}),
+                json!({"threadId":thread_id,"limit":100,"detail":"toolsAndAuthOnly"}),
             )
             .await
             .ok();
@@ -497,7 +497,7 @@ pub async fn run_codex(
                         if let Some(page) = message.get("result") {
                             crate::mcp_icons::register(page);
                             if let Some(cursor) = page["nextCursor"].as_str() {
-                                icon_request = rpc.send("mcpServerStatus/list", json!({"threadId":thread_id,"limit":100,"cursor":cursor})).await.ok();
+                                icon_request = rpc.send("mcpServerStatus/list", json!({"threadId":thread_id,"limit":100,"cursor":cursor,"detail":"toolsAndAuthOnly"})).await.ok();
                             }
                         }
                         continue;
@@ -701,7 +701,7 @@ pub(crate) async fn inspect_codex_mcp(
     let mut context = AgentProtocolContext::new(cwd.to_owned());
     let mut protocol = CodexProtocolState::default();
     let (emissions, _receiver) = mpsc::unbounded_channel();
-    let result = tokio::time::timeout(std::time::Duration::from_secs(45), async {
+    let result = tokio::time::timeout(std::time::Duration::from_secs(75), async {
         rpc.request(
             "initialize",
             json!({
@@ -735,7 +735,8 @@ pub(crate) async fn inspect_codex_mcp(
                 .request(
                     "mcpServerStatus/list",
                     json!({
-                        "threadId": thread["thread"]["id"], "limit": 100, "cursor": cursor
+                        "threadId": thread["thread"]["id"], "limit": 100, "cursor": cursor,
+                        "detail": "toolsAndAuthOnly"
                     }),
                     (&mut context, &mut protocol, &emissions),
                 )
@@ -808,14 +809,20 @@ impl CodexConnection {
     ) -> Result<Value, String> {
         let id = self.send(method, params).await?;
         let (context, state, emissions) = protocol;
-        let deadline = tokio::time::Instant::now() + CODEX_RPC_TIMEOUT;
+        // MCP startup/tool discovery can outlast ordinary App Server requests.
+        let timeout = if method == "mcpServerStatus/list" {
+            std::time::Duration::from_secs(45)
+        } else {
+            CODEX_RPC_TIMEOUT
+        };
+        let deadline = tokio::time::Instant::now() + timeout;
         loop {
             if tokio::time::Instant::now() >= deadline {
-                return Err("Codex App Server response timed out".into());
+                return Err(format!("Codex {method} check timed out; connection state is unknown"));
             }
             let message = tokio::time::timeout_at(deadline, self.read())
                 .await
-                .map_err(|_| "Codex App Server response timed out".to_string())?
+                .map_err(|_| format!("Codex {method} check timed out; connection state is unknown"))?
                 .ok_or_else(|| "Codex App Server closed before replying".to_string())?;
             if message.get("method").is_none()
                 && message.get("id").and_then(Value::as_u64) == Some(id)
