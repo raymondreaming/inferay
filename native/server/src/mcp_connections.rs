@@ -22,7 +22,7 @@ pub(crate) struct McpProviderStatus {
 pub(crate) struct McpConnection {
     name: String,
     #[ts(
-        type = "'Connected' | 'Needs sign-in' | 'Disabled' | 'Unavailable' | 'No tools reported' | 'Needs approval'"
+        type = "'Connected' | 'Needs sign-in' | 'Disabled' | 'Unavailable' | 'No tools reported' | 'Needs approval' | 'Starting'"
     )]
     status: &'static str,
     tool_count: Option<usize>,
@@ -138,20 +138,37 @@ fn codex_connections(config: &Value, servers: Vec<Value>) -> Vec<McpConnection> 
         .filter_map(|server| {
             let name = server["name"].as_str()?;
             let tools = server["tools"].as_object().map_or(0, |tools| tools.len());
-            let status =
-                if name.eq_ignore_ascii_case("gitkraken") || config[name]["enabled"] == false {
-                    "Disabled"
-                } else if server["authStatus"] == "notLoggedIn" {
-                    "Needs sign-in"
-                } else if tools > 0
-                    || server["resources"]
-                        .as_array()
-                        .is_some_and(|items| !items.is_empty())
-                {
-                    "Connected"
-                } else {
-                    "No tools reported"
-                };
+            let status = if name.eq_ignore_ascii_case("gitkraken")
+                || config[name]["enabled"] == false
+                || server["runtimeStatus"] == "disabled"
+            {
+                "Disabled"
+            } else if server["authStatus"] == "notLoggedIn"
+                || server["runtimeStatus"] == "authenticationRequired"
+            {
+                "Needs sign-in"
+            } else if matches!(
+                server["runtimeStatus"].as_str(),
+                Some("failed" | "cancelled")
+            ) || server["toolsError"].is_string()
+            {
+                "Unavailable"
+            } else if matches!(
+                server["runtimeStatus"].as_str(),
+                Some("starting" | "notStarted")
+            ) {
+                "Starting"
+            } else if server["runtimeStatus"] == "connected" {
+                "Connected"
+            } else if tools > 0
+                || server["resources"]
+                    .as_array()
+                    .is_some_and(|items| !items.is_empty())
+            {
+                "Connected"
+            } else {
+                "No tools reported"
+            };
             Some(McpConnection {
                 name: name.into(),
                 status,
@@ -210,6 +227,9 @@ fn inventories_distinguish_authentication_from_loaded_tools_and_keep_secrets_pri
             json!({"name":"linear", "authStatus":"oAuth", "tools":{"list_issues":{}}}),
             json!({"name":"offline", "authStatus":"oAuth", "tools":{}}),
             json!({"name":"login", "authStatus":"notLoggedIn", "tools":{}}),
+            json!({"name":"stale", "runtimeStatus":"failed", "tools":{"cached":{}}}),
+            json!({"name":"starting", "runtimeStatus":"starting", "tools":{}}),
+            json!({"name":"expired", "runtimeStatus":"authenticationRequired", "authStatus":"oAuth", "tools":{}}),
         ],
     );
     assert_eq!(
@@ -218,6 +238,9 @@ fn inventories_distinguish_authentication_from_loaded_tools_and_keep_secrets_pri
             "Disabled",
             "Connected",
             "No tools reported",
+            "Needs sign-in",
+            "Unavailable",
+            "Starting",
             "Needs sign-in"
         ]
     );

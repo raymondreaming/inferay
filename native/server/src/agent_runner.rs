@@ -818,11 +818,15 @@ impl CodexConnection {
         let deadline = tokio::time::Instant::now() + timeout;
         loop {
             if tokio::time::Instant::now() >= deadline {
-                return Err(format!("Codex {method} check timed out; connection state is unknown"));
+                return Err(format!(
+                    "Codex {method} response timed out; connection state is unknown"
+                ));
             }
             let message = tokio::time::timeout_at(deadline, self.read())
                 .await
-                .map_err(|_| format!("Codex {method} check timed out; connection state is unknown"))?
+                .map_err(|_| {
+                    format!("Codex {method} response timed out; connection state is unknown")
+                })?
                 .ok_or_else(|| "Codex App Server closed before replying".to_string())?;
             if message.get("method").is_none()
                 && message.get("id").and_then(Value::as_u64) == Some(id)

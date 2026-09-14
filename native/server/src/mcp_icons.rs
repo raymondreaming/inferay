@@ -3,6 +3,7 @@ use serde_json::{Value, json};
 use std::{
     collections::HashMap,
     net::IpAddr,
+    path::PathBuf,
     sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
@@ -14,10 +15,18 @@ type IconBytes = Option<(String, Vec<u8>)>;
 struct Registry {
     servers: HashMap<String, String>,
     images: HashMap<String, Arc<OnceCell<IconBytes>>>,
+    cache_path: Option<PathBuf>,
 }
 static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
 fn registry() -> &'static Mutex<Registry> {
     REGISTRY.get_or_init(Default::default)
+}
+
+pub fn initialize(cache_path: PathBuf) {
+    let mut registry = registry().lock().unwrap();
+    registry.servers = crate::json_file::read_lossy(&cache_path);
+    registry.servers.retain(|_, src| supported_source(src));
+    registry.cache_path = Some(cache_path);
 }
 
 pub fn register(page: &Value) {
@@ -25,6 +34,7 @@ pub fn register(page: &Value) {
         return;
     };
     let mut registry = registry().lock().unwrap();
+    let previous = registry.servers.clone();
     for server in servers {
         let Some(name) = server["name"].as_str() else {
             continue;
@@ -47,6 +57,12 @@ pub fn register(page: &Value) {
             registry.servers.insert(source.server_id, icon.to_owned());
         } else if server.get("serverInfo").is_some_and(Value::is_object) {
             registry.servers.remove(&source.server_id);
+        }
+    }
+    if registry.servers != previous {
+        if let Some(path) = &registry.cache_path {
+            // Metadata is a best-effort cache; a failed write must not interrupt chat.
+            let _ = crate::json_file::write(path, &registry.servers);
         }
     }
 }

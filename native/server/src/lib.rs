@@ -325,6 +325,7 @@ fn build_router_with_connection_reset(
         config.home_directory.clone(),
         config.user_data_dir.join("mcp-preferences.json"),
     ));
+    mcp_icons::initialize(config.user_data_dir.join("mcp-icons.json"));
     let agent_context_store = Arc::new(tokio::sync::Mutex::new(AgentContextStore::new(
         config.user_data_dir.join("agent-context.json"),
     )));

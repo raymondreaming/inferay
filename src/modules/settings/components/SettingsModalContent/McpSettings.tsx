@@ -19,8 +19,10 @@ export function McpSettings() {
 	return (
 		<>
 			<p>
-				Each agent provider has its own connections and sign-in. Checks use the
-				provider configuration available to Inferay. GitKraken is disabled here.
+				Codex and Claude have separate connections and sign-in. This checks a
+				fresh provider session; tools in an existing chat can differ by project
+				and session. A timeout means the connection could not be verified.
+				GitKraken is disabled here.
 			</p>
 			<McpProvider kind="codex" />
 			<McpProvider kind="claude" />
