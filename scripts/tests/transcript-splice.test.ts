@@ -5,7 +5,7 @@ import {
 	ChatReplica,
 	initSync,
 } from "../../build/presentation/presentation.js";
-import type { ChatMessage } from "../../src/modules/conversation/components/AgentChatView/types.ts";
+import type { ChatMessage } from "../../src/modules/conversation/components/AgentChatView/useChatConnection.tsx";
 import { admittedTranscriptMessages } from "../../src/modules/conversation/components/AgentChatView/useChatConnection.tsx";
 
 initSync({

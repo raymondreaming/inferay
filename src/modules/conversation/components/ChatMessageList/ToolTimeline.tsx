@@ -3,7 +3,7 @@ import { iconSize } from "@design-system/styles.stylex.ts";
 import { IconChevronDown } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, For, Show } from "solid-js";
-import type { ChatMessage } from "../AgentChatView/types.ts";
+import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
 import { CopyButton } from "../ChatRichContent/index.tsx";
 import { McpSourceMark } from "./McpSourceMark.tsx";
 import { styles } from "./styles.ts";

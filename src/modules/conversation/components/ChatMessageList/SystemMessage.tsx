@@ -12,7 +12,7 @@ import {
 } from "@skills/components/SkillProposalCard/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, Match, Switch } from "solid-js";
-import type { ChatMessage } from "../AgentChatView/types.ts";
+import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
 import { styles } from "./styles.ts";
 
 /** Selects the specialized card for a system message's native rendering data. */

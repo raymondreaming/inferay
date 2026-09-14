@@ -1,28 +1,33 @@
 import type {
 	AgentTheme,
+	DockLayout,
 	DockPointerTarget,
+	DockRequest,
 	DockTree,
 	DockWheel,
 	Pane,
 	WorkspaceAgentKind,
 } from "@contracts";
 import type { AgentChatHandle } from "@conversation/components/AgentChatView/index.tsx";
-import type { AgentLayoutMode } from "@shared/contracts/workspace.ts";
 import {
 	captureEvent,
 	createPointerResize,
 	domStyle,
 	lockPointerSelection,
 } from "@shared/lib/dom.tsx";
-import { project } from "@shared/lib/native.tsx";
+import type { AgentLayoutMode } from "@shared/lib/native.tsx";
+import { DockSession, project, readStoredValue } from "@shared/lib/native.tsx";
 import * as stylex from "@stylexjs/stylex";
+import { saveWorkspaceDock } from "@workspace/services/workspaceApi.ts";
 import {
 	createEffect,
 	createMemo,
 	createSignal,
 	For,
 	onCleanup,
+	onSettled,
 	Show,
+	untrack,
 } from "solid-js";
 import { PaneView } from "../PaneView/index.tsx";
 import { DockSplit } from "./DockSplit.tsx";
@@ -31,9 +36,155 @@ type DockSplitNode = Extract<DockTree, { readonly type: "split" }>;
 
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
-import { useContainedChatSelection } from "./useContainedChatSelection.ts";
-import { useDockLayout } from "./useDockLayout.ts";
-import { useResponsiveGridColumns } from "./useResponsiveGridColumns.ts";
+
+function createDockLayout(input: () => DockRequest, active: () => boolean) {
+	const model = new DockSession();
+	const begin = (request: DockRequest, deduplicate = false) => {
+		const read = (prefix: string) =>
+			readStoredValue(`${prefix}:${request.workspaceId}`) ??
+			(request.legacyWorkspaceId
+				? readStoredValue(`${prefix}:${request.legacyWorkspaceId}`)
+				: null) ??
+			undefined;
+		return JSON.parse(
+			model.begin(
+				JSON.stringify(request),
+				read("native-workspace-dock"),
+				read("agent-workspace-dock"),
+				deduplicate,
+			),
+		) as {
+			revision: number;
+			layout: DockLayout | null;
+			persist: boolean;
+		} | null;
+	};
+	const initial = begin(untrack(input))!;
+	const [layout, setLayout] = createSignal<DockLayout>(initial.layout!);
+	const tree = createMemo(() => layout().tree);
+	const [error, setError] = createSignal<string | null>(null);
+	const requests = { current: Promise.resolve() };
+	const update = (
+		action?: Record<string, unknown>,
+		target = input(),
+		deduplicate = false,
+	) => {
+		const request = { ...target, action };
+		const pending = begin(request, deduplicate);
+		if (!pending) return Promise.resolve(true);
+		if (pending.layout) setLayout(pending.layout);
+		if (!pending.persist) return Promise.resolve(true);
+		const result = requests.current.then(async () => {
+			if (deduplicate && !model.is_current(pending.revision)) return true;
+			try {
+				const saved = await saveWorkspaceDock<DockLayout>(request);
+				const accepted = JSON.parse(
+					model.accept(
+						pending.revision,
+						request.workspaceId,
+						JSON.stringify(saved),
+					),
+				) as DockLayout | null;
+				if (accepted?.canvas && "tree" in accepted) setLayout(accepted);
+				if (model.is_current(pending.revision)) setError(null);
+				return true;
+			} catch {
+				if (model.fail(pending.revision))
+					setError("Could not save pane layout. Please retry.");
+				return false;
+			}
+		});
+		requests.current = result.then(() => {});
+		return result;
+	};
+	createEffect(
+		() => (active() ? input() : null),
+		(target) => {
+			if (target) void update(undefined, target, true);
+		},
+	);
+	onSettled(() => () => {
+		model.dispose();
+		void requests.current.then(() => model.free());
+	});
+	const treeRef = { current: untrack(tree) } as { current: DockTree | null };
+	createEffect(tree, (next) => {
+		treeRef.current = next;
+	});
+	return { error, layout, setLayout, tree, treeRef, update };
+}
+
+function containChatSelection(
+	active: () => boolean,
+	container: () => HTMLElement | null,
+) {
+	createEffect(active, (isActive) => {
+		if (!isActive) return;
+		const contain = () => {
+			const selection = window.getSelection();
+			if (
+				!selection ||
+				selection.isCollapsed ||
+				!selection.anchorNode ||
+				!selection.focusNode
+			)
+				return;
+			const anchor = selection.anchorNode;
+			const pane = (
+				anchor instanceof Element ? anchor : anchor.parentElement
+			)?.closest("[data-chat-pane-id]");
+			if (
+				!pane ||
+				!container()?.contains(pane) ||
+				pane.contains(selection.focusNode)
+			)
+				return;
+			const bounds = document.createRange();
+			bounds.selectNodeContents(pane);
+			const before =
+				bounds.comparePoint(selection.focusNode, selection.focusOffset) < 0;
+			selection.setBaseAndExtent(
+				anchor,
+				selection.anchorOffset,
+				pane,
+				before ? 0 : pane.childNodes.length,
+			);
+		};
+		document.addEventListener("selectionchange", contain);
+		return () => document.removeEventListener("selectionchange", contain);
+	});
+}
+
+function observeResponsiveGridColumns(
+	container: () => HTMLElement | null,
+	columns: () => number,
+	isGrid: () => boolean,
+	setAvailableColumns: (value: (current: number) => number) => void,
+) {
+	createEffect(
+		() => [columns(), isGrid()] as const,
+		([configuredColumns, grid]) => {
+			const element = container();
+			if (!element || !grid) return;
+			const update = (width: number) => {
+				if (width <= 0) return;
+				const next = project<number>("responsiveDockColumns", {
+					width,
+					columns: configuredColumns,
+				});
+				setAvailableColumns((current) => (current === next ? current : next));
+			};
+			update(element.getBoundingClientRect().width);
+			if (typeof ResizeObserver === "undefined") return;
+			const observer = new ResizeObserver((entries) => {
+				const width = entries[0]?.contentRect.width;
+				if (width !== undefined) update(width);
+			});
+			observer.observe(element);
+			return () => observer.disconnect();
+		},
+	);
+}
 
 export const MIN_RESPONSIVE_PANE_WIDTH = 300;
 const ROOT_DOCK_TARGET_ID = "__workspace-root__";
@@ -108,7 +259,7 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 		current: HTMLDivElement | null;
 	};
 	const [dragIndex, setDragIndex] = createSignal<number | null>(null);
-	useContainedChatSelection(
+	containChatSelection(
 		() => props.active !== false,
 		() => containerRef.current,
 	);
@@ -137,7 +288,7 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 		visibleColumns: availableGridColumns(),
 		rows: props.rows,
 	}));
-	const dock = useDockLayout(dockInput, () => props.active !== false);
+	const dock = createDockLayout(dockInput, () => props.active !== false);
 	const renderedDockTree = dock.tree;
 	const renderedDockTreeRef = dock.treeRef;
 	const setLayout = dock.setLayout;
@@ -150,7 +301,7 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 		setDragPanelId(null);
 		setDockTarget(null);
 	};
-	useResponsiveGridColumns(
+	observeResponsiveGridColumns(
 		() => containerRef.current,
 		() => props.columns,
 		() => props.layoutMode === "grid",

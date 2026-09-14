@@ -1,4 +1,4 @@
-import { APP_REGION_NO_DRAG_CLASS } from "@shared/lib/windowChrome.ts";
+import { APP_REGION_NO_DRAG_CLASS } from "@shared/lib/dom.tsx";
 
 import * as stylex from "@stylexjs/stylex";
 import { createMemo } from "solid-js";

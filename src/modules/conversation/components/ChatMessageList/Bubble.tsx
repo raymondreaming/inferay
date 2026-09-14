@@ -3,7 +3,7 @@ import { ariaValue } from "@shared/lib/dom.tsx";
 import { IconCheck, IconCopy } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { For, Match, Switch } from "solid-js";
-import type { ChatMessage } from "../AgentChatView/types.ts";
+import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
 import { useCopyText } from "../ChatRichContent/CopyButton.tsx";
 import { AssistantMessagePart } from "./AssistantMessagePart.tsx";
 import { BtwMessage } from "./BtwMessage.tsx";

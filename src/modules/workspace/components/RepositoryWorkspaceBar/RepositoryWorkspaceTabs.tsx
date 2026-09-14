@@ -1,19 +1,27 @@
-import type { RepositoryWorkspace } from "@contracts";
+import type { RepositoryTabsTarget, RepositoryWorkspace } from "@contracts";
 import { iconSize, selectionAppearance } from "@design-system/styles.stylex.ts";
-import { ariaValue } from "@shared/lib/dom.tsx";
-import { APP_REGION_NO_DRAG_CLASS } from "@shared/lib/windowChrome.ts";
+import { APP_REGION_NO_DRAG_CLASS, ariaValue } from "@shared/lib/dom.tsx";
 import { IconGitBranch } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, For } from "solid-js";
 import { styles } from "./styles.ts";
-import type { useRepositoryTabDrag } from "./useRepositoryTabDrag.ts";
+
+type RepositoryTabDragController = {
+	ordered: () => RepositoryWorkspace[];
+	dragging: () => string | null;
+	target: () => RepositoryTabsTarget | null;
+	setContainer: (element: HTMLDivElement) => void;
+	consumeClick: (event: MouseEvent) => boolean;
+	onPointerDown: (event: PointerEvent, cwd: string) => void;
+	onKeyDown: (event: KeyboardEvent, cwd: string) => void;
+};
 
 /** Renders and coordinates repository tabs against the drag controller's small interface. */
 export function RepositoryWorkspaceTabs(props: {
 	activePath: string | null;
 	hasWorkspaces: boolean;
 	onActivate: (workspace: RepositoryWorkspace) => void;
-	tabDrag: ReturnType<typeof useRepositoryTabDrag>;
+	tabDrag: RepositoryTabDragController;
 }) {
 	const tabsProps = stylex.attrs(styles.tabs);
 	return (

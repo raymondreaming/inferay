@@ -1,5 +1,5 @@
 import { iconSize } from "@design-system/styles.stylex.ts";
-import { APP_REGION_NO_DRAG_CLASS } from "@shared/lib/windowChrome.ts";
+import { APP_REGION_NO_DRAG_CLASS } from "@shared/lib/dom.tsx";
 import { IconFolder } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, Show } from "solid-js";

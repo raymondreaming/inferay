@@ -5,8 +5,10 @@ import { ChatMessageList } from "../ChatMessageList/index.tsx";
 import { ChatWorkspacePicker } from "./ChatWorkspacePicker.tsx";
 import { ScrollToLatestButton } from "./ScrollToLatestButton.tsx";
 import { styles } from "./styles.ts";
-import type { AgentChatViewProps } from "./types.ts";
-import type { AgentChatState } from "./useAgentChatState.tsx";
+import type {
+	AgentChatState,
+	AgentChatViewProps,
+} from "./useAgentChatState.tsx";
 export function AgentChatMessages(
 	props: Pick<
 		AgentChatViewProps,

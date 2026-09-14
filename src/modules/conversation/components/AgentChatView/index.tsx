@@ -1,20 +1,21 @@
 import { traceUi } from "@shared/lib/native.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { WorkspaceDockHandle } from "@workspace/components/WorkspaceDockHandle/index.tsx";
-import { createSignal, onSettled } from "solid-js";
+import { createEffect, createSignal, onSettled } from "solid-js";
 import { AgentContextPanel } from "../AgentContextPanel/index.tsx";
 import { AgentChatComposer } from "./AgentChatComposer.tsx";
 import { AgentChatMessages } from "./AgentChatMessages.tsx";
 import { styles } from "./styles.ts";
-import type { AgentChatViewProps } from "./types.ts";
-import { useAgentChatState } from "./useAgentChatState.tsx";
-import { useImageDrop } from "./useImageDrop.ts";
+import {
+	type AgentChatViewProps,
+	useAgentChatState,
+} from "./useAgentChatState.tsx";
 
+export type { ChatLoadingState } from "@contracts";
 export type {
 	AgentChatHandle,
 	AgentChatViewProps,
-	ChatLoadingState,
-} from "./types.ts";
+} from "./useAgentChatState.tsx";
 
 export function AgentChatView(props: AgentChatViewProps) {
 	onSettled(() => {
@@ -24,10 +25,52 @@ export function AgentChatView(props: AgentChatViewProps) {
 	const state = useAgentChatState(props);
 	const [contextOpen, setContextOpen] = createSignal(false);
 	const [configOpen, setConfigOpen] = createSignal(false);
-	const images = useImageDrop(
+	const [imageDragActive, setImageDragActive] = createSignal(false);
+	let imageDragDepth = 0;
+	const resetImageDrag = () => {
+		imageDragDepth = 0;
+		setImageDragActive(false);
+	};
+	createEffect(
 		() => state.visible() && !contextOpen(),
-		state.composer.handleDrop,
+		(enabled) => {
+			if (enabled) return;
+			resetImageDrag();
+		},
 	);
+	const imageDragHandlers = {
+		onDragEnter(event: DragEvent) {
+			if (!state.visible() || contextOpen() || !event.dataTransfer) return;
+			if (
+				!Array.from(event.dataTransfer.items).some(
+					(item) => item.kind === "file" && item.type.startsWith("image/"),
+				)
+			)
+				return;
+			event.preventDefault();
+			event.stopPropagation();
+			imageDragDepth++;
+			setImageDragActive(true);
+		},
+		onDragOver(event: DragEvent) {
+			if (!imageDragDepth) return;
+			event.preventDefault();
+			event.stopPropagation();
+			if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+		},
+		onDragLeave(event: DragEvent) {
+			if (!imageDragDepth) return;
+			event.stopPropagation();
+			imageDragDepth = Math.max(0, imageDragDepth - 1);
+			if (!imageDragDepth) setImageDragActive(false);
+		},
+		onDrop(event: DragEvent) {
+			if (!imageDragDepth) return;
+			event.stopPropagation();
+			resetImageDrag();
+			void state.composer.handleDrop(event);
+		},
+	};
 	return (
 		<div
 			data-chat-pane-id={props.paneId}
@@ -35,7 +78,7 @@ export function AgentChatView(props: AgentChatViewProps) {
 				state.connection.chatUiState.transcriptReady ? "true" : "false"
 			}
 			{...stylex.attrs(styles.root)}
-			{...images.handlers}
+			{...imageDragHandlers}
 		>
 			{state.visible() && props.draggable && (
 				<div {...stylex.attrs(styles.dragReveal)}>
@@ -69,7 +112,7 @@ export function AgentChatView(props: AgentChatViewProps) {
 			{!contextOpen() && (
 				<AgentChatComposer
 					state={state}
-					imageDragActive={images.active()}
+					imageDragActive={imageDragActive()}
 					setConfigOpen={setConfigOpen}
 					openContext={() => setContextOpen(true)}
 				/>

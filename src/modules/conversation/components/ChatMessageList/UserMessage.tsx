@@ -1,7 +1,7 @@
 import { project } from "@shared/lib/native.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, For } from "solid-js";
-import type { ChatMessage } from "../AgentChatView/types.ts";
+import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
 import { DecoratedText } from "../ChatTokenDecorators/index.tsx";
 import { styles } from "./styles.ts";
 

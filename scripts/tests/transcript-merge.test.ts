@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import type { ChatMessage } from "../../src/modules/conversation/components/AgentChatView/types.ts";
+import type { ChatMessage } from "../../src/modules/conversation/components/AgentChatView/useChatConnection.tsx";
 import { project } from "../../src/shared/lib/native.tsx";
 
 const source = readFileSync(

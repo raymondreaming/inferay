@@ -6,7 +6,7 @@ import type {
 import type { RefCell } from "@shared/lib/dom.tsx";
 import { project as rustProject, wsClient } from "@shared/lib/native.tsx";
 import type { Accessor } from "solid-js";
-import type { ChatMessage } from "../components/AgentChatView/types.ts";
+import type { ChatMessage } from "../components/AgentChatView/useChatConnection.tsx";
 import { nextId } from "../components/AgentChatView/useChatConnection.tsx";
 import type { useAgentChatComposerState } from "./useAgentChatComposerState.tsx";
 import type { useAgentChatMenus } from "./useAgentChatMenus.tsx";

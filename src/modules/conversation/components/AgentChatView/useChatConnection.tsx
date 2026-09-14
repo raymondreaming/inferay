@@ -1,5 +1,7 @@
 import type {
 	ChatEventPlan,
+	ChatLoadingState,
+	ChatTranscriptMessage,
 	CheckpointMeta,
 	WorkspaceAgentKind,
 } from "@contracts";
@@ -21,7 +23,11 @@ import {
 	untrack,
 } from "solid-js";
 import type { QueuedChatMessage } from "../../hooks/useAgentChatComposerState.tsx";
-import type { ChatLoadingState, ChatMessage } from "./types.ts";
+
+export type ChatMessage = ChatTranscriptMessage & {
+	optimistic?: boolean;
+	localOnly?: boolean;
+};
 
 export function admittedTranscriptMessages(
 	admission: Extract<

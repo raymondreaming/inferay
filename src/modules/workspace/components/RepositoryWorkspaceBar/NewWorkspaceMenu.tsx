@@ -1,7 +1,10 @@
 import type { RepositoryWorkspace } from "@contracts";
 import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
-import { ariaValue, type CreateAgentChatTarget } from "@shared/lib/dom.tsx";
-import { APP_REGION_NO_DRAG_CLASS } from "@shared/lib/windowChrome.ts";
+import {
+	APP_REGION_NO_DRAG_CLASS,
+	ariaValue,
+	type CreateAgentChatTarget,
+} from "@shared/lib/dom.tsx";
 import {
 	IconFolder,
 	IconMessageCircle,

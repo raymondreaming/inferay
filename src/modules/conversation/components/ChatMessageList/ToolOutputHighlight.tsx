@@ -1,7 +1,7 @@
 import type { ToolOutputSummary } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, Match, Switch } from "solid-js";
-import type { ChatMessage } from "../AgentChatView/types.ts";
+import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
 import { styles } from "./styles.ts";
 export function ToolOutputHighlight(_props: {
 	content: string;

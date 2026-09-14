@@ -1,7 +1,10 @@
+import type { SidebarResize } from "@contracts";
 import { iconSize } from "@design-system/styles.stylex.ts";
 import { useForgeAccounts } from "@repository/hooks/useForgeAccounts.tsx";
 import { useAppInfo } from "@shared/hooks/useAppInfo.tsx";
 import {
+	APP_REGION_DRAG_CLASS,
+	APP_REGION_NO_DRAG_CLASS,
 	CREATE_AGENT_CHAT_EVENT,
 	type CreateAgentChatDetail,
 	type CreateAgentChatTarget,
@@ -17,17 +20,22 @@ import {
 	loadAgentLayoutMode,
 	loadDefaultChatSettings,
 	loadSidebarCollapsed,
+	project,
+	readStoredValue,
 	setAgentLayoutMode,
+	writeStoredValue,
 } from "@shared/lib/native.tsx";
-import {
-	APP_REGION_DRAG_CLASS,
-	APP_REGION_NO_DRAG_CLASS,
-} from "@shared/lib/windowChrome.ts";
 import { IconSettings } from "@shared/ui/Icons/index.tsx";
 import { useLocation, useNavigate } from "@solidjs/router";
 import * as stylex from "@stylexjs/stylex";
 import { checkNativeUpdate } from "@workspace/services/workspaceApi.ts";
-import { createMemo, createSignal, onSettled } from "solid-js";
+import {
+	createEffect,
+	createMemo,
+	createSignal,
+	onCleanup,
+	onSettled,
+} from "solid-js";
 import {
 	mutateAgentWorkspaceState,
 	useWorkspaceState,
@@ -38,7 +46,71 @@ import { SidebarFooter } from "./SidebarFooter.tsx";
 import { SidebarWorkspacesSection } from "./SidebarWorkspacesSection.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
-import { useSidebarResize } from "./useSidebarResize.ts";
+
+const SIDEBAR_WIDTH_KEY = "main-sidebar-width";
+
+export function useSidebarResize(collapsed: () => boolean) {
+	let currentResize = project<SidebarResize>("sidebarResize", {
+		stored: readStoredValue(SIDEBAR_WIDTH_KEY),
+	});
+	const [resizeState, setResizeState] = createSignal(currentResize);
+	const commitResize = (next: SidebarResize) => {
+		currentResize = next;
+		setResizeState(next);
+	};
+	let resizeDisposed = false;
+	const releaseResize = () => {
+		window.removeEventListener("mousemove", moveResize);
+		window.removeEventListener("mouseup", finishResize);
+		window.removeEventListener("blur", cancelResize);
+	};
+	const updateResize = (action: string, facts: object = {}) =>
+		project<SidebarResize>("sidebarResize", {
+			state: currentResize,
+			action,
+			...facts,
+		});
+	const moveResize = (event: MouseEvent) =>
+		commitResize(updateResize("move", { x: event.clientX }));
+	const finishResize = () => {
+		const next = updateResize("finish");
+		commitResize(next);
+		releaseResize();
+		if (next.persist !== null)
+			writeStoredValue(SIDEBAR_WIDTH_KEY, String(next.persist));
+	};
+	const cancelResize = () => {
+		commitResize(updateResize("cancel"));
+		releaseResize();
+	};
+	const resize = {
+		width: () => resizeState().width,
+		resizing: () => resizeState().resizing,
+		start: (event: MouseEvent) => {
+			const wasResizing = resizeState().resizing;
+			const next = updateResize("start", {
+				x: event.clientX,
+				button: event.button,
+				collapsed: collapsed(),
+				disposed: resizeDisposed,
+			});
+			if (!next.resizing || wasResizing) return;
+			commitResize(next);
+			event.preventDefault();
+			window.addEventListener("mousemove", moveResize);
+			window.addEventListener("mouseup", finishResize);
+			window.addEventListener("blur", cancelResize);
+		},
+	};
+	createEffect(collapsed, (hidden) => {
+		if (hidden) cancelResize();
+	});
+	onCleanup(() => {
+		resizeDisposed = true;
+		releaseResize();
+	});
+	return resize;
+}
 
 export function WorkspaceSidebar() {
 	const navigate = useNavigate();

@@ -6,7 +6,7 @@ import type {
 } from "@contracts";
 import type { AgentChatHandle } from "@conversation/components/AgentChatView/index.tsx";
 import { useRepositoryWorkbench } from "@repository/hooks/useRepositoryWorkbench.tsx";
-import type { AgentLayoutMode } from "@shared/contracts/workspace.ts";
+import type { AgentLayoutMode } from "@shared/lib/native.tsx";
 import { createMemo } from "solid-js";
 import { DEFAULT_ROWS, WorkspaceCanvas } from "../WorkspaceCanvas/index.tsx";
 import { AgentMainSurface } from "./AgentMainSurface.tsx";

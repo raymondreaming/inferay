@@ -13,7 +13,7 @@ import {
 	IconStop,
 } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { Show } from "solid-js";
+import { createEffect, onSettled, Show } from "solid-js";
 import { InputHighlights } from "../ChatTokenDecorators/index.tsx";
 import { CommandMenu } from "./CommandMenu.tsx";
 import { ComposerAttachments } from "./ComposerAttachments.tsx";
@@ -25,18 +25,37 @@ import { QueuedMessages } from "./QueuedMessages.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 import { useChatComposerState } from "./useChatComposerState.tsx";
-import { useComposerTextarea } from "./useComposerTextarea.ts";
 
 export const ChatComposer = function ChatComposer(
 	props: ReturnType<Parameters<typeof useChatComposerState>[0]>,
 ) {
 	const view = useChatComposerState(() => props);
-	const textarea = useComposerTextarea({
-		input: () => props.input,
-		active: () => props.active !== false,
-		textareaRef: () => props.textareaRef,
-		overlayRef: () => props.highlightOverlayRef,
+	let textareaElement: HTMLTextAreaElement | undefined;
+	createEffect(
+		() => [props.input, props.active !== false] as const,
+		([input, active]) => {
+			if (!active || !textareaElement) return;
+			textareaElement.style.height = "20px";
+			if (input)
+				textareaElement.style.height = `${Math.min(Math.max(textareaElement.scrollHeight, 20), 120)}px`;
+			const overlay = props.highlightOverlayRef.current;
+			if (overlay)
+				overlay.style.transform = `translateY(-${textareaElement.scrollTop}px)`;
+		},
+	);
+	onSettled(() => {
+		const textareaRef = props.textareaRef;
+		const overlayRef = props.highlightOverlayRef;
+		const overlay = overlayRef.current;
+		return () => {
+			if (textareaRef.current === textareaElement) textareaRef.current = null;
+			if (overlayRef.current === overlay) overlayRef.current = null;
+		};
 	});
+	const textarea = (element: HTMLTextAreaElement) => {
+		textareaElement = element;
+		props.textareaRef.current = element;
+	};
 	return (
 		<>
 			<input

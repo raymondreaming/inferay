@@ -1,6 +1,13 @@
+import type { WorkspaceAgentKind } from "@contracts";
 import { bindImperativeRef } from "@shared/lib/dom.tsx";
 import { loadDefaultChatSettings, wsClient } from "@shared/lib/native.tsx";
-import { createMemo, merge } from "solid-js";
+import {
+	createEffect,
+	createMemo,
+	createSignal,
+	merge,
+	onSettled,
+} from "solid-js";
 import {
 	useAgentChatComposerState,
 	usePendingChatWorkspace,
@@ -13,12 +20,36 @@ import { useChatDraft } from "../../hooks/useChatDraft.tsx";
 import { useChatInputActions } from "../../hooks/useChatInputActions.tsx";
 import { useSpeechToText } from "../../hooks/useSpeechToText.tsx";
 import { useChatViewport } from "../ChatMessageList/useChatViewport.tsx";
-import type { AgentChatViewProps } from "./types.ts";
 import {
 	appendSystemMessage,
 	useChatConnection,
 } from "./useChatConnection.tsx";
-import { useComposerHighlight } from "./useComposerHighlight.ts";
+
+export interface AgentChatHandle {
+	focusInput: (atEnd?: boolean) => void;
+	highlightComposer: () => void;
+}
+
+export interface AgentChatViewProps {
+	paneId: string;
+	cwd?: string;
+	referencePaths?: string[];
+	pendingWorkspacePaths?: string[];
+	agentKind?: WorkspaceAgentKind;
+	onClose?: (paneId: string) => void;
+	isSelected?: boolean;
+	isVisible?: boolean;
+	draggable?: boolean;
+	onDragStart?: (event: PointerEvent) => void;
+	onDragEnd?: () => void;
+	onDirectoryChange?: (
+		paneId: string,
+		cwd: string,
+		referencePaths?: string[],
+	) => void;
+	onDirectoryCancel?: (paneId: string) => void;
+	ref?: (handle: AgentChatHandle | null) => void;
+}
 
 /** Pane-owned state survives context/composer DOM replacement. Inputs read by field. */
 export function useAgentChatState(props: AgentChatViewProps) {
@@ -48,7 +79,31 @@ export function useAgentChatState(props: AgentChatViewProps) {
 		visible,
 		() => props.paneId,
 	);
-	const highlight = useComposerHighlight(() => props.isSelected !== false);
+	const [highlightActive, setHighlightActive] = createSignal(false);
+	let highlightFrame = 0;
+	let highlightTimer: ReturnType<typeof setTimeout> | undefined;
+	const cancelHighlight = () => {
+		cancelAnimationFrame(highlightFrame);
+		clearTimeout(highlightTimer);
+	};
+	const highlightComposer = () => {
+		cancelHighlight();
+		setHighlightActive(false);
+		highlightFrame = requestAnimationFrame(() => {
+			setHighlightActive(true);
+			highlightTimer = setTimeout(() => setHighlightActive(false), 1800);
+		});
+	};
+	createEffect(
+		() => props.isSelected !== false,
+		(selected) => {
+			if (selected) return;
+			cancelHighlight();
+			setHighlightActive(false);
+		},
+	);
+	onSettled(() => cancelHighlight);
+	const highlight = { active: highlightActive, highlight: highlightComposer };
 	const composer = useAgentChatComposerState(() => props.paneId, visible);
 	const menuOptions = {
 		get agentKind() {

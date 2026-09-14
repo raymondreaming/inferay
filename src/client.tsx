@@ -9,14 +9,33 @@ import {
 import { render } from "@solidjs/web";
 import { RootComponent } from "./app/components/RootComponent/index.tsx";
 import { preloadSkills } from "./modules/skills/services/skillsApi.ts";
-import { initializeAgentState } from "./modules/workspace/hooks/useWorkspaceState.tsx";
+import { configureWorkspacePanels } from "./modules/workspace/hooks/useWorkspacePanelSession.tsx";
+import {
+	configureWorkspaceState,
+	initializeAgentState,
+} from "./modules/workspace/hooks/useWorkspaceState.tsx";
+import {
+	initializeWorkspaceState,
+	loadWorkspaceState,
+	saveWorkspaceAction,
+	saveWorkspacePanel,
+} from "./modules/workspace/services/workspaceApi.ts";
 import { restoreSyntaxTheme } from "./shared/hooks/useSyntaxHighlight.tsx";
 import {
 	hydrateStoredValues,
 	initializeAgentCatalog,
+	traceUi,
 } from "./shared/lib/native.tsx";
 
-configureNativeWorkspace();
+configureWorkspacePanels(saveWorkspacePanel);
+configureWorkspaceState(
+	{
+		initialize: initializeWorkspaceState,
+		load: loadWorkspaceState,
+		save: saveWorkspaceAction,
+	},
+	() => traceUi("selection-published"),
+);
 let restoreStartupContent: (() => void) | undefined;
 while (true) {
 	try {
@@ -66,5 +85,3 @@ idle(() => void preloadSkills());
 const container = document.getElementById("__app");
 if (!container) throw new Error("Missing application root.");
 render(() => <RootComponent />, container);
-
-import { configureNativeWorkspace } from "@app/bootstrap/workspace.ts";

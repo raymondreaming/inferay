@@ -13,7 +13,7 @@ import {
 	onSettled,
 	untrack,
 } from "solid-js";
-import type { ChatMessage } from "../AgentChatView/types.ts";
+import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
 import { ChatRenderRow } from "./ChatRenderRow.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
