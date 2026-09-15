@@ -1,4 +1,4 @@
-import { iconSize } from "@design-system/styles.stylex.ts";
+import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
 import { ariaValue, assignRef } from "@shared/lib/dom.tsx";
 import { IconCheck } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
@@ -25,7 +25,7 @@ export function ProviderConfigMenu(
 			<div
 				role="menu"
 				aria-label={ariaValue(_props.activeControl.title)}
-				{...stylex.attrs(styles.providerConfigMenu)}
+				{...stylex.attrs(surfaceStyles.overlay, styles.providerConfigMenu)}
 				onKeyDown={(event) => {
 					const buttons = Array.from(
 						event.currentTarget.querySelectorAll<HTMLButtonElement>("button"),

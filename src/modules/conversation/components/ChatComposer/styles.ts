@@ -359,11 +359,7 @@ export const styles = stylex.create({
 		maxWidth: "100%",
 	},
 	providerConfigMenu: {
-		backgroundColor: color.backgroundPanel,
 		borderRadius: radius.px10,
-		borderColor: color.border,
-		borderStyle: "solid",
-		borderWidth: 1,
 		boxSizing: "border-box",
 		display: "flex",
 		flexDirection: "column",

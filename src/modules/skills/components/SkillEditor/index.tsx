@@ -122,14 +122,10 @@ export function SkillEditor(props: {
 					</div>
 					{props.view.editing ? (
 						<textarea
-							ref={(element) =>
-								requestAnimationFrame(() => fitToContent(element))
-							}
 							aria-label="Skill instructions"
 							value={props.view.form.promptTemplate}
 							disabled={props.view.busy}
 							onInput={(event) => {
-								fitToContent(event.currentTarget);
 								props.onFormChange("promptTemplate", event.currentTarget.value);
 							}}
 							spellcheck={false}
