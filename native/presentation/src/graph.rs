@@ -99,24 +99,33 @@ pub fn reveal(input: &Value) -> Value {
     })
 }
 
+fn column_width(index: usize, width: f64) -> f64 {
+    let width = width.max(MIN_WIDTHS[index]);
+    if COLUMNS[index] == "message" {
+        width
+    } else {
+        width.min(480.)
+    }
+}
+
 pub fn resize_column(input: &Value) -> Value {
     let index = COLUMNS
         .iter()
         .position(|column| *column == string(&input["column"]))
         .unwrap_or(0);
-    json!(number(&input["width"]).clamp(MIN_WIDTHS[index], 480.))
+    json!(column_width(index, number(&input["width"])))
 }
 
 pub fn preferences(stored: &Value) -> Value {
     let mut widths = json!({});
     for (i, column) in COLUMNS.iter().enumerate() {
-        widths[column] = json!(
+        widths[column] = json!(column_width(
+            i,
             stored["widths"][column]
                 .as_f64()
                 .filter(|v| v.is_finite())
                 .unwrap_or(DEFAULT_WIDTHS[i])
-                .clamp(MIN_WIDTHS[i], 480.)
-        );
+        ));
     }
     let mut order = Vec::new();
     for column in array(&stored["order"]) {
@@ -348,6 +357,14 @@ pub fn lines(i: &Value) -> GraphLines {
 #[cfg(test)]
 mod column_layout_tests {
     use super::*;
+
+    #[test]
+    fn message_width_can_exceed_480_and_survives_reload() {
+        let width = resize_column(&json!({"column":"message", "width":1400}));
+        assert_eq!(width, 1400.);
+        let restored = preferences(&json!({"widths":{"message":width}}));
+        assert_eq!(restored["widths"]["message"], 1400.);
+    }
 
     #[test]
     fn all_columns_can_be_hidden_and_restored() {
