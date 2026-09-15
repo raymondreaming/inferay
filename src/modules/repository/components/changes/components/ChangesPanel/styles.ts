@@ -597,7 +597,7 @@ export const styles = stylex.create({
 		transitionDuration: motion.durationFast,
 		backgroundColor: {
 			default: color.transparent,
-			":hover": color.surfaceSubtle,
+			":hover": "var(--inferay-selection-fill, var(--inferay-surface-panel))",
 		},
 	},
 	treeRow: {
@@ -616,7 +616,7 @@ export const styles = stylex.create({
 		transitionDuration: motion.durationFast,
 		backgroundColor: {
 			default: color.transparent,
-			":hover": color.surfaceSubtle,
+			":hover": "var(--inferay-selection-fill, var(--inferay-surface-panel))",
 		},
 	},
 	treeNodeButton: {
@@ -632,8 +632,10 @@ export const styles = stylex.create({
 		textAlign: "left",
 	},
 	fileRowActive: {
-		borderLeftColor: color.borderStrong,
-		backgroundColor: color.surfaceInset,
+		backgroundColor:
+			"var(--inferay-selection-fill, var(--inferay-surface-panel))",
+		boxShadow: "none",
+		color: color.textMain,
 	},
 	fileButton: {
 		minWidth: controlSize._0,

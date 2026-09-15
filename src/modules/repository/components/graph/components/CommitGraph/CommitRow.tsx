@@ -193,10 +193,9 @@ export const CommitRow = function CommitRow(_props: {
 						nodeAnchoredWashLeft(),
 						nodeTop(),
 						AVATAR_SIZE,
-						hexToRgba(
-							color(),
-							_props.selected || _props.rowActive ? 0.42 : 0.1,
-						),
+						_props.rowActive
+							? "var(--inferay-selection-fill, var(--inferay-surface-panel))"
+							: hexToRgba(color(), _props.selected ? 0.42 : 0.1),
 					),
 				)}
 			/>

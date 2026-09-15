@@ -1,9 +1,16 @@
 import type { RepositoryTabsTarget, RepositoryWorkspace } from "@contracts";
 import { iconSize, selectionAppearance } from "@design-system/styles.stylex.ts";
-import { APP_REGION_NO_DRAG_CLASS, ariaValue } from "@shared/lib/dom.tsx";
-import { IconGitBranch } from "@shared/ui/Icons/index.tsx";
+import { FileChangeTotals } from "@repository/components/changes/components/ChangesPanel/FileChangeTotals.tsx";
+import { useGitStatus } from "@repository/hooks/useGitStatus.tsx";
+import {
+	APP_REGION_NO_DRAG_CLASS,
+	ariaValue,
+	dispatchRemoveAgentPaneRequest,
+} from "@shared/lib/dom.tsx";
+import { project } from "@shared/lib/native.tsx";
+import { IconGitBranch, IconX } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { createMemo, For } from "solid-js";
+import { createMemo, For, onSettled } from "solid-js";
 import { styles } from "./styles.ts";
 
 type RepositoryTabDragController = {
@@ -23,6 +30,45 @@ export function RepositoryWorkspaceTabs(props: {
 	onActivate: (workspace: RepositoryWorkspace) => void;
 	tabDrag: RepositoryTabDragController;
 }) {
+	const status = useGitStatus(
+		() => props.tabDrag.ordered().map((workspace) => workspace.cwd),
+		() => ({ enabled: props.hasWorkspaces }),
+	);
+	onSettled(() => {
+		const cycle = (event: KeyboardEvent) => {
+			const target = event.target;
+			if (
+				event.key !== "Tab" ||
+				event.defaultPrevented ||
+				event.isComposing ||
+				event.altKey ||
+				event.ctrlKey ||
+				event.metaKey ||
+				(target instanceof HTMLElement &&
+					(target.isContentEditable ||
+						target.closest(
+							'input, textarea, select, [role="dialog"], dialog, [role="menu"], [role="listbox"]',
+						)))
+			)
+				return;
+			const tabs = props.tabDrag.ordered();
+			if (tabs.length < 2) return;
+			const index = tabs.findIndex((tab) => tab.cwd === props.activePath);
+			const next =
+				tabs[(index + (event.shiftKey ? -1 : 1) + tabs.length) % tabs.length];
+			if (!next) return;
+			event.preventDefault();
+			props.onActivate(next);
+			if (target instanceof HTMLElement && target.closest('[role="tablist"]')) {
+				const buttons = target
+					.closest('[role="tablist"]')
+					?.querySelectorAll<HTMLElement>('[role="tab"]');
+				buttons?.[tabs.indexOf(next)]?.focus();
+			}
+		};
+		window.addEventListener("keydown", cycle);
+		return () => window.removeEventListener("keydown", cycle);
+	});
 	const tabsProps = stylex.attrs(styles.tabs);
 	return (
 		<div
@@ -38,10 +84,22 @@ export function RepositoryWorkspaceTabs(props: {
 						const active = createMemo(
 							() => workspace().cwd === props.activePath,
 						);
+						const totals = createMemo(() => {
+							const groups = status.projectMap.get(workspace().cwd)?.fileGroups;
+							return groups
+								? project<{ additions: number; deletions: number }>(
+										"changesPanel",
+										{
+											content: "workingTree",
+											...groups,
+										},
+									)
+								: null;
+						});
 						return (
-							<button
-								type="button"
+							<div
 								role="tab"
+								tabindex={0}
 								aria-selected={ariaValue(active())}
 								data-repository-tab={workspace().cwd}
 								title={`${workspace().cwd}\nDrag to reorder · Alt+Shift+Arrow keys to move`}
@@ -49,9 +107,13 @@ export function RepositoryWorkspaceTabs(props: {
 								onPointerDown={(event) =>
 									props.tabDrag.onPointerDown(event, workspace().cwd)
 								}
-								onKeyDown={(event) =>
-									props.tabDrag.onKeyDown(event, workspace().cwd)
-								}
+								onKeyDown={(event) => {
+									if (event.key === "Enter" || event.key === " ") {
+										event.preventDefault();
+										props.onActivate(workspace());
+									}
+									props.tabDrag.onKeyDown(event, workspace().cwd);
+								}}
 								onClick={(event) => {
 									if (!props.tabDrag.consumeClick(event))
 										props.onActivate(workspace());
@@ -72,7 +134,31 @@ export function RepositoryWorkspaceTabs(props: {
 								<span {...stylex.attrs(styles.tabLabel)}>
 									{workspace().name}
 								</span>
-							</button>
+								{((totals()?.additions ?? 0) > 0 ||
+									(totals()?.deletions ?? 0) > 0) && (
+									<FileChangeTotals
+										additions={totals()!.additions}
+										deletions={totals()!.deletions}
+									/>
+								)}
+								<button
+									type="button"
+									aria-label={`Close ${workspace().name} and all its chats`}
+									title="Close workspace and all its chats"
+									onPointerDown={(event) => event.stopPropagation()}
+									onKeyDown={(event) => {
+										if (event.key !== "Tab") event.stopPropagation();
+									}}
+									onClick={(event) => {
+										event.stopPropagation();
+										for (const entry of workspace().entries)
+											dispatchRemoveAgentPaneRequest(entry.pane.id);
+									}}
+									{...stylex.attrs(styles.closeTab)}
+								>
+									<IconX size={iconSize.xs} />
+								</button>
+							</div>
 						);
 					}}
 				</For>

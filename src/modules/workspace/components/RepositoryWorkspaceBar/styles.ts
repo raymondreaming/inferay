@@ -139,8 +139,15 @@ export const styles = stylex.create({
 		fontSize: font.size_1,
 		fontWeight: font.weight_6,
 		gap: controlSize._1_5,
-		maxWidth: 220,
+		maxWidth: 320,
 		paddingInline: controlSize._3,
+	},
+	closeTab: {
+		display: "flex",
+		alignItems: "center",
+		flexShrink: 0,
+		color: { default: color.textFaint, ":hover": color.textMain },
+		cursor: "pointer",
 	},
 	draggingTab: {
 		cursor: "grabbing",
