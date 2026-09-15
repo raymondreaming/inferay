@@ -54,7 +54,15 @@ src/data/checkpoints.json
 /docs/solid-2.0/
 public/file-icons/
 
-# Local performance investigation tools
+# Local performance investigations and session reports
+/docs/performance.md
+/docs/performance/
+/docs/sessions/
+/scripts/performance/
+/native/desktop-host/src/performance.js
+/native/desktop-host/src/performance.rs
+/native/tooling/src/bin/performance.rs
+/src/shared/lib/performance.ts
 /scripts/benchmarks/
 /native/server/examples/chat_performance_fixture.rs
 

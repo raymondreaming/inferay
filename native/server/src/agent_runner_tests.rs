@@ -81,6 +81,7 @@ for line in sys.stdin:
   assert m['params']['modelProvider']=='inferay_openai_http'
   assert m['params']['config']['model_providers.inferay_openai_http']['supports_websockets']==False
   send({'id':m['id'],'result':{'thread':{'id':'fixture-thread'}}})
+ elif method=='mcpServerStatus/list': send({'id':m['id'],'result':{'data':[],'nextCursor':None}})
  elif method=='turn/start':
   send({'id':m['id'],'result':{'turn':{'id':'fixture-turn'}}})
   if MODE=='unsupported': send({'id':'server-question','method':'future/request','params':{}})

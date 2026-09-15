@@ -999,7 +999,7 @@ async fn git_graph(state: &ServerState, request: Request) -> ApiResult<Response>
                 &pull_requests,
             );
             let response = inferay_presentation::graph_response::response(
-                snapshot,
+                &snapshot,
                 &hidden_refs,
                 &solo_refs,
                 &pinned_refs,

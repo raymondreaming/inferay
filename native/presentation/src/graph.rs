@@ -302,13 +302,13 @@ pub fn lines(i: &Value) -> GraphLines {
                             top: y + if field == "truncatedEdges" {
                                 8.
                             } else if flag(&segment["startsAtNode"]) {
-                                11.5
+                                if flag(&segment["dashed"]) { 20.5 } else { 11.5 }
                             } else {
                                 0.
                             },
                             bottom: y
                                 + if field != "truncatedEdges" && flag(&segment["endsAtNode"]) {
-                                    11.5
+                                    if flag(&segment["dashed"]) { 2.5 } else { 11.5 }
                                 } else {
                                     23.
                                 },
@@ -357,6 +357,23 @@ pub fn lines(i: &Value) -> GraphLines {
 #[cfg(test)]
 mod column_layout_tests {
     use super::*;
+
+    #[test]
+    fn dashed_rails_stop_at_node_outlines() {
+        let result = lines(&json!({
+            "colors": ["cyan"],
+            "rows": [{"row": 0, "rails": [
+                {"column": 0, "dashed": true, "startsAtNode": true},
+                {"column": 1, "dashed": true, "endsAtNode": true},
+                {"column": 2, "dashed": true}
+            ]}]
+        }));
+        // An 18px node is centered in a 23px row. Only through-rails may
+        // span the row; attached dashed rails meet the outside of the node.
+        assert_eq!((result.rails[0].top, result.rails[0].bottom), (20.5, 23.));
+        assert_eq!((result.rails[1].top, result.rails[1].bottom), (0., 2.5));
+        assert_eq!((result.rails[2].top, result.rails[2].bottom), (0., 23.));
+    }
 
     #[test]
     fn message_width_can_exceed_480_and_survives_reload() {

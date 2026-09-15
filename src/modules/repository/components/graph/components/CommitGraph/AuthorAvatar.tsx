@@ -1,9 +1,8 @@
 import { domStyle } from "@shared/lib/dom.tsx";
-import { IconGitCommit } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createSignal } from "solid-js";
 import * as inlineStyles from "./styles.ts";
-import { styles } from "./styles.ts";
+import { GRAPH_DASH_PATTERN, GRAPH_DASH_WIDTH, styles } from "./styles.ts";
 import { hexToRgba } from "./useCommitGraphState.tsx";
 
 function authorInitials(name?: string | null) {
@@ -38,7 +37,8 @@ export function AuthorAvatar(_props: {
 				),
 			)}
 		>
-			{_props.githubAvatar && _props.githubAvatar !== failedUrl() ? (
+			{_props.stash ? null : _props.githubAvatar &&
+				_props.githubAvatar !== failedUrl() ? (
 				<img
 					src={_props.githubAvatar}
 					alt=""
@@ -47,8 +47,6 @@ export function AuthorAvatar(_props: {
 					onError={() => setFailedUrl(_props.githubAvatar ?? null)}
 					{...stylex.attrs(styles.avatarImage)}
 				/>
-			) : _props.stash ? (
-				<IconGitCommit size={10} />
 			) : (
 				authorInitials(_props.name)
 			)}
@@ -65,9 +63,13 @@ export function AuthorAvatar(_props: {
 						width="17"
 						height="17"
 						rx="3"
-						fill="none"
+						fill="var(--color-inferay-black)"
 						stroke={_props.color}
-						stroke-dasharray="2 1"
+						stroke-dasharray={GRAPH_DASH_PATTERN}
+						stroke-width={GRAPH_DASH_WIDTH}
+						stroke-linecap="round"
+						pathLength={63}
+						stroke-dashoffset={0.5}
 					/>
 				</svg>
 			)}

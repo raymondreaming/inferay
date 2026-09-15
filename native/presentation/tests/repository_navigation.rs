@@ -150,6 +150,36 @@ fn hidden_graph_keeps_file_keyboard_navigation_after_closing_and_reopening_diff(
 }
 
 #[test]
+fn sidebar_keys_work_before_a_file_preview_or_graph_focus() {
+    let mut input = json!({
+        "mainViewMode":"graph", "graphVisible":true, "sidebarVisible":true,
+        "sidebarFocused":true, "focusedPanelId":null, "hasFile":false,
+    });
+    for (key, action) in [
+        ("ArrowLeft", json!({"type":"focusGraph"})),
+        ("ArrowRight", json!({"type":"enterSidebar"})),
+        ("ArrowUp", json!({"type":"cycle","direction":-1})),
+        ("ArrowDown", json!({"type":"cycle","direction":1})),
+    ] {
+        input["key"] = json!(key);
+        assert_eq!(project("repositoryKeyboardAction", &input).unwrap(), action);
+        for guard in ["editable", "blocked"] {
+            input[guard] = json!(true);
+            assert_eq!(
+                project("repositoryKeyboardAction", &input).unwrap(),
+                Value::Null
+            );
+            input[guard] = json!(false);
+        }
+    }
+    input["sidebarFocused"] = json!(false);
+    assert_eq!(
+        project("repositoryKeyboardAction", &input).unwrap(),
+        Value::Null
+    );
+}
+
+#[test]
 fn right_from_chat_enters_sidebar_again_after_returning_to_chat() {
     use inferay_presentation::panels;
     let mut session = panels::normalize(&json!({"graphVisible":false,"sidebarVisible":true}));

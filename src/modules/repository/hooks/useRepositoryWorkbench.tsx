@@ -595,6 +595,7 @@ export function useRepositoryWorkbench(
 		});
 	};
 	let sidebarElement: HTMLElement | undefined;
+	let diffRailElement: HTMLElement | undefined;
 	const closeDiffViewer = () => {
 		setZenMode(false);
 		updatePanelSession({
@@ -691,16 +692,24 @@ export function useRepositoryWorkbench(
 	const cycleFile = (direction: -1 | 1) => {
 		const session = panelSession();
 		const comparisonDiff = historical().comparisonSource !== null;
-		const kind = session.historicalDiff
-			? comparisonDiff
-				? "comparison"
-				: "commit"
-			: "workingTree";
-		const files: (GitFileEntry | GitCommitFile)[] = session.historicalDiff
-			? comparisonDiff
-				? comparisonKeyboardFiles()
-				: commitKeyboardFiles()
-			: keyboardFiles();
+		const kind =
+			session.mainViewMode === "graph"
+				? session.sidebarContent === "workingTree"
+					? "workingTree"
+					: session.selectedCommitIds.length > 1
+						? "comparison"
+						: "commit"
+				: session.historicalDiff
+					? comparisonDiff
+						? "comparison"
+						: "commit"
+					: "workingTree";
+		const files: (GitFileEntry | GitCommitFile)[] =
+			kind === "workingTree"
+				? keyboardFiles()
+				: kind === "comparison"
+					? comparisonKeyboardFiles()
+					: commitKeyboardFiles();
 		const nextFile = adjacentGitFile(
 			files,
 			(file) =>
@@ -715,12 +724,13 @@ export function useRepositoryWorkbench(
 		const session = panelSession();
 		const target = event.target as HTMLElement;
 		const action = rustProject<
-			| { type: "close" | "open" | "enterSidebar" }
+			| { type: "close" | "open" | "enterSidebar" | "focusGraph" }
 			| { type: "cycle"; direction: -1 | 1 }
 			| { type: "toggle" }
 			| null
 		>("repositoryKeyboardAction", {
 			focusedPanelId: session.focusedAuxiliaryPanel?.id,
+			sidebarFocused: sidebarElement?.contains(target) ?? false,
 			chatFocused:
 				Boolean(target.closest("[data-chat-pane-id]")) ||
 				(target === document.body && !session.focusedAuxiliaryPanel),
@@ -767,6 +777,10 @@ export function useRepositoryWorkbench(
 			// Focus the mounted sidebar before selection renders the diff and file rows.
 			sidebarElement?.focus({ preventScroll: true });
 			selectFile(kind, first);
+		} else if (action.type === "focusGraph") {
+			diffRailElement
+				?.querySelector<HTMLElement>('[aria-label="Repository commit history"]')
+				?.focus({ preventScroll: true });
 		} else if (action.type === "close") closeDiffViewer();
 		else if (action.type === "open") changeMainViewMode("diff");
 		else if (action.type === "cycle") cycleFile(action.direction);
@@ -947,6 +961,9 @@ export function useRepositoryWorkbench(
 		<>
 			{context().diffVisible ? (
 				<WorkbenchDiffRail
+					ref={(element) => {
+						diffRailElement = element;
+					}}
 					zenMode={zenMode()}
 					width={diffWidth()}
 					maxWidth={`max(0px, calc(100% - ${MIN_RESPONSIVE_PANE_WIDTH + (panelSession().sidebarVisible ? sidebarWidth() : 0)}px))`}
@@ -1016,6 +1033,7 @@ export function useRepositoryWorkbench(
 					ref={(element) => {
 						sidebarElement = element;
 					}}
+					onFocus={focusDiffViewer}
 					visible={panelSession().sidebarVisible}
 					width={sidebarWidth()}
 					error={panelSessionError()}

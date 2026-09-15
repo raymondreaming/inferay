@@ -73,27 +73,8 @@ export const CommitRow = function CommitRow(_props: {
 	const isMergeCommit = createMemo(
 		() => !isWip() && !isStash() && _props.commit.parents.length > 1,
 	);
-	const syntheticStashRef = createMemo<GitGraphRef | null>(() =>
-		isStash()
-			? {
-					fullName: _props.commit.stashName ?? "refs/stash",
-					displayName: _props.commit.stashName ?? "stash",
-					label: _props.commit.stashName ?? "stash",
-					kind: "stash",
-					target: _props.commit.hash,
-					isHead: false,
-				}
-			: null,
-	);
-	const allRefs = createMemo(() => {
-		const _syntheticStashRefValue = syntheticStashRef();
-		return _syntheticStashRefValue &&
-			!_props.commit.refs.some((ref) => ref.kind === "stash")
-			? [_syntheticStashRefValue, ..._props.commit.refs]
-			: _props.commit.refs;
-	});
 	const visibleRefs = createMemo(() =>
-		allRefs()
+		(isStash() ? [] : _props.commit.refs)
 			.filter((ref) => !_props.hiddenRefNames.has(ref.fullName))
 			.sort(
 				(a, b) =>
@@ -109,7 +90,9 @@ export const CommitRow = function CommitRow(_props: {
 	);
 	const hasRefs = createMemo(() => visibleRefs().length > 0);
 	const visibleGhostRef = createMemo(() =>
-		_props.ghostRef && !_props.hiddenRefNames.has(_props.ghostRef.fullName)
+		!isStash() &&
+		_props.ghostRef &&
+		!_props.hiddenRefNames.has(_props.ghostRef.fullName)
 			? _props.ghostRef
 			: undefined,
 	);

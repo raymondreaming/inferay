@@ -4,7 +4,7 @@ import * as stylex from "@stylexjs/stylex";
 import { AuthorAvatar } from "./AuthorAvatar.tsx";
 import { MergeNode } from "./MergeNode.tsx";
 import * as inlineStyles from "./styles.ts";
-import { styles } from "./styles.ts";
+import { GRAPH_DASH_PATTERN, GRAPH_DASH_WIDTH, styles } from "./styles.ts";
 export function CommitGraphCell(_props: {
 	commit: GraphCommit;
 	color: string;
@@ -59,7 +59,11 @@ export function CommitGraphCell(_props: {
 							r="8.5"
 							fill="var(--color-inferay-black)"
 							stroke={_props.color}
-							stroke-dasharray="2 1"
+							stroke-dasharray={GRAPH_DASH_PATTERN}
+							stroke-width={GRAPH_DASH_WIDTH}
+							stroke-linecap="round"
+							pathLength={54}
+							stroke-dashoffset={0.5}
 						/>
 					</svg>
 					<div

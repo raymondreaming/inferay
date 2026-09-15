@@ -1,6 +1,7 @@
 import type { GraphLines } from "@contracts";
 import { type CSSProperties, domStyle } from "@shared/lib/dom.tsx";
 import { For } from "solid-js";
+import { GRAPH_DASH_PATTERN, GRAPH_DASH_WIDTH } from "./styles.ts";
 export const CommitGraphLinesLayer = function CommitGraphLinesLayer(_props: {
 	width: number;
 	height: number;
@@ -31,10 +32,16 @@ export const CommitGraphLinesLayer = function CommitGraphLinesLayer(_props: {
 							y1={segment().top}
 							x2={segment().x}
 							y2={segment().bottom}
+							stroke-dashoffset={segment().top}
 							stroke={segment().color}
-							stroke-dasharray={segment().dashed ? "2 1" : undefined}
-							stroke-linecap={segment().dashed ? "butt" : "round"}
-							stroke-opacity={0.98}
+							stroke-dasharray={
+								segment().dashed ? GRAPH_DASH_PATTERN : undefined
+							}
+							stroke-width={
+								segment().dashed ? GRAPH_DASH_WIDTH : _props.lineWidth
+							}
+							stroke-linecap="round"
+							stroke-opacity={1}
 						/>
 					)}
 				</For>
@@ -46,9 +53,12 @@ export const CommitGraphLinesLayer = function CommitGraphLinesLayer(_props: {
 							data-graph-transition="true"
 							d={curve().path}
 							stroke={curve().color}
-							stroke-dasharray={curve().dashed ? "2 1" : undefined}
-							stroke-linecap={curve().dashed ? "butt" : "round"}
-							stroke-opacity={0.96}
+							stroke-dasharray={curve().dashed ? GRAPH_DASH_PATTERN : undefined}
+							stroke-width={
+								curve().dashed ? GRAPH_DASH_WIDTH : _props.lineWidth
+							}
+							stroke-linecap="round"
+							stroke-opacity={1}
 							stroke-linejoin="round"
 							fill="none"
 						/>
@@ -62,9 +72,12 @@ export const CommitGraphLinesLayer = function CommitGraphLinesLayer(_props: {
 							data-graph-convergence="true"
 							d={curve().path}
 							stroke={curve().color}
-							stroke-dasharray={curve().dashed ? "2 1" : undefined}
-							stroke-linecap={curve().dashed ? "butt" : "round"}
-							stroke-opacity={0.98}
+							stroke-dasharray={curve().dashed ? GRAPH_DASH_PATTERN : undefined}
+							stroke-width={
+								curve().dashed ? GRAPH_DASH_WIDTH : _props.lineWidth
+							}
+							stroke-linecap="round"
+							stroke-opacity={1}
 							stroke-linejoin="round"
 							fill="none"
 						/>
@@ -81,8 +94,11 @@ export const CommitGraphLinesLayer = function CommitGraphLinesLayer(_props: {
 								y1={segment().top}
 								x2={segment().x}
 								y2={segment().bottom}
+								stroke-dashoffset={segment().top}
 								stroke={segment().color}
-								stroke-dasharray="2 1"
+								stroke-dasharray={GRAPH_DASH_PATTERN}
+								stroke-width={GRAPH_DASH_WIDTH}
+								stroke-linecap="round"
 							/>
 							<circle
 								cx={segment().x}

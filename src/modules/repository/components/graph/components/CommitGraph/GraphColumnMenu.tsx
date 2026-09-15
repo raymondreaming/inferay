@@ -62,18 +62,20 @@ export function GraphColumnMenu(_props: {
 									</span>
 								) : null}
 							</label>
-							{_props.order.map((key) => (
-								<button
-									type="button"
-									onClick={() => _props.onToggleColumn(key)}
-									{...stylex.attrs(styles.columnsMenuItem)}
-								>
-									{labels()[key]}
-									<span {...stylex.attrs(styles.columnsState)}>
-										{_props.columns[key] ? "On" : "Off"}
-									</span>
-								</button>
-							))}
+							<For each={_props.order} keyed={(key) => key}>
+								{(key) => (
+									<button
+										type="button"
+										onClick={() => _props.onToggleColumn(key())}
+										{...stylex.attrs(styles.columnsMenuItem)}
+									>
+										{labels()[key()]}
+										<span {...stylex.attrs(styles.columnsState)}>
+											{_props.columns[key()] ? "On" : "Off"}
+										</span>
+									</button>
+								)}
+							</For>
 							{_props.hiddenRefs.length ? (
 								<>
 									<div {...stylex.attrs(styles.columnsMenuSection)}>

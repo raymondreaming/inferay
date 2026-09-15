@@ -112,7 +112,7 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
         "chatScrollRestore" => json!(chat_view::restore_scroll(input)),
         "uiTimingSummaries" => ui_performance::summaries(input),
         "graphPreferences" => graph::preferences(input),
-        "emptyGitGraph" => graph_response::response(Default::default(), &[], &[], &[]),
+        "emptyGitGraph" => json!(graph_response::response(&Default::default(), &[], &[], &[])),
         "graphLayout" => graph::layout(input),
         "graphNavigation" => json!(graph::navigation(input)),
         "graphViewport" => json!(graph::viewport(input)),

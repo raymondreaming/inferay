@@ -5,6 +5,7 @@ import { diffRailStyle, styles } from "./styles.ts";
 
 export { WorkbenchSidebar } from "./WorkbenchSidebar.tsx";
 export function WorkbenchDiffRail(_props: {
+	ref?: (element: HTMLElement) => void;
 	zenMode: boolean;
 	width: number;
 	maxWidth: string;
@@ -16,6 +17,7 @@ export function WorkbenchDiffRail(_props: {
 	) => void;
 	children?: Element;
 }) {
+	const captureFocus = captureEvent("pointerdown", () => _props.onFocus());
 	return (
 		<aside
 			{...stylex.attrs(styles.diffRail, _props.zenMode && styles.diffRailZen)}
@@ -24,7 +26,10 @@ export function WorkbenchDiffRail(_props: {
 					? undefined
 					: diffRailStyle(_props.width, _props.maxWidth),
 			)}
-			ref={captureEvent("pointerdown", () => _props.onFocus?.())}
+			ref={(element) => {
+				_props.ref?.(element);
+				captureFocus(element);
+			}}
 		>
 			{!_props.zenMode && (
 				<button

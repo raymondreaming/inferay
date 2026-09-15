@@ -1,13 +1,13 @@
 mod prepared_diff;
 pub use prepared_diff::{
-    prepare_conflict_lines, prepare_edit_diff, PreparedEditDiff, SequentialEdit,
+    PreparedEditDiff, SequentialEdit, prepare_conflict_lines, prepare_edit_diff,
 };
 mod git_exec;
 mod graph_semantics;
 mod path_access;
 
 use git_exec::{run_git, run_git_timed};
-use inferay_core::path_security::{is_safe_relative_path, AllowedPaths};
+use inferay_core::path_security::{AllowedPaths, is_safe_relative_path};
 use path_access::resolve_real_allowed_local_path;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -2938,6 +2938,73 @@ mod graph_layout_tests {
     }
 
     #[test]
+    fn reset_keeps_wip_above_stashed_history_on_a_separate_lane() {
+        for mode in ["--soft", "--mixed"] {
+            let root = tempfile::tempdir().unwrap();
+            let cwd = root.path().to_str().unwrap();
+            let git = |args: &[&str]| {
+                let output = Command::new("git")
+                    .args(args)
+                    .current_dir(root.path())
+                    .output()
+                    .unwrap();
+                assert!(
+                    output.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            };
+            git(&["init", "-b", "main"]);
+            git(&["config", "user.email", "fixture@example.invalid"]);
+            git(&["config", "user.name", "Fixture"]);
+            git(&["config", "commit.gpgsign", "false"]);
+            let file = root.path().join("file.txt");
+            for contents in ["base\n", "middle\n", "tip\n"] {
+                std::fs::write(&file, contents).unwrap();
+                git(&["add", "file.txt"]);
+                git(&["commit", "-m", contents.trim()]);
+            }
+            std::fs::write(&file, "stashed\n").unwrap();
+            git(&["stash", "push"]);
+            let before = prepare_git_graph(cwd);
+            git(&["reset", mode, "HEAD~2"]);
+            let input = prepare_git_graph(cwd);
+            assert_ne!(input.revision, before.revision);
+            let snapshot = get_git_graph_snapshot_with_query(cwd, 100, input, "");
+            let commits = &snapshot.commits;
+            assert_eq!(commits.len(), 5);
+            assert_eq!(commits[0].id, "wip");
+            assert_eq!(commits[1].item_kind, GitGraphItemKind::Stash);
+            assert_eq!(commits[2].message, "tip");
+            assert_eq!(commits[3].message, "middle");
+            assert_eq!(commits[4].message, "base");
+            assert_eq!(commits[0].parents, [commits[4].hash.clone()]);
+            assert_eq!(commits[0].change_summary.as_ref().unwrap().files, 1);
+            assert_eq!(
+                commits.iter().map(|c| c.column).collect::<Vec<_>>(),
+                [0, 1, 1, 1, 0]
+            );
+            for row in &snapshot.rows[..4] {
+                assert!(row.rails.iter().any(|rail| rail.column == 0 && rail.dashed));
+            }
+            assert!(snapshot.rows[1].rails.iter().all(|rail| rail.dashed));
+            assert!(
+                snapshot.rows[2]
+                    .rails
+                    .iter()
+                    .any(|rail| rail.column == 1 && rail.dashed && rail.ends_at_node)
+            );
+            assert!(
+                snapshot.rows[3]
+                    .rails
+                    .iter()
+                    .any(|rail| rail.column == 1 && !rail.dashed)
+            );
+            assert!(commits[4].refs.iter().any(|reference| reference.is_head));
+        }
+    }
+
+    #[test]
     fn synthetic_edge_stops_dashing_at_its_parent() {
         let (_, rows) = layout_graph(vec![
             GraphCommit {
@@ -3127,22 +3194,28 @@ mod file_mode_tests {
                 build_hunk_diff_from_versions(String::new(), "", content, true, false, None);
             assert!(added.is_new && added.old_lines.is_empty());
             assert_eq!(added.new_lines.len(), content_lines(content).len());
-            assert!(added
-                .new_lines
-                .iter()
-                .all(|line| line.line_type == GitDiffLineType::Add));
+            assert!(
+                added
+                    .new_lines
+                    .iter()
+                    .all(|line| line.line_type == GitDiffLineType::Add)
+            );
             let deleted =
                 build_hunk_diff_from_versions(String::new(), content, "", false, true, None);
             assert_eq!(deleted.old_lines.len(), added.new_lines.len());
             assert_eq!(deleted.old_lines.len(), deleted.new_lines.len());
-            assert!(deleted
-                .old_lines
-                .iter()
-                .all(|line| line.line_type == GitDiffLineType::Remove));
-            assert!(deleted
-                .new_lines
-                .iter()
-                .all(|line| line.line_type == GitDiffLineType::Spacer && line.number.is_none()));
+            assert!(
+                deleted
+                    .old_lines
+                    .iter()
+                    .all(|line| line.line_type == GitDiffLineType::Remove)
+            );
+            assert!(
+                deleted
+                    .new_lines
+                    .iter()
+                    .all(|line| line.line_type == GitDiffLineType::Spacer && line.number.is_none())
+            );
         }
     }
 }

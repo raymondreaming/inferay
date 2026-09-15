@@ -143,10 +143,24 @@ pub fn keyboard_action(input: &Value) -> Value {
     {
         return json!({"type":"enterSidebar"});
     }
-    if input["focusedPanelId"] != "workspace-diff-viewer" || flag(&input["editable"]) {
+    let sidebar = flag(&input["sidebarFocused"]) && flag(&input["sidebarVisible"]);
+    if (!sidebar && input["focusedPanelId"] != "workspace-diff-viewer") || flag(&input["editable"])
+    {
         return Value::Null;
     }
     let diff = input["mainViewMode"] == "diff";
+    if sidebar && !diff {
+        return match string(&input["key"]) {
+            "ArrowLeft" if flag(&input["graphVisible"]) => json!({"type":"focusGraph"}),
+            "ArrowRight" if !flag(&input["graphVisible"]) && flag(&input["hasFile"]) => {
+                json!({"type":"open"})
+            }
+            "ArrowRight" => json!({"type":"enterSidebar"}),
+            "ArrowUp" => json!({"type":"cycle","direction":-1}),
+            "ArrowDown" => json!({"type":"cycle","direction":1}),
+            _ => Value::Null,
+        };
+    }
     if !diff && (input["graphVisible"] != false || input["sidebarVisible"] != true) {
         return Value::Null;
     }

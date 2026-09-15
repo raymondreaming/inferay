@@ -9,6 +9,8 @@ import {
 } from "../../../../../../design-system/styles.stylex.ts";
 
 export const AVATAR_SIZE = 18;
+export const GRAPH_DASH_PATTERN = "1 2";
+export const GRAPH_DASH_WIDTH = 1;
 
 export const styles = stylex.create({
 	root: {
@@ -413,14 +415,9 @@ export const styles = stylex.create({
 	},
 	wipNode: {
 		position: "absolute",
-		display: "flex",
-		alignItems: "center",
-		justifyContent: "center",
 		width: AVATAR_SIZE,
 		height: AVATAR_SIZE,
-		borderRadius: radius.pill,
-		backgroundColor: "var(--color-inferay-black)",
-		boxShadow: "0 0 2px rgba(249,115,22,0.16)",
+		overflow: "visible",
 		zIndex: layer.overlayContent,
 	},
 	messageCell: {
@@ -554,8 +551,9 @@ export const styles = stylex.create({
 		zIndex: layer.overlayContent,
 	},
 	stashNode: {
-		borderRadius: radius.sm,
-		backgroundColor: color.backgroundRaised,
+		borderRadius: 0,
+		backgroundColor: "transparent",
+		overflow: "visible",
 	},
 	avatarImage: {
 		display: "block",

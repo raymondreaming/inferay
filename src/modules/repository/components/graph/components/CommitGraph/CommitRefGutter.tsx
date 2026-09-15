@@ -60,9 +60,15 @@ export function CommitRefGutter(props: {
 				<span
 					aria-hidden="true"
 					{...stylex.attrs(styles.refConnector)}
-					style={domStyle(
-						inlineStyles.getCommitRowRefConnectorStyle(props.color),
-					)}
+					style={domStyle({
+						...inlineStyles.getCommitRowRefConnectorStyle(props.color),
+						...(props.showWipRef
+							? {
+									backgroundColor: "transparent",
+									backgroundImage: `repeating-linear-gradient(to right, ${props.color} 0 2px, transparent 2px 3px)`,
+								}
+							: {}),
+					})}
 				/>
 			) : null}
 		</div>

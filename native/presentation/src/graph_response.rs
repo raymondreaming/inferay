@@ -1,7 +1,7 @@
 //! Pure graph presentation shared by native responses and renderer fallbacks.
 use crate::git_actions;
 use inferay_core::repository::{GitGraphRef, GitGraphSnapshot};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 
 pub fn annotate_pull_requests(
@@ -42,6 +42,71 @@ pub fn annotate_pull_requests(
 mod tests {
     use super::*;
     use inferay_core::repository::{GitGraphItemKind, GraphCommit, MergedPullRequest};
+    use serde_json::json;
+
+    #[test]
+    fn serialized_graph_preserves_navigation_and_ref_preferences() {
+        let branch = "refs/heads/main".to_string();
+        let mut child = GraphCommit {
+            id: "child".into(),
+            hash: "child".into(),
+            parents: vec!["parent".into()],
+            refs: vec![
+                serde_json::from_value(json!({
+                    "fullName": branch, "displayName": "main", "label": "main",
+                    "kind": "localBranch", "target": "child", "isHead": true
+                }))
+                .unwrap(),
+            ],
+            ..Default::default()
+        };
+        child.navigation.containing_branch = Some(branch.clone());
+        let mut parent = GraphCommit {
+            id: "parent".into(),
+            hash: "parent".into(),
+            ..Default::default()
+        };
+        parent.navigation.containing_branch = Some(branch.clone());
+        let snapshot = GitGraphSnapshot {
+            commits: vec![child, parent],
+            ancestry: BTreeMap::from([(branch.clone(), vec![[0, 1]])]),
+            ..Default::default()
+        };
+        let preferences = [branch.clone()];
+        let bytes = serde_json::to_vec(&response(
+            &snapshot,
+            &preferences,
+            &preferences,
+            &preferences,
+        ))
+        .unwrap();
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(value["commits"][0]["parents"], json!(["parent"]));
+        assert_eq!(value["commits"][1]["hash"], "parent");
+        assert_eq!(
+            value["presentation"]["containingBranches"]["parent"]["fullName"],
+            branch
+        );
+        assert_eq!(value["presentation"]["hiddenRefNames"], json!([branch]));
+        assert_eq!(
+            value["presentation"]["hiddenRefDetails"][0]["target"],
+            "child"
+        );
+        assert_eq!(value["presentation"]["pinnedColumns"], json!([0]));
+        assert_eq!(
+            value["presentation"]["reachableHistory"],
+            json!(["child", "parent"])
+        );
+        assert_eq!(
+            value["presentation"]["selectableItems"],
+            json!(["child", "parent"])
+        );
+        assert!(
+            value["actions"]
+                .as_object()
+                .is_some_and(|actions| !actions.is_empty())
+        );
+    }
 
     #[test]
     fn merged_pr_badges_distinguish_local_rework_without_changing_topology() {
@@ -126,12 +191,12 @@ pub struct GraphPresentation<'a> {
     pub selectable_items: Vec<&'a String>,
 }
 
-pub fn response(
-    snapshot: GitGraphSnapshot,
-    hidden: &[String],
-    solo: &[String],
-    pinned: &[String],
-) -> Value {
+pub fn response<'a>(
+    snapshot: &'a GitGraphSnapshot,
+    hidden: &'a [String],
+    solo: &'a [String],
+    pinned: &'a [String],
+) -> GraphData<'a> {
     let preferences = GraphSemanticPreferences {
         hidden_refs: hidden,
         solo_refs: solo,
@@ -193,9 +258,9 @@ pub fn response(
         reachable_history: reachable,
         selectable_items: commits.iter().map(|commit| &commit.id).collect::<Vec<_>>(),
     };
-    json!(GraphData {
-        snapshot: &snapshot,
+    GraphData {
+        snapshot,
         presentation,
-        actions: &git_actions::CATALOG
-    })
+        actions: &git_actions::CATALOG,
+    }
 }
