@@ -20,7 +20,7 @@ export function CommitGraphCell(_props: {
 }) {
 	return (
 		<div
-			{...stylex.attrs(styles.graphCell, _props.isWip && styles.wipGraphCell)}
+			{...stylex.attrs(styles.graphCell)}
 			style={domStyle(
 				inlineStyles.getCommitRowGraphCellStyle(_props.graphWidth),
 			)}
@@ -44,42 +44,27 @@ export function CommitGraphCell(_props: {
 				/>
 			) : null}
 			{_props.isWip ? (
-				<>
-					<svg
-						aria-hidden="true"
-						viewBox="0 0 18 18"
-						width="18"
-						height="18"
-						{...stylex.attrs(styles.wipNode)}
-						style={domStyle({ left: _props.nodeLeft, top: _props.nodeTop })}
-					>
-						<circle
-							cx="9"
-							cy="9"
-							r="8.5"
-							fill="var(--color-inferay-black)"
-							stroke={_props.color}
-							stroke-dasharray={GRAPH_DASH_PATTERN}
-							stroke-width={GRAPH_DASH_WIDTH}
-							stroke-linecap="round"
-							pathLength={54}
-							stroke-dashoffset={0.5}
-						/>
-					</svg>
-					<div
-						data-graph-wip-summary
-						{...stylex.attrs(styles.wipSummary)}
-						style={domStyle({ left: _props.nodeCenter + 15 })}
-					>
-						<span>WIP</span>
-						{_props.commit.changeSummary && (
-							<span>
-								{_props.commit.changeSummary.files} file
-								{_props.commit.changeSummary.files === 1 ? "" : "s"}
-							</span>
-						)}
-					</div>
-				</>
+				<svg
+					aria-hidden="true"
+					viewBox="0 0 18 18"
+					width="18"
+					height="18"
+					{...stylex.attrs(styles.wipNode)}
+					style={domStyle({ left: _props.nodeLeft, top: _props.nodeTop })}
+				>
+					<circle
+						cx="9"
+						cy="9"
+						r="8.5"
+						fill="var(--color-inferay-black)"
+						stroke={_props.color}
+						stroke-dasharray={GRAPH_DASH_PATTERN}
+						stroke-width={GRAPH_DASH_WIDTH}
+						stroke-linecap="round"
+						pathLength={54}
+						stroke-dashoffset={0.5}
+					/>
+				</svg>
 			) : _props.isMergeCommit ? (
 				<MergeNode
 					color={_props.color}

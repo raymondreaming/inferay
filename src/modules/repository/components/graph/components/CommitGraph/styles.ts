@@ -394,18 +394,6 @@ export const styles = stylex.create({
 		transform: "translateY(-0.5px)",
 		zIndex: layer.content,
 	},
-	wipGraphCell: { overflow: "visible", zIndex: layer.overlayContent },
-	wipSummary: {
-		position: "absolute",
-		top: 0,
-		height: "100%",
-		display: "flex",
-		alignItems: "center",
-		gap: 8,
-		whiteSpace: "nowrap",
-		color: color.textMuted,
-		fontSize: font.size_2,
-	},
 	nodeOutline: {
 		position: "absolute",
 		inset: 0,

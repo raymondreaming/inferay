@@ -13,7 +13,13 @@ export function CommitMessageCell(_props: {
 			{...stylex.attrs(styles.messageCell)}
 			style={domStyle(inlineStyles.getCommitRowMessageCellStyle(_props.width))}
 		>
-			{!_props.isWip && (
+			{_props.isWip ? (
+				<span data-graph-wip-summary {...stylex.attrs(styles.commitMessage)}>
+					WIP
+					{_props.commit.changeSummary &&
+						` · ${_props.commit.changeSummary.files} file${_props.commit.changeSummary.files === 1 ? "" : "s"}`}
+				</span>
+			) : (
 				<>
 					{_props.commit.pullRequest ? (
 						<a
@@ -48,7 +54,7 @@ export function CommitMessageCell(_props: {
 					>
 						{_props.commit.message}
 					</span>
-					{!_props.isWip && _props.commit.body ? (
+					{_props.commit.body ? (
 						<span {...stylex.attrs(styles.commitBody)}>
 							— {_props.commit.body.replace(/\s+/g, " ")}
 						</span>
