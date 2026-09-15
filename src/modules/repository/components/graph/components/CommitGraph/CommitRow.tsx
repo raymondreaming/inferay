@@ -133,6 +133,14 @@ export const CommitRow = function CommitRow(_props: {
 	);
 	const handleSelect = (intent?: GraphSelectionIntent) =>
 		_props.onSelect?.(_props.commit.id, intent);
+	const messageStart = createMemo(() => {
+		let left = 0;
+		for (const column of _props.visibleOrder) {
+			if (column === "message") break;
+			left += column === "graph" ? _props.graphWidth : _props.widths[column];
+		}
+		return left;
+	});
 	const nodeAnchoredWashLeft = createMemo(
 		() => _props.graphStart + nodeCenter(),
 	);
@@ -154,13 +162,13 @@ export const CommitRow = function CommitRow(_props: {
 			onMouseEnter={() => _props.onRowHover(_props.commit.id)}
 			onMouseLeave={() => _props.onRowHover(null)}
 			{...stylex.attrs(styles.graphRow, styles.virtualRow)}
-			style={domStyle(
-				inlineStyles.getCommitRowGraphRowStyle(
+			style={domStyle({
+				...inlineStyles.getCommitRowGraphRowStyle(
 					ROW_HEIGHT,
 					`translateY(${_props.virtualTop}px)`,
 					_props.searchMatch && _props.historyMatch ? 1 : 0.22,
 				),
-			)}
+			})}
 			onClick={(event) =>
 				handleSelect({
 					additive: event.metaKey || event.ctrlKey,
@@ -182,23 +190,30 @@ export const CommitRow = function CommitRow(_props: {
 				handleSelect();
 			}}
 		>
-			<span
-				aria-hidden="true"
-				data-graph-row-wash="true"
-				data-graph-row-hovered={_props.rowActive ? "true" : "false"}
-				data-graph-row-selected={_props.selected ? "true" : "false"}
-				{...stylex.attrs(styles.nodeAnchoredRowWash)}
-				style={domStyle(
-					inlineStyles.getCommitRowNodeAnchoredRowWashStyle(
-						nodeAnchoredWashLeft(),
-						nodeTop(),
-						AVATAR_SIZE,
-						_props.rowActive
-							? "var(--inferay-selection-fill, var(--inferay-surface-panel))"
-							: hexToRgba(color(), _props.selected ? 0.42 : 0.1),
-					),
+			{_props.visibleOrder.includes("graph") &&
+				(!isWip() || _props.rowActive) && (
+					<span
+						aria-hidden="true"
+						data-graph-row-wash="true"
+						data-graph-row-hovered={_props.rowActive ? "true" : "false"}
+						data-graph-row-selected={_props.selected ? "true" : "false"}
+						{...stylex.attrs(styles.nodeAnchoredRowWash)}
+						style={domStyle(
+							inlineStyles.getCommitRowNodeAnchoredRowWashStyle(
+								nodeAnchoredWashLeft(),
+								0,
+								ROW_HEIGHT,
+								hexToRgba(
+									color(),
+									_props.selected || _props.rowActive ? 0.42 : 0.1,
+								),
+								_props.selected || _props.rowActive
+									? `max(0px, calc(100% - ${nodeAnchoredWashLeft()}px))`
+									: Math.max(0, messageStart() - nodeAnchoredWashLeft()),
+							),
+						)}
+					/>
 				)}
-			/>
 			{
 				<For each={_props.visibleOrder} keyed={(row) => row}>
 					{(column) => (
@@ -264,7 +279,6 @@ export const CommitRow = function CommitRow(_props: {
 									case "message":
 										return (
 											<CommitMessageCell
-												color={color()}
 												commit={_props.commit}
 												width={_props.widths.message}
 												isWip={isWip()}

@@ -1,15 +1,15 @@
-import type { GitGraphRef } from "@contracts";
 import { domStyle } from "@shared/lib/dom.tsx";
-import { IconSearch, IconSettings } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { createMemo, For } from "solid-js";
+import { createMemo, createSignal, For } from "solid-js";
 import { ColumnResizeHandle } from "./ColumnResizeHandle.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 import {
+	COLUMN_WIDTH,
 	type ColumnKey,
 	type ColumnVisibility,
 	type ColumnWidths,
+	GRAPH_PADDING,
 	TOOLS_WIDTH,
 	TOP_PADDING,
 } from "./useCommitGraphState.tsx";
@@ -18,21 +18,11 @@ export function HeaderRow(_props: {
 	columns: ColumnVisibility;
 	widths: ColumnWidths;
 	order: ColumnKey[];
-	isColumnsOpen: boolean;
-	onToggleColumnsMenu: () => void;
-	onToggleColumn: (key: keyof ColumnVisibility) => void;
 	onMoveColumn: (source: ColumnKey, target: ColumnKey) => void;
 	onResizeStart: (column: keyof ColumnWidths, event: PointerEvent) => void;
-	hiddenRefs: GitGraphRef[];
-	onShowRef: (fullName: string) => void;
-	query: string;
-	onQueryChange: (query: string) => void;
-	matchCount: number;
 }) {
-	const visible = (column: ColumnKey) =>
-		column !== "author" && column !== "sha" && column !== "date"
-			? true
-			: _props.columns[column];
+	const [hovered, setHovered] = createSignal(false);
+	const visible = (column: ColumnKey) => _props.columns[column];
 	const labels = createMemo<Record<ColumnKey, string>>(() => ({
 		date: "Date",
 		refs: "Branch",
@@ -52,6 +42,8 @@ export function HeaderRow(_props: {
 	return (
 		<div
 			data-graph-header="true"
+			onMouseEnter={() => setHovered(true)}
+			onMouseLeave={() => setHovered(false)}
 			{...stylex.attrs(styles.header)}
 			style={domStyle({
 				...inlineStyles.getHeaderRowHeaderStyle(headerWidth()),
@@ -88,14 +80,34 @@ export function HeaderRow(_props: {
 										_props.onMoveColumn(source, column());
 								}}
 								{...stylex.attrs(styles.headerCell, styles.draggableHeader)}
-								style={domStyle(
-									inlineStyles.getHeaderRowHeaderCellStyle(
-										columnWidth(column()),
+								style={domStyle({
+									...inlineStyles.getHeaderRowHeaderCellStyle(
+										columnWidth(column()) +
+											(visibleOrder()[visibleOrder().indexOf(column()) + 1] ===
+											"graph"
+												? GRAPH_PADDING + COLUMN_WIDTH / 2
+												: 0) -
+											(column() === "graph"
+												? GRAPH_PADDING + COLUMN_WIDTH / 2
+												: 0),
 									),
-								)}
+									marginLeft:
+										column() === "graph" && visibleOrder()[0] === "graph"
+											? GRAPH_PADDING + COLUMN_WIDTH / 2
+											: 0,
+								})}
 							>
+								<span
+									{...stylex.attrs(
+										styles.headerLabel,
+										!hovered() && styles.headerLabelHidden,
+									)}
+								>
+									{labels()[column()]}
+								</span>
 								<ColumnResizeHandle
 									column={column()}
+									visible={hovered()}
 									onResizeStart={_props.onResizeStart}
 								/>
 							</div>
@@ -103,82 +115,6 @@ export function HeaderRow(_props: {
 					}}
 				</For>
 			}
-			<div
-				{...stylex.attrs(styles.headerTools)}
-				style={domStyle(inlineStyles.getHeaderRowHeaderToolsStyle(TOOLS_WIDTH))}
-			>
-				<div {...stylex.attrs(styles.columnsMenuRoot)}>
-					<button
-						type="button"
-						onClick={_props.onToggleColumnsMenu}
-						aria-label="Graph columns and search"
-						title="Graph columns and search"
-						{...stylex.attrs(styles.columnsButton)}
-					>
-						<IconSettings size={11} />
-					</button>
-					{_props.isColumnsOpen ? (
-						<div {...stylex.attrs(styles.columnsMenu)}>
-							<label {...stylex.attrs(styles.searchRoot)}>
-								<IconSearch size={11} />
-								<input
-									type="search"
-									value={_props.query}
-									onInput={(event) =>
-										_props.onQueryChange(event.currentTarget.value)
-									}
-									placeholder="Search all branches"
-									aria-label="Search commits"
-									title="Search all branches using author:, committer:, message:, ref:, or sha:. Solo filtering resumes when search is cleared."
-									{...stylex.attrs(styles.searchInput)}
-								/>
-								{_props.query ? (
-									<span {...stylex.attrs(styles.searchCount)}>
-										{_props.matchCount}
-									</span>
-								) : null}
-							</label>
-							{(["author", "sha", "date"] as const).map((key) => (
-								<button
-									type="button"
-									onClick={() => _props.onToggleColumn(key)}
-									{...stylex.attrs(styles.columnsMenuItem)}
-								>
-									{labels()[key]}
-									<span {...stylex.attrs(styles.columnsState)}>
-										{_props.columns[key] ? "On" : "Off"}
-									</span>
-								</button>
-							))}
-							{_props.hiddenRefs.length ? (
-								<>
-									<div {...stylex.attrs(styles.columnsMenuSection)}>
-										Hidden refs
-									</div>
-									{
-										<For each={_props.hiddenRefs} keyed={(row) => row.fullName}>
-											{(ref) => (
-												<button
-													type="button"
-													onClick={() => _props.onShowRef(ref().fullName)}
-													{...stylex.attrs(styles.columnsMenuItem)}
-												>
-													<span {...stylex.attrs(styles.truncate)}>
-														{ref().displayName}
-													</span>
-													<span {...stylex.attrs(styles.columnsState)}>
-														Show
-													</span>
-												</button>
-											)}
-										</For>
-									}
-								</>
-							) : null}
-						</div>
-					) : null}
-				</div>
-			</div>
 		</div>
 	);
 }

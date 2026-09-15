@@ -1,3 +1,4 @@
+import { surfaceStyles } from "@design-system/styles.stylex.ts";
 import { ariaValue, domStyle } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { For } from "solid-js";
@@ -20,7 +21,7 @@ export function ContextMenu(_props: {
 			aria-label={ariaValue(
 				`Actions for ${_props.label === undefined ? _props.title : _props.label}`,
 			)}
-			{...stylex.attrs(styles.refContextMenu)}
+			{...stylex.attrs(surfaceStyles.overlay, styles.refContextMenu)}
 			style={domStyle(getCommitGraphRefContextMenuStyle(_props.x, _props.y))}
 			onPointerDown={(event) => event.stopPropagation()}
 		>

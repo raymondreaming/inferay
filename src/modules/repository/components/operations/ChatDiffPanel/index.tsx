@@ -42,22 +42,8 @@ export function ChatDiffPanel(
 			>
 				{view.operationActivity.message}
 			</span>
-			<div
-				aria-hidden="true"
-				data-floating-viewer-scrim="true"
-				{...stylex.attrs(
-					styles.viewerFloatingScrim,
-					view.mainViewMode === "graph" &&
-						styles.viewerFloatingScrimAboveContent,
-				)}
-			/>
 			<ViewerHeader {...view} />
-			<div
-				{...stylex.attrs(
-					styles.viewerBody,
-					view.mainViewMode !== "graph" && styles.viewerBodyAboveScrim,
-				)}
-			>
+			<div {...stylex.attrs(styles.viewerBody)}>
 				{view.mainViewMode === "graph" ? (
 					view.graphLoading &&
 					view.graph.commits.length === 0 &&

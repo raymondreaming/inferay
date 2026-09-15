@@ -2,7 +2,6 @@ import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
-	effect,
 	font,
 	layer,
 	motion,
@@ -34,6 +33,13 @@ export const styles = stylex.create({
 		backgroundColor: color.transparent,
 		overflow: "hidden",
 	},
+	viewerHeaderTop: {
+		height: 23,
+		minWidth: 0,
+		borderBottomWidth: 1,
+		borderBottomStyle: "solid",
+		borderBottomColor: color.border,
+	},
 	viewerHeader: {
 		display: "flex",
 		height: controlSize._8,
@@ -42,36 +48,8 @@ export const styles = stylex.create({
 		gap: controlSize._2,
 		paddingInline: controlSize._3,
 	},
-	viewerHeaderFloating: {
-		position: "absolute",
-		bottom: controlSize._2,
-		left: "50%",
-		zIndex: layer.dropdown,
-		width: "auto",
-		maxWidth: "calc(100% - 1.5rem)",
-		height: controlSize._10,
-		boxSizing: "border-box",
-		gap: controlSize._2,
-		backdropFilter: effect.floatingSurfaceBlur,
-		boxShadow: "none",
-		paddingInline: controlSize._3,
-		transform: "translateX(-50%)",
-	},
-	viewerFloatingScrim: {
-		position: "absolute",
-		left: controlSize._0,
-		right: controlSize._0,
-		bottom: controlSize._0,
-		zIndex: layer.content,
-		height: 80,
-		pointerEvents: "none",
-		backgroundImage:
-			"linear-gradient(to top, var(--inferay-surface-base, var(--color-inferay-black)) 0px, var(--inferay-surface-base, var(--color-inferay-black)) 24px, transparent 80px)",
-	},
-	viewerFloatingScrimAboveContent: {
-		zIndex: layer.control,
-	},
 	viewerFloatingFile: {
+		flex: 1,
 		alignItems: "center",
 		display: "flex",
 		flexShrink: 1,
@@ -79,6 +57,7 @@ export const styles = stylex.create({
 		minWidth: controlSize._0,
 	},
 	viewerFloatingPath: {
+		display: "flex",
 		minWidth: controlSize._0,
 		overflow: "hidden",
 		fontFamily: font.familyDiff,
@@ -86,7 +65,17 @@ export const styles = stylex.create({
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 	},
+	viewerDirectory: {
+		minWidth: 0,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		color: color.textMuted,
+	},
 	viewerFileName: {
+		flexShrink: 0,
+		maxWidth: "100%",
+		overflow: "hidden",
+		textOverflow: "ellipsis",
 		color: color.textMain,
 		fontWeight: font.weightBold,
 	},
@@ -104,6 +93,16 @@ export const styles = stylex.create({
 		height: controlSize._5,
 		width: 1,
 	},
+	graphTitle: {
+		display: "flex",
+		alignItems: "center",
+		gap: controlSize._1,
+		minWidth: 0,
+		overflow: "hidden",
+		whiteSpace: "nowrap",
+		color: color.textMain,
+		fontSize: font.size_1,
+	},
 	graphSyncActions: {
 		display: "flex",
 		flexShrink: 0,
@@ -114,8 +113,8 @@ export const styles = stylex.create({
 	graphSyncButton: {
 		display: "flex",
 		minWidth: controlSize._10,
-		height: controlSize._8,
-		flexDirection: "column",
+		height: controlSize._5,
+		flexDirection: "row",
 		alignItems: "center",
 		justifyContent: "center",
 		gap: controlSize._0_5,
@@ -192,9 +191,6 @@ export const styles = stylex.create({
 		minHeight: controlSize._0,
 		flex: 1,
 		overflow: "hidden",
-	},
-	viewerBodyAboveScrim: {
-		zIndex: layer.chrome,
 	},
 	refActionOverlay: {
 		position: "absolute",

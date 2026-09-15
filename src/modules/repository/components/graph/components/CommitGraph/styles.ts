@@ -6,7 +6,6 @@ import {
 	font,
 	layer,
 	radius,
-	shadow,
 } from "../../../../../../design-system/styles.stylex.ts";
 
 export const AVATAR_SIZE = 18;
@@ -119,16 +118,22 @@ export const styles = stylex.create({
 		alignItems: "center",
 		backgroundColor: color.transparent,
 	},
+	headerLabel: {
+		color: color.textMuted,
+		fontSize: font.size_0_5,
+		textTransform: "uppercase",
+		pointerEvents: "none",
+	},
+	headerLabelHidden: {
+		visibility: "hidden",
+	},
 	headerCell: {
 		position: "relative",
 		display: "flex",
 		height: "100%",
 		flexShrink: 0,
 		alignItems: "center",
-		overflow: "hidden",
-		borderRightWidth: 1,
-		borderRightStyle: "solid",
-		borderRightColor: color.transparent,
+		overflow: "visible",
 		paddingInline: controlSize._2,
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
@@ -141,9 +146,20 @@ export const styles = stylex.create({
 			":hover": color.surfaceWhite04,
 		},
 	},
+	columnMenuOverlay: {
+		position: "sticky",
+		top: 0,
+		left: 0,
+		height: 0,
+		width: "100%",
+		zIndex: layer.dropdown,
+	},
 	headerTools: {
+		position: "absolute",
+		right: controlSize._2,
+		zIndex: layer.overlayContent,
 		display: "flex",
-		height: "100%",
+		height: 23,
 		flexShrink: 0,
 		alignItems: "center",
 		justifyContent: "center",
@@ -153,17 +169,32 @@ export const styles = stylex.create({
 	},
 	columnResizeHandle: {
 		position: "absolute",
-		top: controlSize._0,
-		right: "-3px",
-		bottom: controlSize._0,
+		top: 0,
+		right: "-4px",
+		bottom: 0,
 		zIndex: layer.overlayContent,
-		width: controlSize._2,
-		borderWidth: controlSize._0,
-		backgroundColor: {
+		width: 8,
+		padding: 0,
+		borderWidth: 0,
+		backgroundColor: color.transparent,
+		color: {
 			default: color.transparent,
 			":hover": color.accentBorder,
 		},
 		cursor: "col-resize",
+		"::after": {
+			content: '""',
+			position: "absolute",
+			left: "50%",
+			top: 0,
+			bottom: 0,
+			width: 1,
+			backgroundColor: "currentColor",
+			pointerEvents: "none",
+		},
+	},
+	columnResizeHandleVisible: {
+		color: color.borderStrong,
 	},
 	refContextMenu: {
 		position: "fixed",
@@ -173,12 +204,7 @@ export const styles = stylex.create({
 		maxHeight: "calc(100vh - 16px)",
 		flexDirection: "column",
 		overflowY: "auto",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.borderStrong,
 		borderRadius: radius.md,
-		backgroundColor: color.backgroundRaised,
-		boxShadow: shadow.popover,
 		padding: controlSize._1,
 	},
 	refContextTitle: {
@@ -236,12 +262,7 @@ export const styles = stylex.create({
 		top: "22px",
 		zIndex: layer.dropdown,
 		width: "15rem",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
 		borderRadius: radius.md,
-		backgroundColor: color.backgroundRaised,
-		boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.6)",
 		padding: controlSize._1,
 	},
 	columnsMenuSection: {
@@ -359,9 +380,8 @@ export const styles = stylex.create({
 	},
 	nodeAnchoredRowWash: {
 		position: "absolute",
-		right: controlSize._0,
 		pointerEvents: "none",
-		borderRadius: "1px",
+		borderRadius: 0,
 	},
 	refToNodeConnector: {
 		position: "absolute",
@@ -404,6 +424,13 @@ export const styles = stylex.create({
 		zIndex: layer.overlayContent,
 	},
 	messageCell: {
+		borderLeftWidth: 1,
+		borderLeftStyle: "solid",
+		borderLeftColor: color.borderStrong,
+		":first-of-type": { borderLeftWidth: 0 },
+		position: "relative",
+		zIndex: layer.overlayContent,
+		height: "100%",
 		display: "flex",
 		boxSizing: "border-box",
 		minWidth: controlSize._0,
@@ -458,7 +485,8 @@ export const styles = stylex.create({
 		gap: controlSize._2,
 		borderLeftWidth: 1,
 		borderLeftStyle: "solid",
-		borderLeftColor: color.border,
+		borderLeftColor: color.borderStrong,
+		":first-of-type": { borderLeftWidth: 0 },
 		color: color.textMuted,
 		fontSize: font.size_2,
 		paddingInline: controlSize._3,
@@ -470,7 +498,8 @@ export const styles = stylex.create({
 		alignItems: "center",
 		borderLeftWidth: 1,
 		borderLeftStyle: "solid",
-		borderLeftColor: color.border,
+		borderLeftColor: color.borderStrong,
+		":first-of-type": { borderLeftWidth: 0 },
 		color: color.textMuted,
 		fontSize: font.size_2,
 		fontVariantNumeric: "tabular-nums",
@@ -488,7 +517,8 @@ export const styles = stylex.create({
 		justifyContent: "flex-start",
 		borderLeftWidth: 1,
 		borderLeftStyle: "solid",
-		borderLeftColor: color.border,
+		borderLeftColor: color.borderStrong,
+		":first-of-type": { borderLeftWidth: 0 },
 		color: color.textMuted,
 		fontFamily:
 			"ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
@@ -571,12 +601,14 @@ export function getCommitRowNodeAnchoredRowWashStyle(
 	top: CSSProperties["top"],
 	height: CSSProperties["height"],
 	backgroundColor: CSSProperties["backgroundColor"],
+	width: CSSProperties["width"],
 ): CSSProperties {
 	return {
 		left: left,
 		top: top,
 		height: height,
 		backgroundColor: backgroundColor,
+		width,
 	} as CSSProperties;
 }
 export function getCommitRowMetaCellStyle(
@@ -618,11 +650,9 @@ export function getCommitRowRefToNodeConnectorStyle(
 }
 export function getCommitRowMessageCellStyle(
 	width: CSSProperties["width"],
-	borderLeft: CSSProperties["borderLeft"],
 ): CSSProperties {
 	return {
 		width: width,
-		borderLeft: borderLeft,
 	} as CSSProperties;
 }
 export function getCommitRowCommitMessageStyle(
@@ -667,13 +697,7 @@ export function getHeaderRowHeaderCellStyle(
 		width: width,
 	} as CSSProperties;
 }
-export function getHeaderRowHeaderToolsStyle(
-	width: CSSProperties["width"],
-): CSSProperties {
-	return {
-		width: width,
-	} as CSSProperties;
-}
+
 export function getMergeNodeMergeNodeStyle(
 	left: CSSProperties["left"],
 	top: CSSProperties["top"],

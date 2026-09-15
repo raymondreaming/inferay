@@ -2,7 +2,7 @@ use crate::{array, flag, number, string};
 use serde_json::{Value, json};
 
 const COLUMNS: [&str; 6] = ["date", "refs", "graph", "message", "author", "sha"];
-const DEFAULT_WIDTHS: [f64; 6] = [132., 192., 96., 340., 136., 76.];
+const DEFAULT_WIDTHS: [f64; 6] = [132., 216., 96., 340., 136., 76.];
 const MIN_WIDTHS: [f64; 6] = [84., 96., 48., 160., 88., 56.];
 const ROW_HEIGHT: f64 = 23.;
 
@@ -136,10 +136,16 @@ pub fn preferences(stored: &Value) -> Value {
             .cloned()
             .collect::<Vec<_>>()
     };
-    json!({"columns":{
-        "author":stored["columns"]["author"].as_bool().unwrap_or(true),
-        "sha":stored["columns"]["sha"].as_bool().unwrap_or(true),
-        "date":stored["columns"]["date"].as_bool().unwrap_or(true)},
+    let columns: serde_json::Map<String, Value> = COLUMNS
+        .iter()
+        .map(|column| {
+            (
+                (*column).to_owned(),
+                json!(stored["columns"][column].as_bool().unwrap_or(true)),
+            )
+        })
+        .collect();
+    json!({"columns":columns,
         "widths":widths, "order":order,
         "hiddenRefs":refs("hiddenRefs"), "soloRefs":refs("soloRefs"), "pinnedRefs":refs("pinnedRefs")})
 }
@@ -176,12 +182,10 @@ pub fn layout(i: &Value) -> Value {
     for (index, column) in positions.iter().enumerate() {
         display[*column] = index;
     }
-    let graph_width = number(&i["widths"]["graph"]).max((max_column + 1) as f64 * 18. + 36.);
+    let graph_width = number(&i["widths"]["graph"]).max(MIN_WIDTHS[2]);
     let columns: Vec<_> = array(&i["order"])
         .iter()
-        .filter(|c| {
-            !matches!(string(c), "date" | "author" | "sha") || flag(&i["columns"][string(c)])
-        })
+        .filter(|c| i["columns"][string(c)].as_bool().unwrap_or(true))
         .collect();
     let width = |c: &Value| {
         if c == "graph" {
@@ -338,5 +342,39 @@ pub fn lines(i: &Value) -> GraphLines {
         truncated: segments("truncatedEdges", "truncated"),
         transitions: curves("transitions", false),
         convergences: curves("convergences", true),
+    }
+}
+
+#[cfg(test)]
+mod column_layout_tests {
+    use super::*;
+
+    #[test]
+    fn all_columns_can_be_hidden_and_restored() {
+        let stored = json!({"columns": {"date":false, "refs":false, "graph":false, "message":false, "author":false, "sha":false}});
+        let mut input = preferences(&stored);
+        assert_eq!(input["order"].as_array().unwrap().len(), 6);
+        assert_eq!(layout(&input)["visibleOrder"], json!([]));
+        input["columns"]["graph"] = json!(true);
+        input["columns"]["message"] = json!(true);
+        assert_eq!(layout(&input)["visibleOrder"], json!(["graph", "message"]));
+        assert_eq!(
+            preferences(&json!({"columns":{"author":false}}))["columns"]["refs"],
+            true
+        );
+    }
+
+    #[test]
+    fn resizing_graph_allows_message_to_cover_distant_lanes() {
+        let result = layout(&json!({
+            "commitColumns": [0, 12],
+            "pinnedColumns": [],
+            "widths": { "graph": 48, "message": 340 },
+            "order": ["graph", "message"],
+            "columns": {}
+        }));
+        assert_eq!(result["graphWidth"], 48.);
+        assert_eq!(result["tableWidth"], 420.);
+        assert_eq!(result["displayColumns"].as_array().unwrap().len(), 13);
     }
 }

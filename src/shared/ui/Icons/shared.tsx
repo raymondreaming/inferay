@@ -210,7 +210,7 @@ export const {
 		"M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z",
 	]),
 	IconExpand: icon(["M15 3h6v6", "M21 3l-7 7", "M9 21H3v-6", "M3 21l7-7"]),
-	IconCollapse: icon(["M10 14H4v6", "M4 20l7-7", "M14 10h6V4", "M20 4l-7 7"]),
+	IconCollapse: icon(["M4 14h6v6", "M3 21l7-7", "M20 10h-6V4", "M21 3l-7 7"]),
 	IconChevronRight: icon("M9 18l6-6-6-6"),
 	IconChevronDown: icon("M6 9l6 6 6-6"),
 	IconLayoutGrid: icon([

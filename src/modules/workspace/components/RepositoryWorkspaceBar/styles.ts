@@ -129,6 +129,9 @@ export const styles = stylex.create({
 		fontWeight: font.weightRegular,
 	},
 	tab: {
+		borderLeftWidth: 1,
+		borderLeftStyle: "solid",
+		borderLeftColor: color.border,
 		alignItems: "center",
 		cursor: "grab",
 		touchAction: "none",

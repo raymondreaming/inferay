@@ -5,19 +5,13 @@ import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 export function CommitMessageCell(_props: {
 	commit: GraphCommit;
-	color: string;
 	width: number;
 	isWip: boolean;
 }) {
 	return (
 		<div
 			{...stylex.attrs(styles.messageCell)}
-			style={domStyle(
-				inlineStyles.getCommitRowMessageCellStyle(
-					_props.width,
-					`1px solid ${_props.color}`,
-				),
-			)}
+			style={domStyle(inlineStyles.getCommitRowMessageCellStyle(_props.width))}
 		>
 			{!_props.isWip && (
 				<>

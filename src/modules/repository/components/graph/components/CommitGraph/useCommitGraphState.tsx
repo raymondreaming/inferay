@@ -375,11 +375,7 @@ export interface GraphSelectionIntent {
 	additive: boolean;
 	range: boolean;
 }
-export interface ColumnVisibility {
-	author: boolean;
-	sha: boolean;
-	date: boolean;
-}
+export type ColumnVisibility = Record<ColumnKey, boolean>;
 export type ColumnKey =
 	| "date"
 	| "refs"

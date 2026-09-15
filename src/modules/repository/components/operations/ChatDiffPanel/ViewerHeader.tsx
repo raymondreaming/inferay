@@ -1,4 +1,4 @@
-import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
+import { iconSize } from "@design-system/styles.stylex.ts";
 import { ariaValue } from "@shared/lib/dom.tsx";
 import {
 	IconArrowDown,
@@ -21,6 +21,7 @@ export function ViewerHeader(
 	_props: Pick<
 		ReturnType<typeof useChatDiffPanelState>,
 		| "mainViewMode"
+		| "branch"
 		| "drag"
 		| "file"
 		| "stats"
@@ -39,16 +40,16 @@ export function ViewerHeader(
 	>,
 ) {
 	return (
-		<header
-			{...stylex.attrs(
-				surfaceStyles.panel,
-				styles.viewerHeader,
-				styles.viewerHeaderFloating,
-			)}
-		>
+		<header {...stylex.attrs(styles.viewerHeader, styles.viewerHeaderTop)}>
 			{_props.mainViewMode === "graph" && _props.drag ? (
 				<WorkspaceDockHandle {..._props.drag} />
 			) : null}
+			{_props.mainViewMode === "graph" && (
+				<span title={_props.branch} {...stylex.attrs(styles.graphTitle)}>
+					<IconGitBranch size={iconSize.compact} />
+					{_props.branch || "Commit graph"}
+				</span>
+			)}
 			{_props.mainViewMode === "diff" && _props.file ? (
 				<DiffFilePath path={_props.file.path} />
 			) : null}

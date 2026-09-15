@@ -3,6 +3,7 @@ import * as stylex from "@stylexjs/stylex";
 import { createMemo, For } from "solid-js";
 import { CommitGraphLinesLayer } from "./CommitGraphLinesLayer.tsx";
 import { CommitRow } from "./CommitRow.tsx";
+import { GraphColumnMenu } from "./GraphColumnMenu.tsx";
 import { HeaderRow } from "./HeaderRow.tsx";
 import { RefContextMenu } from "./RefContextMenu.tsx";
 import { RowContextMenu } from "./RowContextMenu.tsx";
@@ -95,6 +96,22 @@ export const CommitGraph = function CommitGraph(
 					{view.emptyLabel}
 				</div>
 			) : null}
+			<GraphColumnMenu
+				columns={view.columns}
+				order={view.order}
+				isColumnsOpen={view.isColumnsOpen}
+				onToggleColumnsMenu={() => view.setIsColumnsOpen((open) => !open)}
+				onToggleColumn={view.toggleColumn}
+				hiddenRefs={view.hiddenRefDetails}
+				onShowRef={(fullName) =>
+					view.setHiddenRefs((current) =>
+						current.filter((value) => value !== fullName),
+					)
+				}
+				query={view.query ?? ""}
+				onQueryChange={view.setQuery}
+				matchCount={view.matchingHashes.size}
+			/>
 			{/* Column controls occupy the existing top spacer; lines and nodes share its origin. */}
 			<div
 				{...stylex.attrs(styles.rowsLayer)}
@@ -110,29 +127,19 @@ export const CommitGraph = function CommitGraph(
 					columns={view.columns}
 					widths={view.widths}
 					order={view.order}
-					isColumnsOpen={view.isColumnsOpen}
-					onToggleColumnsMenu={() => view.setIsColumnsOpen((open) => !open)}
-					onToggleColumn={view.toggleColumn}
 					onMoveColumn={view.moveColumn}
 					onResizeStart={view.startColumnResize}
-					hiddenRefs={view.hiddenRefDetails}
-					onShowRef={(fullName) =>
-						view.setHiddenRefs((current) =>
-							current.filter((value) => value !== fullName),
-						)
-					}
-					query={view.query ?? ""}
-					onQueryChange={view.setQuery}
-					matchCount={view.matchingHashes.size}
 				/>
-				<CommitGraphLinesLayer
-					class={stylex.attrs(styles.linesLayer).class}
-					width={view.graphWidth}
-					height={view.graphHeight}
-					style={view.lineLayerStyle}
-					lines={view.lines}
-					lineWidth={LINE_WIDTH}
-				/>
+				{view.columns.graph && (
+					<CommitGraphLinesLayer
+						class={stylex.attrs(styles.linesLayer).class}
+						width={view.graphWidth}
+						height={view.graphHeight}
+						style={view.lineLayerStyle}
+						lines={view.lines}
+						lineWidth={LINE_WIDTH}
+					/>
+				)}
 				{
 					<For
 						each={view.commits.slice(view.visibleStart, view.visibleEnd)}

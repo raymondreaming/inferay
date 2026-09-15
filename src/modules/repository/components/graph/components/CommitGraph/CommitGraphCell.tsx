@@ -1,5 +1,4 @@
 import type { GraphCommit } from "@contracts";
-import { FileChangeTotals } from "@repository/components/changes/components/ChangesPanel/FileChangeTotals.tsx";
 import { domStyle } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { AuthorAvatar } from "./AuthorAvatar.tsx";
@@ -70,16 +69,10 @@ export function CommitGraphCell(_props: {
 					>
 						<span>WIP</span>
 						{_props.commit.changeSummary && (
-							<>
-								<span>
-									{_props.commit.changeSummary.files} file
-									{_props.commit.changeSummary.files === 1 ? "" : "s"}
-								</span>
-								<FileChangeTotals
-									additions={_props.commit.changeSummary.additions}
-									deletions={_props.commit.changeSummary.deletions}
-								/>
-							</>
+							<span>
+								{_props.commit.changeSummary.files} file
+								{_props.commit.changeSummary.files === 1 ? "" : "s"}
+							</span>
 						)}
 					</div>
 				</>
