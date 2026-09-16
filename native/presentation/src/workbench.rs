@@ -327,6 +327,10 @@ pub fn graph_file_open(input: &Value) -> GraphFileOpen {
         return result;
     }
     let files = array(&input["files"]);
+    if working_tree && files.is_empty() {
+        result.ready = false;
+        return result;
+    }
     if let Some(file) = files.first() {
         let mut selection = input.clone();
         selection["file"] = file.clone();

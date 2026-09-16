@@ -57,6 +57,7 @@ pub fn navigation(input: &Value) -> GraphKeyboardNavigation {
         if flag(&input["canOpen"]) {
             result.open_item = current
                 .and_then(|index| items[index].as_str())
+                .or_else(|| input["current"].as_str())
                 .map(str::to_owned);
         }
     } else {

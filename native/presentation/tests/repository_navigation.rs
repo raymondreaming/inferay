@@ -20,6 +20,14 @@ fn graph_navigation_opens_wip_and_preserves_branch_and_boundary_rules() {
         navigate("ArrowRight", -1, json!({"canOpen":true}))["openItem"],
         Value::Null
     );
+    assert_eq!(
+        project(
+            "graphNavigation",
+            &json!({"key":"ArrowRight","current":"wip","items":["older"],"canOpen":true})
+        )
+        .unwrap()["openItem"],
+        "wip"
+    );
     assert_eq!(navigate("ArrowUp", -1, json!({}))["selectIndex"], 2);
     assert_eq!(navigate("ArrowDown", -1, json!({}))["selectIndex"], 0);
     assert_eq!(navigate("ArrowDown", 2, json!({}))["selectIndex"], 2);
@@ -67,6 +75,12 @@ fn graph_file_open_waits_for_history_then_restarts_at_the_first_sidebar_file() {
     assert_eq!(
         project("graphFileOpen", &input).unwrap()["action"]["path"],
         "b"
+    );
+    let mut refreshing = input.clone();
+    refreshing["files"] = json!([]);
+    assert_eq!(
+        project("graphFileOpen", &refreshing).unwrap(),
+        json!({"ready":false,"action":null})
     );
     input["selectedGraphItem"] = json!({"itemKind":"commit","hash":"commit"});
     assert_eq!(project("graphFileOpen", &input).unwrap()["ready"], false);
