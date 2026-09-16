@@ -16,24 +16,33 @@ pub struct GraphKeyboardNavigation {
 }
 
 pub fn navigation(input: &Value) -> GraphKeyboardNavigation {
-    let key = string(&input["key"]);
+    let action = crate::shortcuts::action(input, "graph");
     let items = array(&input["items"]);
     let count = items.len();
     let current = items.iter().position(|item| item == &input["current"]);
     let mut result = GraphKeyboardNavigation {
-        handled: count > 0
-            && matches!(
-                key,
-                "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight" | "Home" | "End"
-            ),
+        handled: action == Some("consume")
+            || (count > 0
+                && matches!(
+                    action,
+                    Some(
+                        "previousCommit"
+                            | "nextCommit"
+                            | "previousBranchCommit"
+                            | "nextBranchCommit"
+                            | "firstCommit"
+                            | "lastCommit"
+                            | "openSelection"
+                    )
+                )),
         select_item: None,
         select_index: None,
         open_item: None,
     };
-    if !result.handled {
+    if !result.handled || action == Some("consume") {
         return result;
     }
-    if flag(&input["branch"]) && matches!(key, "ArrowUp" | "ArrowDown") {
+    if matches!(action, Some("previousBranchCommit" | "nextBranchCommit")) {
         result.select_item = input["branchTarget"]
             .as_str()
             .filter(|target| !target.is_empty())
@@ -44,18 +53,20 @@ pub fn navigation(input: &Value) -> GraphKeyboardNavigation {
             .and_then(|target| items.iter().position(|item| item.as_str() == Some(target)));
         return result;
     }
-    if key == "ArrowRight" {
+    if action == Some("openSelection") {
         if flag(&input["canOpen"]) {
             result.open_item = current
                 .and_then(|index| items[index].as_str())
                 .map(str::to_owned);
         }
     } else {
-        let index = match key {
-            "Home" => Some(0),
-            "End" => Some(count - 1),
-            "ArrowUp" => Some(current.map_or(count - 1, |index| index.saturating_sub(1))),
-            "ArrowDown" => Some(current.map_or(0, |index| (index + 1).min(count - 1))),
+        let index = match action {
+            Some("firstCommit") => Some(0),
+            Some("lastCommit") => Some(count - 1),
+            Some("previousCommit") => {
+                Some(current.map_or(count - 1, |index| index.saturating_sub(1)))
+            }
+            Some("nextCommit") => Some(current.map_or(0, |index| (index + 1).min(count - 1))),
             _ => None,
         };
         result.select_index = index;

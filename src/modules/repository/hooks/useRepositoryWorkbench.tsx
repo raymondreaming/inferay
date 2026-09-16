@@ -48,6 +48,7 @@ import {
 	type DocumentOpenDetail,
 	listenWindowEvent,
 	OPEN_ACTIVE_GIT_GRAPH_EVENT,
+	repositoryKeyboardInput,
 	TOGGLE_ACTIVE_GIT_GRAPH_EVENT,
 	TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT,
 } from "@shared/lib/dom.tsx";
@@ -724,12 +725,19 @@ export function useRepositoryWorkbench(
 		const session = panelSession();
 		const target = event.target as HTMLElement;
 		const action = rustProject<
-			| { type: "close" | "open" | "enterSidebar" | "focusGraph" }
-			| { type: "cycle"; direction: -1 | 1 }
+			| {
+					type: "close" | "closeGraph" | "open" | "enterSidebar" | "focusGraph";
+			  }
+			| { type: "cycle" | "scrollDiff"; direction: -1 | 1 }
 			| { type: "toggle" }
 			| null
 		>("repositoryKeyboardAction", {
+			...repositoryKeyboardInput(event),
+			graphFocused: Boolean(
+				target.closest('[aria-label="Repository commit history"]'),
+			),
 			focusedPanelId: session.focusedAuxiliaryPanel?.id,
+			repositoryTabFocused: Boolean(target.closest("[data-repository-tab]")),
 			sidebarFocused: sidebarElement?.contains(target) ?? false,
 			chatFocused:
 				Boolean(target.closest("[data-chat-pane-id]")) ||
@@ -738,24 +746,12 @@ export function useRepositoryWorkbench(
 				target instanceof HTMLTextAreaElement &&
 				target.hasAttribute("data-chat-composer") &&
 				target.value.length === 0,
-			blocked:
-				event.defaultPrevented ||
-				event.isComposing ||
-				event.shiftKey ||
-				event.metaKey ||
-				event.ctrlKey ||
-				event.altKey,
 			mainViewMode: session.mainViewMode,
 			graphVisible: session.graphVisible,
 			sidebarVisible: session.sidebarVisible,
-			editable:
-				target.tagName === "INPUT" ||
-				target.tagName === "TEXTAREA" ||
-				target.isContentEditable,
-			key: event.key,
 			historical: session.historicalDiff,
+			workingTree: session.sidebarContent === "workingTree",
 			hasFile: Boolean(session.selectedFile),
-			button: target.tagName === "BUTTON",
 		});
 		if (!action) return;
 		event.preventDefault();
@@ -766,13 +762,20 @@ export function useRepositoryWorkbench(
 					: session.selectedCommitIds.length > 1
 						? "comparison"
 						: "commit";
-			const first = (
+			const files =
 				kind === "workingTree"
 					? keyboardFiles()
 					: kind === "comparison"
 						? comparisonKeyboardFiles()
-						: commitKeyboardFiles()
-			)[0];
+						: commitKeyboardFiles();
+			const first =
+				files.find(
+					(file) =>
+						file.path === session.selectedFile?.path &&
+						(kind !== "workingTree" ||
+							("staged" in file &&
+								file.staged === session.selectedFile?.staged)),
+				) ?? files[0];
 			if (!first) return;
 			// Focus the mounted sidebar before selection renders the diff and file rows.
 			sidebarElement?.focus({ preventScroll: true });
@@ -781,10 +784,24 @@ export function useRepositoryWorkbench(
 			diffRailElement
 				?.querySelector<HTMLElement>('[aria-label="Repository commit history"]')
 				?.focus({ preventScroll: true });
+		} else if (action.type === "closeGraph") {
+			const cwd = graphCwd();
+			if (cwd) updatePanelSession({ type: "toggleGraph", cwd });
+			if (session.sidebarVisible)
+				sidebarElement?.focus({ preventScroll: true });
 		} else if (action.type === "close") closeDiffViewer();
 		else if (action.type === "open") changeMainViewMode("diff");
 		else if (action.type === "cycle") cycleFile(action.direction);
-		else if (session.selectedFile) {
+		else if (action.type === "scrollDiff") {
+			const scroller =
+				diffRailElement?.querySelector<HTMLElement>(
+					'[data-diff-scroll-side="right"]',
+				) ??
+				diffRailElement?.querySelector<HTMLElement>("[data-diff-scroll-side]");
+			scroller?.scrollBy({
+				top: action.direction * scroller.clientHeight * 0.9,
+			});
+		} else if (session.selectedFile) {
 			const nextSelection = getFileSelectionAfterToggle(
 				keyboardFiles(),
 				session.selectedFile,
@@ -1040,7 +1057,6 @@ export function useRepositoryWorkbench(
 					onResize={handleResizeStart}
 				>
 					<ChangesPanel
-						onDismissDiff={closeDiffViewer}
 						onPrefetchFiles={prefetchFiles()}
 						filePresentation={workingTreePresentation()}
 						cwd={selectedWorkingTreeCwd()}

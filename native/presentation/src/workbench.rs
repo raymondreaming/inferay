@@ -133,45 +133,48 @@ pub fn interaction(input: &Value) -> Option<crate::panels::PanelAction> {
 }
 
 pub fn keyboard_action(input: &Value) -> Value {
-    if flag(&input["blocked"]) {
-        return Value::Null;
-    }
-    if input["key"] == "ArrowRight"
-        && flag(&input["chatFocused"])
-        && flag(&input["sidebarVisible"])
-        && (!flag(&input["editable"]) || flag(&input["emptyComposer"]))
-    {
-        return json!({"type":"enterSidebar"});
-    }
     let sidebar = flag(&input["sidebarFocused"]) && flag(&input["sidebarVisible"]);
-    if (!sidebar && input["focusedPanelId"] != "workspace-diff-viewer") || flag(&input["editable"])
-    {
-        return Value::Null;
-    }
     let diff = input["mainViewMode"] == "diff";
-    if sidebar && !diff {
-        return match string(&input["key"]) {
-            "ArrowLeft" if flag(&input["graphVisible"]) => json!({"type":"focusGraph"}),
-            "ArrowRight" if !flag(&input["graphVisible"]) && flag(&input["hasFile"]) => {
-                json!({"type":"open"})
-            }
-            "ArrowRight" => json!({"type":"enterSidebar"}),
-            "ArrowUp" => json!({"type":"cycle","direction":-1}),
-            "ArrowDown" => json!({"type":"cycle","direction":1}),
-            _ => Value::Null,
-        };
-    }
-    if !diff && (input["graphVisible"] != false || input["sidebarVisible"] != true) {
+    let scope = if flag(&input["chatFocused"]) {
+        "chat"
+    } else if sidebar && !diff {
+        "sidebar"
+    } else if sidebar
+        || flag(&input["repositoryTabFocused"])
+        || flag(&input["graphFocused"])
+        || input["focusedPanelId"] == "workspace-diff-viewer"
+    {
+        if diff {
+            "diff"
+        } else if flag(&input["graphVisible"]) {
+            "graph"
+        } else if flag(&input["sidebarVisible"]) {
+            "sidebar"
+        } else {
+            return Value::Null;
+        }
+    } else {
         return Value::Null;
-    }
-    match string(&input["key"]) {
-        "ArrowLeft" if diff && flag(&input["hasFile"]) => json!({"type":"close"}),
-        "ArrowRight" if !diff && flag(&input["hasFile"]) => json!({"type":"open"}),
-        "ArrowUp" => json!({"type":"cycle","direction":-1}),
-        "ArrowDown" => json!({"type":"cycle","direction":1}),
-        "Enter"
-            if diff
-                && !flag(&input["historical"])
+    };
+    match crate::shortcuts::action(input, scope) {
+        Some("enterSidebar") if flag(&input["sidebarVisible"]) => json!({"type":"enterSidebar"}),
+        Some("closeGraph") => json!({"type":"closeGraph"}),
+        Some("focusGraph") if flag(&input["graphVisible"]) => json!({"type":"focusGraph"}),
+        Some("openFile") if !flag(&input["graphVisible"]) && flag(&input["hasFile"]) => {
+            json!({"type":"open"})
+        }
+        Some("openFile") => json!({"type":"enterSidebar"}),
+        Some("close") if flag(&input["hasFile"]) => json!({"type":"close"}),
+        Some(action @ ("pageDown" | "pageUp"))
+            if diff && flag(&input["hasFile"]) && !flag(&input["button"]) =>
+        {
+            json!({"type":"scrollDiff","direction":if action == "pageDown" { 1 } else { -1 }})
+        }
+        Some("previousFile") => json!({"type":"cycle","direction":-1}),
+        Some("nextFile") => json!({"type":"cycle","direction":1}),
+        Some("toggleFile")
+            if ((scope == "diff" && !flag(&input["historical"]))
+                || (scope == "sidebar" && flag(&input["workingTree"])))
                 && flag(&input["hasFile"])
                 && !flag(&input["button"]) =>
         {

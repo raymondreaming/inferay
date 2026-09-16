@@ -78,6 +78,30 @@ export function domStyle(
 	return result as JSX.CSSProperties;
 }
 
+/** Browser facts only; native shortcut configuration owns matching and priority. */
+export function repositoryKeyboardInput(event: KeyboardEvent) {
+	const target = event.target instanceof HTMLElement ? event.target : null;
+	return {
+		key: event.key,
+		meta: event.metaKey,
+		ctrl: event.ctrlKey,
+		alt: event.altKey,
+		shift: event.shiftKey,
+		repeat: event.repeat,
+		composing: event.isComposing,
+		blocked: event.defaultPrevented,
+		editable: Boolean(
+			target?.isContentEditable ||
+				target?.closest('input, textarea, select, [role="textbox"]'),
+		),
+		overlay: Boolean(target?.closest('dialog, [role="dialog"], [role="menu"]')),
+		button: Boolean(
+			target?.closest('button, a, [role="button"]') &&
+				!target?.closest("[data-git-file-select]"),
+		),
+	};
+}
+
 /** Forward a DOM or imperative handle to a callback or a locally owned ref cell. */
 export function assignRef<T>(
 	target: import("solid-js").Ref<T> | RefCell<T | null> | null,

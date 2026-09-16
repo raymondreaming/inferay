@@ -6,6 +6,7 @@ import {
 	APP_REGION_NO_DRAG_CLASS,
 	ariaValue,
 	dispatchRemoveAgentPaneRequest,
+	repositoryKeyboardInput,
 } from "@shared/lib/dom.tsx";
 import { project } from "@shared/lib/native.tsx";
 import { IconGitBranch, IconX } from "@shared/ui/Icons/index.tsx";
@@ -34,45 +35,51 @@ export function RepositoryWorkspaceTabs(props: {
 		() => props.tabDrag.ordered().map((workspace) => workspace.cwd),
 		() => ({ enabled: props.hasWorkspaces }),
 	);
+	let tabList: HTMLDivElement | undefined;
+	const activateAdjacent = (direction: -1 | 1, event: KeyboardEvent) => {
+		event.preventDefault();
+		event.stopPropagation();
+		const tabs = props.tabDrag.ordered();
+		if (tabs.length < 2) return;
+		const index = tabs.findIndex((tab) => tab.cwd === props.activePath);
+		const next =
+			tabs[
+				index < 0
+					? direction === 1
+						? 0
+						: tabs.length - 1
+					: (index + direction + tabs.length) % tabs.length
+			];
+		if (!next) return;
+		props.onActivate(next);
+		tabList
+			?.querySelectorAll<HTMLElement>('[role="tab"]')
+			[tabs.indexOf(next)]?.focus({ preventScroll: true });
+	};
 	onSettled(() => {
 		const cycle = (event: KeyboardEvent) => {
 			const target = event.target;
-			if (
-				event.key !== "Tab" ||
-				event.defaultPrevented ||
-				event.isComposing ||
-				event.altKey ||
-				event.ctrlKey ||
-				event.metaKey ||
-				(target instanceof HTMLElement &&
-					(target.isContentEditable ||
-						target.closest(
-							'input, textarea, select, [role="dialog"], dialog, [role="menu"], [role="listbox"]',
-						)))
-			)
-				return;
-			const tabs = props.tabDrag.ordered();
-			if (tabs.length < 2) return;
-			const index = tabs.findIndex((tab) => tab.cwd === props.activePath);
-			const next =
-				tabs[(index + (event.shiftKey ? -1 : 1) + tabs.length) % tabs.length];
-			if (!next) return;
-			event.preventDefault();
-			props.onActivate(next);
-			if (target instanceof HTMLElement && target.closest('[role="tablist"]')) {
-				const buttons = target
-					.closest('[role="tablist"]')
-					?.querySelectorAll<HTMLElement>('[role="tab"]');
-				buttons?.[tabs.indexOf(next)]?.focus();
-			}
+			const tabTarget =
+				target instanceof HTMLElement &&
+				tabList?.contains(target) &&
+				target.closest('[role="tab"]');
+			const action = project<string | null>("repositoryShortcut", {
+				...repositoryKeyboardInput(event),
+				scope: tabTarget ? "repositoryTabs" : "window",
+			});
+			if (action === "previousRepository" || action === "nextRepository")
+				activateAdjacent(action === "previousRepository" ? -1 : 1, event);
 		};
-		window.addEventListener("keydown", cycle);
-		return () => window.removeEventListener("keydown", cycle);
+		window.addEventListener("keydown", cycle, true);
+		return () => window.removeEventListener("keydown", cycle, true);
 	});
 	const tabsProps = stylex.attrs(styles.tabs);
 	return (
 		<div
-			ref={props.tabDrag.setContainer}
+			ref={(element) => {
+				tabList = element;
+				props.tabDrag.setContainer(element);
+			}}
 			{...tabsProps}
 			class={`${APP_REGION_NO_DRAG_CLASS} ${tabsProps.class ?? ""}`}
 			role="tablist"
@@ -103,10 +110,11 @@ export function RepositoryWorkspaceTabs(props: {
 								aria-selected={ariaValue(active())}
 								data-repository-tab={workspace().cwd}
 								title={`${workspace().cwd}\nDrag to reorder · Alt+Shift+Arrow keys to move`}
-								aria-keyshortcuts="Alt+Shift+ArrowLeft Alt+Shift+ArrowRight"
-								onPointerDown={(event) =>
-									props.tabDrag.onPointerDown(event, workspace().cwd)
-								}
+								aria-keyshortcuts="Tab Shift+Tab Meta+ArrowLeft Meta+ArrowRight Alt+Shift+ArrowLeft Alt+Shift+ArrowRight"
+								onPointerDown={(event) => {
+									event.currentTarget.focus({ preventScroll: true });
+									props.tabDrag.onPointerDown(event, workspace().cwd);
+								}}
 								onKeyDown={(event) => {
 									if (event.key === "Enter" || event.key === " ") {
 										event.preventDefault();

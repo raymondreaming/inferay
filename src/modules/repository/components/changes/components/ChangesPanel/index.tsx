@@ -6,12 +6,7 @@ import type {
 	GitFilePresentation,
 	SelectedPanelFile,
 } from "@contracts";
-import { captureEvent } from "@shared/lib/dom.tsx";
-import {
-	adjacentGitFile,
-	getFileSelectionAfterToggle,
-	project as rustProject,
-} from "@shared/lib/native.tsx";
+import { project as rustProject } from "@shared/lib/native.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, createMemo } from "solid-js";
 import { ChangesPanelHeader } from "./ChangesPanelHeader.tsx";
@@ -67,7 +62,6 @@ export const ChangesPanel = function ChangesPanel(props: {
 	showCommitSection?: boolean;
 	onCollapse?: () => void;
 	onOpenGraph?: () => void;
-	onDismissDiff?: () => void;
 }) {
 	const selectedCommitCount = createMemo(
 		() => props.selectedCommitCount ?? (props.selectedCommitHash ? 1 : 0),
@@ -114,81 +108,8 @@ export const ChangesPanel = function ChangesPanel(props: {
 		([files, prefetch]) => prefetch?.(files),
 	);
 
-	const selectAdjacentFile = (direction: -1 | 0 | 1) => {
-		const state = model();
-		const selected = props.selectedFile;
-		if (state.showingWorkingTree) {
-			const next = adjacentGitFile(
-				state.navigableFiles,
-				(file) =>
-					file.path === selected?.path && file.staged === selected.staged,
-				direction,
-				true,
-			);
-			if (next) props.onSelectFile(next);
-		} else {
-			const next = adjacentGitFile(
-				state.navigableHistoricalFiles,
-				(file) => file.path === selected?.path,
-				direction,
-				true,
-			);
-			if (next)
-				(state.comparing
-					? props.onSelectComparisonFile
-					: props.onSelectCommitFile)?.(next);
-		}
-	};
-	const toggleSelectedFile = () => {
-		const selected = props.selectedFile;
-		if (!selected) return;
-		const files = model().navigableFiles;
-		const file =
-			files.find(
-				(file) =>
-					file.path === selected.path && file.staged === selected.staged,
-			) ?? files.find((file) => file.path === selected.path);
-		if (!file) return;
-		const next = getFileSelectionAfterToggle(files, selected);
-		(file.staged ? props.onUnstageFile : props.onStageFile)(file.path);
-		if (next) props.onSelectFile(next);
-	};
 	return (
-		<div
-			{...stylex.attrs(styles.root)}
-			ref={captureEvent("keydown", (event) => {
-				const target = event.target as HTMLElement;
-				const keyboardContext = target.closest(
-					"[data-git-commit-message], [data-git-file-select]",
-				);
-				if (!keyboardContext || event.metaKey || event.ctrlKey || event.altKey)
-					return;
-				if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-					event.preventDefault();
-					selectAdjacentFile(event.key === "ArrowUp" ? -1 : 1);
-				} else if (
-					target.closest("[data-git-file-select]") &&
-					event.key === "ArrowRight"
-				) {
-					event.preventDefault();
-					selectAdjacentFile(0);
-				} else if (
-					target.closest("[data-git-file-select]") &&
-					event.key === "ArrowLeft" &&
-					props.onDismissDiff
-				) {
-					event.preventDefault();
-					props.onDismissDiff();
-				} else if (
-					event.key === "Enter" &&
-					model().showingWorkingTree &&
-					props.selectedFile
-				) {
-					event.preventDefault();
-					toggleSelectedFile();
-				}
-			})}
-		>
+		<div {...stylex.attrs(styles.root)}>
 			<ChangesPanelHeader
 				onCollapse={props.onCollapse}
 				onOpenGraph={props.onOpenGraph}

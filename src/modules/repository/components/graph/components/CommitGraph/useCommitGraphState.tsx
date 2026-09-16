@@ -10,7 +10,10 @@ import type {
 } from "@contracts";
 import { runtimeGitGraphLaneColors } from "@design-system/styles.stylex.ts";
 import { useGitAuthorAvatars } from "@repository/hooks/useGitAuthorAvatars.ts";
-import { createPointerResize } from "@shared/lib/dom.tsx";
+import {
+	createPointerResize,
+	repositoryKeyboardInput,
+} from "@shared/lib/dom.tsx";
 import {
 	readStoredJson,
 	project as rustProject,
@@ -211,24 +214,6 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 			scroller.scrollTo({ top, behavior: repeat ? "instant" : "smooth" });
 	};
 	const navigateRows = (event: KeyboardEvent) => {
-		// Space pages files, never the graph. Leave nested controls usable.
-		if (event.key === " ") {
-			const target = event.target;
-			if (
-				target instanceof HTMLElement &&
-				(target.isContentEditable ||
-					target.closest("input, textarea, select, button, a, [role='menu']"))
-			)
-				return;
-			event.preventDefault();
-			event.stopPropagation();
-			return;
-		}
-		// Left returns from the file sidebar, but has no action inside the graph.
-		if (event.key === "ArrowLeft") {
-			event.preventDefault();
-			return;
-		}
 		const model = graphModel(),
 			props = _props(),
 			current = props.commits.find(
@@ -244,10 +229,9 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 			selectIndex: number | null;
 			openItem: string | null;
 		}>("graphNavigation", {
-			key: event.key,
+			...repositoryKeyboardInput(event),
 			items: model.selectableItems,
 			current: props.selectedHash,
-			branch: event.altKey,
 			branchTarget,
 			canOpen: !!props.onOpenSelection,
 		});
@@ -257,6 +241,9 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 		event.preventDefault();
 		if (next.openItem) props.onOpenSelection?.(next.openItem);
 		if (next.selectItem) {
+			// Rows are virtualized and can disappear during selection/scrolling.
+			// Keep keyboard focus on the persistent listbox before either changes.
+			scrollerRef.current?.focus({ preventScroll: true });
 			props.onSelect?.(next.selectItem);
 			if (next.selectIndex !== null)
 				revealKeyboardRow(next.selectIndex, event.repeat);

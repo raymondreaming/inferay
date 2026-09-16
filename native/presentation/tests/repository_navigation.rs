@@ -26,23 +26,19 @@ fn graph_navigation_opens_wip_and_preserves_branch_and_boundary_rules() {
     assert_eq!(navigate("Home", 2, json!({}))["selectIndex"], 0);
     assert_eq!(navigate("End", 0, json!({}))["selectIndex"], 2);
     assert_eq!(
-        navigate(
-            "ArrowDown",
-            0,
-            json!({"branch":true,"branchIndex":2,"branchTarget":"older"})
-        )["selectItem"],
+        navigate("ArrowDown", 0, json!({"alt":true,"branchTarget":"older"}))["selectItem"],
         "older"
     );
     assert_eq!(
         navigate(
             "ArrowDown",
             0,
-            json!({"branch":true,"branchIndex":-1,"branchTarget":"offscreen"})
+            json!({"alt":true,"branchTarget":"offscreen"})
         )["selectItem"],
         "offscreen"
     );
     assert_eq!(
-        navigate("ArrowDown", 0, json!({"branch":true,"branchIndex":-1}))["selectIndex"],
+        navigate("ArrowDown", 0, json!({"alt":true}))["selectIndex"],
         Value::Null
     );
     assert_eq!(
@@ -223,4 +219,67 @@ fn right_from_chat_enters_sidebar_again_after_returning_to_chat() {
                 .unwrap();
         }
     }
+}
+
+#[test]
+fn left_after_repository_switch_uses_visible_panel_instead_of_old_focus() {
+    let mut input = json!({
+        "key":"ArrowLeft", "repositoryTabFocused":true,
+        "focusedPanelId":null, "mainViewMode":"diff", "graphVisible":true,
+        "sidebarVisible":true, "hasFile":true,
+    });
+    assert_eq!(
+        project("repositoryKeyboardAction", &input).unwrap(),
+        json!({"type":"close"})
+    );
+    input["mainViewMode"] = json!("graph");
+    assert_eq!(
+        project("repositoryKeyboardAction", &input).unwrap(),
+        json!({"type":"closeGraph"})
+    );
+    input["repositoryTabFocused"] = json!(false);
+    input["focusedPanelId"] = json!("workspace-diff-viewer");
+    assert_eq!(
+        project("repositoryKeyboardAction", &input).unwrap(),
+        json!({"type":"closeGraph"})
+    );
+    input["sidebarFocused"] = json!(true);
+    assert_eq!(
+        project("repositoryKeyboardAction", &input).unwrap(),
+        json!({"type":"focusGraph"})
+    );
+    input["editable"] = json!(true);
+    assert_eq!(
+        project("repositoryKeyboardAction", &input).unwrap(),
+        Value::Null
+    );
+}
+
+#[test]
+fn space_pages_current_diff_from_sidebar_without_moving_focus_or_selection() {
+    let mut input = json!({"key":" ","sidebarFocused":true,"sidebarVisible":true,
+        "mainViewMode":"diff","hasFile":true,"historical":true});
+    for repeat in [false, true] {
+        input["repeat"] = json!(repeat);
+        for (shift, direction) in [(false, 1), (true, -1)] {
+            input["shift"] = json!(shift);
+            assert_eq!(
+                project("repositoryKeyboardAction", &input).unwrap(),
+                json!({"type":"scrollDiff","direction":direction})
+            );
+        }
+    }
+    for guard in ["editable", "overlay", "button", "composing", "blocked"] {
+        input[guard] = json!(true);
+        assert_eq!(
+            project("repositoryKeyboardAction", &input).unwrap(),
+            Value::Null
+        );
+        input[guard] = json!(false);
+    }
+    input["hasFile"] = json!(false);
+    assert_eq!(
+        project("repositoryKeyboardAction", &input).unwrap(),
+        Value::Null
+    );
 }
