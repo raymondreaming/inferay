@@ -19,8 +19,8 @@ import { ChangesPanel } from "@repository/components/changes/components/ChangesP
 import { DocumentViewer } from "@repository/components/documents/components/DocumentViewer/index.tsx";
 import type { GraphSelectionIntent } from "@repository/components/graph/components/CommitGraph/index.tsx";
 import {
-	loadPreferences,
 	nextGitGraphHistoryLimit,
+	useGraphPreferences,
 } from "@repository/components/graph/components/CommitGraph/useCommitGraphState.tsx";
 import { ChatDiffPanel } from "@repository/components/operations/ChatDiffPanel/index.tsx";
 import {
@@ -210,17 +210,9 @@ export function useRepositoryWorkbench(
 		graphCwd();
 		return DEFAULT_GIT_GRAPH_HISTORY_LIMIT;
 	});
-	const [graphPreferenceState, setGraphPreferenceState] = createSignal(() => ({
-		repositoryKey: graphCwd(),
-		value: loadPreferences(graphCwd()),
-	}));
-	const graphPreferences = createMemo(() => {
-		const _graphPreferenceStateValue = graphPreferenceState(),
-			_graphCwdValue = graphCwd();
-		return _graphPreferenceStateValue.repositoryKey === _graphCwdValue
-			? _graphPreferenceStateValue.value
-			: loadPreferences(_graphCwdValue);
-	});
+	const [graphPreferences, setGraphPreferences] = useGraphPreferences(
+		untrack(graphCwd),
+	);
 	const graph = useGitGraph(
 		() => graphCwd(),
 		() => graphLimit(),
@@ -1007,22 +999,7 @@ export function useRepositoryWorkbench(
 						onMainViewModeChange={changeMainViewMode}
 						graph={graph}
 						graphPreferences={graphPreferences()}
-						onGraphPreferencesChange={(update) =>
-							setGraphPreferenceState((current) => {
-								const _graphCwdValue4 = graphCwd();
-								return {
-									repositoryKey: _graphCwdValue4,
-									value:
-										typeof update === "function"
-											? update(
-													current.repositoryKey === _graphCwdValue4
-														? current.value
-														: loadPreferences(_graphCwdValue4),
-												)
-											: update,
-								};
-							})
-						}
+						onGraphPreferencesChange={setGraphPreferences}
 						graphLoading={graph.loading}
 						graphError={graphActionError() ?? graph.error}
 						selectionAnnouncement={graphSelectionAnnouncement()}

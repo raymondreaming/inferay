@@ -25,6 +25,7 @@ import {
 	createMemo,
 	createSignal,
 	merge,
+	type Setter,
 } from "solid-js";
 import { getGraphLineLayerStyle } from "./styles.ts";
 import { useGraphViewport } from "./useGraphViewport.tsx";
@@ -128,12 +129,6 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 				window.removeEventListener("pointerdown", close);
 				window.removeEventListener("keydown", closeOnEscape);
 			};
-		},
-	);
-	createEffect(
-		() => [preferences(), _props().repositoryKey] as const,
-		([value, repository]) => {
-			writeStoredJson(preferencesKey(repository), value);
 		},
 	);
 	const graphModel = createMemo(() => {
@@ -430,24 +425,34 @@ export interface GraphPreferences {
 }
 export const TOP_PADDING = ROW_HEIGHT;
 export const EMPTY_SELECTED_IDS: readonly string[] = [];
-export function preferencesKey(_repositoryKey?: string) {
-	return "commit-graph-columns-v13:global";
-}
-function legacyPreferencesKey(repositoryKey?: string) {
-	return `commit-graph-columns-v12:${repositoryKey ?? "default"}`;
+const GRAPH_PREFERENCES_KEY = "commit-graph-columns-v13:global";
+let sharedPreferences:
+	| [Accessor<GraphPreferences>, Setter<GraphPreferences>]
+	| undefined;
+export function useGraphPreferences(repositoryKey?: string) {
+	const [read, set] = (sharedPreferences ??= createSignal(
+		rustProject<GraphPreferences>(
+			"graphPreferences",
+			readStoredJson(GRAPH_PREFERENCES_KEY, null) ??
+				readStoredJson(
+					`commit-graph-columns-v12:${repositoryKey ?? "default"}`,
+					{},
+				),
+		),
+	));
+	const update = (
+		value: GraphPreferences | ((current: GraphPreferences) => GraphPreferences),
+	) => {
+		set((current) => {
+			const next = typeof value === "function" ? value(current) : value;
+			writeStoredJson(GRAPH_PREFERENCES_KEY, next);
+			return next;
+		});
+	};
+	return [read, update] as const;
 }
 export function scrollPreferencesKey(repositoryKey?: string) {
 	return `commit-graph-scroll-v1:${repositoryKey ?? "default"}`;
-}
-export function loadPreferences(repositoryKey?: string): GraphPreferences {
-	const stored = readStoredJson<GraphPreferences | null>(
-		preferencesKey(),
-		null,
-	);
-	return rustProject(
-		"graphPreferences",
-		stored ?? readStoredJson(legacyPreferencesKey(repositoryKey), {}),
-	);
 }
 export function nextGitGraphHistoryLimit(current: number): number {
 	return rustProject("nextHistoryLimit", current);
