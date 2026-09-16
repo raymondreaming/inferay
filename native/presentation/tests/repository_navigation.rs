@@ -128,11 +128,7 @@ fn hidden_graph_keeps_file_keyboard_navigation_after_closing_and_reopening_diff(
         session["focusedAuxiliaryPanel"] = Value::Null;
         assert_eq!(navigate(&session, "ArrowDown"), Value::Null);
     }
-    for guard in [
-        json!({"editable":true}),
-        json!({"blocked":true}),
-        json!({"graphVisible":true}),
-    ] {
+    for guard in [json!({"editable":true}), json!({"blocked":true})] {
         let mut input = json!({"key":"ArrowRight","focusedPanelId":"workspace-diff-viewer","mainViewMode":"graph","graphVisible":false,"sidebarVisible":true,"hasFile":true});
         input
             .as_object_mut()
@@ -171,7 +167,7 @@ fn sidebar_keys_work_before_a_file_preview_or_graph_focus() {
     input["sidebarFocused"] = json!(false);
     assert_eq!(
         project("repositoryKeyboardAction", &input).unwrap(),
-        Value::Null
+        json!({"type":"navigateGraph"})
     );
 }
 
@@ -360,4 +356,48 @@ fn sidebar_left_reopens_hidden_graph_after_browsing_files() {
     assert_eq!(session["graphVisible"], true);
     assert_eq!(session["mainViewMode"], "graph");
     assert_eq!(session["selectedCommitHash"], "commit");
+}
+
+#[test]
+fn graph_keys_route_from_window_focus_without_a_clicked_row() {
+    for key in ["ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"] {
+        let mut input = json!({"key":key,"windowFocused":true,"mainViewMode":"graph",
+            "graphVisible":true,"sidebarVisible":true,"focusedPanelId":null});
+        assert_eq!(
+            project("repositoryKeyboardAction", &input).unwrap(),
+            json!({"type":"navigateGraph"})
+        );
+        for guard in ["editable", "overlay", "blocked", "chatFocused"] {
+            input[guard] = json!(true);
+            assert_ne!(
+                project("repositoryKeyboardAction", &input).unwrap(),
+                json!({"type":"navigateGraph"})
+            );
+            input[guard] = json!(false);
+        }
+        input["windowFocused"] = json!(false);
+        input["button"] = json!(true);
+        for tab in [false, true] {
+            input["repositoryTabFocused"] = json!(tab);
+            assert_eq!(
+                project("repositoryKeyboardAction", &input).unwrap(),
+                json!({"type":"navigateGraph"})
+            );
+        }
+        input["sidebarFocused"] = json!(true);
+        assert_ne!(
+            project("repositoryKeyboardAction", &input).unwrap(),
+            json!({"type":"navigateGraph"})
+        );
+    }
+    assert_eq!(
+        project(
+            "graphFileOpen",
+            &json!({"request":"wip","selectedCommitHash":"wip",
+        "mainViewMode":"graph","selectedGraphItem":{"itemKind":"worktreeWip"},
+        "workingTreeCwd":"/repo","files":[{"path":"only-staged.rs","staged":true}]})
+        )
+        .unwrap()["action"],
+        json!({"type":"workingTreeFile","cwd":"/repo","path":"only-staged.rs","staged":true})
+    );
 }

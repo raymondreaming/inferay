@@ -46,6 +46,7 @@ import {
 	createPointerResize,
 	DOCUMENT_OPEN_EVENT,
 	type DocumentOpenDetail,
+	GRAPH_KEYBOARD_EVENT,
 	listenWindowEvent,
 	OPEN_ACTIVE_GIT_GRAPH_EVENT,
 	repositoryKeyboardInput,
@@ -726,7 +727,13 @@ export function useRepositoryWorkbench(
 		const target = event.target as HTMLElement;
 		const action = rustProject<
 			| {
-					type: "close" | "closeGraph" | "open" | "enterSidebar" | "focusGraph";
+					type:
+						| "close"
+						| "closeGraph"
+						| "open"
+						| "enterSidebar"
+						| "focusGraph"
+						| "navigateGraph";
 			  }
 			| { type: "cycle" | "scrollDiff"; direction: -1 | 1 }
 			| { type: "toggle" }
@@ -739,9 +746,8 @@ export function useRepositoryWorkbench(
 			focusedPanelId: session.focusedAuxiliaryPanel?.id,
 			repositoryTabFocused: Boolean(target.closest("[data-repository-tab]")),
 			sidebarFocused: sidebarElement?.contains(target) ?? false,
-			chatFocused:
-				Boolean(target.closest("[data-chat-pane-id]")) ||
-				(target === document.body && !session.focusedAuxiliaryPanel),
+			chatFocused: Boolean(target.closest("[data-chat-pane-id]")),
+			windowFocused: target === document.body,
 			emptyComposer:
 				target instanceof HTMLTextAreaElement &&
 				target.hasAttribute("data-chat-composer") &&
@@ -754,6 +760,14 @@ export function useRepositoryWorkbench(
 			hasFile: Boolean(session.selectedFile),
 		});
 		if (!action) return;
+		if (action.type === "navigateGraph") {
+			diffRailElement
+				?.querySelector<HTMLElement>('[aria-label="Repository commit history"]')
+				?.dispatchEvent(
+					new CustomEvent(GRAPH_KEYBOARD_EVENT, { detail: event }),
+				);
+			return;
+		}
 		event.preventDefault();
 		if (action.type === "enterSidebar") {
 			const kind =

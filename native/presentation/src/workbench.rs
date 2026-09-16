@@ -142,6 +142,7 @@ pub fn keyboard_action(input: &Value) -> Value {
     } else if sidebar
         || flag(&input["repositoryTabFocused"])
         || flag(&input["graphFocused"])
+        || (flag(&input["windowFocused"]) && flag(&input["graphVisible"]))
         || input["focusedPanelId"] == "workspace-diff-viewer"
     {
         if diff {
@@ -153,11 +154,25 @@ pub fn keyboard_action(input: &Value) -> Value {
         } else {
             return Value::Null;
         }
+    } else if flag(&input["graphVisible"]) && !diff {
+        "graph"
+    } else if flag(&input["windowFocused"]) {
+        "chat"
     } else {
         return Value::Null;
     };
     match crate::shortcuts::action(input, scope) {
         Some("enterSidebar") if flag(&input["sidebarVisible"]) => json!({"type":"enterSidebar"}),
+        Some(
+            "previousCommit"
+            | "nextCommit"
+            | "previousBranchCommit"
+            | "nextBranchCommit"
+            | "firstCommit"
+            | "lastCommit"
+            | "openSelection"
+            | "consume",
+        ) => json!({"type":"navigateGraph"}),
         Some("closeGraph") => json!({"type":"closeGraph"}),
         Some("focusGraph") => json!({"type":"focusGraph"}),
         Some("close") if sidebar => json!({"type":"focusGraph"}),

@@ -95,7 +95,6 @@ export function repositoryKeyboardInput(event: KeyboardEvent) {
 				target?.closest('input, textarea, select, [role="textbox"]'),
 		),
 		overlay: Boolean(target?.closest('dialog, [role="dialog"], [role="menu"]')),
-		graphRow: Boolean(target?.closest("[data-graph-item]")),
 		button: Boolean(
 			target?.closest('button, a, [role="button"]') &&
 				!target?.closest("[data-git-file-select]"),
@@ -295,6 +294,7 @@ export function dispatchWindowEvent<T>(name: string, detail: T): void {
 		}),
 	);
 }
+export const GRAPH_KEYBOARD_EVENT = "inferay-graph-keyboard";
 export const OPEN_ACTIVE_GIT_GRAPH_EVENT = "inferay-open-active-git-graph";
 export const TOGGLE_ACTIVE_GIT_GRAPH_EVENT = "inferay-toggle-active-git-graph";
 export function dispatchToggleActiveGitGraph() {

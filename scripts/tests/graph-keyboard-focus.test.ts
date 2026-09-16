@@ -184,3 +184,102 @@ test("returning from a diff restores graph focus after the graph mounts", () => 
 	frame();
 	expect(focused).toBe("other repository");
 });
+
+test("Right reaches selected WIP through window routing without clicking the graph", () => {
+	const read = (path: string) =>
+		readFileSync(new URL(path, import.meta.url), "utf8");
+	const graphSource = read(
+		"../../src/modules/repository/components/graph/components/CommitGraph/useCommitGraphState.tsx",
+	);
+	const workbenchSource = read(
+		"../../src/modules/repository/hooks/useRepositoryWorkbench.tsx",
+	);
+	const transpiler = new Bun.Transpiler({ loader: "tsx" });
+	const graphCode = transpiler.transformSync(
+		graphSource.slice(
+			graphSource.indexOf("const navigateRows ="),
+			graphSource.indexOf("\n\tconst startColumnResize ="),
+		),
+	);
+	const start = workbenchSource.indexOf("const handleDiffKeyboardNavigation =");
+	const windowCode = transpiler.transformSync(
+		workbenchSource.slice(
+			start,
+			workbenchSource.indexOf("\n\tcreateEffect(", start),
+		),
+	);
+	const body: { closest: (selector: string) => object | null } = {
+		closest: () => null,
+	};
+	const opened: string[] = [];
+	const keyboardInput = (event: KeyboardEvent) => ({
+		key: event.key,
+		blocked: event.defaultPrevented,
+	});
+	const graphDependencies = {
+		rustProject: project,
+		repositoryKeyboardInput: keyboardInput,
+		graphModel: () => ({ selectableItems: ["wip", "head"] }),
+		_props: () => ({
+			commits: [{ id: "wip", navigation: {} }],
+			selectedHash: "wip",
+			onOpenSelection: (id: string) => {
+				opened.push(id);
+			},
+		}),
+		keyboardNavigationRef: { current: false },
+		setHoveredRow: () => {},
+	};
+	const navigate = new Function(
+		...Object.keys(graphDependencies),
+		`${graphCode}; return navigateRows;`,
+	)(...Object.values(graphDependencies));
+	const dependencies = {
+		rustProject: project,
+		repositoryKeyboardInput: keyboardInput,
+		GRAPH_KEYBOARD_EVENT: "graph-keyboard",
+		CustomEvent,
+		panelSession: () => ({
+			mainViewMode: "graph",
+			graphVisible: true,
+			sidebarVisible: true,
+			selectedCommitHash: "wip",
+		}),
+		document: { body },
+		HTMLTextAreaElement: class {},
+		sidebarElement: { contains: () => false },
+		diffRailElement: {
+			querySelector: () => ({
+				dispatchEvent: (event: CustomEvent<KeyboardEvent>) =>
+					navigate(event.detail),
+			}),
+		},
+	};
+	const handle = new Function(
+		...Object.keys(dependencies),
+		`${windowCode}; return handleDiffKeyboardNavigation;`,
+	)(...Object.values(dependencies));
+	const event = {
+		key: "ArrowRight",
+		target: body,
+		defaultPrevented: false,
+		preventDefault() {
+			this.defaultPrevented = true;
+		},
+	};
+	for (const target of [
+		body,
+		{
+			closest: (selector: string) =>
+				selector === "[data-repository-tab]" ? {} : null,
+		},
+		{ closest: () => null },
+	]) {
+		opened.length = 0;
+		event.target = target;
+		event.defaultPrevented = false;
+		handle(event);
+		expect(opened).toEqual(["wip"]);
+		expect(event.defaultPrevented).toBe(true);
+	}
+});

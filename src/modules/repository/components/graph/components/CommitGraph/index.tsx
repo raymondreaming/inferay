@@ -1,6 +1,6 @@
-import { assignRef, domStyle } from "@shared/lib/dom.tsx";
+import { assignRef, domStyle, GRAPH_KEYBOARD_EVENT } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { createMemo, For } from "solid-js";
+import { createMemo, For, onSettled } from "solid-js";
 import { CommitGraphLinesLayer } from "./CommitGraphLinesLayer.tsx";
 import { CommitRow } from "./CommitRow.tsx";
 import { GraphColumnMenu } from "./GraphColumnMenu.tsx";
@@ -25,6 +25,13 @@ export const CommitGraph = function CommitGraph(
 	props: ReturnType<Parameters<typeof useCommitGraphState>[0]>,
 ) {
 	const view = useCommitGraphState(() => props);
+	onSettled(() => {
+		const element = view.scrollerRef.current;
+		const navigate = (event: Event) =>
+			view.navigateRows((event as CustomEvent<KeyboardEvent>).detail);
+		element?.addEventListener(GRAPH_KEYBOARD_EVENT, navigate);
+		return () => element?.removeEventListener(GRAPH_KEYBOARD_EVENT, navigate);
+	});
 	const rootProps = createMemo(() =>
 		stylex.attrs(styles.root, view.embedded && styles.embeddedRoot),
 	);
