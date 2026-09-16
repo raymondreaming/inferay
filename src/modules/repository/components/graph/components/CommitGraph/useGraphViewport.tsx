@@ -13,6 +13,7 @@ export function useGraphViewport(
 	const [element, setElement] = createSignal<HTMLDivElement | null>(null);
 	const [scrollTop, setScrollTop] = createSignal(0);
 	const [viewportHeight, setViewportHeight] = createSignal(600);
+	const [viewportWidth, setViewportWidth] = createSignal(0);
 	let remember = (_top: number, _left: number) => {};
 	createEffect(
 		() => [repository(), element(), hasRows()] as const,
@@ -27,7 +28,10 @@ export function useGraphViewport(
 			scroller.scrollTop = position.top;
 			scroller.scrollLeft = position.left;
 			setScrollTop(position.top);
-			const measure = () => setViewportHeight(scroller.clientHeight);
+			const measure = () => {
+				setViewportHeight(scroller.clientHeight);
+				setViewportWidth(scroller.clientWidth);
+			};
 			measure();
 			const observer = new ResizeObserver(measure);
 			observer.observe(scroller);
@@ -66,6 +70,7 @@ export function useGraphViewport(
 		},
 		scrollTop,
 		viewportHeight,
+		viewportWidth,
 		rememberScroll: (top: number, left: number) => remember(top, left),
 	};
 }

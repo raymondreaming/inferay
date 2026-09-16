@@ -12,6 +12,7 @@ import { runtimeGitGraphLaneColors } from "@design-system/styles.stylex.ts";
 import { useGitAuthorAvatars } from "@repository/hooks/useGitAuthorAvatars.ts";
 import {
 	createPointerResize,
+	createWindowFullscreen,
 	repositoryKeyboardInput,
 } from "@shared/lib/dom.tsx";
 import {
@@ -83,12 +84,18 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 		if (!pointerMovedRef.current || keyboardNavigationRef.current) return;
 		setHoveredRow(itemId);
 	};
-	const { scrollerRef, scrollTop, viewportHeight, rememberScroll } =
-		useGraphViewport(
-			() => _props().repositoryKey,
-			() => _props().commits.length > 0,
-			ROW_HEIGHT,
-		);
+	const fullscreen = createWindowFullscreen();
+	const {
+		scrollerRef,
+		scrollTop,
+		viewportHeight,
+		viewportWidth,
+		rememberScroll,
+	} = useGraphViewport(
+		() => _props().repositoryKey,
+		() => _props().commits.length > 0,
+		ROW_HEIGHT,
+	);
 	const [query, setQuery] = createSignal(() => {
 		void _props().repositoryKey;
 		return _props().searchQuery ?? "";
@@ -139,10 +146,12 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 		const _source2Value = preferences(),
 			_sourceValue7 = _props();
 		return buildCommitGraphViewModel({
+			availableWidth: viewportWidth(),
 			columns: _source2Value.columns,
 			commits: _sourceValue7.commits,
 			order: _source2Value.order,
 			presentation: _sourceValue7.presentation,
+			stretch: fullscreen(),
 			widths: _source2Value.widths,
 			worktrees:
 				_sourceValue7.worktrees === undefined ? [] : _sourceValue7.worktrees,
@@ -255,7 +264,7 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 		if (event.button !== 0) return;
 		event.preventDefault();
 		const startX = event.clientX;
-		const startWidth = preferences().widths[column];
+		const startWidth = graphModel().columnWidths[column];
 		const move = (moveEvent: PointerEvent) => {
 			setters().setWidths((current) => ({
 				...current,
@@ -474,15 +483,21 @@ export function moveGraphColumn(
 	});
 }
 export function buildCommitGraphViewModel({
+	availableWidth,
 	commits,
 	presentation,
 	order,
+	stretch,
 	widths,
 	columns,
 	worktrees,
 }: Pick<CommitGraphProps, "commits" | "presentation" | "worktrees"> &
-	Pick<GraphPreferences, "columns" | "order" | "widths">) {
+	Pick<GraphPreferences, "columns" | "order" | "widths"> & {
+		availableWidth: number;
+		stretch: boolean;
+	}) {
 	const geometry = rustProject<{
+		columnWidths: ColumnWidths;
 		displayColumns: number[];
 		visibleOrder: ColumnKey[];
 		graphWidth: number;
@@ -491,9 +506,11 @@ export function buildCommitGraphViewModel({
 		tableWidth: number;
 		totalHeight: number;
 	}>("graphLayout", {
+		availableWidth,
 		commitColumns: commits.map((commit) => commit.column),
 		pinnedColumns: presentation.pinnedColumns,
 		order,
+		stretch,
 		widths,
 		columns,
 	});

@@ -265,6 +265,18 @@ export const queryClient = new QueryClient({
 		},
 	},
 });
+export function createWindowFullscreen(): Accessor<boolean> {
+	return createExternalSignal(
+		(notify) => {
+			const observer = new MutationObserver(notify);
+			observer.observe(document.documentElement, {
+				attributeFilter: ["data-inferay-fullscreen"],
+			});
+			return () => observer.disconnect();
+		},
+		() => document.documentElement.dataset.inferayFullscreen === "true",
+	);
+}
 export function listenWindowEvent<K extends keyof WindowEventMap | string>(
 	type: K,
 	listener: K extends keyof WindowEventMap

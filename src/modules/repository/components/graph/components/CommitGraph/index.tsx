@@ -136,7 +136,7 @@ export const CommitGraph = function CommitGraph(
 				<HeaderRow
 					graphWidth={view.graphWidth}
 					columns={view.columns}
-					widths={view.widths}
+					widths={view.columnWidths}
 					order={view.order}
 					onMoveColumn={view.moveColumn}
 					onResizeStart={view.startColumnResize}
@@ -192,7 +192,7 @@ export const CommitGraph = function CommitGraph(
 									}
 									visibleOrder={view.visibleOrder}
 									graphStart={view.graphLeft}
-									widths={view.widths}
+									widths={view.columnWidths}
 									virtualTop={TOP_PADDING + logicalIndex() * ROW_HEIGHT}
 									searchMatch={view.matchingHashes.has(commit().id)}
 									githubAvatar={view.avatarForCommit(commit())}

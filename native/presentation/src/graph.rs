@@ -5,6 +5,7 @@ const COLUMNS: [&str; 6] = ["date", "refs", "graph", "message", "author", "sha"]
 const DEFAULT_WIDTHS: [f64; 6] = [132., 216., 96., 340., 136., 76.];
 const MIN_WIDTHS: [f64; 6] = [84., 96., 48., 160., 88., 56.];
 const ROW_HEIGHT: f64 = 23.;
+const TOOLS_WIDTH: f64 = 32.;
 
 #[derive(serde::Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
@@ -203,26 +204,38 @@ pub fn layout(i: &Value) -> Value {
     for (index, column) in positions.iter().enumerate() {
         display[*column] = index;
     }
-    let graph_width = number(&i["widths"]["graph"]).max(MIN_WIDTHS[2]);
     let columns: Vec<_> = array(&i["order"])
         .iter()
         .filter(|c| i["columns"][string(c)].as_bool().unwrap_or(true))
         .collect();
-    let width = |c: &Value| {
-        if c == "graph" {
-            graph_width
-        } else {
-            number(&i["widths"][string(c)])
-        }
+    let mut widths: serde_json::Map<String, Value> = COLUMNS
+        .iter()
+        .enumerate()
+        .map(|(index, column)| {
+            (
+                (*column).to_owned(),
+                json!(number(&i["widths"][column]).max(MIN_WIDTHS[index])),
+            )
+        })
+        .collect();
+    let content = |widths: &serde_json::Map<String, Value>| -> f64 {
+        columns.iter().map(|c| number(&widths[string(c)])).sum()
     };
+    let slack = number(&i["availableWidth"]) - content(&widths) - TOOLS_WIDTH;
+    if flag(&i["stretch"]) && slack > 0.5 && columns.iter().any(|c| **c == "message") {
+        widths["message"] = json!(number(&widths["message"]) + slack);
+    }
     let left: f64 = columns
         .iter()
         .take_while(|c| ***c != "graph")
-        .map(|c| width(c))
+        .map(|c| number(&widths[string(c)]))
         .sum();
     let height = array(&i["commitColumns"]).len() as f64 * 23.;
-    json!({"visibleOrder":columns,"displayColumns":display,"graphHeight":height,"graphLeft":left,"graphWidth":graph_width,
-        "tableWidth":columns.iter().map(|c|width(c)).sum::<f64>() + 32.,"totalHeight":23. + height})
+    let graph_width = number(&widths["graph"]);
+    let table_width = content(&widths) + TOOLS_WIDTH;
+    json!({"visibleOrder":columns,"displayColumns":display,"graphHeight":height,"graphLeft":left,
+        "graphWidth":graph_width,"columnWidths":widths,
+        "tableWidth":table_width,"totalHeight":23. + height})
 }
 pub fn path(i: &Value) -> Value {
     let row = number(&i["row"]);
@@ -408,6 +421,42 @@ mod column_layout_tests {
             preferences(&json!({"columns":{"author":false}}))["columns"]["refs"],
             true
         );
+    }
+
+    #[test]
+    fn fullscreen_fills_leftover_width_with_the_message_column() {
+        let input = json!({
+            "commitColumns": [0],
+            "pinnedColumns": [],
+            "widths": { "graph": 96, "message": 340, "author": 136 },
+            "order": ["graph", "message", "author"],
+            "columns": {},
+            "availableWidth": 1200
+        });
+        let freeform = layout(&input);
+        assert_eq!(freeform["columnWidths"]["message"], 340.);
+        assert_eq!(freeform["tableWidth"], 604.);
+        let mut stretched = input.clone();
+        stretched["stretch"] = json!(true);
+        let stretched = layout(&stretched);
+        assert_eq!(stretched["columnWidths"]["message"], 936.);
+        assert_eq!(stretched["columnWidths"]["author"], 136.);
+        assert_eq!(stretched["tableWidth"], 1200.);
+    }
+
+    #[test]
+    fn narrow_windows_keep_stored_widths_even_in_fullscreen() {
+        let result = layout(&json!({
+            "commitColumns": [0],
+            "pinnedColumns": [],
+            "widths": { "graph": 96, "message": 340 },
+            "order": ["graph", "message"],
+            "columns": {},
+            "availableWidth": 300,
+            "stretch": true
+        }));
+        assert_eq!(result["columnWidths"]["message"], 340.);
+        assert_eq!(result["tableWidth"], 468.);
     }
 
     #[test]
