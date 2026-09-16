@@ -1679,7 +1679,6 @@ fn display_folder_path(folder: &str) -> String {
 
 const AGENT_STATE_STORAGE_KEY: &str = "inferay-agent-state";
 const SYNCED_STORAGE_KEYS: &[&str] = &[
-    "commit-graph-columns-v5",
     "editor-selected-pane",
     "git-watched-dirs",
     "main-sidebar-width",
@@ -1690,7 +1689,7 @@ const SYNCED_STORAGE_KEYS: &[&str] = &[
     "agent-main-view",
 ];
 const SYNCED_STORAGE_PREFIXES: &[&str] = &[
-    "commit-graph-columns-v12:",
+    "commit-graph-columns-",
     "commit-graph-scroll-v1:",
     "agent-workspace-",
     "git-change-checkpoint:",
