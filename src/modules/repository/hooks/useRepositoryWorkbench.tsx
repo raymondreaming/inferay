@@ -604,6 +604,16 @@ export function useRepositoryWorkbench(
 		});
 		if (!panelSession().graphVisible)
 			sidebarElement?.focus({ preventScroll: true });
+		else
+			requestAnimationFrame(() => {
+				if (!_options().active || panelSession().mainViewMode !== "graph")
+					return;
+				diffRailElement
+					?.querySelector<HTMLElement>(
+						'[aria-label="Repository commit history"]',
+					)
+					?.focus({ preventScroll: true });
+			});
 	};
 	const returnsToGraphOnClose = createMemo(() => panelSession().graphDrillIn);
 	const fileSelectionContext = createMemo(() => ({

@@ -95,6 +95,7 @@ export function repositoryKeyboardInput(event: KeyboardEvent) {
 				target?.closest('input, textarea, select, [role="textbox"]'),
 		),
 		overlay: Boolean(target?.closest('dialog, [role="dialog"], [role="menu"]')),
+		graphRow: Boolean(target?.closest("[data-graph-item]")),
 		button: Boolean(
 			target?.closest('button, a, [role="button"]') &&
 				!target?.closest("[data-git-file-select]"),

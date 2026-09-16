@@ -47,7 +47,13 @@ pub fn action(input: &Value, scope: &str) -> Option<&'static str> {
     // Command arrows are deliberately window-wide, including chat editors.
     // Local navigation must not steal cursor movement or modal interactions.
     if scope != "window"
-        && ((scope == "graph" && flag(&input["button"]))
+        && ((scope == "graph"
+            && flag(&input["button"])
+            && !(flag(&input["graphRow"])
+                && matches!(
+                    string(&input["key"]),
+                    "ArrowUp" | "ArrowDown" | "Home" | "End"
+                )))
             || flag(&input["overlay"])
             || (flag(&input["editable"]) && !(scope == "chat" && flag(&input["emptyComposer"]))))
     {
@@ -118,6 +124,19 @@ mod tests {
             resolve(&json!({"scope":"chat","key":"ArrowLeft","meta":true,"shift":true})),
             None
         );
+    }
+
+    #[test]
+    fn graph_row_controls_allow_vertical_navigation_but_keep_activation_keys() {
+        let mut input = serde_json::json!({"key":"ArrowUp","button":true,"graphRow":true});
+        assert_eq!(action(&input, "graph"), Some("previousCommit"));
+        input["graphRow"] = serde_json::json!(false);
+        assert_eq!(action(&input, "graph"), None);
+        input["graphRow"] = serde_json::json!(true);
+        for key in ["Enter", " ", "ArrowRight"] {
+            input["key"] = serde_json::json!(key);
+            assert_eq!(action(&input, "graph"), None);
+        }
     }
 
     #[test]

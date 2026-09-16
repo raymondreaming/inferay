@@ -19,7 +19,10 @@ test("repeated graph navigation retains focus before virtual rows are removed", 
 	let focused = "row";
 	let selected = "a";
 	const selections: string[] = [];
-	const commits = ["a", "b", "c", "d"].map((id) => ({ id, navigation: {} }));
+	const commits = ["wip", "a", "b", "c", "d"].map((id) => ({
+		id,
+		navigation: {},
+	}));
 	const dependencies = {
 		project,
 		repositoryKeyboardInput: (event: KeyboardEvent) => ({
@@ -64,6 +67,11 @@ test("repeated graph navigation retains focus before virtual rows are removed", 
 	}
 	expect(selections).toEqual(["b", "c", "d"]);
 	expect(focused).toBe("graph");
+	for (let index = 0; index < 5; index++)
+		navigate({ key: "ArrowUp", preventDefault() {} });
+	expect(selected).toBe("wip");
+	navigate({ key: "ArrowDown", preventDefault() {} });
+	expect(selected).toBe("a");
 });
 
 test("Space from the commit sidebar scrolls the current diff without changing focus", () => {
@@ -118,4 +126,61 @@ test("Space from the commit sidebar scrolls the current diff without changing fo
 		});
 	expect(pages).toEqual([540, 540, -540]);
 	expect(prevented).toBe(3);
+});
+
+test("returning from a diff restores graph focus after the graph mounts", () => {
+	const source = readFileSync(
+		new URL(
+			"../../src/modules/repository/hooks/useRepositoryWorkbench.tsx",
+			import.meta.url,
+		),
+		"utf8",
+	);
+	const start = source.indexOf("const closeDiffViewer =");
+	const code = new Bun.Transpiler({ loader: "tsx" }).transformSync(
+		source.slice(
+			start,
+			source.indexOf("\n\tconst returnsToGraphOnClose", start),
+		),
+	);
+	let mode = "diff";
+	let mounted = false;
+	let active = true;
+	let focused = "sidebar";
+	let frame = () => {};
+	const dependencies = {
+		setZenMode: () => {},
+		updatePanelSession: () => {
+			mode = "graph";
+		},
+		panelSession: () => ({ graphVisible: true, mainViewMode: mode }),
+		_options: () => ({ active }),
+		requestAnimationFrame: (callback: () => void) => {
+			frame = callback;
+		},
+		diffRailElement: {
+			querySelector: () =>
+				mounted
+					? {
+							focus: () => {
+								focused = "graph";
+							},
+						}
+					: null,
+		},
+	};
+	const close = new Function(
+		...Object.keys(dependencies),
+		`${code}; return closeDiffViewer;`,
+	)(...Object.values(dependencies));
+	close();
+	expect(focused).toBe("sidebar");
+	mounted = true;
+	frame();
+	expect(focused).toBe("graph");
+	close();
+	active = false;
+	focused = "other repository";
+	frame();
+	expect(focused).toBe("other repository");
 });

@@ -209,7 +209,11 @@ pub fn apply_action(
                     session["selectedFile"]["staged"] = json!(staged);
                 } else {
                     session["selectedFile"] = Value::Null;
-                    session["diffViewerCwd"] = Value::Null;
+                    if session["graphVisible"] == true {
+                        session["mainViewMode"] = json!("graph");
+                    } else {
+                        session["diffViewerCwd"] = Value::Null;
+                    }
                 }
             }
         }

@@ -283,3 +283,47 @@ fn space_pages_current_diff_from_sidebar_without_moving_focus_or_selection() {
         Value::Null
     );
 }
+
+#[test]
+fn leaving_wip_diff_preserves_graph_selection_and_repository() {
+    use inferay_presentation::panels;
+    for file_disappears in [false, true] {
+        let mut session = panels::normalize(&json!({"mainViewMode":"graph","graphVisible":true,
+            "sidebarVisible":true,"diffViewerCwd":"/repo","selectedCommitHash":"wip"}));
+        panels::apply_action(
+            &mut session,
+            &json!({"type":"workingTreeFile","cwd":"/repo","path":"a.rs","staged":false}),
+            1,
+        )
+        .unwrap();
+        let input = json!({"key":"ArrowLeft","mainViewMode":"diff","graphVisible":true,
+            "sidebarVisible":true,"sidebarFocused":true,"hasFile":true});
+        assert_eq!(
+            project("repositoryKeyboardAction", &input).unwrap(),
+            json!({"type":"close"})
+        );
+        if file_disappears {
+            let file = session["selectedFile"].clone();
+            panels::apply_action(
+                &mut session,
+                &json!({"type":"reconcileFile","expected":file,"staged":null}),
+                2,
+            )
+            .unwrap();
+        }
+        panels::apply_action(&mut session, &json!({"type":"dismissDiff"}), 3).unwrap();
+        assert_eq!(session["mainViewMode"], "graph");
+        assert_eq!(session["graphVisible"], true);
+        assert_eq!(session["diffViewerCwd"], "/repo");
+        assert_eq!(session["selectedCommitHash"], "wip");
+        assert_eq!(
+            project(
+                "repositoryKeyboardAction",
+                &json!({"key":"ArrowLeft","repeat":true,
+            "mainViewMode":"graph","graphVisible":true,"graphFocused":true})
+            )
+            .unwrap(),
+            Value::Null
+        );
+    }
+}

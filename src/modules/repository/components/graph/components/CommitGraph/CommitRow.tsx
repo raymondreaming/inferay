@@ -174,7 +174,7 @@ export const CommitRow = function CommitRow(_props: {
 			}}
 		>
 			{_props.visibleOrder.includes("graph") &&
-				(!isWip() || _props.rowActive) && (
+				(!isWip() || _props.selected || _props.rowActive) && (
 					<span
 						aria-hidden="true"
 						data-graph-row-wash="true"
