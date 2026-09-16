@@ -53,7 +53,7 @@ fn graph_navigation_opens_wip_and_preserves_branch_and_boundary_rules() {
 }
 
 #[test]
-fn graph_file_open_waits_for_history_but_opens_wip_in_sidebar_order() {
+fn graph_file_open_waits_for_history_then_restarts_at_the_first_sidebar_file() {
     let mut input = json!({"request":"wip","mainViewMode":"graph","selectedCommitHash":"wip","selectedCommitCount":1,
         "selectedGraphItem":{"itemKind":"worktreeWip"},"workingTreeCwd":"/linked",
         "files":[{"path":"b","staged":false},{"path":"a","staged":true}],"loading":true});
@@ -66,7 +66,7 @@ fn graph_file_open_waits_for_history_but_opens_wip_in_sidebar_order() {
     input["selectedFile"] = json!({"path":"a","staged":true});
     assert_eq!(
         project("graphFileOpen", &input).unwrap()["action"]["path"],
-        "a"
+        "b"
     );
     input["selectedGraphItem"] = json!({"itemKind":"commit","hash":"commit"});
     assert_eq!(project("graphFileOpen", &input).unwrap()["ready"], false);

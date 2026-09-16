@@ -327,14 +327,7 @@ pub fn graph_file_open(input: &Value) -> GraphFileOpen {
         return result;
     }
     let files = array(&input["files"]);
-    if let Some(file) = files
-        .iter()
-        .find(|file| {
-            file["path"] == input["selectedFile"]["path"]
-                && (!working_tree || file["staged"] == input["selectedFile"]["staged"])
-        })
-        .or_else(|| files.first())
-    {
+    if let Some(file) = files.first() {
         let mut selection = input.clone();
         selection["file"] = file.clone();
         selection["kind"] = json!(if working_tree {
