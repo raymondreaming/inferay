@@ -433,7 +433,7 @@ export const styles = stylex.create({
 		whiteSpace: "nowrap",
 		color: color.textSoft,
 		fontSize: font.size_2_75,
-		lineHeight: 1,
+		lineHeight: 1.5,
 	},
 	commitBody: {
 		minWidth: controlSize._0,
