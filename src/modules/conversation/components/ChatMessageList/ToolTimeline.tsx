@@ -1,5 +1,6 @@
 import type { ToolDisplayInfo } from "@contracts";
 import { iconSize } from "@design-system/styles.stylex.ts";
+import { FileTypeIcon } from "@explorer/components/FileTypeIcon/index.tsx";
 import { IconChevronDown } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, For, Show } from "solid-js";
@@ -51,6 +52,15 @@ export function ToolTimeline(_props: {
 									>
 										<Show when={display().source}>
 											{(source) => <McpSourceMark source={source()} />}
+										</Show>
+										<Show when={display().file}>
+											{(file) => (
+												<FileTypeIcon
+													path={file()}
+													size={iconSize.lg}
+													class={stylex.attrs(styles.toolFileIcon).class}
+												/>
+											)}
 										</Show>
 										<span {...stylex.attrs(styles.toolMilestoneLabel)}>
 											{display().label}

@@ -513,6 +513,9 @@ export const styles = stylex.create({
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 	},
+	toolFileIcon: {
+		flexShrink: 0,
+	},
 	toolMilestoneChevron: {
 		flexShrink: 0,
 		marginLeft: "auto",

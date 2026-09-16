@@ -1,7 +1,8 @@
 import { iconSize } from "@design-system/styles.stylex.ts";
+import { FileTypeIcon } from "@explorer/components/FileTypeIcon/index.tsx";
 import { IconChevronDown } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { createMemo, Match, Switch } from "solid-js";
+import { createMemo, Match, Show, Switch } from "solid-js";
 import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
 import { MiniEditDiff } from "../ChatEditDiff/index.tsx";
 import {
@@ -33,6 +34,15 @@ export function ToolMessage(props: {
 						onClick={() => props.onToggle(props.message.id)}
 						{...stylex.attrs(styles.toolToggle)}
 					>
+						<Show when={display().file}>
+							{(file) => (
+								<FileTypeIcon
+									path={file()}
+									size={iconSize.lg}
+									class={stylex.attrs(styles.toolFileIcon).class}
+								/>
+							)}
+						</Show>
 						<span {...stylex.attrs(styles.toolName)}>{display().label}</span>
 						{props.collapsed && display().detail && (
 							<span {...stylex.attrs(styles.toolSummary)}>

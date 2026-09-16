@@ -14,6 +14,10 @@ pub struct ToolDisplayInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub source: Option<McpToolSource>,
+    /// Path of the file the call works on, so the transcript can show its type.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub file: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, PartialEq, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
@@ -246,7 +250,16 @@ fn label(text: impl Into<String>) -> ToolDisplayInfo {
         label: text.into(),
         detail: None,
         source: None,
+        file: None,
     }
+}
+fn file_target(input: &Value) -> Option<String> {
+    ["file_path", "filePath", "notebook_path", "path", "file"]
+        .iter()
+        .find_map(|key| input.get(key).and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|path| !path.is_empty() && !path.ends_with('/'))
+        .map(str::to_owned)
 }
 fn words(command: &str) -> Vec<&str> {
     command
@@ -279,6 +292,7 @@ pub fn display(tool_name: Option<&str>, input: &Value) -> ToolDisplayInfo {
             label: action,
             detail: None,
             source: Some(source),
+            file: None,
         };
     }
     let command = input
@@ -437,17 +451,64 @@ pub fn display(tool_name: Option<&str>, input: &Value) -> ToolDisplayInfo {
             label: "Running command".into(),
             detail: Some(if detail.is_empty() { "command" } else { detail }.into()),
             source: None,
+            file: None,
         };
     }
-    label(
-        match tool_name.unwrap_or_default().trim().to_lowercase().as_str() {
-            "read" | "read_file" | "view" => "Reading files".into(),
+    let name = tool_name.unwrap_or_default().trim().to_lowercase();
+    let file = match name.as_str() {
+        "read" | "read_file" | "view" | "patch" | "apply_patch" | "edit" | "multiedit" | "write"
+        | "notebookedit" | "notebook_edit" => file_target(input),
+        _ => None,
+    };
+    ToolDisplayInfo {
+        label: match name.as_str() {
+            "read" | "read_file" | "view" => {
+                if file.is_some() {
+                    "Reading file".into()
+                } else {
+                    "Reading files".into()
+                }
+            }
             "grep" | "glob" | "search" => "Searching code".into(),
             "web_search" | "websearch" | "webfetch" => "Researching".into(),
-            "patch" | "apply_patch" | "edit" | "write" => "Updating code".into(),
+            "patch" | "apply_patch" | "edit" | "multiedit" | "write" => "Updating code".into(),
             _ => tool_name
                 .filter(|s| !s.is_empty())
                 .map_or_else(|| "Running tool".into(), |name| format!("Using {name}")),
         },
-    )
+        detail: file.as_deref().map(basename).map(str::to_owned),
+        source: None,
+        file,
+    }
+}
+fn basename(path: &str) -> &str {
+    path.rsplit(['/', '\\']).next().unwrap_or(path)
+}
+
+#[cfg(test)]
+mod tool_display_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn file_tools_name_their_file_so_the_transcript_can_show_its_type() {
+        let read = display(Some("Read"), &json!({"file_path": "/repo/src/App.tsx"}));
+        assert_eq!(read.label, "Reading file");
+        assert_eq!(read.file.as_deref(), Some("/repo/src/App.tsx"));
+        assert_eq!(read.detail.as_deref(), Some("App.tsx"));
+        let write = display(Some("Write"), &json!({"file_path": "notes.md"}));
+        assert_eq!(write.file.as_deref(), Some("notes.md"));
+    }
+
+    #[test]
+    fn searches_and_commands_carry_no_file_icon() {
+        let glob = display(Some("Glob"), &json!({"path": "src/modules", "pattern": "*.ts"}));
+        assert_eq!(glob.label, "Searching code");
+        assert_eq!(glob.file, None);
+        assert_eq!(glob.detail, None);
+        let read_without_path = display(Some("Read"), &json!({}));
+        assert_eq!(read_without_path.label, "Reading files");
+        assert_eq!(read_without_path.file, None);
+        assert_eq!(display(None, &json!({"command": "ls"})).file, None);
+    }
 }
