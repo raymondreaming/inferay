@@ -36,6 +36,7 @@ pub(super) struct ForgeState {
     accounts_cache: tokio::sync::Mutex<Option<AccountsCache>>,
     repos_cache: tokio::sync::Mutex<Option<ReposCache>>,
     commit_avatar_cache: tokio::sync::Mutex<HashMap<String, Option<String>>>,
+    author_identity_cache: tokio::sync::Mutex<HashMap<String, Value>>,
     merged_pr_cache: Arc<tokio::sync::Mutex<HashMap<String, MergedPrCache>>>,
 }
 
@@ -154,6 +155,7 @@ pub(crate) struct ForgeAccount {
 
 #[derive(Deserialize)]
 struct AuthorIdentityRequest {
+    hash: Option<String>,
     email: Option<String>,
     name: Option<String>,
 }
@@ -223,6 +225,20 @@ pub(super) async fn handle_request(state: &ServerState, path: &str, request: Req
         }
         "/api/forge/commit-avatars" => {
             let body: Value = api_body(request).await?;
+            let identities = serde_json::from_value::<Vec<AuthorIdentityRequest>>(
+                body.get("identities").cloned().unwrap_or_else(|| json!([])),
+            )
+            .unwrap_or_default();
+            let known = {
+                let cache = state.forge_state.author_identity_cache.lock().await;
+                identities
+                    .iter()
+                    .filter_map(|identity| {
+                        let email = normalized(identity.email.as_deref());
+                        cache.get(&email).map(|value| (email, value.clone()))
+                    })
+                    .collect::<HashMap<_, _>>()
+            };
             let hashes = body["hashes"]
                 .as_array()
                 .into_iter()
@@ -231,6 +247,12 @@ pub(super) async fn handle_request(state: &ServerState, path: &str, request: Req
                 .filter(|hash| {
                     (7..=64).contains(&hash.len())
                         && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+                })
+                .filter(|hash| {
+                    !identities.iter().any(|identity| {
+                        identity.hash.as_deref() == Some(*hash)
+                            && known.contains_key(&normalized(identity.email.as_deref()))
+                    })
                 })
                 .take(100)
                 .map(str::to_owned)
@@ -248,18 +270,27 @@ pub(super) async fn handle_request(state: &ServerState, path: &str, request: Req
                     .await
                     .unwrap_or_default()
             };
-            let identities = serde_json::from_value::<Vec<AuthorIdentityRequest>>(
-                body.get("identities").cloned().unwrap_or_else(|| json!([])),
-            )
-            .unwrap_or_default();
-            let accounts = if identities.is_empty() {
+            let known = {
+                let cache = state.forge_state.author_identity_cache.lock().await;
+                identities
+                    .iter()
+                    .filter_map(|identity| {
+                        let email = normalized(identity.email.as_deref());
+                        cache.get(&email).map(|value| (email, value.clone()))
+                    })
+                    .collect::<HashMap<_, _>>()
+            };
+            let accounts = if identities
+                .iter()
+                .all(|identity| known.contains_key(&normalized(identity.email.as_deref())))
+            {
                 Vec::new()
             } else {
                 list_github_accounts(state).await.unwrap_or_default()
             };
             Ok(json!({
                 "avatars": avatars,
-                "identities": identities.iter().map(|identity| resolve_author_identity(&accounts, identity)).collect::<Vec<_>>()
+                "identities": identities.iter().map(|identity| known.get(&normalized(identity.email.as_deref())).cloned().unwrap_or_else(|| resolve_author_identity(&accounts, identity))).collect::<Vec<_>>()
             }))
         }
         "/api/forge/clone" => {
@@ -383,7 +414,7 @@ async fn resolve_commit_avatars(
         .iter()
         .enumerate()
         .map(|(index, hash)| {
-            format!("c{index}: object(oid: \"{hash}\") {{ ... on Commit {{ author {{ user {{ avatarUrl }} }} }} }}")
+            format!("c{index}: object(oid: \"{hash}\") {{ ... on Commit {{ author {{ email user {{ login avatarUrl }} }} }} }}")
         })
         .collect::<Vec<_>>()
         .join(" ");
@@ -405,17 +436,67 @@ async fn resolve_commit_avatars(
     let value: Value = serde_json::from_str(&output).map_err(parse_error)?;
     let repository_data = value.pointer("/data/repository");
     let mut cache = state.forge_state.commit_avatar_cache.lock().await;
+    let mut authors = state.forge_state.author_identity_cache.lock().await;
     for (index, hash) in missing.iter().enumerate() {
         let avatar = repository_data
             .and_then(|repo| repo.pointer(&format!("/c{index}/author/user/avatarUrl")))
             .and_then(Value::as_str)
             .map(str::to_string);
+        if host == "github.com" {
+            if let Some(author) =
+                repository_data.and_then(|repo| repo.pointer(&format!("/c{index}/author")))
+            {
+                remember_author_identity(&mut authors, author);
+            }
+        }
         if avatar.is_some() {
             cache.insert(format!("{prefix}{hash}"), avatar.clone());
         }
         result.insert(hash.clone(), avatar);
     }
     Ok(result)
+}
+
+// Only associate an email with an account when GitHub resolved the commit's
+// author. Display names alone are not unique across people or repositories.
+fn remember_author_identity(cache: &mut HashMap<String, Value>, author: &Value) {
+    let email = normalized(author["email"].as_str());
+    if let (Some(login), Some(avatar)) = (
+        author["user"]["login"].as_str(),
+        author["user"]["avatarUrl"].as_str(),
+    ) {
+        if !email.is_empty() && !avatar.is_empty() {
+            cache.insert(email, json!({"login": login, "avatarUrl": avatar}));
+        }
+    }
+}
+
+#[cfg(test)]
+mod avatar_tests {
+    use super::*;
+
+    #[test]
+    fn verified_author_identity_is_reused_across_commits_and_missing_results() {
+        let mut cache = HashMap::new();
+        remember_author_identity(
+            &mut cache,
+            &json!({"email":" Person@Example.com ", "user":{"login":"person", "avatarUrl":"https://example.com/avatar"}}),
+        );
+        remember_author_identity(
+            &mut cache,
+            &json!({"email":"person@example.com", "user":null}),
+        );
+        assert_eq!(cache["person@example.com"]["login"], "person");
+        assert_eq!(
+            cache["person@example.com"]["avatarUrl"],
+            "https://example.com/avatar"
+        );
+        remember_author_identity(
+            &mut cache,
+            &json!({"email":"", "user":{"login":"other", "avatarUrl":"other"}}),
+        );
+        assert_eq!(cache.len(), 1);
+    }
 }
 
 fn parse_github_remote(remote: &str) -> Option<(String, String, String)> {

@@ -10,6 +10,7 @@ import { styles } from "./styles.ts";
 
 type SelectedFile = Pick<SelectedPanelFile, "path" | "staged">;
 export function HistoryFiles(_props: {
+	cwd?: string;
 	historyLoading: boolean;
 	historyDetails: GitCommitDetails | GitComparisonDetails | null;
 	selectionCount: number | undefined;
@@ -22,6 +23,7 @@ export function HistoryFiles(_props: {
 		<div {...stylex.attrs(styles.splitArea)}>
 			{_props.historyDetails ? (
 				<HistoricalDetailsPanel
+					cwd={_props.cwd}
 					details={_props.historyDetails}
 					selectionCount={_props.selectionCount}
 					selectedFile={_props.selectedFile}

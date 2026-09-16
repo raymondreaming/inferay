@@ -246,6 +246,7 @@ export const ChangesPanel = function ChangesPanel(props: {
 
 			{!model().showingWorkingTree && (
 				<HistoryFiles
+					cwd={props.cwd}
 					historyLoading={model().historyLoading}
 					historyDetails={model().historyDetails}
 					selectionCount={model().comparing ? selectedCommitCount() : undefined}

@@ -1,3 +1,4 @@
+import { knownAuthorAvatar } from "@repository/hooks/useGitAuthorAvatars.ts";
 import { resolveGitAuthorIdentity } from "@repository/services/gitApi.ts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, Loading } from "solid-js";
@@ -17,23 +18,28 @@ function formatDetailDate(value?: string | null) {
 		: parsed.toLocaleString();
 }
 export function DetailIdentity(_props: {
+	cwd?: string;
+	hash?: string;
 	label?: string;
 	name?: string | null;
 	email?: string | null;
 	date?: string | null;
 }) {
 	const identity = createMemo(() =>
-		resolveGitAuthorIdentity(_props.email, _props.name),
+		resolveGitAuthorIdentity(
+			_props.cwd,
+			_props.hash,
+			_props.email,
+			_props.name,
+		),
 	);
-	const avatarUrl = createMemo(() => identity()?.avatarUrl);
+	const avatarUrl = createMemo(
+		() => knownAuthorAvatar(_props.email) ?? identity()?.avatarUrl,
+	);
 	const displayName = createMemo(
 		() => identity()?.login || _props.name || "Unknown author",
 	);
-	const [avatarFailed, setAvatarFailed] = createSignal(() => {
-		void _props.email;
-		void _props.name;
-		return false;
-	});
+	const [failedUrl, setFailedUrl] = createSignal<string | null>(null);
 	return (
 		<div
 			title={_props.email ?? undefined}
@@ -41,13 +47,13 @@ export function DetailIdentity(_props: {
 		>
 			<span {...stylex.attrs(styles.detailAvatar)} aria-hidden="true">
 				<Loading fallback={detailInitials(_props.name)}>
-					{avatarUrl() && !avatarFailed() ? (
+					{avatarUrl() && avatarUrl() !== failedUrl() ? (
 						<img
 							src={avatarUrl() ?? undefined}
 							alt=""
 							loading="lazy"
 							referrerpolicy="no-referrer"
-							onError={() => setAvatarFailed(true)}
+							onError={() => setFailedUrl(avatarUrl() ?? null)}
 							{...stylex.attrs(styles.detailAvatarImage)}
 						/>
 					) : (

@@ -88,6 +88,7 @@ export async function resolveGitCommitAvatars(
 			cwd,
 			hashes: [...new Set(commits.map((commit) => commit.hash))],
 			identities: commits.map((commit) => ({
+				hash: commit.hash,
 				email: commit.authorEmail,
 				name: commit.author,
 			})),
@@ -106,6 +107,8 @@ export async function resolveGitCommitAvatars(
 }
 
 export async function resolveGitAuthorIdentity(
+	cwd: string | undefined,
+	hash: string | undefined,
 	email?: string | null,
 	name?: string | null,
 ): Promise<{ login: string; avatarUrl: string | null } | null> {
@@ -114,7 +117,9 @@ export async function resolveGitAuthorIdentity(
 		const response = await postJson<{
 			identities?: Array<{ login: string; avatarUrl: string | null } | null>;
 		}>("/api/forge/commit-avatars", {
-			identities: [{ email, name }],
+			cwd,
+			hashes: cwd && hash ? [hash] : [],
+			identities: [{ hash, email, name }],
 		});
 		return response.identities?.[0] ?? null;
 	} catch {

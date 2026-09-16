@@ -14,6 +14,7 @@ import { styles } from "./styles.ts";
 
 type SelectedFile = Pick<SelectedPanelFile, "path" | "staged">;
 export function HistoricalDetailsPanel(_props: {
+	cwd?: string;
 	details: GitCommitDetails | GitComparisonDetails;
 	selectionCount?: number;
 	selectedFile: SelectedFile | null;
@@ -80,6 +81,8 @@ export function HistoricalDetailsPanel(_props: {
 							) : null}
 							<div {...stylex.attrs(styles.detailIdentityGrid)}>
 								<DetailIdentity
+									cwd={_props.cwd}
+									hash={_details.hash}
 									name={_details.author}
 									email={_details.authorEmail}
 									date={_details.authoredAt}

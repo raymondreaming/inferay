@@ -184,7 +184,7 @@ export const CommitGraph = function CommitGraph(
 									widths={view.widths}
 									virtualTop={TOP_PADDING + logicalIndex() * ROW_HEIGHT}
 									searchMatch={view.matchingHashes.has(commit().id)}
-									githubAvatar={view.commitAvatars[commit().hash] ?? undefined}
+									githubAvatar={view.avatarForCommit(commit())}
 								/>
 							);
 						}}

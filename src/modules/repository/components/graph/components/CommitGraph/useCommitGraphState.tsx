@@ -9,7 +9,7 @@ import type {
 	GitGraphActionRequest as NativeGitGraphActionRequest,
 } from "@contracts";
 import { runtimeGitGraphLaneColors } from "@design-system/styles.stylex.ts";
-import { resolveGitCommitAvatars } from "@repository/services/gitApi.ts";
+import { useGitAuthorAvatars } from "@repository/hooks/useGitAuthorAvatars.ts";
 import { createPointerResize } from "@shared/lib/dom.tsx";
 import {
 	readStoredJson,
@@ -52,28 +52,6 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 		};
 	});
 	const [isColumnsOpen, setIsColumnsOpen] = createSignal(false);
-	const [commitAvatars, setCommitAvatars] = createSignal<
-		Record<string, string | null>
-	>({});
-	const avatarCommits = createMemo(() =>
-		_props()
-			.commits.filter((commit) => commit.itemKind === "commit")
-			.slice(0, 100)
-			.map(({ hash, author, authorEmail }) => ({ hash, author, authorEmail })),
-	);
-	createEffect(
-		() => [avatarCommits(), _props().repositoryKey] as const,
-		([hashes, repository]) => {
-			let current = true;
-			if (!repository || hashes.length === 0) return;
-			void resolveGitCommitAvatars(repository, hashes).then((avatars) => {
-				if (current) setCommitAvatars(avatars);
-			});
-			return () => {
-				current = false;
-			};
-		},
-	);
 	const selectedIdSet = createMemo(() => {
 		const _sourceValue2 = _props();
 		return new Set(
@@ -178,6 +156,14 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 			graphModel().displayColumns,
 		);
 	});
+	const avatarForCommit = useGitAuthorAvatars(
+		() => _props().repositoryKey,
+		() =>
+			_props()
+				.commits.slice(viewportModel().visibleStart, viewportModel().visibleEnd)
+				.filter((commit) => commit.itemKind === "commit")
+				.slice(0, 100),
+	);
 	const lineLayerStyle = createMemo(() =>
 		getGraphLineLayerStyle(graphModel().graphLeft, TOP_PADDING),
 	);
@@ -333,9 +319,7 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 			return isColumnsOpen();
 		},
 		setIsColumnsOpen,
-		get commitAvatars() {
-			return commitAvatars();
-		},
+		avatarForCommit,
 		get selectedIdSet() {
 			return selectedIdSet();
 		},
