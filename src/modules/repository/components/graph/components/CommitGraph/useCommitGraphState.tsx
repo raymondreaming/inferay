@@ -430,16 +430,23 @@ export interface GraphPreferences {
 }
 export const TOP_PADDING = ROW_HEIGHT;
 export const EMPTY_SELECTED_IDS: readonly string[] = [];
-export function preferencesKey(repositoryKey?: string) {
+export function preferencesKey(_repositoryKey?: string) {
+	return "commit-graph-columns-v13:global";
+}
+function legacyPreferencesKey(repositoryKey?: string) {
 	return `commit-graph-columns-v12:${repositoryKey ?? "default"}`;
 }
 export function scrollPreferencesKey(repositoryKey?: string) {
 	return `commit-graph-scroll-v1:${repositoryKey ?? "default"}`;
 }
 export function loadPreferences(repositoryKey?: string): GraphPreferences {
+	const stored = readStoredJson<GraphPreferences | null>(
+		preferencesKey(),
+		null,
+	);
 	return rustProject(
 		"graphPreferences",
-		readStoredJson(preferencesKey(repositoryKey), {}),
+		stored ?? readStoredJson(legacyPreferencesKey(repositoryKey), {}),
 	);
 }
 export function nextGitGraphHistoryLimit(current: number): number {

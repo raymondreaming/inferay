@@ -71,6 +71,14 @@ export function AuthorAvatar(_props: {
 						pathLength={63}
 						stroke-dashoffset={0.5}
 					/>
+					<path
+						d="M4.5 5.5h9v2h-9z M5.5 7.5v5h7v-5 M7.5 9.5h3"
+						fill="none"
+						stroke={_props.color}
+						stroke-width="1"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					/>
 				</svg>
 			)}
 		</span>
