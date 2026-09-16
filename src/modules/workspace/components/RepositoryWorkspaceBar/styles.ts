@@ -35,6 +35,7 @@ export const styles = stylex.create({
 		color: {
 			default: color.textMuted,
 			":hover": color.textMain,
+			':is([aria-pressed="true"])': color.textMain,
 		},
 		display: "flex",
 		flexShrink: 0,
