@@ -280,7 +280,7 @@ textarea::placeholder {
 }
 
 /* Diff row hover - uses CSS custom property set inline */
-.diff-row:hover {
+[data-diff-pointer-moved="true"] .diff-row:hover {
 	background-color: var(--hover-bg, inherit) !important;
 }
 

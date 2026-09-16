@@ -40,6 +40,10 @@ export const DiffViewer = function DiffViewer(props: {
 }) {
 	const containerRef: RefCell<HTMLDivElement | null> = { current: null };
 	const rightRef: RefCell<HTMLDivElement | null> = { current: null };
+	const pointerPositionRef: RefCell<{ x: number; y: number } | null> = {
+		current: null,
+	};
+	const [pointerMoved, setPointerMoved] = createSignal(false);
 	const [internalViewMode, setInternalViewMode] =
 		createSignal<DiffViewMode>("split");
 	const viewMode = createMemo(() => props.viewMode ?? internalViewMode());
@@ -276,6 +280,18 @@ export const DiffViewer = function DiffViewer(props: {
 		<div
 			ref={(_element) => assignRef(containerRef, _element)}
 			tabindex={-1}
+			data-diff-pointer-moved={pointerMoved() ? "true" : undefined}
+			onMouseMove={(event) => {
+				if (pointerMoved()) return;
+				const previous = pointerPositionRef.current;
+				pointerPositionRef.current = { x: event.clientX, y: event.clientY };
+				if (
+					!previous ||
+					(previous.x === event.clientX && previous.y === event.clientY)
+				)
+					return;
+				setPointerMoved(true);
+			}}
 			onPointerDown={(event) => {
 				const target = event.target as HTMLElement;
 				if (
