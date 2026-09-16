@@ -11,6 +11,7 @@ export function Modal(props: {
 	label: string;
 	onClose: () => void;
 	closeDisabled?: boolean;
+	returnFocus?: () => HTMLElement | null | undefined;
 	class?: string;
 	children: Element;
 }) {
@@ -21,8 +22,15 @@ export function Modal(props: {
 		dialog?.showModal();
 		return () => {
 			dialog?.close();
-			if (previousFocus instanceof HTMLElement && previousFocus.isConnected)
-				previousFocus.focus();
+			requestAnimationFrame(() => {
+				const target = props.returnFocus ? props.returnFocus() : previousFocus;
+				if (
+					target instanceof HTMLElement &&
+					target.isConnected &&
+					target.getClientRects().length
+				)
+					target.focus({ preventScroll: true });
+			});
 		};
 	});
 	const outside = (event: MouseEvent) => {

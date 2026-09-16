@@ -192,16 +192,6 @@ export const styles = stylex.create({
 		flex: 1,
 		overflow: "hidden",
 	},
-	refActionOverlay: {
-		position: "absolute",
-		zIndex: layer.dropdown,
-		inset: controlSize._0,
-		display: "flex",
-		alignItems: "center",
-		justifyContent: "center",
-		backgroundColor: color.backgroundOverlay,
-		padding: controlSize._4,
-	},
 	refActionDialog: {
 		display: "flex",
 		width: "min(32rem, 100%)",
@@ -213,6 +203,7 @@ export const styles = stylex.create({
 		padding: controlSize._4,
 	},
 	refActionTitle: {
+		paddingRight: controlSize._8,
 		color: color.textMain,
 		fontSize: font.size_4,
 	},

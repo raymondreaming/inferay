@@ -29,8 +29,18 @@ export function ChatDiffPanel(
 	props: ReturnType<Parameters<typeof useChatDiffPanelState>[0]>,
 ) {
 	const view = useChatDiffPanelState(() => props);
+	let panel: HTMLElement | undefined;
+	const returnGraphFocus = () =>
+		panel?.querySelector<HTMLElement>(
+			'[aria-label="Repository commit history"]',
+		);
 	return (
-		<section {...stylex.attrs(styles.viewerPanel)}>
+		<section
+			ref={(element) => {
+				panel = element;
+			}}
+			{...stylex.attrs(styles.viewerPanel)}
+		>
 			<span role="status" aria-live="polite" {...stylex.attrs(styles.srStatus)}>
 				{view.selectionAnnouncement}
 			</span>
@@ -131,6 +141,7 @@ export function ChatDiffPanel(
 				) : null}
 				{view.mainViewMode === "graph" && view.pendingRefAction ? (
 					<RefOperationDialog
+						returnFocus={returnGraphFocus}
 						{...view}
 						pendingRefAction={view.pendingRefAction}
 					/>
@@ -139,6 +150,7 @@ export function ChatDiffPanel(
 				view.pendingGraphAction &&
 				view.pendingGraphActionPresentation ? (
 					<GraphActionDialog
+						returnFocus={returnGraphFocus}
 						{...view}
 						pendingGraphActionPresentation={view.pendingGraphActionPresentation}
 						pendingGraphAction={view.pendingGraphAction}
