@@ -597,6 +597,13 @@ export function useRepositoryWorkbench(
 	};
 	let sidebarElement: HTMLElement | undefined;
 	let diffRailElement: HTMLElement | undefined;
+	const focusCommitGraph = () =>
+		requestAnimationFrame(() => {
+			if (!_options().active || panelSession().mainViewMode !== "graph") return;
+			diffRailElement
+				?.querySelector<HTMLElement>('[aria-label="Repository commit history"]')
+				?.focus({ preventScroll: true });
+		});
 	const closeDiffViewer = () => {
 		setZenMode(false);
 		updatePanelSession({
@@ -604,16 +611,7 @@ export function useRepositoryWorkbench(
 		});
 		if (!panelSession().graphVisible)
 			sidebarElement?.focus({ preventScroll: true });
-		else
-			requestAnimationFrame(() => {
-				if (!_options().active || panelSession().mainViewMode !== "graph")
-					return;
-				diffRailElement
-					?.querySelector<HTMLElement>(
-						'[aria-label="Repository commit history"]',
-					)
-					?.focus({ preventScroll: true });
-			});
+		else focusCommitGraph();
 	};
 	const returnsToGraphOnClose = createMemo(() => panelSession().graphDrillIn);
 	const fileSelectionContext = createMemo(() => ({
@@ -791,9 +789,12 @@ export function useRepositoryWorkbench(
 			sidebarElement?.focus({ preventScroll: true });
 			selectFile(kind, first);
 		} else if (action.type === "focusGraph") {
-			diffRailElement
-				?.querySelector<HTMLElement>('[aria-label="Repository commit history"]')
-				?.focus({ preventScroll: true });
+			const cwd = session.diffViewerCwd ?? activeCwd();
+			if (cwd) {
+				setZenMode(false);
+				updatePanelSession({ type: "openGraph", cwd });
+				focusCommitGraph();
+			}
 		} else if (action.type === "closeGraph") {
 			const cwd = graphCwd();
 			if (cwd) updatePanelSession({ type: "toggleGraph", cwd });

@@ -136,7 +136,7 @@ test("returning from a diff restores graph focus after the graph mounts", () => 
 		),
 		"utf8",
 	);
-	const start = source.indexOf("const closeDiffViewer =");
+	const start = source.indexOf("const focusCommitGraph =");
 	const code = new Bun.Transpiler({ loader: "tsx" }).transformSync(
 		source.slice(
 			start,

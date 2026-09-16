@@ -300,7 +300,7 @@ fn leaving_wip_diff_preserves_graph_selection_and_repository() {
             "sidebarVisible":true,"sidebarFocused":true,"hasFile":true});
         assert_eq!(
             project("repositoryKeyboardAction", &input).unwrap(),
-            json!({"type":"close"})
+            json!({"type":"focusGraph"})
         );
         if file_disappears {
             let file = session["selectedFile"].clone();
@@ -326,4 +326,38 @@ fn leaving_wip_diff_preserves_graph_selection_and_repository() {
             Value::Null
         );
     }
+}
+
+#[test]
+fn sidebar_left_reopens_hidden_graph_after_browsing_files() {
+    use inferay_presentation::panels;
+    let mut session = panels::normalize(&json!({"mainViewMode":"graph","graphVisible":true,
+        "sidebarVisible":true,"diffViewerCwd":"/repo","selectedCommitHash":"commit"}));
+    panels::apply_action(
+        &mut session,
+        &json!({"type":"toggleGraph","cwd":"/repo"}),
+        1,
+    )
+    .unwrap();
+    assert_eq!(session["graphVisible"], false);
+    for file in [None, Some("a.rs"), Some("b.rs")] {
+        if let Some(path) = file {
+            panels::apply_action(
+                &mut session,
+                &json!({"type":"workingTreeFile","cwd":"/repo","path":path,"staged":false}),
+                2,
+            )
+            .unwrap();
+        }
+        let input = json!({"key":"ArrowLeft","sidebarFocused":true,"sidebarVisible":true,
+            "graphVisible":false,"mainViewMode":session["mainViewMode"],"hasFile":file.is_some()});
+        assert_eq!(
+            project("repositoryKeyboardAction", &input).unwrap(),
+            json!({"type":"focusGraph"})
+        );
+    }
+    panels::apply_action(&mut session, &json!({"type":"openGraph","cwd":"/repo"}), 3).unwrap();
+    assert_eq!(session["graphVisible"], true);
+    assert_eq!(session["mainViewMode"], "graph");
+    assert_eq!(session["selectedCommitHash"], "commit");
 }

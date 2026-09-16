@@ -159,7 +159,8 @@ pub fn keyboard_action(input: &Value) -> Value {
     match crate::shortcuts::action(input, scope) {
         Some("enterSidebar") if flag(&input["sidebarVisible"]) => json!({"type":"enterSidebar"}),
         Some("closeGraph") => json!({"type":"closeGraph"}),
-        Some("focusGraph") if flag(&input["graphVisible"]) => json!({"type":"focusGraph"}),
+        Some("focusGraph") => json!({"type":"focusGraph"}),
+        Some("close") if sidebar => json!({"type":"focusGraph"}),
         Some("openFile") if !flag(&input["graphVisible"]) && flag(&input["hasFile"]) => {
             json!({"type":"open"})
         }
