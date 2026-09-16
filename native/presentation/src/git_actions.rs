@@ -207,7 +207,7 @@ pub static CATALOG: LazyLock<Value> = LazyLock::new(|| {
         (
             "pull",
             "Pull current branch",
-            "Fetch and integrate the configured upstream using this repository's pull policy.",
+            "Fetch and integrate the configured upstream using this repository's pull policy, then restore local changes with Git autostash. Conflicts require resolution; saved changes are retained if restoration fails.",
             json!({"confirm":"Pull"}),
         ),
         (

@@ -5,6 +5,8 @@ pub use prepared_diff::{
 mod git_exec;
 mod graph_semantics;
 mod path_access;
+#[cfg(test)]
+mod pull_tests;
 
 use git_exec::{run_git, run_git_timed};
 use inferay_core::path_security::{AllowedPaths, is_safe_relative_path};
@@ -1159,6 +1161,15 @@ fn ref_operation_result(
     match output {
         Ok(output) if output.status.success() => {
             let repository_operation = get_git_repository_operation_state(cwd);
+            // Pull can exit successfully even when applying its autostash
+            // conflicts. The index, not the exit code, determines completion.
+            if operation == "pull" && !repository_operation.conflicts.is_empty() {
+                return git_operation_error(
+                    cwd,
+                    operation,
+                    "Pull left conflicts while restoring local changes. Resolve the conflicted files; Git retains any failed autostash in the stash list.",
+                );
+            }
             GitOperationResult {
                 ok: true,
                 operation: operation.to_string(),
@@ -1658,16 +1669,6 @@ pub fn perform_git_graph_action_with_targets(
             command.args(["fetch", "--all", "--prune"]);
         }
         "pull" | "push" | "forcePushWithLease" => {
-            if action == "pull"
-                && !run_git(&["status", "--porcelain"], cwd)
-                    .is_some_and(|value| value.trim().is_empty())
-            {
-                return git_operation_error(
-                    cwd,
-                    action,
-                    "Commit or stash working changes before pulling",
-                );
-            }
             let Some(status) = git_status(cwd, false) else {
                 return git_operation_error(cwd, action, "Repository status is unavailable");
             };
@@ -1685,7 +1686,7 @@ pub fn perform_git_graph_action_with_targets(
             }
             if action == "pull" {
                 command
-                    .args(["pull", "--no-edit"])
+                    .args(["pull", "--no-edit", "--autostash"])
                     .env("GIT_EDITOR", "true");
             } else {
                 command.arg("push");
