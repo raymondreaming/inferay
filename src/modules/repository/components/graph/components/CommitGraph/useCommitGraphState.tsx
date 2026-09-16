@@ -76,8 +76,12 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 			y: number;
 		} | null;
 	};
+	const pointerMovedRef = {
+		current: false,
+	};
 	const handleRowHover = (itemId: string | null) => {
-		if (!keyboardNavigationRef.current) setHoveredRow(itemId);
+		if (!pointerMovedRef.current || keyboardNavigationRef.current) return;
+		setHoveredRow(itemId);
 	};
 	const { scrollerRef, scrollTop, viewportHeight, rememberScroll } =
 		useGraphViewport(
@@ -311,6 +315,7 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 		setHoveredRow,
 		keyboardNavigationRef,
 		mousePositionRef,
+		pointerMovedRef,
 		handleRowHover,
 		scrollerRef,
 		get query() {

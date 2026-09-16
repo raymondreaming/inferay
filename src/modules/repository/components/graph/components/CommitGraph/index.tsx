@@ -83,8 +83,12 @@ export const CommitGraph = function CommitGraph(
 					x: event.clientX,
 					y: event.clientY,
 				};
-				if (previous?.x === event.clientX && previous.y === event.clientY)
+				if (
+					!previous ||
+					(previous.x === event.clientX && previous.y === event.clientY)
+				)
 					return;
+				view.pointerMovedRef.current = true;
 				view.keyboardNavigationRef.current = false;
 				const row =
 					event.target instanceof Element
