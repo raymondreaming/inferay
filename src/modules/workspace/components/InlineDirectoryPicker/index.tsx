@@ -13,6 +13,7 @@ import { DirectoryResult } from "./DirectoryResult.tsx";
 import { SelectedDirectoryChip } from "./SelectedDirectoryChip.tsx";
 import { styles } from "./styles.ts";
 
+const MAX_VISIBLE_RESULTS = 30;
 export function InlineDirectoryPicker(props: {
 	onSelect: (path: string | null) => void;
 	onCancel?: () => void;
@@ -60,7 +61,7 @@ export function InlineDirectoryPicker(props: {
 	const displayList = createMemo(() =>
 		(isSearching() ? _source2.data : _source.data.quickPicks)
 			.filter((p) => !props.multiSelect || !selectedPaths().includes(p.path))
-			.slice(0, 5),
+			.slice(0, MAX_VISIBLE_RESULTS),
 	);
 	const itemCount = createMemo(() => displayList().length);
 	const selectedIndex = createMemo(() => {
@@ -188,7 +189,10 @@ export function InlineDirectoryPicker(props: {
 						{...stylex.attrs(styles.root)}
 						ref={(element) => (containerRef.current = element)}
 					>
-						<div {...stylex.attrs(styles.unifiedFrame)}>
+						<div
+							data-onboarding="repository-picker"
+							{...stylex.attrs(styles.unifiedFrame)}
+						>
 							<div {...stylex.attrs(styles.inputRow)}>
 								<span {...stylex.attrs(styles.inputIcon)}>
 									<IconFolder size={iconSize.lg} />
@@ -202,6 +206,7 @@ export function InlineDirectoryPicker(props: {
 										setSelectedIndex(-1);
 									}}
 									onKeyDown={handleKeyDown}
+									aria-label="Repository folder search"
 									placeholder="Search folder..."
 									autocomplete="off"
 									autocorrect="off"
@@ -251,11 +256,10 @@ export function InlineDirectoryPicker(props: {
 									<div {...stylex.attrs(styles.selectedList)}>
 										{
 											<For each={selectedPaths()} keyed={(row) => row}>
-												{(p, i) => (
+												{(p) => (
 													<SelectedDirectoryChip
 														path={p()}
 														onRemove={togglePath}
-														primary={i() === 0}
 														strong
 													/>
 												)}
