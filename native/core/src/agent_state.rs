@@ -191,7 +191,7 @@ impl Workspace {
             "Default".into(),
             if kind == "claude" { "claude" } else { "codex" },
             3,
-            1,
+            2,
         );
         Self {
             selected_group_id: group.id.clone(),

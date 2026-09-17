@@ -20,7 +20,7 @@ pub fn preferences(input: &Value) -> RepositoryPreferences {
             .unwrap_or(default)
     };
     RepositoryPreferences {
-        sidebar_width: width("sidebarWidth", 300.).clamp(230., 420.),
+        sidebar_width: width("sidebarWidth", 230.).clamp(230., 420.),
         diff_width: width("diffWidth", 680.).max(320.),
         file_view_mode: if input["fileViewMode"] == "path" {
             "path"

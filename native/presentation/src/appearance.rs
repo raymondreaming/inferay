@@ -283,7 +283,7 @@ pub struct SidebarResize {
 }
 
 pub fn sidebar_resize(input: &Value) -> SidebarResize {
-    const DEFAULT_WIDTH: f64 = 292.;
+    const DEFAULT_WIDTH: f64 = 212.;
     const MIN_WIDTH: f64 = 188.;
     const MAX_WIDTH: f64 = 340.;
     let clamp = |width: f64| width.clamp(MIN_WIDTH, MAX_WIDTH);
