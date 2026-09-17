@@ -19,6 +19,10 @@ export function useChatDraft(paneId: Accessor<string>) {
 	const setInput = (text: string) => {
 		pending.set(paneId(), text);
 		setInputValue(text);
+		if (!text) {
+			flushSave();
+			return;
+		}
 		if (timer === undefined) timer = setTimeout(flushSave, 250);
 	};
 	return { input, setInput };
