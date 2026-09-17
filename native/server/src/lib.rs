@@ -121,7 +121,10 @@ impl ServerConfig {
             listen_addr,
             app_root,
             home_directory: home_directory(),
-            user_data_dir: default_user_data_directory(),
+            user_data_dir: std::env::var_os("INFERAY_USER_DATA_DIR")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(default_user_data_directory),
             auth_token: Uuid::new_v4().to_string(),
             release_api_url: None,
             live_reload: false,
