@@ -1,11 +1,11 @@
 import type { OnboardingTour } from "@contracts";
 import {
-	dispatchCreateAgentChat,
-	dispatchOpenActiveGitGraph,
 	listenWindowEvent,
 	OPEN_ONBOARDING_EVENT,
 	setActiveGitGraphVisible,
 	setActiveGitSidebarVisible,
+	TOGGLE_ACTIVE_GIT_GRAPH_EVENT,
+	TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT,
 } from "@shared/lib/dom.tsx";
 import {
 	loadSidebarCollapsed,
@@ -25,9 +25,7 @@ import {
 } from "solid-js";
 
 const GRAPH_SELECTOR = '[aria-label="Repository commit history"]';
-const DIFF_SELECTOR = "[data-diff-scroll-side]";
 const CHANGES_SELECTOR = '[aria-label="Resize changes sidebar"]';
-const CHAT_PANE_SELECTOR = "[data-chat-pane-id]";
 const WORKSPACE_SELECTOR = "[data-chat-workspace]";
 
 export interface OnboardingProgress {
@@ -37,9 +35,7 @@ export interface OnboardingProgress {
 }
 interface ObservedFacts {
 	graphOpen: boolean;
-	diffOpen: boolean;
 	changesVisible: boolean;
-	secondChat: boolean;
 	folderChosen: boolean;
 }
 const NEW_PROGRESS: OnboardingProgress = {
@@ -49,9 +45,7 @@ const NEW_PROGRESS: OnboardingProgress = {
 };
 const NO_FACTS: ObservedFacts = {
 	graphOpen: false,
-	diffOpen: false,
 	changesVisible: false,
-	secondChat: false,
 	folderChosen: false,
 };
 
@@ -62,9 +56,7 @@ export function useOnboardingTour() {
 	const [observed, setObserved] = createSignal(NO_FACTS, {
 		equals: (previous, next) =>
 			previous.graphOpen === next.graphOpen &&
-			previous.diffOpen === next.diffOpen &&
 			previous.changesVisible === next.changesVisible &&
-			previous.secondChat === next.secondChat &&
 			previous.folderChosen === next.folderChosen,
 	});
 	const [shellState] = useWorkspaceState(() => false);
@@ -96,6 +88,30 @@ export function useOnboardingTour() {
 		setProgress(next);
 		writeStoredJson(STORAGE_KEY, next);
 	};
+	const decided = { current: false };
+	createEffect(
+		() => shellState().groups.length > 0 && progress().status === "new",
+		(undecided) => {
+			if (!undecided || decided.current) return;
+			decided.current = true;
+			advance(openedRepository() ? "dismiss" : "start");
+		},
+	);
+	const panelsTouched = { current: false };
+	onSettled(() => {
+		const watch = (event: Event) => {
+			if (
+				(event as CustomEvent<{ visible?: boolean }>).detail?.visible ===
+				undefined
+			)
+				panelsTouched.current = true;
+		};
+		const stop = [
+			listenWindowEvent(TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT, watch),
+			listenWindowEvent(TOGGLE_ACTIVE_GIT_GRAPH_EVENT, watch),
+		];
+		return () => stop.forEach((remove) => remove());
+	});
 	createEffect(
 		() => tour().active,
 		(active) => {
@@ -105,9 +121,7 @@ export function useOnboardingTour() {
 				frame = 0;
 				setObserved({
 					graphOpen: Boolean(document.querySelector(GRAPH_SELECTOR)),
-					diffOpen: Boolean(document.querySelector(DIFF_SELECTOR)),
 					changesVisible: Boolean(document.querySelector(CHANGES_SELECTOR)),
-					secondChat: document.querySelectorAll(CHAT_PANE_SELECTOR).length > 1,
 					folderChosen: Boolean(document.querySelector(WORKSPACE_SELECTOR)),
 				});
 			};
@@ -134,7 +148,11 @@ export function useOnboardingTour() {
 				return;
 			}
 			if (collapsedBeforeTour.current === null) return;
-			setWorkspaceSidebarCollapsed(collapsedBeforeTour.current);
+			const finished = untrack(progress).status === "done";
+			setWorkspaceSidebarCollapsed(
+				finished ? false : collapsedBeforeTour.current,
+			);
+			if (finished) setActiveGitSidebarVisible(true);
 			collapsedBeforeTour.current = null;
 		},
 	);
@@ -151,6 +169,7 @@ export function useOnboardingTour() {
 				stagedStep.current = id;
 				enteredDone.current = !!staged?.task && !!staged.taskDone;
 			}
+			if (panelsTouched.current) return;
 			const seen = untrack(observed);
 			if (
 				staged?.sidebar !== null &&
@@ -186,14 +205,10 @@ export function useOnboardingTour() {
 		},
 	);
 	onSettled(() =>
-		listenWindowEvent(OPEN_ONBOARDING_EVENT, () => advance("restart")),
+		listenWindowEvent(OPEN_ONBOARDING_EVENT, () => {
+			panelsTouched.current = false;
+			advance("restart");
+		}),
 	);
-	return {
-		tour,
-		advance,
-		runStepAction: (action: string) => {
-			if (action === "newChat") dispatchCreateAgentChat();
-			else if (action === "openGraph") dispatchOpenActiveGitGraph();
-		},
-	};
+	return { tour, advance };
 }

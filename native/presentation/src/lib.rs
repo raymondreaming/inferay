@@ -117,7 +117,7 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
         "onboardingTour" => json!(onboarding::tour(input)),
         "onboardingAdvance" => onboarding::advance(input),
         "onboardingChrome" => onboarding::chrome(input),
-        "onboardingCallout" => json!(onboarding::callout(input)),
+        "onboardingSpotlight" => json!(onboarding::spotlight(input)),
         "graphPreferences" => graph::preferences(input),
         "emptyGitGraph" => json!(graph_response::response(&Default::default(), &[], &[], &[])),
         "graphLayout" => graph::layout(input),
