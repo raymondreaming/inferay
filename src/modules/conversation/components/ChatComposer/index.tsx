@@ -81,7 +81,10 @@ export const ChatComposer = function ChatComposer(
 					{...stylex.attrs(styles.inputDock)}
 					class={`${stylex.attrs(styles.inputDock).class ?? ""} inferay-chat-composer`}
 				>
-					<div {...stylex.attrs(surfaceStyles.panel, styles.inputFrame)}>
+					<div
+						data-chat-composer-frame
+						{...stylex.attrs(surfaceStyles.panel, styles.inputFrame)}
+					>
 						<BorderBeamOverlay
 							active={view.beamActive || view.messageInputFocused}
 						/>

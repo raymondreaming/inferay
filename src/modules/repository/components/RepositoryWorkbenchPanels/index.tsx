@@ -20,6 +20,7 @@ export function WorkbenchDiffRail(_props: {
 	const captureFocus = captureEvent("pointerdown", () => _props.onFocus());
 	return (
 		<aside
+			data-onboarding="diff"
 			{...stylex.attrs(styles.diffRail, _props.zenMode && styles.diffRailZen)}
 			style={domStyle(
 				_props.zenMode

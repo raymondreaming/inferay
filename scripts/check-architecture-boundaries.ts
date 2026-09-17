@@ -15,6 +15,7 @@ const importAliases: Record<string, string> = {
 	"@conversation": "src/modules/conversation",
 	"@design-system": "src/design-system",
 	"@explorer": "src/modules/explorer",
+	"@onboarding": "src/modules/onboarding",
 	"@repository": "src/modules/repository",
 	"@settings": "src/modules/settings",
 	"@shared": "src/shared",

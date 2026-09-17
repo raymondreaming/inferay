@@ -273,6 +273,7 @@ export function WorkspaceSidebar() {
 	const resizeHandleProps = createMemo(() => stylex.attrs(styles.resizeHandle));
 	return (
 		<aside
+			aria-label="Workspace sidebar"
 			{...shellProps()}
 			class={`${APP_REGION_DRAG_CLASS} ${shellProps().class ?? ""}`}
 			style={domStyle(
@@ -292,7 +293,7 @@ export function WorkspaceSidebar() {
 			)}
 			{showWorkspaceSidebar() && !collapsed() ? (
 				<>
-					<nav {...stylex.attrs(styles.nav)}>
+					<nav aria-label="Workspaces" {...stylex.attrs(styles.nav)}>
 						<SidebarWorkspacesSection
 							collapsed={collapsed()}
 							workspaces={workspaces()}

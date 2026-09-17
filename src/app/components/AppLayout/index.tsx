@@ -1,3 +1,4 @@
+import { OnboardingLayer } from "@onboarding/components/OnboardingLayer/index.tsx";
 import { SettingsModalHost } from "@settings/components/SettingsModal/index.tsx";
 import {
 	useAppAppearance,
@@ -76,6 +77,7 @@ export function AppLayout(props: { children: Element }) {
 			<RepositoryWorkspaceBar />
 			<SettingsModalHost />
 			<SkillsModalHost />
+			<OnboardingLayer />
 			<div {...stylex.attrs(styles.appBody, styles.appBodySidebarOpen)}>
 				<WorkspaceSidebar />
 				<div {...stylex.attrs(styles.mainColumn)}>

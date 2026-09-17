@@ -32,6 +32,7 @@ export function NewWorkspaceMenu(props: {
 			<button
 				type="button"
 				onClick={props.onToggle}
+				aria-label="New chat or repository"
 				aria-haspopup="menu"
 				aria-expanded={ariaValue(props.open)}
 				title="Create a chat or open a repository"
@@ -49,6 +50,7 @@ export function NewWorkspaceMenu(props: {
 					<button
 						type="button"
 						role="menuitem"
+						aria-label="New chat"
 						onClick={() => props.onCreateChat("active-repository")}
 						{...stylex.attrs(styles.newMenuItem)}
 					>

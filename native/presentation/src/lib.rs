@@ -13,6 +13,7 @@ pub mod graph;
 pub mod graph_response;
 pub mod image;
 pub mod markdown;
+pub mod onboarding;
 pub mod panels;
 pub mod repository_tabs;
 pub mod shortcuts;
@@ -113,6 +114,10 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
         "chatScrollState" => chat_view::scroll_state(input),
         "chatScrollRestore" => json!(chat_view::restore_scroll(input)),
         "uiTimingSummaries" => ui_performance::summaries(input),
+        "onboardingTour" => json!(onboarding::tour(input)),
+        "onboardingAdvance" => onboarding::advance(input),
+        "onboardingChrome" => onboarding::chrome(input),
+        "onboardingCallout" => json!(onboarding::callout(input)),
         "graphPreferences" => graph::preferences(input),
         "emptyGitGraph" => json!(graph_response::response(&Default::default(), &[], &[], &[])),
         "graphLayout" => graph::layout(input),

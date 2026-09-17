@@ -66,6 +66,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         inferay_core::provider_config::ProviderSettingsView,
         inferay_presentation::chat_view::ChatListRow,
         inferay_presentation::graph::GraphLines,
+        inferay_presentation::onboarding::OnboardingTour,
+        inferay_presentation::onboarding::OnboardingCallout,
         inferay_presentation::dock::DockPointerTarget,
         inferay_presentation::dock::DockWheel,
         inferay_presentation::dock::DockCanvas,

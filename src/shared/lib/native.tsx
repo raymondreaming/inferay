@@ -235,6 +235,25 @@ export async function saveDefaultChatSettings(settings: ProviderSettings) {
 	return catalog.defaults;
 }
 
+export const ONBOARDING_STORAGE_KEY = "inferay-onboarding-v1";
+/** True while the first-run tour is staging the workspace for the next step. */
+export function isOnboardingRunning(): boolean {
+	const status = readStoredJson<{ status?: string } | null>(
+		ONBOARDING_STORAGE_KEY,
+		null,
+	)?.status;
+	return status === undefined || status === "new" || status === "running";
+}
+/** What the saved onboarding step wants on screen, so panels never flash open. */
+export function onboardingChrome(): {
+	sidebar: boolean | null;
+	changes: boolean | null;
+	graph: boolean | null;
+} {
+	return project("onboardingChrome", {
+		progress: readStoredJson(ONBOARDING_STORAGE_KEY, null),
+	});
+}
 export const APP_THEME_STORAGE_KEY = "inferay-app-theme-id";
 export const APP_BACKGROUND_STORAGE_KEY = "inferay-app-background";
 export const APP_FONT_STORAGE_KEY = "inferay-app-font";

@@ -317,8 +317,24 @@ export const TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT =
 export function dispatchOpenActiveGitGraph(): void {
 	window.dispatchEvent(new CustomEvent(OPEN_ACTIVE_GIT_GRAPH_EVENT));
 }
+export interface ToggleGitGraphDetail {
+	readonly visible?: boolean;
+}
+export function setActiveGitGraphVisible(visible: boolean): void {
+	dispatchWindowEvent<ToggleGitGraphDetail>(TOGGLE_ACTIVE_GIT_GRAPH_EVENT, {
+		visible,
+	});
+}
+export interface ToggleGitSidebarDetail {
+	readonly visible?: boolean;
+}
 export function dispatchToggleActiveGitSidebar(): void {
 	window.dispatchEvent(new CustomEvent(TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT));
+}
+export function setActiveGitSidebarVisible(visible: boolean): void {
+	dispatchWindowEvent<ToggleGitSidebarDetail>(TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT, {
+		visible,
+	});
 }
 export const OPEN_SETTINGS_MODAL_EVENT = "inferay-open-settings-modal";
 export type SettingsModalTarget =
@@ -336,6 +352,10 @@ export function openSettingsModal(
 	dispatchWindowEvent<OpenSettingsModalDetail>(OPEN_SETTINGS_MODAL_EVENT, {
 		section,
 	});
+}
+export const OPEN_ONBOARDING_EVENT = "inferay-open-onboarding";
+export function openOnboarding(): void {
+	window.dispatchEvent(new CustomEvent(OPEN_ONBOARDING_EVENT));
 }
 export const OPEN_SKILLS_EVENT = "inferay-open-skills";
 export type SkillsTarget =

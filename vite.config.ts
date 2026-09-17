@@ -23,6 +23,9 @@ export default defineConfig(({ mode }) => ({
 			"@explorer": fileURLToPath(
 				new URL("./src/modules/explorer", import.meta.url),
 			),
+			"@onboarding": fileURLToPath(
+				new URL("./src/modules/onboarding", import.meta.url),
+			),
 			"@repository": fileURLToPath(
 				new URL("./src/modules/repository", import.meta.url),
 			),

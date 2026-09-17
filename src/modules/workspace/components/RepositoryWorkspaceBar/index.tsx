@@ -292,6 +292,7 @@ export function RepositoryWorkspaceBar() {
 	);
 	return (
 		<header
+			aria-label="Repository bar"
 			{...barProps()}
 			class={`${APP_REGION_DRAG_CLASS} ${barProps().class ?? ""}`}
 		>

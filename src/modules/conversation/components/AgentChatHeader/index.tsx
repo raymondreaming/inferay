@@ -23,6 +23,7 @@ export const AgentWorkspaceControl = function AgentWorkspaceControl(props: {
 		<Show when={dirName()}>
 			<button
 				type="button"
+				data-chat-workspace
 				onClick={(event) => {
 					event.stopPropagation();
 					props.onAgentContext?.();

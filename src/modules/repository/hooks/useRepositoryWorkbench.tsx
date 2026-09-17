@@ -52,11 +52,15 @@ import {
 	repositoryKeyboardInput,
 	TOGGLE_ACTIVE_GIT_GRAPH_EVENT,
 	TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT,
+	type ToggleGitGraphDetail,
+	type ToggleGitSidebarDetail,
 } from "@shared/lib/dom.tsx";
 import {
 	adjacentGitFile,
 	CLIENT_STORAGE_CHANGED_EVENT,
 	getFileSelectionAfterToggle,
+	isOnboardingRunning,
+	onboardingChrome,
 	readStoredValue,
 	project as rustProject,
 	visibleGitFiles,
@@ -185,6 +189,7 @@ export function useRepositoryWorkbench(
 			});
 		},
 	);
+	const [panelsUnlocked, setPanelsUnlocked] = createSignal(false);
 	const context = createMemo(() =>
 		rustProject<{
 			activeCwd: string | null;
@@ -199,10 +204,17 @@ export function useRepositoryWorkbench(
 			diffViewerCwd: panelSession().diffViewerCwd,
 			detachedCwds: panelSession().detachedFilePanels.map((panel) => panel.cwd),
 			mainViewMode: panelSession().mainViewMode,
-			graphVisible: panelSession().graphVisible,
+			graphVisible:
+				panelSession().graphVisible &&
+				(panelsUnlocked() || onboardingChrome().graph !== false),
 			hasSelectedFile: Boolean(panelSession().selectedFile),
 			focusedPanelId: panelSession().focusedAuxiliaryPanel?.id,
 		}),
+	);
+	const sidebarVisible = createMemo(
+		() =>
+			panelSession().sidebarVisible &&
+			(panelsUnlocked() || onboardingChrome().changes !== false),
 	);
 	const activeCwd = () => context().activeCwd ?? undefined;
 	const trackedCwds = () => context().trackedCwds;
@@ -512,7 +524,7 @@ export function useRepositoryWorkbench(
 	});
 	const prefetchDiffs = useDiffPrefetch();
 	const prefetchContext = createMemo(() => ({
-		active: _options().active && panelSession().sidebarVisible,
+		active: _options().active && sidebarVisible(),
 		cwd: selectedWorkingTreeCwd(),
 		revision:
 			graphCwd() === selectedWorkingTreeCwd()
@@ -575,7 +587,12 @@ export function useRepositoryWorkbench(
 				: null;
 		},
 		(cwd) => {
-			if (cwd) updatePanelSession({ type: "initialize", cwd });
+			if (cwd)
+				updatePanelSession({
+					type: "initialize",
+					cwd,
+					reveal: !isOnboardingRunning(),
+				});
 		},
 	);
 	const setFileViewMode = (mode: "path" | "tree") => {
@@ -844,12 +861,25 @@ export function useRepositoryWorkbench(
 							path: detail.path,
 						});
 				}),
-				listenWindowEvent(TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT, () =>
-					updatePanelSession({ type: "toggleSidebar" }),
-				),
-				listenWindowEvent(TOGGLE_ACTIVE_GIT_GRAPH_EVENT, () => {
+				listenWindowEvent(TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT, (event) => {
+					const requested = (event as CustomEvent<ToggleGitSidebarDetail>)
+						.detail?.visible;
+					if (requested === undefined) setPanelsUnlocked(true);
+					if (requested === panelSession().sidebarVisible) return;
+					updatePanelSession({ type: "toggleSidebar" });
+				}),
+				listenWindowEvent(TOGGLE_ACTIVE_GIT_GRAPH_EVENT, (event) => {
 					const cwd = activeCwd();
 					if (!cwd) return;
+					const session = panelSession();
+					const requested = (event as CustomEvent<ToggleGitGraphDetail>).detail
+						?.visible;
+					if (requested === undefined) setPanelsUnlocked(true);
+					if (
+						requested ===
+						(session.mainViewMode === "graph" && session.graphVisible)
+					)
+						return;
 					setZenMode(false);
 					updatePanelSession({ type: "toggleGraph", cwd });
 				}),
@@ -1000,7 +1030,7 @@ export function useRepositoryWorkbench(
 					}}
 					zenMode={zenMode()}
 					width={diffWidth()}
-					maxWidth={`max(0px, calc(100% - ${MIN_RESPONSIVE_PANE_WIDTH + (panelSession().sidebarVisible ? sidebarWidth() : 0)}px))`}
+					maxWidth={`max(0px, calc(100% - ${MIN_RESPONSIVE_PANE_WIDTH + (sidebarVisible() ? sidebarWidth() : 0)}px))`}
 					onFocus={focusDiffViewer}
 					onResize={(event) => handleResizeStart(event, true)}
 				>
@@ -1053,7 +1083,7 @@ export function useRepositoryWorkbench(
 						sidebarElement = element;
 					}}
 					onFocus={focusDiffViewer}
-					visible={panelSession().sidebarVisible}
+					visible={sidebarVisible()}
 					width={sidebarWidth()}
 					error={panelSessionError()}
 					onResize={handleResizeStart}

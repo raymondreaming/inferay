@@ -2,6 +2,7 @@ import { iconSize } from "@design-system/styles.stylex.ts";
 import {
 	dispatchCreateAgentChat,
 	dispatchOpenActiveGitGraph,
+	openOnboarding,
 	openSettingsModal,
 	openSkills,
 } from "@shared/lib/dom.tsx";
@@ -10,6 +11,7 @@ import {
 	IconMessageCircle,
 	IconPlus,
 	IconSettings,
+	IconSparkles,
 } from "@shared/ui/Icons/index.tsx";
 import { useLocation, useNavigate } from "@solidjs/router";
 import { useWorkspaceState } from "@workspace/hooks/useWorkspaceState.tsx";
@@ -77,6 +79,14 @@ export function AppHeader() {
 			keywords: "settings preferences configuration",
 			icon: <IconSettings size={iconSize.compact} />,
 			run: () => openSettingsModal(),
+		},
+		{
+			id: "onboarding",
+			label: "Replay the tour",
+			detail: "Walk through Inferay from the beginning",
+			keywords: "onboarding tour walkthrough guide help",
+			icon: <IconSparkles size={iconSize.compact} />,
+			run: () => openOnboarding(),
 		},
 		{
 			id: "skills",

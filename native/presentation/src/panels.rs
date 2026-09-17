@@ -71,17 +71,18 @@ pub fn apply_action(
         .unwrap_or_default()
         .to_owned();
     match action {
-        PanelAction::Initialize { cwd } => {
+        PanelAction::Initialize { cwd, reveal } => {
             if session["repositoryInitialized"] == true && session["diffViewerCwd"].is_string() {
                 return Ok(None);
             }
+            let reveal = reveal.unwrap_or(true);
             if session["diffViewerCwd"].is_null() {
                 session["diffViewerCwd"] = json!(cwd);
                 session["mainViewMode"] = json!("graph");
             }
             session["repositoryInitialized"] = json!(true);
-            session["sidebarVisible"] = json!(true);
-            session["graphVisible"] = json!(true);
+            session["sidebarVisible"] = json!(reveal);
+            session["graphVisible"] = json!(reveal);
         }
         PanelAction::OpenGraph { cwd, reset } => {
             if reset == Some(true) {
@@ -525,6 +526,9 @@ pub enum PanelAction {
     Initialize {
         #[ts(optional)]
         cwd: Option<String>,
+        #[serde(default)]
+        #[ts(optional)]
+        reveal: Option<bool>,
     },
     FocusChat {
         #[ts(optional)]
