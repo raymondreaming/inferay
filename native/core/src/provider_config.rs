@@ -396,11 +396,11 @@ fn catalog() -> &'static AgentCatalog {
                 ("gpt-5.2", "GPT-5.2", "Long-running agents", None),
                 ("gpt-5.1-codex-mini", "GPT-5.1 Codex Mini", "Cheapest", None),
             ]),
-            default_model: "gpt-5.6-sol".into(),
+            default_model: "gpt-6-astra".into(),
             reasoning_levels: [
-                ("low", "Low", "Fast responses"),
+                ("low", "Low", "Fast responses (default)"),
                 ("medium", "Medium", "Balanced"),
-                ("high", "High", "Greater depth (default)"),
+                ("high", "High", "Greater depth"),
                 ("xhigh", "Extra High", "Maximum reasoning"),
             ]
             .into_iter()
@@ -456,7 +456,7 @@ pub fn resolve(input: &Value) -> ProviderSettings {
                 .iter()
                 .any(|option| option.id == *level)
         })
-        .unwrap_or("high");
+        .unwrap_or("low");
     ProviderSettings {
         agent_kind: agent.kind.clone(),
         model: model.into(),
