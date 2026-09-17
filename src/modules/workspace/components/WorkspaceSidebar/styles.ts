@@ -164,7 +164,6 @@ export const styles = stylex.create({
 		minHeight: controlSize._0,
 		overflow: "hidden",
 		paddingLeft: controlSize._0,
-		paddingBottom: controlSize._12,
 		paddingBlock: controlSize._0,
 	},
 	sidebarSettings: {
