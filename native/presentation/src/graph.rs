@@ -2,6 +2,8 @@ use crate::{array, flag, number, string};
 use serde_json::{Value, json};
 
 const COLUMNS: [&str; 6] = ["date", "refs", "graph", "message", "author", "sha"];
+/// Where a column lands when nothing has been saved yet.
+const DEFAULT_ORDER: [&str; 6] = ["refs", "graph", "message", "date", "author", "sha"];
 const DEFAULT_WIDTHS: [f64; 6] = [132., 216., 96., 340., 136., 76.];
 const MIN_WIDTHS: [f64; 6] = [84., 96., 48., 160., 88., 56.];
 const ROW_HEIGHT: f64 = 23.;
@@ -146,7 +148,7 @@ pub fn preferences(stored: &Value) -> Value {
             order.push(column.clone());
         }
     }
-    for column in COLUMNS {
+    for column in DEFAULT_ORDER {
         if !order.iter().any(|c| c == column) {
             order.push(json!(column));
         }

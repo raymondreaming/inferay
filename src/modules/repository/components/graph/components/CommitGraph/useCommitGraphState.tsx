@@ -151,7 +151,7 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 			commits: _sourceValue7.commits,
 			order: _source2Value.order,
 			presentation: _sourceValue7.presentation,
-			stretch: fullscreen(),
+			stretch: fullscreen() || (_sourceValue7.fullWidth ?? false),
 			widths: _source2Value.widths,
 			worktrees:
 				_sourceValue7.worktrees === undefined ? [] : _sourceValue7.worktrees,
@@ -418,6 +418,7 @@ export interface CommitGraphProps {
 	onLoadMore?: () => void;
 	loadingMore?: boolean;
 	repositoryKey?: string;
+	fullWidth?: boolean;
 	onGraphAction?: (request: GitGraphActionRequest) => void;
 	onCompareWithWip?: (itemId: string) => void;
 	onOpenSelection?: (itemId: string) => void;

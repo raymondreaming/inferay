@@ -95,6 +95,7 @@ export function ChatDiffPanel(
 							hasMore={view.graph.hasMore}
 							loadingMore={view.graph.loading}
 							repositoryKey={view.repositoryKey}
+							fullWidth={view.zenMode}
 							onLoadMore={view.onLoadMoreCommits}
 							onRefDrop={(source, target) => {
 								view.setRefOperationResult(null);
