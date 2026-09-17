@@ -386,6 +386,70 @@ fn agent_directories(base: &Path, depth: usize) -> impl Iterator<Item = AgentDir
         })
 }
 
+/// Folders that never hold a checkout but are expensive or protected to walk.
+const UNSEARCHED_FOLDERS: &[&str] = &[
+    "Library",
+    "Applications",
+    "Pictures",
+    "Movies",
+    "Music",
+    "Public",
+    "node_modules",
+    "vendor",
+    "target",
+    "venv",
+];
+const MAX_SEARCH_DEPTH: usize = 3;
+const MAX_SCANNED_ENTRIES: usize = 40_000;
+const MAX_SCAN_TIME: std::time::Duration = std::time::Duration::from_millis(600);
+const MAX_DIRECTORY_RESULTS: usize = 30;
+
+/// Walks for checkouts: prunes noise, stops inside a repository, and reports
+/// modification time so callers can rank by recency.
+fn checkout_candidates(base: &Path, depth: usize) -> Vec<(std::time::SystemTime, AgentDirectory)> {
+    let mut found = Vec::new();
+    let mut walker = WalkDir::new(base)
+        .min_depth(1)
+        .max_depth(depth)
+        .sort_by_key(|entry| entry.file_name().to_string_lossy().into_owned())
+        .into_iter()
+        .filter_entry(|entry| {
+            let name = entry.file_name().to_string_lossy();
+            entry.file_type().is_dir()
+                && !name.starts_with('.')
+                && is_real_agent_folder(&name)
+                && !UNSEARCHED_FOLDERS.contains(&name.as_ref())
+        });
+    let deadline = std::time::Instant::now() + MAX_SCAN_TIME;
+    let mut scanned = 0;
+    while let Some(entry) = walker.next() {
+        scanned += 1;
+        if scanned > MAX_SCANNED_ENTRIES || std::time::Instant::now() > deadline {
+            break;
+        }
+        let Ok(entry) = entry else { continue };
+        let path = entry.path();
+        let is_git_repo = path.join(".git").exists();
+        let modified = entry
+            .metadata()
+            .ok()
+            .and_then(|metadata| metadata.modified().ok())
+            .unwrap_or(UNIX_EPOCH);
+        found.push((
+            modified,
+            AgentDirectory {
+                name: entry.file_name().to_string_lossy().into_owned(),
+                path: path.to_string_lossy().into_owned(),
+                is_git_repo,
+            },
+        ));
+        if is_git_repo {
+            walker.skip_current_dir();
+        }
+    }
+    found
+}
+
 fn search_agent_directories(
     query: &str,
     home: &Path,
@@ -402,8 +466,7 @@ fn search_agent_directories(
         if !search_path.exists() {
             continue;
         }
-        let depth = if search_path == home { 1 } else { 3 };
-        for directory in agent_directories(&search_path, depth) {
+        for (_, directory) in checkout_candidates(&search_path, MAX_SEARCH_DEPTH) {
             let name = directory.name.to_lowercase();
             if name == lower_query {
                 exact.push(directory);
@@ -414,54 +477,33 @@ fn search_agent_directories(
             }
         }
     }
+    for group in [&mut exact, &mut prefix, &mut contains] {
+        group.sort_by_key(|entry| !entry.is_git_repo);
+    }
     let mut seen = HashSet::new();
     exact
         .into_iter()
         .chain(prefix)
         .chain(contains)
         .filter(|entry| seen.insert(entry.path.clone()))
-        .take(20)
+        .take(MAX_DIRECTORY_RESULTS)
         .collect()
 }
 
 fn find_agent_quick_picks(configured_paths: Vec<PathBuf>) -> Vec<AgentDirectory> {
-    let mut results = Vec::new();
-    for directory in configured_paths.into_iter().filter(|path| path.is_dir()) {
-        let mut entries = WalkDir::new(directory)
-            .min_depth(1)
-            .max_depth(3)
-            .into_iter()
-            .filter_entry(|entry| {
-                entry.file_type().is_dir() && !entry.file_name().to_string_lossy().starts_with('.')
-            });
-        while let Some(entry) = entries.next() {
-            let Ok(entry) = entry else { continue };
-            let path = entry.path();
-            if path.join(".git").is_dir() {
-                let modified = entry
-                    .metadata()
-                    .ok()
-                    .and_then(|metadata| metadata.modified().ok())
-                    .unwrap_or(UNIX_EPOCH);
-                results.push((
-                    modified,
-                    AgentDirectory {
-                        name: entry.file_name().to_string_lossy().into_owned(),
-                        path: path.to_string_lossy().into_owned(),
-                        is_git_repo: true,
-                    },
-                ));
-                entries.skip_current_dir();
-            }
-        }
-    }
+    let mut results = configured_paths
+        .into_iter()
+        .filter(|path| path.is_dir())
+        .flat_map(|directory| checkout_candidates(&directory, MAX_SEARCH_DEPTH))
+        .filter(|(_, entry)| entry.is_git_repo)
+        .collect::<Vec<_>>();
     results.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
     let mut seen = HashSet::new();
     results
         .into_iter()
         .map(|(_, entry)| entry)
         .filter(|entry| seen.insert(entry.path.clone()))
-        .take(8)
+        .take(MAX_DIRECTORY_RESULTS)
         .collect()
 }
 
