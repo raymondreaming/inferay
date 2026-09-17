@@ -23,7 +23,7 @@
 	transition: opacity 0.5s ease;
 	animation: beam-spin-inferay 2.5s linear infinite;
 	animation-play-state: paused;
-	border-radius: 12px;
+	border-radius: var(--beam-radius, 12px);
 	overflow: hidden;
 }
 
@@ -31,9 +31,9 @@
 	content: "";
 	position: absolute;
 	inset: 0;
-	border-radius: 11px;
+	border-radius: calc(var(--beam-radius, 12px) - 1px);
 	padding: 1px;
-	clip-path: inset(0 round 12px);
+	clip-path: inset(0 round var(--beam-radius, 12px));
 	background:
 		conic-gradient(
 			from var(--beam-angle-inferay),
@@ -50,47 +50,56 @@
 			transparent 100%
 		),
 		radial-gradient(
-			ellipse 70px 40px at 33% -7.4%,
+			ellipse calc(70px * var(--beam-scale, 1))
+				calc(40px * var(--beam-scale, 1)) at 33% -7.4%,
 			rgb(255, 50, 100),
 			transparent
 		),
 		radial-gradient(
-			ellipse 60px 35px at 12% -5%,
+			ellipse calc(60px * var(--beam-scale, 1))
+				calc(35px * var(--beam-scale, 1)) at 12% -5%,
 			rgb(40, 140, 255),
 			transparent
 		),
 		radial-gradient(
-			ellipse 40px 70px at 2.1% 68.3%,
+			ellipse calc(40px * var(--beam-scale, 1))
+				calc(70px * var(--beam-scale, 1)) at 2.1% 68.3%,
 			rgb(50, 200, 80),
 			transparent
 		),
 		radial-gradient(
-			ellipse 20px 35px at 2.1% 68.3%,
+			ellipse calc(20px * var(--beam-scale, 1))
+				calc(35px * var(--beam-scale, 1)) at 2.1% 68.3%,
 			rgb(30, 185, 170),
 			transparent
 		),
 		radial-gradient(
-			ellipse 180px 32px at 74.4% 100%,
+			ellipse calc(180px * var(--beam-scale, 1))
+				calc(32px * var(--beam-scale, 1)) at 74.4% 100%,
 			rgb(100, 70, 255),
 			transparent
 		),
 		radial-gradient(
-			ellipse 85px 26px at 55% 100%,
+			ellipse calc(85px * var(--beam-scale, 1))
+				calc(26px * var(--beam-scale, 1)) at 55% 100%,
 			rgb(40, 140, 255),
 			transparent
 		),
 		radial-gradient(
-			ellipse 74px 32px at 93.9% 0%,
+			ellipse calc(74px * var(--beam-scale, 1))
+				calc(32px * var(--beam-scale, 1)) at 93.9% 0%,
 			rgb(255, 120, 40),
 			transparent
 		),
 		radial-gradient(
-			ellipse 26px 42px at 100% 27.1%,
+			ellipse calc(26px * var(--beam-scale, 1))
+				calc(42px * var(--beam-scale, 1)) at 100% 27.1%,
 			rgb(240, 50, 180),
 			transparent
 		),
 		radial-gradient(
-			ellipse 52px 48px at 100% 27.1%,
+			ellipse calc(52px * var(--beam-scale, 1))
+				calc(48px * var(--beam-scale, 1)) at 100% 27.1%,
 			rgb(180, 40, 240),
 			transparent
 		);
@@ -143,50 +152,59 @@
 	content: "";
 	position: absolute;
 	inset: 0;
-	border-radius: 12px;
+	border-radius: var(--beam-radius, 12px);
 	background:
 		radial-gradient(
-			ellipse 63px 36px at 33% -7.4%,
+			ellipse calc(63px * var(--beam-scale, 1))
+				calc(36px * var(--beam-scale, 1)) at 33% -7.4%,
 			rgba(255, 50, 100, 0.45),
 			transparent
 		),
 		radial-gradient(
-			ellipse 54px 32px at 12% -5%,
+			ellipse calc(54px * var(--beam-scale, 1))
+				calc(32px * var(--beam-scale, 1)) at 12% -5%,
 			rgba(40, 140, 255, 0.45),
 			transparent
 		),
 		radial-gradient(
-			ellipse 36px 63px at 2.1% 68.3%,
+			ellipse calc(36px * var(--beam-scale, 1))
+				calc(63px * var(--beam-scale, 1)) at 2.1% 68.3%,
 			rgba(50, 200, 80, 0.45),
 			transparent
 		),
 		radial-gradient(
-			ellipse 18px 32px at 2.1% 68.3%,
+			ellipse calc(18px * var(--beam-scale, 1))
+				calc(32px * var(--beam-scale, 1)) at 2.1% 68.3%,
 			rgba(30, 185, 170, 0.45),
 			transparent
 		),
 		radial-gradient(
-			ellipse 162px 29px at 74.4% 100%,
+			ellipse calc(162px * var(--beam-scale, 1))
+				calc(29px * var(--beam-scale, 1)) at 74.4% 100%,
 			rgba(100, 70, 255, 0.45),
 			transparent
 		),
 		radial-gradient(
-			ellipse 77px 23px at 55% 100%,
+			ellipse calc(77px * var(--beam-scale, 1))
+				calc(23px * var(--beam-scale, 1)) at 55% 100%,
 			rgba(40, 140, 255, 0.45),
 			transparent
 		),
 		radial-gradient(
-			ellipse 67px 29px at 93.9% 0%,
+			ellipse calc(67px * var(--beam-scale, 1))
+				calc(29px * var(--beam-scale, 1)) at 93.9% 0%,
 			rgba(255, 120, 40, 0.45),
 			transparent
 		),
 		radial-gradient(
-			ellipse 23px 38px at 100% 27.1%,
+			ellipse calc(23px * var(--beam-scale, 1))
+				calc(38px * var(--beam-scale, 1)) at 100% 27.1%,
 			rgba(240, 50, 180, 0.45),
 			transparent
 		),
 		radial-gradient(
-			ellipse 47px 43px at 100% 27.1%,
+			ellipse calc(47px * var(--beam-scale, 1))
+				calc(43px * var(--beam-scale, 1)) at 100% 27.1%,
 			rgba(180, 40, 240, 0.45),
 			transparent
 		);
@@ -255,7 +273,7 @@
 		var(--beam-inner-opacity, 1) *
 		var(--beam-strength, 1)
 	);
-	clip-path: inset(0 round 12px);
+	clip-path: inset(0 round var(--beam-radius, 12px));
 	animation: beam-hue-shift-inferay 12s ease-in-out infinite;
 }
 
@@ -263,8 +281,8 @@
 	display: none;
 	position: absolute;
 	inset: 0;
-	border-radius: 11px;
-	clip-path: inset(0 round 12px);
+	border-radius: calc(var(--beam-radius, 12px) - 1px);
+	clip-path: inset(0 round var(--beam-radius, 12px));
 	background: conic-gradient(
 		from var(--beam-angle-inferay),
 		transparent 0%,
@@ -340,4 +358,8 @@
 	[data-beam="inferay"][data-running="true"]::after {
 		animation: none;
 	}
+}
+
+[data-beam-quiet] [data-beam="inferay"] {
+	opacity: 0;
 }
