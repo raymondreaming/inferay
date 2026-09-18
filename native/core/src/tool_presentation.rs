@@ -435,11 +435,15 @@ pub fn display(tool_name: Option<&str>, input: &Value) -> ToolDisplayInfo {
         };
         let (fallback, template) = presentation;
         if !fallback.is_empty() {
-            return label(
-                target(command)
-                    .filter(|_| !template.is_empty())
-                    .map_or_else(|| fallback.into(), |file| template.replace("{}", &file)),
-            );
+            let named = target(command).filter(|_| !template.is_empty());
+            return ToolDisplayInfo {
+                label: named
+                    .as_deref()
+                    .map_or_else(|| fallback.into(), |file| template.replace("{}", file)),
+                detail: None,
+                source: None,
+                file: named,
+            };
         }
         let detail = ["/bin/zsh -lc ", "/bin/bash -lc ", "/bin/sh -lc "]
             .iter()
@@ -510,5 +514,18 @@ mod tool_display_tests {
         assert_eq!(read_without_path.label, "Reading files");
         assert_eq!(read_without_path.file, None);
         assert_eq!(display(None, &json!({"command": "ls"})).file, None);
+    }
+
+    #[test]
+    fn commands_that_name_a_file_show_its_type() {
+        let read = display(
+            None,
+            &json!({"command": "sed -n '1,40p' src/state/executionStatus.ts"}),
+        );
+        assert_eq!(read.label, "Reading executionStatus.ts");
+        assert_eq!(read.file.as_deref(), Some("executionStatus.ts"));
+        let search = display(None, &json!({"command": "rg --include '*.rs' handler"}));
+        assert_eq!(search.label, "Searching *.rs");
+        assert_eq!(search.file.as_deref(), Some("*.rs"));
     }
 }
