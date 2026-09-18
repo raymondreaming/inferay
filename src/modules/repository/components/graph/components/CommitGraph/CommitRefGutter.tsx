@@ -32,6 +32,7 @@ export function CommitRefGutter(props: {
 			{props.showWipRef ? (
 				<RefBadge
 					label={props.worktreeLabel}
+					displayName={props.worktreeLabel}
 					fullName={props.commitId}
 					color={props.color}
 					kind="localBranch"
@@ -48,6 +49,7 @@ export function CommitRefGutter(props: {
 			) : props.showGhostRef && props.ghostRef ? (
 				<RefBadge
 					label={props.ghostRef.label}
+					displayName={props.ghostRef.displayName}
 					fullName={props.ghostRef.fullName}
 					color={props.color}
 					kind={props.ghostRef.kind}

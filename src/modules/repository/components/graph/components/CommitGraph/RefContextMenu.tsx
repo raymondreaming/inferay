@@ -80,10 +80,14 @@ export function RefContextMenu(
 					});
 			}
 		}
-		if (ref().kind === "remoteBranch")
+		if (ref().kind === "remoteBranch") {
+			add(`Checkout ${ref().displayName}`, () =>
+				_props.onCheckoutRef?.(ref().displayName),
+			);
 			action("Delete remote branch…", "deleteRemoteBranch", {
 				target: ref().fullName,
 			});
+		}
 		if (ref().kind === "tag") {
 			for (const [label, name] of [
 				["Push tag…", "pushTag"],

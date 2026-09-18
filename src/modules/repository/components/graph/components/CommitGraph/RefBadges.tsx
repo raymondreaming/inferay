@@ -40,6 +40,7 @@ export function RefBadges(_props: {
 				) => (
 					<RefBadge
 						label={ref.label}
+						displayName={ref.displayName}
 						fullName={ref.fullName}
 						color={_props.color}
 						kind={ref.kind}

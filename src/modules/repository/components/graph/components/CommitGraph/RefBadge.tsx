@@ -17,6 +17,7 @@ function refKindLabel(kind: GitGraphRefKind): string {
 }
 export function RefBadge(_props: {
 	label: string;
+	displayName: string;
 	fullName: string;
 	color: string;
 	kind: GitGraphRefKind;
@@ -29,17 +30,28 @@ export function RefBadge(_props: {
 	ghost?: boolean;
 }) {
 	const [hovered, setHovered] = createSignal(false);
-	const interactive = createMemo(
+	const localRef = createMemo(
 		() =>
-			(_props.kind === "localBranch" ||
-				(_props.kind === "head" &&
-					_props.fullName.startsWith("refs/heads/"))) &&
-			!!(_props.onCheckout || _props.onRefDrop),
+			_props.kind === "localBranch" ||
+			(_props.kind === "head" && _props.fullName.startsWith("refs/heads/")),
+	);
+	const movable = createMemo(
+		() => localRef() && !!(_props.onCheckout || _props.onRefDrop),
+	);
+	const checkoutable = createMemo(
+		() => (localRef() || _props.kind === "remoteBranch") && !!_props.onCheckout,
 	);
 	const keyboardActionable = createMemo(
-		() => interactive() || Boolean(_props.onOpenContextMenu),
+		() => movable() || checkoutable() || Boolean(_props.onOpenContextMenu),
 	);
 	const kindLabel = createMemo(() => refKindLabel(_props.kind));
+	const checkoutHint = createMemo(() =>
+		!checkoutable()
+			? ""
+			: _props.kind === "remoteBranch"
+				? "; double-click to check out and fast-forward"
+				: "; double-click to check out",
+	);
 	return (
 		<span
 			role={keyboardActionable() ? "button" : undefined}
@@ -49,32 +61,30 @@ export function RefBadge(_props: {
 			}
 			data-ref-hovered={hovered() ? "true" : "false"}
 			tabindex={keyboardActionable() ? 0 : undefined}
-			draggable={interactive() ? "true" : "false"}
+			draggable={movable() ? "true" : "false"}
 			title={
 				(_props.ghost === undefined ? false : _props.ghost)
-					? `${_props.label} — nearest containing ${kindLabel()}${interactive() ? "; double-click to check out" : ""}`
+					? `${_props.label} — nearest containing ${kindLabel()}${checkoutHint()}`
 					: _props.worktreePath
 						? `${_props.label} — ${kindLabel()}; checked out at ${_props.worktreePath}`
 						: _props.upstream
 							? `${_props.label} — ${kindLabel()}; tracks ${_props.upstream}`
-							: interactive()
-								? `${_props.label} — ${kindLabel()}; double-click to check out`
-								: `${_props.label} — ${kindLabel()}`
+							: `${_props.label} — ${kindLabel()}${checkoutHint()}`
 			}
 			onDblClick={(event) => {
-				if (!interactive()) return;
+				if (!checkoutable()) return;
 				event.preventDefault();
 				event.stopPropagation();
-				_props.onCheckout?.(_props.label);
+				_props.onCheckout?.(_props.displayName);
 			}}
 			onClick={(event) => {
 				if (keyboardActionable()) event.stopPropagation();
 			}}
 			onKeyDown={(event) => {
-				if (interactive() && event.key === "Enter") {
+				if (checkoutable() && event.key === "Enter") {
 					event.preventDefault();
 					event.stopPropagation();
-					_props.onCheckout?.(_props.label);
+					_props.onCheckout?.(_props.displayName);
 					return;
 				}
 				if (
@@ -94,7 +104,7 @@ export function RefBadge(_props: {
 				}
 			}}
 			onDragStart={(event) => {
-				if (!interactive() || !event.dataTransfer) return;
+				if (!movable() || !event.dataTransfer) return;
 				event.stopPropagation();
 				event.dataTransfer.effectAllowed = "move";
 				event.dataTransfer.setData(
@@ -104,7 +114,7 @@ export function RefBadge(_props: {
 				event.dataTransfer.setData("text/plain", _props.label);
 			}}
 			onDragOver={(event) => {
-				if (!interactive() || !event.dataTransfer) return;
+				if (!movable() || !event.dataTransfer) return;
 				const source = event.dataTransfer.getData(
 					"application/x-inferay-git-ref",
 				);
@@ -113,7 +123,7 @@ export function RefBadge(_props: {
 				event.dataTransfer.dropEffect = "move";
 			}}
 			onDrop={(event) => {
-				if (!interactive() || !event.dataTransfer) return;
+				if (!movable() || !event.dataTransfer) return;
 				const source = event.dataTransfer.getData(
 					"application/x-inferay-git-ref",
 				);

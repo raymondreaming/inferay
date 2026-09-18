@@ -1010,18 +1010,51 @@ fn stable_revision_token(parts: &[String]) -> String {
     format!("{hash:016x}")
 }
 
+struct RemoteCheckout {
+    reference: String,
+    local: String,
+}
+
+fn resolve_remote_checkout(cwd: &str, name: &str) -> Option<RemoteCheckout> {
+    let short = name.strip_prefix("refs/remotes/").unwrap_or(name);
+    let reference = format!("refs/remotes/{short}");
+    run_git(&["rev-parse", "--verify", "--quiet", &reference], cwd)?;
+    let local = short.split_once('/')?.1.to_string();
+    (!local.is_empty() && local != "HEAD").then_some(RemoteCheckout { reference, local })
+}
+
+fn git_ref_contains(cwd: &str, ancestor: &str, descendant: &str) -> bool {
+    Command::new("git")
+        .args(["merge-base", "--is-ancestor", ancestor, descendant])
+        .current_dir(cwd)
+        .output()
+        .is_ok_and(|output| output.status.success())
+}
+
 pub fn checkout_git_branch(cwd: &str, branch_name: &str) -> GitCheckoutResult {
     let checkout = || -> Result<String, (GitOperationErrorKind, String)> {
-        if !get_git_branches(cwd)
-            .iter()
-            .any(|branch| branch.name == branch_name)
-        {
+        let branches = get_git_branches(cwd);
+        let has_local = |name: &str| branches.iter().any(|branch| branch.name == name);
+        let remote = if has_local(branch_name) {
+            None
+        } else {
+            resolve_remote_checkout(cwd, branch_name)
+        };
+        let branch_name = remote
+            .as_ref()
+            .map_or(branch_name, |remote| remote.local.as_str());
+        if remote.is_none() && !has_local(branch_name) {
             return Err((
                 GitOperationErrorKind::InvalidInput,
                 "Branch not found".into(),
             ));
         }
-        if current_git_branch(cwd).as_deref() == Some(branch_name) {
+        let fast_forward = remote.as_ref().filter(|remote| {
+            has_local(branch_name)
+                && !git_ref_contains(cwd, &remote.reference, &format!("refs/heads/{branch_name}"))
+        });
+        let switching = current_git_branch(cwd).as_deref() != Some(branch_name);
+        if !switching && fast_forward.is_none() {
             return Ok(branch_name.into());
         }
         if let Some(worktree) = get_git_worktrees(cwd).into_iter().find(|worktree| {
@@ -1044,27 +1077,42 @@ pub fn checkout_git_branch(cwd: &str, branch_name: &str) -> GitCheckoutResult {
                 "Commit or stash working changes before checkout".into(),
             ));
         }
-        let output = Command::new("git")
-            .args(["checkout", branch_name])
-            .current_dir(cwd)
-            .output()
-            .map_err(|_| {
-                (
-                    GitOperationErrorKind::Io,
-                    format!("Unable to checkout {branch_name}"),
-                )
-            })?;
-        if !output.status.success() {
+        let run = |args: &[&str], failure: String| -> Result<(), (GitOperationErrorKind, String)> {
+            let output = Command::new("git")
+                .args(args)
+                .current_dir(cwd)
+                .output()
+                .map_err(|_| (GitOperationErrorKind::Io, failure.clone()))?;
+            if output.status.success() {
+                return Ok(());
+            }
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
             let kind = classify_git_operation_error(&stderr, &git_conflicts(cwd));
-            return Err((
-                kind,
-                if stderr.is_empty() {
-                    format!("Unable to checkout {branch_name}")
-                } else {
-                    stderr
-                },
-            ));
+            Err((kind, if stderr.is_empty() { failure } else { stderr }))
+        };
+        if switching {
+            let create = remote.as_ref().filter(|_| !has_local(branch_name));
+            let args = match &create {
+                Some(remote) => vec!["checkout", "-b", branch_name, "--track", &remote.reference],
+                None => vec!["checkout", branch_name],
+            };
+            run(&args, format!("Unable to checkout {branch_name}"))?;
+        }
+        if let Some(remote) = fast_forward {
+            run(
+                &["merge", "--ff-only", &remote.reference],
+                format!("Unable to fast-forward {branch_name}"),
+            )
+            .map_err(|(kind, error)| match kind {
+                GitOperationErrorKind::CommandFailed => (
+                    GitOperationErrorKind::NonFastForward,
+                    format!(
+                        "{branch_name} has commits that {} does not; merge or rebase instead",
+                        remote.reference.trim_start_matches("refs/remotes/")
+                    ),
+                ),
+                _ => (kind, error),
+            })?;
         }
         Ok(run_git(&["rev-parse", "--abbrev-ref", "HEAD"], cwd)
             .map(|value| value.trim().to_string())
@@ -1225,12 +1273,7 @@ pub fn preflight_git_ref_operation(
     let shared_ancestor =
         run_git(&["merge-base", source, target], cwd).is_some_and(|value| !value.trim().is_empty());
     let can_rebase = common && !source_in_other_worktree && shared_ancestor;
-    let can_fast_forward = can_merge
-        && Command::new("git")
-            .args(["merge-base", "--is-ancestor", target, source])
-            .current_dir(cwd)
-            .output()
-            .is_ok_and(|output| output.status.success());
+    let can_fast_forward = can_merge && git_ref_contains(cwd, target, source);
     let mut reasons = Vec::new();
     if !valid_refs {
         reasons.push("Choose two different local branches".to_string());
@@ -3088,6 +3131,80 @@ mod graph_layout_tests {
 #[cfg(test)]
 mod checkout_tests {
     use super::*;
+
+    #[test]
+    fn checkout_remote_branch_fast_forwards_or_creates_the_local_branch() {
+        let root = std::env::temp_dir().join(format!(
+            "inferay-remote-checkout-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let origin = root.join("origin");
+        let clone = root.join("clone");
+        std::fs::create_dir_all(&origin).unwrap();
+        let run = |directory: &std::path::Path, args: &[&str]| {
+            let output = Command::new("git")
+                .args(args)
+                .current_dir(directory)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{args:?}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        let identify = |directory: &std::path::Path| {
+            run(directory, &["config", "user.email", "fixture@example.invalid"]);
+            run(directory, &["config", "user.name", "Fixture"]);
+            run(directory, &["config", "commit.gpgsign", "false"]);
+        };
+        run(&origin, &["init", "-b", "main"]);
+        identify(&origin);
+        std::fs::write(origin.join("file.txt"), "one\n").unwrap();
+        run(&origin, &["add", "."]);
+        run(&origin, &["commit", "-m", "one"]);
+        run(
+            &root,
+            &["clone", origin.to_str().unwrap(), clone.to_str().unwrap()],
+        );
+        identify(&clone);
+        let cwd = clone.to_str().unwrap();
+        std::fs::write(origin.join("file.txt"), "two\n").unwrap();
+        run(&origin, &["commit", "-am", "two"]);
+        run(&origin, &["branch", "feature"]);
+        run(&clone, &["fetch", "origin"]);
+        let behind = current_git_head(cwd).unwrap();
+
+        let fast_forwarded = checkout_git_branch(cwd, "origin/main");
+        assert!(fast_forwarded.ok, "{:?}", fast_forwarded.error);
+        assert_eq!(current_git_branch(cwd).as_deref(), Some("main"));
+        assert_ne!(current_git_head(cwd).unwrap(), behind);
+        assert_eq!(
+            std::fs::read_to_string(clone.join("file.txt")).unwrap(),
+            "two\n"
+        );
+
+        let created = checkout_git_branch(cwd, "refs/remotes/origin/feature");
+        assert!(created.ok, "{:?}", created.error);
+        assert_eq!(current_git_branch(cwd).as_deref(), Some("feature"));
+
+        run(&clone, &["checkout", "main"]);
+        std::fs::write(clone.join("local.txt"), "local\n").unwrap();
+        run(&clone, &["add", "."]);
+        run(&clone, &["commit", "-m", "local"]);
+        std::fs::write(origin.join("file.txt"), "three\n").unwrap();
+        run(&origin, &["commit", "-am", "three"]);
+        run(&clone, &["fetch", "origin"]);
+        assert_eq!(
+            checkout_git_branch(cwd, "origin/main").error_kind,
+            Some(GitOperationErrorKind::NonFastForward)
+        );
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 
     #[test]
     fn checkout_preserves_dirty_worktree_operation_and_worktree_guards() {
