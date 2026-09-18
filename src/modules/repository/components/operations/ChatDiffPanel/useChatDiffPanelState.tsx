@@ -134,12 +134,6 @@ export function useChatDiffPanelState(
 			setPendingRefAction(null);
 		}
 	};
-	const requestGraphAction = (request: GitGraphActionRequest) => {
-		setGraphActionName(request.suggestedName ?? "");
-		setGraphActionMessage("");
-		setGraphActionResult(null);
-		setPendingGraphAction(request);
-	};
 	const runGraphAction = async () => {
 		const _pendingGraphActionValue = pendingGraphAction();
 		if (!_pendingGraphActionValue) return;
@@ -152,6 +146,14 @@ export function useChatDiffPanelState(
 		setGraphActionRunning(false);
 		setGraphActionResult(result);
 		if (result.ok) setPendingGraphAction(null);
+	};
+	const requestGraphAction = (request: GitGraphActionRequest) => {
+		setGraphActionName(request.suggestedName ?? "");
+		setGraphActionMessage("");
+		setGraphActionResult(null);
+		setPendingGraphAction(request);
+		if (_props().graph.actions[request.action]?.needsConfirm === false)
+			void runGraphAction();
 	};
 	const activeModeIndex = createMemo(() => {
 		const _sourceValue2 = _props();
@@ -166,6 +168,13 @@ export function useChatDiffPanelState(
 		return _pendingGraphActionValue2
 			? (_props().graph.actions[_pendingGraphActionValue2.action] ?? null)
 			: null;
+	});
+	const graphActionDialogOpen = createMemo(() => {
+		const presentation = pendingGraphActionPresentation();
+		return (
+			!!presentation &&
+			(presentation.needsConfirm || !!graphActionResult()?.error)
+		);
 	});
 	const operationModel = createMemo(() =>
 		project<{
@@ -218,6 +227,9 @@ export function useChatDiffPanelState(
 		},
 		get pendingGraphAction() {
 			return pendingGraphAction();
+		},
+		get graphActionDialogOpen() {
+			return graphActionDialogOpen();
 		},
 		setPendingGraphAction,
 		get graphActionName() {

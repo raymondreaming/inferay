@@ -49,6 +49,7 @@ pub struct GraphActionPresentation {
     copy: String,
     confirm: String,
     needs_name: bool,
+    needs_confirm: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     name_label: Option<String>,
@@ -202,19 +203,19 @@ pub static CATALOG: LazyLock<Value> = LazyLock::new(|| {
             "fetch",
             "Fetch all remotes",
             "Update remote-tracking refs and prune deleted remote refs without changing the worktree.",
-            json!({"confirm":"Fetch"}),
+            json!({"confirm":"Fetch","needsConfirm":false}),
         ),
         (
             "pull",
             "Pull current branch",
             "Fetch and integrate the configured upstream using this repository's pull policy, then restore local changes with Git autostash. Conflicts require resolution; saved changes are retained if restoration fails.",
-            json!({"confirm":"Pull"}),
+            json!({"confirm":"Pull","needsConfirm":false}),
         ),
         (
             "push",
             "Push current branch",
             "Push the current branch to its configured upstream. Force push is never used.",
-            json!({"confirm":"Push"}),
+            json!({"confirm":"Push","needsConfirm":false}),
         ),
     ];
     Value::Object(
@@ -226,6 +227,7 @@ pub static CATALOG: LazyLock<Value> = LazyLock::new(|| {
                     copy: copy.into(),
                     confirm: options["confirm"].as_str().unwrap_or(title).into(),
                     needs_name: options["needsName"] == true,
+                    needs_confirm: options["needsConfirm"] != false,
                     name_label: options["nameLabel"].as_str().map(str::to_owned),
                     message_label: options["messageLabel"].as_str().map(str::to_owned),
                     danger: options["danger"] == true,

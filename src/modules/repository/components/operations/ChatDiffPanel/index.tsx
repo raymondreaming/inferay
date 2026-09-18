@@ -148,6 +148,7 @@ export function ChatDiffPanel(
 					/>
 				) : null}
 				{view.mainViewMode === "graph" &&
+				view.graphActionDialogOpen &&
 				view.pendingGraphAction &&
 				view.pendingGraphActionPresentation ? (
 					<GraphActionDialog
