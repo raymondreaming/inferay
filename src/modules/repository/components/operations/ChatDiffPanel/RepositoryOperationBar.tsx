@@ -1,3 +1,4 @@
+import { surfaceStyles } from "@design-system/styles.stylex.ts";
 import * as stylex from "@stylexjs/stylex";
 import { For } from "solid-js";
 import { styles } from "./styles.ts";
@@ -10,7 +11,10 @@ export function RepositoryOperationBar(
 	>,
 ) {
 	return (
-		<div role="status" {...stylex.attrs(styles.repositoryOperationBar)}>
+		<div
+			role="status"
+			{...stylex.attrs(surfaceStyles.overlay, styles.repositoryOperationBar)}
+		>
 			<div {...stylex.attrs(styles.repositoryOperationCopy)}>
 				<strong>{_props.operationModel.recoveryTitle}</strong>
 				<span>{_props.operationModel.recoveryMessage}</span>

@@ -1,4 +1,4 @@
-import { iconSize } from "@design-system/styles.stylex.ts";
+import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
 import {
 	IconChevronRight,
 	IconFolder,
@@ -33,6 +33,8 @@ export function DirectoryResult(_props: {
 				(_props.searchable === undefined ? false : _props.searchable)
 					? styles.resultRowCompact
 					: styles.resultRow,
+				!(_props.searchable === undefined ? false : _props.searchable) &&
+					surfaceStyles.explorerRow,
 				_props.active &&
 					(_props.highlight === undefined ? true : _props.highlight) &&
 					((_props.searchable === undefined ? false : _props.searchable)

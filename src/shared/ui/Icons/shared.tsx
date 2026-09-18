@@ -90,7 +90,6 @@ export const {
 	IconCloud,
 	IconComputer,
 	IconPanelLeft,
-	IconPanelRight,
 	IconExternalLink,
 	IconArrowLeft,
 	IconMessageCircle,
@@ -196,10 +195,6 @@ export const {
 		"M3 3h18a0 0 0 0 1 0 0v18a0 0 0 0 1 0 0H3a0 0 0 0 1 0 0V3z",
 		"M9 3v18",
 	]),
-	IconPanelRight: icon([
-		"M3 3h18a0 0 0 0 1 0 0v18a0 0 0 0 1 0 0H3a0 0 0 0 1 0 0V3z",
-		"M15 3v18",
-	]),
 	IconExternalLink: icon([
 		"M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6",
 		"M15 3h6v6",
@@ -242,6 +237,8 @@ export const {
 };
 export const {
 	IconGitBranch,
+	IconCommitGraph,
+	IconFileDiff,
 	IconEye,
 	IconSearch,
 	IconGitCommit,
@@ -258,6 +255,27 @@ export const {
 			<circle cx="18" cy="6" r="3" />
 			<circle cx="6" cy="18" r="3" />
 			<path d="M18 9a9 9 0 0 1-9 9" />
+		</>
+	)),
+	IconCommitGraph: svgIcon(() => (
+		<>
+			<circle cx="6" cy="5" r="2" />
+			<circle cx="6" cy="12" r="2" />
+			<circle cx="6" cy="19" r="2" />
+			<path d="M6 7v3" />
+			<path d="M6 14v3" />
+			<path d="M11 5h9" />
+			<path d="M11 12h9" />
+			<path d="M11 19h6" />
+		</>
+	)),
+	IconFileDiff: svgIcon(() => (
+		<>
+			<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z" />
+			<path d="M15 2v5h5" />
+			<path d="M12 11v4" />
+			<path d="M10 13h4" />
+			<path d="M10 18h4" />
 		</>
 	)),
 	IconEye: svgIcon(() => (

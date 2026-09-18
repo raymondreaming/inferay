@@ -40,17 +40,7 @@ export const styles = stylex.create({
 		paddingInline: controlSize._3,
 		textAlign: "left",
 		borderRadius: radius.lg,
-		transitionProperty: "background-color, box-shadow, color",
-		transitionDuration: motion.durationFast,
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.backgroundPanel,
-		},
 		backgroundImage: "none",
-		boxShadow: {
-			default: "none",
-			":hover": `inset 0 0 0 1px ${color.border}`,
-		},
 	},
 	resultRowActive: {
 		backgroundColor: color.backgroundPanel,

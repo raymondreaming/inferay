@@ -56,7 +56,7 @@ export function NewWorkspaceMenu(props: {
 							role="menuitem"
 							aria-label="New chat"
 							onClick={() => props.onCreateChat("active-repository")}
-							{...stylex.attrs(styles.newMenuItem)}
+							{...stylex.attrs(surfaceStyles.explorerRow, styles.newMenuItem)}
 						>
 							<IconMessageCircle size={iconSize.md} />
 							<span {...stylex.attrs(styles.newMenuCopy)}>
@@ -72,7 +72,7 @@ export function NewWorkspaceMenu(props: {
 							type="button"
 							role="menuitem"
 							onClick={() => props.onCreateChat("new-repository")}
-							{...stylex.attrs(styles.newMenuItem)}
+							{...stylex.attrs(surfaceStyles.explorerRow, styles.newMenuItem)}
 						>
 							<IconFolder size={iconSize.md} />
 							<span {...stylex.attrs(styles.newMenuCopy)}>

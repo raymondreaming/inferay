@@ -355,14 +355,17 @@ export const surfaceStyles = stylex.create({
 		borderWidth: 1,
 		borderRadius: radius.xl,
 	},
+	/** The one hover treatment for rows: explorer entries, menu items, pick lists. */
 	explorerRow: {
 		backgroundColor: {
 			default: color.transparent,
 			":hover": color.backgroundPanel,
+			":focus-visible": color.backgroundPanel,
 		},
 		boxShadow: {
 			default: "none",
 			":hover": `inset 0 0 0 1px ${color.border}`,
+			":focus-visible": `inset 0 0 0 1px ${color.border}`,
 		},
 		transitionDuration: motion.durationBase,
 		transitionProperty: "background-color, box-shadow",

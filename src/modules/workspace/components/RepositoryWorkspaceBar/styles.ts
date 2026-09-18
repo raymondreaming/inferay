@@ -101,8 +101,9 @@ export const styles = stylex.create({
 		borderRightStyle: "solid",
 		borderRightWidth: 1,
 		color: {
-			default: color.textSoft,
+			default: color.textMuted,
 			":hover": color.textMain,
+			':is([aria-expanded="true"])': color.textMain,
 		},
 		display: "flex",
 		flexShrink: 0,
@@ -128,13 +129,11 @@ export const styles = stylex.create({
 	},
 	newMenuItem: {
 		alignItems: "center",
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.controlHover,
-			":focus-visible": color.controlHover,
-		},
 		borderRadius: radius.md,
-		color: color.textMuted,
+		color: {
+			default: color.textMuted,
+			":hover": color.textMain,
+		},
 		display: "flex",
 		gap: controlSize._2_5,
 		minHeight: controlSize._12,

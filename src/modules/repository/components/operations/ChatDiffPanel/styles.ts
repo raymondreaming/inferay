@@ -6,7 +6,6 @@ import {
 	layer,
 	motion,
 	radius,
-	shadow,
 } from "../../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
 	srStatus: {
@@ -302,12 +301,7 @@ export const styles = stylex.create({
 		alignItems: "center",
 		justifyContent: "space-between",
 		gap: controlSize._3,
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.warning,
 		borderRadius: radius.md,
-		backgroundColor: color.backgroundRaised,
-		boxShadow: shadow.popover,
 		padding: controlSize._3,
 	},
 	repositoryOperationCopy: {
@@ -317,7 +311,6 @@ export const styles = stylex.create({
 		gap: controlSize._1,
 		color: color.textSoft,
 		fontSize: font.size_2,
-		textTransform: "capitalize",
 	},
 	viewerEmpty: {
 		display: "flex",

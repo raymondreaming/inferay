@@ -712,8 +712,18 @@ pub fn git_operation_model(input: &Value) -> Value {
     json!({"actions":actions,"conflictMessage":conflict_message,"blockedReason":blocked_reason,
         "operationActivity":{"phase":phase,"message":message},
         "recoveryActions":if resumable {recovery_actions(kind, remaining > 0)} else {Vec::new()},
-        "recoveryTitle":resumable.then(|| format!("{kind} in progress")),
+        "recoveryTitle":resumable.then(|| format!("{} in progress", operation_name(kind))),
         "recoveryMessage":if remaining == 0 {"Ready to continue".into()} else {format!("{remaining} conflicted file{}", if remaining == 1 {""} else {"s"})}})
+}
+
+fn operation_name(kind: &str) -> &str {
+    match kind {
+        "merge" => "Merge",
+        "rebase" => "Rebase",
+        "cherryPick" => "Cherry-pick",
+        "revert" => "Revert",
+        other => other,
+    }
 }
 
 fn recovery_actions(operation: &str, blocked: bool) -> Vec<Value> {

@@ -1,6 +1,6 @@
 import { iconSize } from "@design-system/styles.stylex.ts";
 import { APP_REGION_NO_DRAG_CLASS, ariaValue } from "@shared/lib/dom.tsx";
-import { IconGitBranch, IconPanelRight } from "@shared/ui/Icons/index.tsx";
+import { IconCommitGraph, IconFileDiff } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { styles } from "./styles.ts";
 
@@ -32,7 +32,7 @@ export function RepositoryPanelControls(props: {
 				{...buttonProps}
 				class={`${APP_REGION_NO_DRAG_CLASS} ${buttonProps.class ?? ""}`}
 			>
-				<IconGitBranch size={iconSize.md} />
+				<IconCommitGraph size={iconSize.md} />
 			</button>
 			<button
 				type="button"
@@ -44,7 +44,7 @@ export function RepositoryPanelControls(props: {
 				{...buttonProps}
 				class={`${APP_REGION_NO_DRAG_CLASS} ${buttonProps.class ?? ""}`}
 			>
-				<IconPanelRight size={iconSize.md} />
+				<IconFileDiff size={iconSize.md} />
 			</button>
 		</div>
 	);
