@@ -19,6 +19,7 @@ export function NewWorkspaceMenu(props: {
 	menuRef: { current: HTMLDivElement | null };
 	open: boolean;
 	onCreateChat: (target: CreateAgentChatTarget) => void;
+	onHover: (hovering: boolean) => void;
 	onToggle: () => void;
 }) {
 	const rootProps = stylex.attrs(styles.newMenuRoot);
@@ -28,6 +29,8 @@ export function NewWorkspaceMenu(props: {
 			ref={(element) => (props.menuRef.current = element)}
 			{...rootProps}
 			class={`${APP_REGION_NO_DRAG_CLASS} ${rootProps.class ?? ""}`}
+			onMouseEnter={() => props.onHover(true)}
+			onMouseLeave={() => props.onHover(false)}
 		>
 			<button
 				type="button"
@@ -42,44 +45,46 @@ export function NewWorkspaceMenu(props: {
 				<IconPlus size={iconSize.sm} />
 			</button>
 			{props.open ? (
-				<div
-					role="menu"
-					aria-label="Create new"
-					{...stylex.attrs(surfaceStyles.overlay, styles.newMenu)}
-				>
-					<button
-						type="button"
-						role="menuitem"
-						aria-label="New chat"
-						onClick={() => props.onCreateChat("active-repository")}
-						{...stylex.attrs(styles.newMenuItem)}
+				<div {...stylex.attrs(styles.newMenuAnchor)}>
+					<div
+						role="menu"
+						aria-label="Create new"
+						{...stylex.attrs(surfaceStyles.overlay, styles.newMenu)}
 					>
-						<IconMessageCircle size={iconSize.md} />
-						<span {...stylex.attrs(styles.newMenuCopy)}>
-							<strong {...stylex.attrs(styles.newMenuLabel)}>New chat</strong>
-							<span {...stylex.attrs(styles.newMenuDescription)}>
-								{props.activeWorkspace
-									? `In ${props.activeWorkspace.name}`
-									: "Choose a repository first"}
+						<button
+							type="button"
+							role="menuitem"
+							aria-label="New chat"
+							onClick={() => props.onCreateChat("active-repository")}
+							{...stylex.attrs(styles.newMenuItem)}
+						>
+							<IconMessageCircle size={iconSize.md} />
+							<span {...stylex.attrs(styles.newMenuCopy)}>
+								<strong {...stylex.attrs(styles.newMenuLabel)}>New chat</strong>
+								<span {...stylex.attrs(styles.newMenuDescription)}>
+									{props.activeWorkspace
+										? `In ${props.activeWorkspace.name}`
+										: "Choose a repository first"}
+								</span>
 							</span>
-						</span>
-					</button>
-					<button
-						type="button"
-						role="menuitem"
-						onClick={() => props.onCreateChat("new-repository")}
-						{...stylex.attrs(styles.newMenuItem)}
-					>
-						<IconFolder size={iconSize.md} />
-						<span {...stylex.attrs(styles.newMenuCopy)}>
-							<strong {...stylex.attrs(styles.newMenuLabel)}>
-								Open repository
-							</strong>
-							<span {...stylex.attrs(styles.newMenuDescription)}>
-								Choose another project folder
+						</button>
+						<button
+							type="button"
+							role="menuitem"
+							onClick={() => props.onCreateChat("new-repository")}
+							{...stylex.attrs(styles.newMenuItem)}
+						>
+							<IconFolder size={iconSize.md} />
+							<span {...stylex.attrs(styles.newMenuCopy)}>
+								<strong {...stylex.attrs(styles.newMenuLabel)}>
+									Open repository
+								</strong>
+								<span {...stylex.attrs(styles.newMenuDescription)}>
+									Choose another project folder
+								</span>
 							</span>
-						</span>
-					</button>
+						</button>
+					</div>
 				</div>
 			) : null}
 		</div>

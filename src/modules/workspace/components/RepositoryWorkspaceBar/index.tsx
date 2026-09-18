@@ -39,11 +39,13 @@ import {
 } from "solid-js";
 import {
 	mutateAgentWorkspaceState,
+	openAgentPane,
 	useWorkspaceState,
 } from "../../hooks/useWorkspaceState.tsx";
 import { NewWorkspaceMenu } from "./NewWorkspaceMenu.tsx";
 import { RepositoryPanelControls } from "./RepositoryPanelControls.tsx";
 import { RepositoryWorkspaceTabs } from "./RepositoryWorkspaceTabs.tsx";
+import { SidebarChatFlyout } from "./SidebarChatFlyout.tsx";
 import { styles } from "./styles.ts";
 
 type RepositoryTabMove = {
@@ -227,6 +229,7 @@ export function RepositoryWorkspaceBar() {
 	const [workspaceSidebarCollapsed, setWorkspaceSidebarCollapsedState] =
 		createSignal(loadSidebarCollapsed);
 	const [newMenuOpen, setNewMenuOpen] = createSignal(false);
+	const [chatFlyoutHovered, setChatFlyoutHovered] = createSignal(false);
 	const newMenuRef = {
 		current: null,
 	} as {
@@ -279,6 +282,23 @@ export function RepositoryWorkspaceBar() {
 		setNewMenuOpen(false);
 		dispatchCreateAgentChat(target);
 	};
+	const chatFlyoutOpen = createMemo(
+		() =>
+			chatFlyoutHovered() &&
+			!newMenuOpen() &&
+			(workspaceSidebarCollapsed() || location.pathname !== "/"),
+	);
+	const activePaneId = createMemo(
+		() =>
+			state().groups.find((group) => group.id === state().selectedGroupId)
+				?.selectedPaneId ?? null,
+	);
+	const selectPane = (groupId: string, paneId: string) => {
+		setChatFlyoutHovered(false);
+		void openAgentPane(groupId, paneId, () => {
+			if (location.pathname !== "/") navigate("/");
+		});
+	};
 	const activateWorkspace = (workspace: RepositoryWorkspace) => {
 		void mutateAgentWorkspaceState({
 			type: "selectRepository",
@@ -290,38 +310,59 @@ export function RepositoryWorkspaceBar() {
 	const workspaceSidebarToggleProps = createMemo(() =>
 		stylex.attrs(styles.panelToggle, styles.workspaceSidebarToggle),
 	);
+	const workspaceSidebarToggleRootProps = createMemo(() =>
+		stylex.attrs(styles.workspaceSidebarToggleRoot),
+	);
 	return (
 		<header
 			aria-label="Repository bar"
 			{...barProps()}
 			class={`${APP_REGION_DRAG_CLASS} ${barProps().class ?? ""}`}
 		>
-			<button
-				type="button"
-				onClick={() =>
-					setWorkspaceSidebarCollapsed(!workspaceSidebarCollapsed())
-				}
-				aria-label={ariaValue(
-					workspaceSidebarCollapsed()
-						? "Expand workspace sidebar"
-						: "Collapse workspace sidebar",
-				)}
-				title={
-					workspaceSidebarCollapsed()
-						? "Expand workspace sidebar"
-						: "Collapse workspace sidebar"
-				}
-				aria-pressed={ariaValue(!workspaceSidebarCollapsed())}
-				{...workspaceSidebarToggleProps()}
-				class={`${APP_REGION_NO_DRAG_CLASS} ${workspaceSidebarToggleProps().class ?? ""}`}
+			<div
+				{...workspaceSidebarToggleRootProps()}
+				class={`${APP_REGION_NO_DRAG_CLASS} ${workspaceSidebarToggleRootProps().class ?? ""}`}
+				onMouseEnter={() => {
+					setNewMenuOpen(false);
+					setChatFlyoutHovered(true);
+				}}
+				onMouseLeave={() => setChatFlyoutHovered(false)}
 			>
-				<IconPanelLeft size={iconSize.md} />
-			</button>
+				<button
+					type="button"
+					onClick={() =>
+						setWorkspaceSidebarCollapsed(!workspaceSidebarCollapsed())
+					}
+					aria-label={ariaValue(
+						workspaceSidebarCollapsed()
+							? "Expand workspace sidebar"
+							: "Collapse workspace sidebar",
+					)}
+					title={
+						workspaceSidebarCollapsed()
+							? "Expand workspace sidebar"
+							: "Collapse workspace sidebar"
+					}
+					aria-pressed={ariaValue(!workspaceSidebarCollapsed())}
+					aria-expanded={ariaValue(chatFlyoutOpen())}
+					{...workspaceSidebarToggleProps()}
+				>
+					<IconPanelLeft size={iconSize.md} />
+				</button>
+				{chatFlyoutOpen() ? (
+					<SidebarChatFlyout
+						entries={projection().visibleEntries}
+						activePaneId={activePaneId()}
+						onSelectPane={selectPane}
+					/>
+				) : null}
+			</div>
 			<NewWorkspaceMenu
 				activeWorkspace={projection().activeWorkspace}
 				menuRef={newMenuRef}
 				open={newMenuOpen()}
 				onCreateChat={createChat}
+				onHover={setNewMenuOpen}
 				onToggle={() => setNewMenuOpen((open) => !open)}
 			/>
 			<RepositoryWorkspaceTabs

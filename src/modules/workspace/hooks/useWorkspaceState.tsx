@@ -5,6 +5,7 @@ import type {
 	WorkspaceAgentKind,
 	WorkspaceSnapshot,
 } from "@contracts";
+import { dispatchFocusAgentChatComposer } from "@shared/lib/dom.tsx";
 import { WorkspaceReplica } from "@shared/lib/native.tsx";
 import {
 	type Accessor,
@@ -137,6 +138,18 @@ export const initializeAgentState = () => workspaceSession().initialize();
 export const loadCanonicalAgentState = () => workspaceSession().load();
 export const mutateAgentWorkspaceState = (action: AgentWorkspaceAction) =>
 	workspaceSession().mutate(action);
+/** Selects a chat, lets the caller reveal the workspace, then focuses its composer. */
+export const openAgentPane = async (
+	groupId: string,
+	paneId: string,
+	reveal: () => void,
+) => {
+	await mutateAgentWorkspaceState({ type: "selectPane", groupId, paneId });
+	reveal();
+	requestAnimationFrame(() =>
+		requestAnimationFrame(() => dispatchFocusAgentChatComposer(paneId)),
+	);
+};
 export const changePaneAgentKind = (
 	paneId: string,
 	agentKind: WorkspaceAgentKind,

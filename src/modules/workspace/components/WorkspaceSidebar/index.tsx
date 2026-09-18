@@ -8,7 +8,6 @@ import {
 	CREATE_AGENT_CHAT_EVENT,
 	type CreateAgentChatDetail,
 	type CreateAgentChatTarget,
-	dispatchFocusAgentChatComposer,
 	domStyle,
 	listenWindowEvent,
 	openSettingsModal,
@@ -38,6 +37,7 @@ import {
 } from "solid-js";
 import {
 	mutateAgentWorkspaceState,
+	openAgentPane,
 	useWorkspaceState,
 } from "../../hooks/useWorkspaceState.tsx";
 import { SidebarAccountButton } from "./SidebarAccountButton.tsx";
@@ -142,19 +142,10 @@ export function WorkspaceSidebar() {
 	onSettled(() => {
 		return listenAgentLayoutMode(setLayoutMode);
 	});
-	const selectPane = async (groupId: string, paneId: string) => {
-		await mutateAgentWorkspaceState({
-			type: "selectPane",
-			groupId,
-			paneId,
+	const selectPane = (groupId: string, paneId: string) =>
+		openAgentPane(groupId, paneId, () => {
+			if (location.pathname !== "/") navigate("/");
 		});
-		if (location.pathname !== "/") {
-			navigate("/");
-		}
-		requestAnimationFrame(() => {
-			requestAnimationFrame(() => dispatchFocusAgentChatComposer(paneId));
-		});
-	};
 	const addChat = async (target: CreateAgentChatTarget) => {
 		if (target === "new-repository") {
 			await mutateAgentWorkspaceState({
