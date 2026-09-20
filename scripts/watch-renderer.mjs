@@ -10,7 +10,7 @@ const watchedPaths = [
 	"vite.config.ts",
 ];
 let building = false;
-let pending = true;
+let pending = false;
 
 function buildRenderer() {
 	return new Promise((resolve) => {
@@ -50,5 +50,4 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 	});
 }
 
-await rebuild();
 console.log("[inferay-dev] watching renderer sources");

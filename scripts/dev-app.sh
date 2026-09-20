@@ -6,9 +6,11 @@ cd "${ROOT}"
 bun scripts/check-bun-version.mjs
 
 DEV_BACKEND_ADDR="127.0.0.1:4317"
-BUILD_MARKER="$(mktemp)"
 
 export INFERAY_DEV_BACKEND_ADDR="${DEV_BACKEND_ADDR}"
+
+bun run build:renderer
+cargo build -p inferay-server --bin inferay-dev-server
 
 node scripts/watch-renderer.mjs &
 RENDERER_PID=$!
@@ -23,26 +25,8 @@ cleanup() {
 	if [[ -n "${SERVER_PID}" ]]; then
 		kill "${SERVER_PID}" 2>/dev/null || true
 	fi
-	rm -f "${BUILD_MARKER}"
 }
 trap cleanup EXIT INT TERM
-
-for _ in {1..300}; do
-	if [[ "${ROOT}/dist/index.html" -nt "${BUILD_MARKER}" ]]; then
-		break
-	fi
-	if ! kill -0 "${RENDERER_PID}" 2>/dev/null; then
-		wait "${RENDERER_PID}"
-		exit $?
-	fi
-	sleep 0.1
-done
-
-if [[ ! "${ROOT}/dist/index.html" -nt "${BUILD_MARKER}" ]]; then
-	echo "Inferay development renderer did not build" >&2
-	exit 1
-fi
-rm -f "${BUILD_MARKER}"
 
 echo "[inferay-dev] live app: http://${DEV_BACKEND_ADDR}"
 cargo run -p inferay-server --bin inferay-dev-server &
