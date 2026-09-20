@@ -570,6 +570,9 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
                     &request_headers,
                 );
             }
+            ("/api/git/image", "GET") => {
+                return api_http_response(serve_git_image(&state, request).await, &request_headers);
+            }
             ("/api/git/graph", "GET") => {
                 return api_http_response(git_graph(&state, request).await, &request_headers);
             }
@@ -1477,6 +1480,7 @@ async fn serve_local_image(state: &ServerState, request: Request) -> ApiResult<R
     if !is_image_extension(&path.to_string_lossy()) {
         return Err(api_error(StatusCode::BAD_REQUEST, "Unsupported file type"));
     }
+    let thumbnail = thumbnail && image_content_type(&path) != "image/svg+xml";
     let metadata = match tokio::fs::metadata(&path).await {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -1531,6 +1535,60 @@ async fn serve_local_image(state: &ServerState, request: Request) -> ApiResult<R
     response
         .headers_mut()
         .insert(CACHE_CONTROL, HeaderValue::from_static("private, no-cache"));
+    response.headers_mut().insert(
+        "content-security-policy",
+        HeaderValue::from_static("default-src 'none'; sandbox"),
+    );
+    response.headers_mut().insert(
+        "x-content-type-options",
+        HeaderValue::from_static("nosniff"),
+    );
+    add_cors_headers(response.headers_mut(), &request_headers);
+    Ok(response)
+}
+
+async fn serve_git_image(state: &ServerState, request: Request) -> ApiResult<Response> {
+    let request_headers = request.headers().clone();
+    let invalid = || {
+        api_error(
+            StatusCode::BAD_REQUEST,
+            "Missing cwd, rev, or file parameter",
+        )
+    };
+    let cwd = query_value(&request, "cwd")
+        .and_then(|cwd| safe_cwd(state, &cwd))
+        .ok_or_else(invalid)?;
+    let file = query_value(&request, "file")
+        .filter(|file| is_safe_relative_path(file) && is_image_extension(file))
+        .ok_or_else(invalid)?;
+    let revision = match query_value(&request, "rev").unwrap_or_default().as_str() {
+        "INDEX" => String::new(),
+        "HEAD" => String::from("HEAD"),
+        hash if safe_hash(hash) => hash.to_owned(),
+        _ => return Err(invalid()),
+    };
+    let content_type = image_content_type(Path::new(&file));
+    let bytes = tokio::task::spawn_blocking(move || {
+        inferay_native_diff::git_blob_bytes(&cwd, &revision, &file)
+    })
+    .await
+    .map_err(|error| ApiError::from(error.to_string()))?
+    .map_err(|_| api_error(StatusCode::NOT_FOUND, "Image not found at this revision"))?;
+    if bytes.len() as u64 > MAX_SERVED_FILE_BYTES {
+        return Err(api_error(StatusCode::PAYLOAD_TOO_LARGE, "File too large"));
+    }
+    let mut response = Response::new(Body::from(bytes));
+    let headers = response.headers_mut();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
+    headers.insert(CACHE_CONTROL, HeaderValue::from_static("private, no-cache"));
+    headers.insert(
+        "content-security-policy",
+        HeaderValue::from_static("default-src 'none'; sandbox"),
+    );
+    headers.insert(
+        "x-content-type-options",
+        HeaderValue::from_static("nosniff"),
+    );
     add_cors_headers(response.headers_mut(), &request_headers);
     Ok(response)
 }
@@ -1538,7 +1596,7 @@ async fn serve_local_image(state: &ServerState, request: Request) -> ApiResult<R
 async fn resolve_serveable_image_path(state: &ServerState, path: &str) -> Option<PathBuf> {
     let resolved = resolve_lexically(Path::new(path)).ok()?;
     let real = tokio::fs::canonicalize(resolved).await.ok()?;
-    (is_within_directory(&real, state.allowed_paths.project_root())
+    (state.allowed_paths.is_allowed_local_path(&real)
         || is_within_directory(&real, &state.temp_dir))
     .then_some(real)
 }
@@ -2873,7 +2931,8 @@ mod file_http_tests {
             std::fs::canonicalize(&app).unwrap(),
         );
         config.user_data_dir = root.join("state");
-        config.home_directory = root.join("home");
+        std::fs::create_dir_all(root.join("home")).unwrap();
+        config.home_directory = std::fs::canonicalize(root.join("home")).unwrap();
         std::fs::create_dir_all(&config.user_data_dir).unwrap();
         let auth = config.auth_token.clone();
         let mut server = ServerHandle::start(config).unwrap();
@@ -2935,8 +2994,120 @@ mod file_http_tests {
                 .status(),
             StatusCode::FORBIDDEN
         );
+        let repository = root.join("home/Developer/checkout");
+        std::fs::create_dir_all(&repository).unwrap();
+        let icon = repository.join("AppIcon-76.png");
+        std::fs::write(&icon, &original).unwrap();
+        let response = get(&icon, false).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[CONTENT_TYPE], "image/png");
+        assert_eq!(response.bytes().await.unwrap().as_ref(), original);
+        let vector = repository.join("logo.svg");
+        let markup = b"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"/>";
+        std::fs::write(&vector, markup).unwrap();
+        let response = get(&vector, true).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[CONTENT_TYPE], "image/svg+xml");
+        assert_eq!(response.headers()["x-content-type-options"], "nosniff");
+        assert_eq!(response.bytes().await.unwrap().as_ref(), markup);
         server.shutdown();
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn committed_and_staged_image_sides_stream_from_git() {
+        let temp = std::env::temp_dir().join(format!("inferay-git-image-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(temp.join("home")).unwrap();
+        let root = std::fs::canonicalize(&temp).unwrap();
+        let repository = root.join("home/repo");
+        std::fs::create_dir_all(&repository).unwrap();
+        let git = |args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&repository)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{args:?}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        git(&["init", "-b", "main"]);
+        git(&["config", "user.email", "fixture@example.invalid"]);
+        git(&["config", "user.name", "Fixture"]);
+        git(&["config", "commit.gpgsign", "false"]);
+        let icon = repository.join("icon.png");
+        let committed = {
+            let mut bytes = Vec::new();
+            image::RgbaImage::from_pixel(4, 4, image::Rgba([10, 20, 30, 255]))
+                .write_to(
+                    &mut std::io::Cursor::new(&mut bytes),
+                    image::ImageFormat::Png,
+                )
+                .unwrap();
+            bytes
+        };
+        std::fs::write(&icon, &committed).unwrap();
+        git(&["add", "icon.png"]);
+        git(&["commit", "-m", "add icon"]);
+
+        let mut config = ServerConfig::new("127.0.0.1:0".parse().unwrap(), root.join("app"));
+        std::fs::create_dir_all(root.join("app")).unwrap();
+        config.user_data_dir = root.join("state");
+        config.home_directory = root.join("home");
+        std::fs::create_dir_all(&config.user_data_dir).unwrap();
+        let auth = config.auth_token.clone();
+        let mut server = ServerHandle::start(config).unwrap();
+        let client = Client::new();
+        let get = |rev: &str, file: &str| {
+            let mut url =
+                Url::parse(&format!("http://{}/api/git/image", server.local_addr())).unwrap();
+            url.query_pairs_mut().extend_pairs([
+                ("cwd", repository.to_string_lossy().into_owned()),
+                ("rev", rev.to_owned()),
+                ("file", file.to_owned()),
+            ]);
+            client
+                .get(url)
+                .header("x-inferay-auth", &auth)
+                .header("sec-fetch-site", "same-origin")
+        };
+
+        std::fs::write(&icon, b"replaced").unwrap();
+        let response = get("HEAD", "icon.png").send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[CONTENT_TYPE], "image/png");
+        assert_eq!(response.bytes().await.unwrap().as_ref(), committed);
+        assert_eq!(
+            get("INDEX", "icon.png")
+                .send()
+                .await
+                .unwrap()
+                .bytes()
+                .await
+                .unwrap()
+                .as_ref(),
+            committed
+        );
+        assert_eq!(
+            get("HEAD", "../outside.png").send().await.unwrap().status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            get("HEAD", "notes.txt").send().await.unwrap().status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            get("main", "icon.png").send().await.unwrap().status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            get("HEAD", "missing.png").send().await.unwrap().status(),
+            StatusCode::NOT_FOUND
+        );
+        server.shutdown();
+        std::fs::remove_dir_all(temp).unwrap();
     }
 }
 

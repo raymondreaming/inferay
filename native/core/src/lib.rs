@@ -19,6 +19,18 @@ pub fn utf16_length(value: &str) -> usize {
     value.encode_utf16().count()
 }
 
+pub fn url_encode(value: &str) -> String {
+    value.bytes().fold(String::new(), |mut output, byte| {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            output.push(byte as char);
+        } else {
+            use std::fmt::Write;
+            write!(output, "%{byte:02X}").expect("string write");
+        }
+        output
+    })
+}
+
 pub fn utf16_slice(value: &str, start: usize, end: usize) -> String {
     let units = value
         .encode_utf16()

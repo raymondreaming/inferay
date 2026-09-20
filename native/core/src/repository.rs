@@ -292,7 +292,10 @@ pub struct GitHunkDiff {
     pub is_image: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub image_path: Option<String>,
+    pub old_image: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub new_image: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub raw_patch: Option<String>,

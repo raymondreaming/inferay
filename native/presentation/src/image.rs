@@ -1,3 +1,4 @@
+use inferay_core::url_encode;
 use serde_json::{Value, json};
 
 pub fn source(input: &Value) -> Value {
@@ -45,16 +46,4 @@ fn percent_decode(value: &str) -> Option<String> {
         }
     }
     String::from_utf8(output).ok()
-}
-
-fn url_encode(value: &str) -> String {
-    value.bytes().fold(String::new(), |mut output, byte| {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
-            output.push(byte as char);
-        } else {
-            use std::fmt::Write;
-            write!(output, "%{byte:02X}").expect("string write");
-        }
-        output
-    })
 }

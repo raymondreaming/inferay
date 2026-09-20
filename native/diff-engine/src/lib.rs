@@ -9,6 +9,7 @@ mod path_access;
 mod pull_tests;
 
 use git_exec::{run_git, run_git_timed};
+use inferay_core::url_encode;
 use inferay_core::path_security::{AllowedPaths, is_safe_relative_path};
 use path_access::resolve_real_allowed_local_path;
 use std::collections::{HashMap, HashSet};
@@ -177,6 +178,19 @@ fn create_untracked_patch(file_path: &str, content: &str) -> String {
 
 fn has_merge_conflict_markers(content: &str) -> bool {
     content.contains("<<<<<<< ") && content.contains("\n=======") && content.contains("\n>>>>>>> ")
+}
+
+fn worktree_image(path: &Path) -> String {
+    format!("/api/file?path={}", url_encode(&path.to_string_lossy()))
+}
+
+fn blob_image(cwd: &str, revision: &str, path: &str) -> String {
+    format!(
+        "/api/git/image?cwd={}&rev={}&file={}",
+        url_encode(cwd),
+        url_encode(revision),
+        url_encode(path)
+    )
 }
 
 fn is_image_file(file_path: &str) -> bool {
@@ -438,6 +452,14 @@ fn patch_header_path(raw_patch: &str, prefix: &str) -> Option<String> {
     })
 }
 
+pub fn git_blob_bytes(cwd: &str, revision: &str, path: &str) -> Result<Vec<u8>, String> {
+    git_exec::run_git_bytes(
+        &["show", "--no-textconv", &format!("{revision}:{path}")],
+        cwd,
+        Duration::from_secs(5),
+    )
+}
+
 fn git_file_content(cwd: &str, revision: &str, path: &str) -> Option<String> {
     run_git_timed(
         &["show", &format!("{revision}:{path}")],
@@ -473,6 +495,19 @@ fn get_git_revision_hunk_diff(
     let new_path = patch_header_path(&raw_patch, "+++ ").unwrap_or_else(|| file_path.to_string());
     let is_new = raw_patch.lines().any(|line| line == "--- /dev/null");
     let is_deleted = raw_patch.lines().any(|line| line == "+++ /dev/null");
+    if is_image_file(file_path) {
+        return Some(GitHunkDiff {
+            is_binary: true,
+            is_new,
+            is_image: Some(true),
+            old_image: old_revision
+                .filter(|_| !is_new)
+                .map(|revision| blob_image(cwd, revision, &old_path)),
+            new_image: (!is_deleted).then(|| blob_image(cwd, new_revision, &new_path)),
+            raw_patch: Some(raw_patch),
+            ..Default::default()
+        });
+    }
     let old_content = old_revision
         .filter(|_| !is_new)
         .and_then(|revision| git_file_content(cwd, revision, &old_path))
@@ -560,11 +595,13 @@ pub fn get_git_worktree_comparison_hunk_diff(
         std::fs::read(&full_path).ok()?
     };
     if new_bytes.contains(&0) || is_image_file(file_path) {
+        let image = is_image_file(file_path);
         return Some(GitHunkDiff {
             is_binary: true,
             is_new: untracked,
-            is_image: Some(is_image_file(file_path)),
-            image_path: (!deleted).then(|| full_path.to_string_lossy().into_owned()),
+            is_image: Some(image),
+            old_image: (image && !untracked).then(|| blob_image(cwd, from_hash, file_path)),
+            new_image: (image && !deleted).then(|| worktree_image(&full_path)),
             raw_patch: Some(raw_patch),
             ..Default::default()
         });
@@ -637,14 +674,24 @@ pub fn get_git_hunk_diff(
     let Some(full_path) = full_path else {
         return too_large_diff("Access denied", false);
     };
-    let full_path_text = full_path.to_string_lossy().into_owned();
-
     if is_image_file(file_path) {
+        let added = raw_patch
+            .lines()
+            .any(|line| line.starts_with("new file mode"))
+            || (raw_patch.trim().is_empty() && is_untracked_git_file(cwd, file_path));
         return GitHunkDiff {
             is_binary: true,
-            is_new: true,
+            is_new: added,
             is_image: Some(true),
-            image_path: Some(full_path_text),
+            old_image: (!added)
+                .then(|| blob_image(cwd, if staged { "HEAD" } else { "INDEX" }, file_path)),
+            new_image: (!deleted_patch).then(|| {
+                if staged {
+                    blob_image(cwd, "INDEX", file_path)
+                } else {
+                    worktree_image(&full_path)
+                }
+            }),
             raw_patch: Some(raw_patch),
             ..Default::default()
         };
@@ -3335,5 +3382,83 @@ mod file_mode_tests {
                     .all(|line| line.line_type == GitDiffLineType::Spacer && line.number.is_none())
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod image_diff_tests {
+    use super::*;
+
+    const PIXEL: &[u8] = &[
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+        0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00,
+        0x01, 0x00, 0x00, 0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49,
+        0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+    ];
+
+    #[test]
+    fn modified_images_carry_both_sides_and_added_images_carry_only_the_new_one() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(temp.path()).unwrap();
+        let cwd = root.to_str().unwrap();
+        let git = |args: &[&str]| {
+            let output = Command::new("git")
+                .args(args)
+                .current_dir(&root)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{args:?}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        git(&["init", "-b", "main"]);
+        git(&["config", "user.email", "fixture@example.invalid"]);
+        git(&["config", "user.name", "Fixture"]);
+        git(&["config", "commit.gpgsign", "false"]);
+        let allowed = AllowedPaths::new(&root, &root, &root).unwrap();
+        let icon = root.join("icon.png");
+
+        std::fs::write(&icon, PIXEL).unwrap();
+        let untracked = get_git_hunk_diff(&allowed, cwd, "icon.png", false);
+        assert_eq!(untracked.is_image, Some(true));
+        assert!(untracked.is_new && untracked.old_image.is_none());
+        assert!(untracked.new_image.unwrap().starts_with("/api/file?path="));
+
+        git(&["add", "icon.png"]);
+        git(&["commit", "-m", "add icon"]);
+        let mut changed = PIXEL.to_vec();
+        changed.extend_from_slice(b"\x00trailer");
+        std::fs::write(&icon, &changed).unwrap();
+        let modified = get_git_hunk_diff(&allowed, cwd, "icon.png", false);
+        assert!(!modified.is_new);
+        assert!(modified.old_image.unwrap().contains("rev=INDEX"));
+        assert!(modified.new_image.unwrap().starts_with("/api/file?path="));
+
+        git(&["add", "icon.png"]);
+        let staged = get_git_hunk_diff(&allowed, cwd, "icon.png", true);
+        assert!(staged.old_image.unwrap().contains("rev=HEAD"));
+        assert!(staged.new_image.unwrap().contains("rev=INDEX"));
+        git(&["commit", "-m", "change icon"]);
+
+        let head = current_git_head(cwd).unwrap();
+        let parent = run_git(&["rev-parse", "HEAD~1"], cwd)
+            .unwrap()
+            .trim()
+            .to_owned();
+        let commit = get_git_commit_hunk_diff_for_parent(cwd, &head, None, "icon.png", false)
+            .expect("commit diff");
+        assert!(commit.is_binary && commit.is_image == Some(true));
+        assert!(commit.old_image.unwrap().contains(&format!("rev={parent}")));
+        assert!(commit.new_image.unwrap().contains(&format!("rev={head}")));
+
+        std::fs::remove_file(&icon).unwrap();
+        let deleted = get_git_hunk_diff(&allowed, cwd, "icon.png", false);
+        assert!(deleted.new_image.is_none());
+        assert!(deleted.old_image.unwrap().contains("rev=INDEX"));
+
+        assert_eq!(git_blob_bytes(cwd, &head, "icon.png").unwrap(), changed);
     }
 }

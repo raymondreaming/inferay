@@ -319,6 +319,7 @@ export const diffStyles = stylex.create({
 		flex: 1,
 		alignItems: "center",
 		justifyContent: "center",
+		gap: controlSize._4,
 		overflow: "auto",
 		padding: controlSize._4,
 	},
@@ -330,6 +331,18 @@ export const diffStyles = stylex.create({
 		borderStyle: "solid",
 		borderColor: color.border,
 		borderRadius: radius.sm,
+	},
+	imageSide: {
+		display: "flex",
+		flexDirection: "column",
+		alignItems: "center",
+		gap: controlSize._2,
+		minWidth: 0,
+		maxHeight: "100%",
+	},
+	imageLabel: {
+		color: color.textSoft,
+		fontSize: font.size_1,
 	},
 	markdownBody: {
 		flex: 1,

@@ -249,7 +249,7 @@ pub(crate) fn is_image_extension(path: &str) -> bool {
         .unwrap_or_else(|| path.to_lowercase());
     matches!(
         extension.as_str(),
-        ".png" | ".jpg" | ".jpeg" | ".gif" | ".webp" | ".bmp" | ".ico"
+        ".png" | ".jpg" | ".jpeg" | ".gif" | ".webp" | ".bmp" | ".ico" | ".svg"
     )
 }
 
@@ -266,6 +266,7 @@ pub(crate) fn image_content_type(path: &Path) -> &'static str {
         Some("webp") => "image/webp",
         Some("bmp") => "image/bmp",
         Some("ico") => "image/x-icon",
+        Some("svg") => "image/svg+xml",
         _ => "application/octet-stream",
     }
 }
