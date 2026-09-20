@@ -1017,6 +1017,7 @@ export function useRepositoryWorkbench(
 			});
 		return panels.map((panel) => ({
 			id: panel.id,
+			selected: session.focusedAuxiliaryPanel?.id === panel.id,
 			onSelect: () => updatePanelSession({ type: "focus", panel }),
 			render: (drag: DragProps) => renderAuxiliaryPanel(panel.id, drag),
 		}));

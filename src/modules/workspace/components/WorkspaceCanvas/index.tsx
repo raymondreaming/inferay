@@ -212,6 +212,7 @@ export type DragProps = {
 
 export type AuxiliaryPanel = {
 	readonly id: string;
+	readonly selected?: boolean;
 	readonly onSelect?: () => void;
 	readonly render: (drag: DragProps) => import("solid-js").Element;
 };
@@ -518,7 +519,9 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 		const selected =
 			(grid
 				? target.dataset.agentGridPaneId
-				: target.dataset.agentRowPaneId) === props.selectedPaneId;
+				: target.dataset.agentRowPaneId) ===
+			(auxiliaryPanels().find((panel) => panel.selected)?.id ??
+				props.selectedPaneId);
 		let inner: HTMLElement | null = null;
 		if (grid && selected) {
 			const isScroller = (element: HTMLElement) =>
