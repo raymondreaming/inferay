@@ -3,6 +3,8 @@ pub use prepared_diff::{
     PreparedEditDiff, SequentialEdit, prepare_conflict_lines, prepare_edit_diff,
 };
 mod git_exec;
+mod worktree_renames;
+use worktree_renames::WorktreeRenames;
 mod graph_semantics;
 mod path_access;
 #[cfg(test)]
@@ -123,43 +125,46 @@ fn is_untracked_git_file(cwd: &str, file_path: &str) -> bool {
     .is_some_and(|status| status.lines().any(|line| line.starts_with("?? ")))
 }
 
-fn get_raw_git_patch(cwd: &str, file_path: &str, staged: bool) -> String {
-    let mut args = vec!["diff", "--no-ext-diff", "--no-textconv"];
+fn get_raw_git_patch(cwd: &str, file_path: &str, staged: bool) -> (String, Option<String>) {
+    let mut args = vec![
+        "--literal-pathspecs",
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+    ];
     if staged {
         args.push("--cached");
     }
     args.extend(["--binary", "--find-renames", "--", file_path]);
     let patch = run_git_timed(&args, cwd, Duration::from_secs(5)).unwrap_or_default();
-    if !patch.lines().any(|line| line.starts_with("new file mode ")) {
-        return patch;
+    if !(patch.lines().any(|line| line.starts_with("new file mode "))
+        || patch.is_empty() && !staged && is_untracked_git_file(cwd, file_path))
+    {
+        return (patch, None);
     }
-    let Some(original_path) = renamed_from_path(cwd, file_path, staged) else {
-        return patch;
+    let original_path = git_status(cwd, false).and_then(|status| {
+        status
+            .files
+            .into_iter()
+            .find(|file| file.staged == staged && file.path == file_path)
+            .and_then(|file| file.original_path)
+    });
+    let Some(original) = original_path.as_deref() else {
+        return (patch, None);
     };
     args.pop();
-    args.extend([&original_path, file_path]);
-    let rename_patch = run_git_timed(&args, cwd, Duration::from_secs(5)).unwrap_or_default();
-    if rename_patch.trim().is_empty() {
-        patch
+    args.extend([original, file_path]);
+    let rename_patch = if !staged && is_untracked_git_file(cwd, file_path) {
+        WorktreeRenames::prepare(cwd, &[file_path]).and_then(|snapshot| snapshot.git(cwd, &args))
     } else {
+        run_git_timed(&args, cwd, Duration::from_secs(5))
+    };
+    (
         rename_patch
-    }
-}
-
-fn renamed_from_path(cwd: &str, file_path: &str, staged: bool) -> Option<String> {
-    let status = run_git_timed(
-        &["status", "--porcelain=v1", "--untracked-files=no"],
-        cwd,
-        Duration::from_secs(2),
-    )?;
-    status.lines().find_map(|line| {
-        let status = line.as_bytes().get(usize::from(!staged)).copied()?;
-        if status != b'R' && status != b'C' {
-            return None;
-        }
-        let (original, actual) = line.get(3..)?.split_once(" -> ")?;
-        (actual == file_path).then(|| original.to_string())
-    })
+            .filter(|patch| !patch.is_empty())
+            .unwrap_or(patch),
+        original_path,
+    )
 }
 
 fn create_untracked_patch(file_path: &str, content: &str) -> String {
@@ -662,7 +667,8 @@ pub fn get_git_hunk_diff(
     let Some(requested_path) = allowed_paths.resolve_allowed_child_path(cwd, file_path) else {
         return too_large_diff("Access denied", false);
     };
-    let raw_patch = get_raw_git_patch(cwd, file_path, staged);
+    let (raw_patch, original_path) = get_raw_git_patch(cwd, file_path, staged);
+    let old_path = original_path.as_deref().unwrap_or(file_path);
     let deleted_patch = raw_patch
         .lines()
         .any(|line| line.starts_with("deleted file mode") || line == "+++ /dev/null");
@@ -684,7 +690,7 @@ pub fn get_git_hunk_diff(
             is_new: added,
             is_image: Some(true),
             old_image: (!added)
-                .then(|| blob_image(cwd, if staged { "HEAD" } else { "INDEX" }, file_path)),
+                .then(|| blob_image(cwd, if staged { "HEAD" } else { "INDEX" }, old_path)),
             new_image: (!deleted_patch).then(|| {
                 if staged {
                     blob_image(cwd, "INDEX", file_path)
@@ -739,7 +745,7 @@ pub fn get_git_hunk_diff(
     let merge_conflict_content =
         has_merge_conflict_markers(&current_content).then(|| current_content.clone());
 
-    let old_result = git_file_content(cwd, if staged { "HEAD" } else { "" }, file_path);
+    let old_result = git_file_content(cwd, if staged { "HEAD" } else { "" }, old_path);
     // `git show :path` can return success with an empty result when an untracked
     // path contains pathspec metacharacters such as `[...path]`. Confirm the
     // ambiguous empty case with a literal status lookup instead of treating the
@@ -1979,11 +1985,10 @@ pub fn get_git_worktree_comparison_details(
     let mut files = git_change_files(cwd, Some(&from_hash), None);
     let mut seen: HashSet<String> = files.iter().map(|file| file.path.clone()).collect();
     if let Some(status) = get_git_status(cwd) {
-        for entry in status
-            .files
-            .into_iter()
-            .filter(|entry| entry.status == "?" && seen.insert(entry.path.clone()))
-        {
+        for entry in status.files.into_iter().filter(|entry| {
+            (entry.status == "?" || (!entry.staged && entry.status == "R"))
+                && seen.insert(entry.path.clone())
+        }) {
             let bytes = allowed_paths
                 .resolve_allowed_child_path(cwd, &entry.path)
                 .and_then(|path| resolve_real_allowed_local_path(allowed_paths, path))
@@ -2018,14 +2023,40 @@ pub fn get_git_worktree_comparison_details(
 
 pub fn stage_git(cwd: &str, file_path: Option<&str>) -> bool {
     match file_path {
-        Some(file_path) => run_git(&["add", "--", file_path], cwd).is_some(),
+        Some(file_path) => {
+            let Some(status) = git_status(cwd, false) else {
+                return false;
+            };
+            let original = status
+                .files
+                .iter()
+                .find(|file| !file.staged && file.path == file_path)
+                .and_then(|file| file.original_path.as_deref());
+            let mut args = vec!["--literal-pathspecs", "add", "--"];
+            args.extend(original);
+            args.push(file_path);
+            run_git(&args, cwd).is_some()
+        }
         None => run_git(&["add", "-A"], cwd).is_some(),
     }
 }
 
 pub fn unstage_git(cwd: &str, file_path: Option<&str>) -> bool {
     match file_path {
-        Some(file_path) => run_git(&["reset", "HEAD", "--", file_path], cwd).is_some(),
+        Some(file_path) => {
+            let Some(status) = git_status(cwd, false) else {
+                return false;
+            };
+            let original = status
+                .files
+                .iter()
+                .find(|file| file.staged && file.path == file_path)
+                .and_then(|file| file.original_path.as_deref());
+            let mut args = vec!["--literal-pathspecs", "reset", "HEAD", "--"];
+            args.extend(original);
+            args.push(file_path);
+            run_git(&args, cwd).is_some()
+        }
         None => run_git(&["reset", "HEAD"], cwd).is_some(),
     }
 }
@@ -2077,7 +2108,14 @@ pub fn get_git_status(cwd: &str) -> Option<GitStatusResult> {
 
 fn git_status(cwd: &str, include_stats: bool) -> Option<GitStatusResult> {
     let raw = run_git(
-        &["status", "--porcelain=v1", "-b", "--untracked-files=all"],
+        &[
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "-b",
+            "--find-renames",
+            "--untracked-files=all",
+        ],
         cwd,
     )?;
 
@@ -2087,7 +2125,8 @@ fn git_status(cwd: &str, include_stats: bool) -> Option<GitStatusResult> {
     let mut behind = 0usize;
     let mut files: Vec<GitFileEntry> = Vec::new();
 
-    for line in raw.lines().filter(|line| !line.is_empty()) {
+    let mut records = raw.split('\0').filter(|record| !record.is_empty());
+    while let Some(line) = records.next() {
         if let Some(branch_line) = line.strip_prefix("## ") {
             if let Some(dotdot) = branch_line.find("...") {
                 branch = branch_line[..dotdot].to_string();
@@ -2124,12 +2163,12 @@ fn git_status(cwd: &str, include_stats: bool) -> Option<GitStatusResult> {
 
         let x = line.chars().next().unwrap_or(' ');
         let y = line.chars().nth(1).unwrap_or(' ');
-        let file_path = line.get(3..).unwrap_or("").to_string();
-        let arrow_idx = file_path.find(" -> ");
-        let actual_path = arrow_idx
-            .map(|idx| file_path[idx + 4..].to_string())
-            .unwrap_or_else(|| file_path.clone());
-        let original_path = arrow_idx.map(|idx| file_path[..idx].to_string());
+        let actual_path = line.get(3..).unwrap_or("").to_string();
+        let original_path = if matches!(x, 'R' | 'C') || matches!(y, 'R' | 'C') {
+            Some(records.next()?.to_owned())
+        } else {
+            None
+        };
 
         for (status, staged) in [(x, true), (y, false)] {
             if status == ' ' || (status == '?' && (staged || x != '?')) {
@@ -2139,7 +2178,7 @@ fn git_status(cwd: &str, include_stats: bool) -> Option<GitStatusResult> {
                 status: status.to_string(),
                 staged,
                 path: actual_path.clone(),
-                original_path: if status == '?' {
+                original_path: if !matches!(status, 'R' | 'C') {
                     None
                 } else {
                     original_path.clone()
@@ -2147,6 +2186,32 @@ fn git_status(cwd: &str, include_stats: bool) -> Option<GitStatusResult> {
                 additions: None,
                 deletions: None,
             });
+        }
+    }
+
+    if let Some(renames) = WorktreeRenames::read(cwd, &files) {
+        let stats = if include_stats {
+            parse_worktree_numstat(
+                &renames
+                    .git(cwd, &["diff", "--find-renames", "--numstat", "-z"])
+                    .unwrap_or_default(),
+            )
+        } else {
+            HashMap::new()
+        };
+        for (old, new) in renames.pairs {
+            files.retain(|file| file.staged || file.status != "D" || file.path != old);
+            if let Some(file) = files
+                .iter_mut()
+                .find(|file| file.status == "?" && file.path == new)
+            {
+                file.status = "R".to_owned();
+                file.original_path = Some(old);
+                if let Some((added, removed)) = stats.get(&new) {
+                    file.additions = Some(*added);
+                    file.deletions = Some(*removed);
+                }
+            }
         }
     }
 
@@ -2204,15 +2269,41 @@ fn get_working_tree_numstat(
 
 fn get_numstat_entries(cwd: &str, staged: bool) -> HashMap<String, (usize, usize)> {
     let args = if staged {
-        ["diff", "--cached", "--numstat"].as_slice()
+        ["diff", "--cached", "--find-renames", "--numstat", "-z"].as_slice()
     } else {
-        ["diff", "--numstat"].as_slice()
+        ["diff", "--find-renames", "--numstat", "-z"].as_slice()
     };
     let prefix = if staged { "staged" } else { "unstaged" };
-    parse_numstat(&run_git(args, cwd).unwrap_or_default())
+    parse_worktree_numstat(&run_git(args, cwd).unwrap_or_default())
         .into_iter()
         .map(|(path, counts)| (format!("{prefix}:{path}"), counts))
         .collect()
+}
+
+fn parse_worktree_numstat(output: &str) -> HashMap<String, (usize, usize)> {
+    let mut stats = HashMap::new();
+    let mut records = output.split('\0');
+    while let Some(record) = records.next().filter(|record| !record.is_empty()) {
+        let mut fields = record.splitn(3, '\t');
+        let (Some(added), Some(removed), Some(path)) =
+            (fields.next(), fields.next(), fields.next())
+        else {
+            break;
+        };
+        let path = if path.is_empty() {
+            let (Some(_old), Some(new)) = (records.next(), records.next()) else {
+                break;
+            };
+            new
+        } else {
+            path
+        };
+        stats.insert(
+            path.to_owned(),
+            (added.parse().unwrap_or(0), removed.parse().unwrap_or(0)),
+        );
+    }
+    stats
 }
 
 fn parse_numstat(output: &str) -> HashMap<String, (usize, usize)> {

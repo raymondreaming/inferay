@@ -81,13 +81,26 @@ pub(crate) fn run_git_bytes(
     cwd: &str,
     timeout: Duration,
 ) -> Result<Vec<u8>, String> {
+    run_git_bytes_with_index(args, cwd, timeout, None)
+}
+
+pub(crate) fn run_git_bytes_with_index(
+    args: &[&str],
+    cwd: &str,
+    timeout: Duration,
+    index: Option<&std::path::Path>,
+) -> Result<Vec<u8>, String> {
     let timeout = remaining_git_time(timeout);
     let command = format!("git {}", args.first().copied().unwrap_or("command"));
     let failure = |kind, detail: &str| git_failure(&command, kind, detail);
     if timeout.is_zero() {
         return Err(failure("timed out", "request deadline exceeded"));
     }
-    let mut child = Command::new("git")
+    let mut command_builder = Command::new("git");
+    if let Some(index) = index {
+        command_builder.env("GIT_INDEX_FILE", index);
+    }
+    let mut child = command_builder
         .args(args)
         .current_dir(cwd)
         .stdout(Stdio::piped())
