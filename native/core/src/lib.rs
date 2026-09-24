@@ -2,6 +2,7 @@ pub mod agent_context;
 pub mod agent_kind;
 pub mod agent_protocol;
 pub mod agent_state;
+pub mod agents;
 pub mod chat_protocol;
 pub mod config;
 pub mod mcp_presentation;

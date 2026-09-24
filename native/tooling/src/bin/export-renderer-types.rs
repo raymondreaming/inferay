@@ -57,6 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         inferay_core::chat_protocol::NativeChatRender,
         inferay_core::chat_protocol::ChatTranscriptUpdate<'static>,
         inferay_core::chat_protocol::GoalCard,
+        inferay_core::chat_protocol::SubagentCard,
         inferay_core::chat_protocol::CommandCard,
         inferay_presentation::git_actions::GitActionResponse,
         inferay_presentation::git_actions::GraphActionPresentation,

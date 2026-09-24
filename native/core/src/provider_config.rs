@@ -345,6 +345,7 @@ fn catalog() -> &'static AgentCatalog {
             icon_key: AgentIconKey::Anthropic,
             commands: vec![],
             native_slash_commands: commands(&[
+                ("agents", "Enable, disable, status, or cancel Inferay subagents"),
                 ("btw", "Ask a side question without adding to conversation"),
                 ("bug", "Report bugs or issues"),
                 ("compact", "Compact conversation history"),
@@ -381,10 +382,16 @@ fn catalog() -> &'static AgentCatalog {
             label: "Codex".into(),
             icon_key: AgentIconKey::Openai,
             commands: vec![],
-            native_slash_commands: commands(&[(
-                "goal",
-                "Start, pause, resume, clear, or inspect a Codex objective",
-            )]),
+            native_slash_commands: commands(&[
+                (
+                    "agents",
+                    "Enable, disable, status, or cancel Inferay subagents",
+                ),
+                (
+                    "goal",
+                    "Start, pause, resume, clear, or inspect a Codex objective",
+                ),
+            ]),
             models: with_max_reasoning(
                 models(&[
                     (

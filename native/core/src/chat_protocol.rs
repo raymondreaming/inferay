@@ -88,6 +88,9 @@ pub struct NativeChatRender {
     pub goal: Option<GoalCard>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
+    pub subagent: Option<SubagentCard>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub skill_proposal: Option<SkillProposal>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -938,6 +941,29 @@ pub struct GoalCard {
     detail: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "lowercase")]
+pub enum SubagentCardStatus {
+    On,
+    Off,
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+    Status,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct SubagentCard {
+    status: SubagentCardStatus,
+    title: String,
+    profile: Option<String>,
+    worker_id: Option<String>,
+    detail: Option<String>,
+    active_label: Option<String>,
+}
+
 fn prepare_system_card(value: &Value, render: &mut NativeChatRender) {
     match value["type"].as_str() {
         Some("inferay.command")
@@ -972,6 +998,31 @@ fn prepare_system_card(value: &Value, render: &mut NativeChatRender) {
                 turns_label: value["turns"]
                     .as_f64()
                     .map(|turns| format!("{turns} turn{}", if turns == 1. { "" } else { "s" })),
+            });
+        }
+        Some("inferay.subagent") => {
+            let Ok(status) = serde_json::from_value::<SubagentCardStatus>(value["status"].clone())
+            else {
+                return;
+            };
+            let title = match status {
+                SubagentCardStatus::On => "Subagents Enabled",
+                SubagentCardStatus::Off => "Subagents Disabled",
+                SubagentCardStatus::Running => "Subagent Running",
+                SubagentCardStatus::Completed => "Subagent Completed",
+                SubagentCardStatus::Failed => "Subagent Failed",
+                SubagentCardStatus::Cancelled => "Subagent Cancelled",
+                SubagentCardStatus::Status => "Subagents",
+            };
+            render.subagent = Some(SubagentCard {
+                status,
+                title: title.into(),
+                profile: value["profile"].as_str().map(str::to_owned),
+                worker_id: value["id"].as_str().map(str::to_owned),
+                detail: value["detail"].as_str().map(str::to_owned),
+                active_label: value["active"].as_u64().map(|count| {
+                    format!("{count} active worker{}", if count == 1 { "" } else { "s" })
+                }),
             });
         }
         _ => {}

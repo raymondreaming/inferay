@@ -56,6 +56,7 @@ mod agent_account;
 mod agent_command;
 mod agent_protocol;
 mod agent_runner;
+mod agents_runtime;
 mod atomic_write;
 pub mod chat_persistence;
 mod chat_runtime;
@@ -284,7 +285,7 @@ fn run_server(
             .local_addr()
             .map_err(|error| format!("failed to read Rust server address: {error}"))?;
         let (connection_reset, _) = broadcast::channel(8);
-        let app = build_router_with_connection_reset(config, connection_reset.clone());
+        let app = build_router_with_connection_reset(config, connection_reset.clone(), local_addr);
         let _ = ready.send(Ok(local_addr));
 
         axum::serve(listener, app)
@@ -300,6 +301,7 @@ fn run_server(
 fn build_router_with_connection_reset(
     config: ServerConfig,
     connection_reset: broadcast::Sender<()>,
+    local_addr: SocketAddr,
 ) -> Router {
     let dist_dir = if config.app_root.join("dist").is_dir() {
         config.app_root.join("dist")
@@ -352,6 +354,11 @@ fn build_router_with_connection_reset(
         prompt_store.clone(),
         agent_state_store.clone(),
         agent_command_resolver.clone(),
+    );
+    chat_runtime.agents.configure_bridge(
+        format!("http://{local_addr}"),
+        config.auth_token.clone(),
+        agents_runtime::resolve_mcp_command(&config.app_root),
     );
     let state = ServerState {
         dist_dir,
@@ -629,7 +636,65 @@ async fn dynamic_json_route(state: &ServerState, path: &str, request: Request) -
             _ => Err(api_error(StatusCode::NOT_FOUND, "Not found")),
         };
     }
+    if let Some((pane_id, rest)) = agents_route(path) {
+        return agents_http(state, request, &pane_id, rest).await;
+    }
     Err(api_error(StatusCode::NOT_FOUND, "Not found"))
+}
+
+fn agents_route(path: &str) -> Option<(String, &str)> {
+    let rest = path.strip_prefix("/api/agents/")?;
+    let (pane, rest) = rest.split_once('/')?;
+    let pane = percent_decode_str(pane).decode_utf8().ok()?.into_owned();
+    Some((pane, rest))
+}
+
+async fn agents_http(
+    state: &ServerState,
+    request: Request,
+    pane_id: &str,
+    rest: &str,
+) -> ApiResult {
+    match (rest, request.method().as_str()) {
+        ("status", "GET") => Ok(state.chat_runtime.agents.snapshot_event(pane_id).await),
+        ("cancel", "POST") => {
+            let body: Value = api_body(request).await.unwrap_or(json!({}));
+            let id = body["id"].as_str().unwrap_or("all");
+            if id.eq_ignore_ascii_case("all") {
+                Ok(state.chat_runtime.agents.cancel_all_running(pane_id).await)
+            } else {
+                state
+                    .chat_runtime
+                    .agents
+                    .cancel_one(pane_id, id)
+                    .await
+                    .map_err(|error| api_error(StatusCode::BAD_REQUEST, error))
+            }
+        }
+        (tool, "POST") if tool.starts_with("tools/") => {
+            let tool = tool.strip_prefix("tools/").unwrap_or(tool);
+            let body: Value = api_body(request).await?;
+            let args = body.get("arguments").cloned().unwrap_or(json!({}));
+            let session = state
+                .chat_runtime
+                .agents_parent_context(pane_id)
+                .await
+                .ok_or_else(|| {
+                    api_error(
+                        StatusCode::BAD_REQUEST,
+                        "No active chat session for this pane",
+                    )
+                })?;
+            let (result, _card) = state
+                .chat_runtime
+                .agents
+                .call_tool(pane_id, tool, &args, session)
+                .await
+                .map_err(|error| api_error(StatusCode::BAD_REQUEST, error))?;
+            Ok(json!({ "result": result }))
+        }
+        _ => Err(api_error(StatusCode::NOT_FOUND, "Not found")),
+    }
 }
 
 fn route_parameter(path: &str, prefix: &str) -> Option<String> {

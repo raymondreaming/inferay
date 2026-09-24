@@ -189,6 +189,7 @@ pub struct ChatRuntime {
     pid_tracker: RuntimePidTracker,
     agent_context: Arc<Mutex<AgentContextStore>>,
     prompts: Arc<Mutex<PromptStore>>,
+    pub agents: crate::agents_runtime::AgentsRuntime,
 }
 
 impl ChatRuntime {
@@ -201,7 +202,12 @@ impl ChatRuntime {
         workspaces: Arc<std::sync::Mutex<AgentStateStore>>,
         resolver: Arc<AgentCommandResolver>,
     ) -> Self {
-        Self {
+        let agents = crate::agents_runtime::AgentsRuntime::new(
+            resolver.clone(),
+            prompts.clone(),
+            pid_tracker.clone(),
+        );
+        let runtime = Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             queue_publication: Arc::new(Mutex::new(())),
             persistence,
@@ -211,7 +217,40 @@ impl ChatRuntime {
             prompts,
             workspaces,
             resolver,
-        }
+            agents,
+        };
+        runtime.spawn_agents_event_loop();
+        runtime
+    }
+
+    fn spawn_agents_event_loop(&self) {
+        let runtime = self.clone();
+        let mut events = self.agents.subscribe();
+        tokio::spawn(async move {
+            while let Ok(event) = events.recv().await {
+                if let Some(session) = runtime.session(&event.pane_id).await {
+                    if let Some(card) = event.card {
+                        runtime.emit_system(&session, &card.to_string()).await;
+                    }
+                    runtime.emit(&session, event.status).await;
+                }
+            }
+        });
+    }
+
+    pub async fn agents_parent_context(
+        &self,
+        pane_id: &str,
+    ) -> Option<crate::agents_runtime::ParentWorkerContext> {
+        let session = self.session(pane_id).await?;
+        let state = session.lock().await;
+        Some(crate::agents_runtime::ParentWorkerContext {
+            agent_kind: state.agent_kind.clone(),
+            model: state.model.clone(),
+            reasoning_level: state.reasoning_level.clone(),
+            cwd: state.cwd.clone(),
+            reference_paths: state.reference_paths.clone(),
+        })
     }
 
     /// Publication owns the read as well as the send: delayed publishers cannot replay an older snapshot.
@@ -481,7 +520,13 @@ impl ChatRuntime {
                 .await;
             }
 
-            let prompt = if input.agent_kind == "codex"
+            let prompt = if let Some(command) =
+                crate::agents_runtime::parse_agents_command(&input.text)
+            {
+                self.handle_agents_command(&session, &input.pane_id, command)
+                    .await;
+                None
+            } else if input.agent_kind == "codex"
                 && let Some(command) = parse_goal_command(&input.text)
             {
                 self.handle_goal_command(&session, command).await
@@ -549,6 +594,7 @@ impl ChatRuntime {
             // a second stop still reaches a turn the first one failed to end.
             (state.agent_kind.clone(), state.current_handle.clone())
         };
+        let _ = self.agents.cancel_all_running(pane_id).await;
         if let Some(handle) = handle {
             if agent_kind == "codex" {
                 if !handle.stop_codex() {
@@ -1090,19 +1136,27 @@ impl ChatRuntime {
         checkpoint_id: Option<&str>,
         turn_instructions: Option<&str>,
     ) -> String {
+        let pane_id = session.lock().await.pane_id.clone();
+        let agents_enabled = self.agents.is_enabled(&pane_id).await;
         let (agent_kind, invocation, handle) = {
             let mut state = session.lock().await;
             let handle = AgentProcessHandle::with_skills(self.prompts.clone());
             state.current_handle = Some(handle.clone());
-            let developer_instructions = [
-                (state.agent_kind == "codex").then_some(CODEX_WORKFLOW_INSTRUCTIONS),
-                turn_instructions,
-            ]
-            .into_iter()
-            .flatten()
-            .filter(|instructions| !instructions.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n\n");
+            let mut developer_parts = Vec::new();
+            if state.agent_kind == "codex" {
+                developer_parts.push(CODEX_WORKFLOW_INSTRUCTIONS.to_owned());
+            }
+            if let Some(instructions) = turn_instructions.filter(|value| !value.is_empty()) {
+                developer_parts.push(instructions.to_owned());
+            }
+            if agents_enabled {
+                developer_parts.push(inferay_core::agents::PARENT_INSTRUCTIONS.to_owned());
+            }
+            let developer_instructions = developer_parts
+                .into_iter()
+                .filter(|instructions| !instructions.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n\n");
             (
                 state.agent_kind.clone(),
                 CodexInvocationContext {
@@ -1118,6 +1172,24 @@ impl ChatRuntime {
                 },
                 handle,
             )
+        };
+        let agents_bridge = agents_enabled.then(|| {
+            crate::agents_runtime::AgentsToolBridge {
+                runtime: self.agents.clone(),
+                pane_id: pane_id.clone(),
+                parent: crate::agents_runtime::ParentWorkerContext {
+                    agent_kind: agent_kind.clone(),
+                    model: invocation.model.clone(),
+                    reasoning_level: invocation.reasoning_level.clone(),
+                    cwd: invocation.cwd.clone(),
+                    reference_paths: invocation.reference_paths.clone(),
+                },
+            }
+        });
+        let agents_mcp = if agents_enabled {
+            self.agents.claude_mcp_server_entry(&pane_id).await
+        } else {
+            None
         };
         let executed = crate::agent_runner::drive_protocol(
             |emission_tx| async move {
@@ -1138,6 +1210,8 @@ impl ChatRuntime {
                             prompt: &prompt,
                             invocation: &invocation,
                             env: &environment,
+                            agents_tools: agents_enabled,
+                            agents_bridge: agents_bridge.as_ref(),
                         },
                         &handle,
                         &self.pid_tracker,
@@ -1157,6 +1231,7 @@ impl ChatRuntime {
                             session_id: invocation.session_id.as_deref(),
                             env: &environment,
                             mcp_servers: invocation.mcp_servers.as_deref(),
+                            agents_mcp: agents_mcp.as_ref(),
                         },
                         &handle,
                         &mut protocol,
@@ -1171,6 +1246,44 @@ impl ChatRuntime {
         session.lock().await.current_handle = None;
         self.flush_pending_steers(session).await;
         executed
+    }
+
+    async fn handle_agents_command(
+        &self,
+        session: &Arc<Mutex<ChatSession>>,
+        pane_id: &str,
+        command: crate::agents_runtime::AgentsCommand,
+    ) {
+        match command {
+            crate::agents_runtime::AgentsCommand::On => {
+                let _ = self.agents.set_enabled(pane_id, true).await;
+            }
+            crate::agents_runtime::AgentsCommand::Off => {
+                let _ = self.agents.set_enabled(pane_id, false).await;
+            }
+            crate::agents_runtime::AgentsCommand::Status => {
+                let card = self.agents.status_card(pane_id).await;
+                self.emit_system(session, &card.to_string()).await;
+                self.emit(session, self.agents.snapshot_event(pane_id).await)
+                    .await;
+            }
+            crate::agents_runtime::AgentsCommand::Cancel(target) => {
+                if target.eq_ignore_ascii_case("all") {
+                    let _ = self.agents.cancel_all_running(pane_id).await;
+                } else if let Err(error) = self.agents.cancel_one(pane_id, &target).await {
+                    self.emit_system(
+                        session,
+                        &json!({
+                            "type": "inferay.subagent",
+                            "status": "failed",
+                            "detail": error
+                        })
+                        .to_string(),
+                    )
+                    .await;
+                }
+            }
+        }
     }
 
     async fn apply_emission(
