@@ -138,7 +138,10 @@ enum GoalStatus {
 struct ChatSession {
     pane_id: String,
     agent_kind: String,
+    /// User-facing model selection (may be `adaptive`).
     model: Option<String>,
+    /// Concrete provider model for the active provider session.
+    provider_model: Option<String>,
     reasoning_level: Option<String>,
     /// MCP servers this pane needs, by name. `None` keeps every configured
     /// server; narrowing it skips reconnecting the rest on each spawn, which
@@ -162,13 +165,19 @@ struct ChatSession {
 }
 
 impl ChatSession {
-    fn requires_new_session(&self, input: &SendMessageInput) -> bool {
+    fn requires_new_session(&self, input: &SendMessageInput, turn_model: Option<&str>) -> bool {
+        let previous_model = self
+            .provider_model
+            .as_deref()
+            .or(self.model.as_deref().filter(|model| {
+                !inferay_core::adaptive::is_adaptive(Some(model))
+            }));
         inferay_core::provider_config::requires_new_session(
             &self.agent_kind,
-            self.model.as_deref(),
+            previous_model,
             self.reasoning_level.as_deref(),
             &input.agent_kind,
-            input.model.as_deref(),
+            turn_model.or(input.model.as_deref()),
             if input.reasoning_level_provided {
                 input.reasoning_level.as_deref()
             } else {
@@ -189,6 +198,7 @@ pub struct ChatRuntime {
     pid_tracker: RuntimePidTracker,
     agent_context: Arc<Mutex<AgentContextStore>>,
     prompts: Arc<Mutex<PromptStore>>,
+    pub agents: crate::agents_runtime::AgentsRuntime,
 }
 
 impl ChatRuntime {
@@ -201,7 +211,12 @@ impl ChatRuntime {
         workspaces: Arc<std::sync::Mutex<AgentStateStore>>,
         resolver: Arc<AgentCommandResolver>,
     ) -> Self {
-        Self {
+        let agents = crate::agents_runtime::AgentsRuntime::new(
+            resolver.clone(),
+            prompts.clone(),
+            pid_tracker.clone(),
+        );
+        let runtime = Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             queue_publication: Arc::new(Mutex::new(())),
             persistence,
@@ -211,7 +226,40 @@ impl ChatRuntime {
             prompts,
             workspaces,
             resolver,
-        }
+            agents,
+        };
+        runtime.spawn_agents_event_loop();
+        runtime
+    }
+
+    fn spawn_agents_event_loop(&self) {
+        let runtime = self.clone();
+        let mut events = self.agents.subscribe();
+        tokio::spawn(async move {
+            while let Ok(event) = events.recv().await {
+                if let Some(session) = runtime.session(&event.pane_id).await {
+                    if let Some(card) = event.card {
+                        runtime.emit_system(&session, &card.to_string()).await;
+                    }
+                    runtime.emit(&session, event.status).await;
+                }
+            }
+        });
+    }
+
+    pub async fn agents_parent_context(
+        &self,
+        pane_id: &str,
+    ) -> Option<crate::agents_runtime::ParentWorkerContext> {
+        let session = self.session(pane_id).await?;
+        let state = session.lock().await;
+        Some(crate::agents_runtime::ParentWorkerContext {
+            agent_kind: state.agent_kind.clone(),
+            model: state.model.clone(),
+            reasoning_level: state.reasoning_level.clone(),
+            cwd: state.cwd.clone(),
+            reference_paths: state.reference_paths.clone(),
+        })
     }
 
     /// Publication owns the read as well as the send: delayed publishers cannot replay an older snapshot.
@@ -251,6 +299,24 @@ impl ChatRuntime {
                     (input.agent_kind == "codex").then_some(resolved.reasoning_level);
             }
             let session = self.ensure_session(&input).await;
+            let (turn_model, turn_reasoning, adaptive_route) = {
+                let state = session.lock().await;
+                if inferay_core::adaptive::is_adaptive(input.model.as_deref()) {
+                    let route = inferay_core::adaptive::route(
+                        &input.agent_kind,
+                        &input.text,
+                        !input.images.is_empty(),
+                        state.provider_model.as_deref(),
+                    );
+                    (
+                        Some(route.model.clone()),
+                        route.reasoning_level.clone(),
+                        Some(route),
+                    )
+                } else {
+                    (input.model.clone(), input.reasoning_level.clone(), None)
+                }
+            };
             if input.expand_commands {
                 let expanded = self.prompts.lock().await.expand_chat_command_chain(
                     &input.text,
@@ -297,7 +363,7 @@ impl ChatRuntime {
                     (state.turn_active
                         && state.agent_kind == "codex"
                         && input.agent_kind == "codex"
-                        && !state.requires_new_session(&input))
+                        && !state.requires_new_session(&input, turn_model.as_deref()))
                     .then(|| state.current_handle.clone())
                     .flatten()
                 };
@@ -344,13 +410,18 @@ impl ChatRuntime {
             }
             let system_prefix = {
                 let mut state = session.lock().await;
-                let changed = state.requires_new_session(&input);
+                let changed = state.requires_new_session(&input, turn_model.as_deref());
                 if changed {
                     state.session_id = None;
                 }
                 state.agent_kind = input.agent_kind.clone();
+                // Keep Adaptive as the user selection; provider_model is what the
+                // child process actually runs so session continuity is concrete.
                 state.model.clone_from(&input.model);
-                if input.reasoning_level_provided {
+                state.provider_model.clone_from(&turn_model);
+                if let Some(level) = turn_reasoning.as_ref() {
+                    state.reasoning_level = Some(level.clone());
+                } else if input.reasoning_level_provided {
                     state.reasoning_level.clone_from(&input.reasoning_level);
                 }
                 if input.cwd_provided {
@@ -481,7 +552,13 @@ impl ChatRuntime {
                 .await;
             }
 
-            let prompt = if input.agent_kind == "codex"
+            let prompt = if let Some(command) =
+                crate::agents_runtime::parse_agents_command(&input.text)
+            {
+                self.handle_agents_command(&session, &input.pane_id, command)
+                    .await;
+                None
+            } else if input.agent_kind == "codex"
                 && let Some(command) = parse_goal_command(&input.text)
             {
                 self.handle_goal_command(&session, command).await
@@ -506,6 +583,29 @@ impl ChatRuntime {
                     json!({"type":"checkpoint:created", "paneId":input.pane_id, "checkpointId":id}),
                 )
                 .await;
+                }
+                if let Some(route) = adaptive_route.as_ref() {
+                    let tier = match route.tier {
+                        inferay_core::adaptive::AdaptiveTier::Fast => "fast",
+                        inferay_core::adaptive::AdaptiveTier::Standard => "standard",
+                        inferay_core::adaptive::AdaptiveTier::Frontier => "frontier",
+                    };
+                    self.emit_system(
+                        &session,
+                        &json!({
+                            "type": "inferay.adaptive",
+                            "model": route.model,
+                            "tier": tier,
+                            "sticky": route.sticky,
+                            "detail": if route.sticky {
+                                format!("Staying on {} for continuity", route.model)
+                            } else {
+                                format!("Routed this turn to {} ({tier})", route.model)
+                            }
+                        })
+                        .to_string(),
+                    )
+                    .await;
                 }
 
                 self.run_goal_loop(
@@ -549,6 +649,7 @@ impl ChatRuntime {
             // a second stop still reaches a turn the first one failed to end.
             (state.agent_kind.clone(), state.current_handle.clone())
         };
+        let _ = self.agents.cancel_all_running(pane_id).await;
         if let Some(handle) = handle {
             if agent_kind == "codex" {
                 if !handle.stop_codex() {
@@ -946,6 +1047,16 @@ impl ChatRuntime {
                 .as_ref()
                 .and_then(|r| r.model.clone())
                 .or_else(|| input.model.clone()),
+            provider_model: saved_reference
+                .as_ref()
+                .and_then(|r| r.model.clone())
+                .filter(|model| !inferay_core::adaptive::is_adaptive(Some(model)))
+                .or_else(|| {
+                    input
+                        .model
+                        .clone()
+                        .filter(|model| !inferay_core::adaptive::is_adaptive(Some(model)))
+                }),
             reasoning_level: saved_reference
                 .as_ref()
                 .and_then(|r| r.reasoning_level.clone())
@@ -1090,26 +1201,38 @@ impl ChatRuntime {
         checkpoint_id: Option<&str>,
         turn_instructions: Option<&str>,
     ) -> String {
+        let pane_id = session.lock().await.pane_id.clone();
+        let agents_enabled = self.agents.is_enabled(&pane_id).await;
         let (agent_kind, invocation, handle) = {
             let mut state = session.lock().await;
             let handle = AgentProcessHandle::with_skills(self.prompts.clone());
             state.current_handle = Some(handle.clone());
-            let developer_instructions = [
-                (state.agent_kind == "codex").then_some(CODEX_WORKFLOW_INSTRUCTIONS),
-                turn_instructions,
-            ]
-            .into_iter()
-            .flatten()
-            .filter(|instructions| !instructions.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n\n");
+            let mut developer_parts = Vec::new();
+            if state.agent_kind == "codex" {
+                developer_parts.push(CODEX_WORKFLOW_INSTRUCTIONS.to_owned());
+            }
+            if let Some(instructions) = turn_instructions.filter(|value| !value.is_empty()) {
+                developer_parts.push(instructions.to_owned());
+            }
+            if agents_enabled {
+                developer_parts.push(inferay_core::agents::PARENT_INSTRUCTIONS.to_owned());
+            }
+            let developer_instructions = developer_parts
+                .into_iter()
+                .filter(|instructions| !instructions.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n\n");
             (
                 state.agent_kind.clone(),
                 CodexInvocationContext {
                     cwd: state.cwd.clone(),
                     reference_paths: state.reference_paths.clone(),
                     images,
-                    model: state.model.clone(),
+                    model: state
+                        .provider_model
+                        .clone()
+                        .or_else(|| state.model.clone())
+                        .filter(|model| !inferay_core::adaptive::is_adaptive(Some(model))),
                     reasoning_level: state.reasoning_level.clone(),
                     developer_instructions: (!developer_instructions.is_empty())
                         .then_some(developer_instructions),
@@ -1118,6 +1241,24 @@ impl ChatRuntime {
                 },
                 handle,
             )
+        };
+        let agents_bridge = agents_enabled.then(|| {
+            crate::agents_runtime::AgentsToolBridge {
+                runtime: self.agents.clone(),
+                pane_id: pane_id.clone(),
+                parent: crate::agents_runtime::ParentWorkerContext {
+                    agent_kind: agent_kind.clone(),
+                    model: invocation.model.clone(),
+                    reasoning_level: invocation.reasoning_level.clone(),
+                    cwd: invocation.cwd.clone(),
+                    reference_paths: invocation.reference_paths.clone(),
+                },
+            }
+        });
+        let agents_mcp = if agents_enabled {
+            self.agents.claude_mcp_server_entry(&pane_id).await
+        } else {
+            None
         };
         let executed = crate::agent_runner::drive_protocol(
             |emission_tx| async move {
@@ -1138,6 +1279,8 @@ impl ChatRuntime {
                             prompt: &prompt,
                             invocation: &invocation,
                             env: &environment,
+                            agents_tools: agents_enabled,
+                            agents_bridge: agents_bridge.as_ref(),
                         },
                         &handle,
                         &self.pid_tracker,
@@ -1157,6 +1300,7 @@ impl ChatRuntime {
                             session_id: invocation.session_id.as_deref(),
                             env: &environment,
                             mcp_servers: invocation.mcp_servers.as_deref(),
+                            agents_mcp: agents_mcp.as_ref(),
                         },
                         &handle,
                         &mut protocol,
@@ -1171,6 +1315,57 @@ impl ChatRuntime {
         session.lock().await.current_handle = None;
         self.flush_pending_steers(session).await;
         executed
+    }
+
+    async fn handle_agents_command(
+        &self,
+        session: &Arc<Mutex<ChatSession>>,
+        pane_id: &str,
+        command: crate::agents_runtime::AgentsCommand,
+    ) {
+        match command {
+            crate::agents_runtime::AgentsCommand::On => {
+                let _ = self.agents.set_enabled(pane_id, true).await;
+            }
+            crate::agents_runtime::AgentsCommand::Off => {
+                let _ = self.agents.set_enabled(pane_id, false).await;
+            }
+            crate::agents_runtime::AgentsCommand::Status => {
+                let card = self.agents.status_card(pane_id).await;
+                self.emit_system(session, &card.to_string()).await;
+                self.emit(session, self.agents.snapshot_event(pane_id).await)
+                    .await;
+            }
+            crate::agents_runtime::AgentsCommand::Help => {
+                self.emit_system(
+                    session,
+                    &json!({
+                        "type": "inferay.subagent",
+                        "status": "help",
+                        "title": "/agents",
+                        "detail": inferay_core::agents::HELP_DETAIL
+                    })
+                    .to_string(),
+                )
+                .await;
+            }
+            crate::agents_runtime::AgentsCommand::Cancel(target) => {
+                if target.eq_ignore_ascii_case("all") {
+                    let _ = self.agents.cancel_all_running(pane_id).await;
+                } else if let Err(error) = self.agents.cancel_one(pane_id, &target).await {
+                    self.emit_system(
+                        session,
+                        &json!({
+                            "type": "inferay.subagent",
+                            "status": "failed",
+                            "detail": error
+                        })
+                        .to_string(),
+                    )
+                    .await;
+                }
+            }
+        }
     }
 
     async fn apply_emission(
