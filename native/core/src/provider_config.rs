@@ -345,7 +345,7 @@ fn catalog() -> &'static AgentCatalog {
             icon_key: AgentIconKey::Anthropic,
             commands: vec![],
             native_slash_commands: commands(&[
-                ("agents", "Enable, disable, status, or cancel Inferay subagents"),
+                ("agents", "Enable Inferay subagents (/agents on|off|status|help|cancel)"),
                 ("btw", "Ask a side question without adding to conversation"),
                 ("bug", "Report bugs or issues"),
                 ("compact", "Compact conversation history"),
@@ -363,9 +363,15 @@ fn catalog() -> &'static AgentCatalog {
                 ("vim", "Toggle vim mode"),
             ]),
             models: models(&[
+                (
+                    "adaptive",
+                    "Adaptive",
+                    "★ Auto-route each turn for cost & quality",
+                    Some("Auto"),
+                ),
                 ("claude-fable-5-1", "Fable 5.1", "Hardest tasks", None),
                 ("claude-fable-5", "Fable 5", "Previous Fable", None),
-                ("claude-opus-5-5", "Opus 5.5", "★ Most capable", None),
+                ("claude-opus-5-5", "Opus 5.5", "Most capable", None),
                 ("claude-opus-5", "Opus 5", "Previous Opus", None),
                 ("claude-opus-4-8", "Opus 4.8", "Older Opus", None),
                 ("claude-opus-4-7", "Opus 4.7", "Older Opus", None),
@@ -374,7 +380,7 @@ fn catalog() -> &'static AgentCatalog {
                 ("claude-sonnet-4-6", "Sonnet 4.6", "Previous Sonnet", None),
                 ("claude-haiku-4-5", "Haiku 4.5", "Fastest", None),
             ]),
-            default_model: "claude-opus-5-5".into(),
+            default_model: "adaptive".into(),
             reasoning_levels: vec![],
         },
         codex: AgentDefinition {
@@ -385,7 +391,7 @@ fn catalog() -> &'static AgentCatalog {
             native_slash_commands: commands(&[
                 (
                     "agents",
-                    "Enable, disable, status, or cancel Inferay subagents",
+                    "Enable Inferay subagents (/agents on|off|status|help|cancel)",
                 ),
                 (
                     "goal",
@@ -395,6 +401,12 @@ fn catalog() -> &'static AgentCatalog {
             models: with_max_reasoning(
                 models(&[
                     (
+                        "adaptive",
+                        "Adaptive",
+                        "★ Auto-route each turn for cost & quality",
+                        Some("Auto"),
+                    ),
+                    (
                         "gpt-6-astra",
                         "GPT-6 Astra",
                         "Complex agentic work",
@@ -403,7 +415,7 @@ fn catalog() -> &'static AgentCatalog {
                     (
                         "gpt-6-sol",
                         "GPT-6 Sol",
-                        "★ Everyday coding workhorse",
+                        "Everyday coding workhorse",
                         Some("Sol"),
                     ),
                     (
@@ -431,7 +443,7 @@ fn catalog() -> &'static AgentCatalog {
                     ("gpt-5.6-luna", "max"),
                 ],
             ),
-            default_model: "gpt-6-astra".into(),
+            default_model: "adaptive".into(),
             reasoning_levels: [
                 ("low", "Low", "Fast responses (default)"),
                 ("medium", "Medium", "Balanced"),
@@ -501,6 +513,7 @@ pub fn resolve(input: &Value) -> ProviderSettings {
 }
 
 /// An unknown previous model is a restored session, not evidence of a config change.
+/// Adaptive is a selection sentinel: session continuity uses the concrete provider model.
 pub fn requires_new_session(
     previous_kind: &str,
     previous_model: Option<&str>,
@@ -513,4 +526,12 @@ pub fn requires_new_session(
         || previous_model.is_some_and(|value| Some(value) != next_model)
         || (next_kind == "codex"
             && previous_reasoning.is_some_and(|value| Some(value) != next_reasoning))
+}
+
+pub fn concrete_model_for_session(selection: Option<&str>, routed: Option<&str>) -> Option<String> {
+    if crate::adaptive::is_adaptive(selection) {
+        routed.map(str::to_owned)
+    } else {
+        selection.map(str::to_owned)
+    }
 }

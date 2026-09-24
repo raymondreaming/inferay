@@ -25,6 +25,30 @@ fn main() {
     }
 }
 
+fn mcp_tools() -> Value {
+    let Value::Array(defs) = inferay_core::agents::tool_definitions() else {
+        return json!([]);
+    };
+    let tools: Vec<Value> = defs
+        .into_iter()
+        .filter_map(|entry| {
+            let name = entry.get("name")?.as_str()?.to_owned();
+            let description = entry
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned();
+            let input_schema = entry.get("inputSchema")?.clone();
+            Some(json!({
+                "name": name,
+                "description": description,
+                "inputSchema": input_schema
+            }))
+        })
+        .collect();
+    Value::Array(tools)
+}
+
 fn handle(url: &str, pane: &str, token: &str, message: &Value) -> Option<String> {
     let id = message.get("id").cloned();
     match message.get("method").and_then(Value::as_str)? {
@@ -45,46 +69,7 @@ fn handle(url: &str, pane: &str, token: &str, message: &Value) -> Option<String>
             json!({
                 "jsonrpc": "2.0",
                 "id": id,
-                "result": {
-                    "tools": [
-                        {
-                            "name": "run_subagent",
-                            "description": "Spawn an Inferay subagent with a fresh context.",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "profile": { "type": "string", "enum": ["explore", "general"] },
-                                    "title": { "type": "string" },
-                                    "prompt": { "type": "string" },
-                                    "background": { "type": "boolean" }
-                                },
-                                "required": ["profile", "prompt"]
-                            }
-                        },
-                        {
-                            "name": "read_subagent",
-                            "description": "Read status and summary for a subagent.",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": { "id": { "type": "string" } },
-                                "required": ["id"]
-                            }
-                        },
-                        {
-                            "name": "list_subagents",
-                            "description": "List Inferay subagents for this chat.",
-                            "inputSchema": {
-                                "type": "object",
-                                "properties": {
-                                    "status": {
-                                        "type": "string",
-                                        "enum": ["running", "completed", "failed", "cancelled"]
-                                    }
-                                }
-                            }
-                        }
-                    ]
-                }
+                "result": { "tools": mcp_tools() }
             })
             .to_string(),
         ),

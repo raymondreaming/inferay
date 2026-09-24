@@ -171,7 +171,7 @@ pub struct CodexRun<'a> {
     pub prompt: &'a str,
     pub invocation: &'a CodexInvocationContext,
     pub env: &'a HashMap<OsString, OsString>,
-    /// When true, expose run_subagent / read_subagent / list_subagents.
+    /// When true, expose Inferay subagent tools (run/resume/read/list).
     pub agents_tools: bool,
     pub agents_bridge: Option<&'a crate::agents_runtime::AgentsToolBridge>,
 }

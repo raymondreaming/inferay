@@ -91,6 +91,9 @@ pub struct NativeChatRender {
     pub subagent: Option<SubagentCard>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
+    pub adaptive: Option<AdaptiveCard>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub skill_proposal: Option<SkillProposal>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -951,6 +954,7 @@ pub enum SubagentCardStatus {
     Failed,
     Cancelled,
     Status,
+    Help,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, ts_rs::TS)]
@@ -962,6 +966,16 @@ pub struct SubagentCard {
     worker_id: Option<String>,
     detail: Option<String>,
     active_label: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct AdaptiveCard {
+    title: String,
+    model: String,
+    tier: String,
+    sticky: bool,
+    detail: Option<String>,
 }
 
 fn prepare_system_card(value: &Value, render: &mut NativeChatRender) {
@@ -1013,6 +1027,7 @@ fn prepare_system_card(value: &Value, render: &mut NativeChatRender) {
                 SubagentCardStatus::Failed => "Subagent Failed",
                 SubagentCardStatus::Cancelled => "Subagent Cancelled",
                 SubagentCardStatus::Status => "Subagents",
+                SubagentCardStatus::Help => "/agents help",
             };
             render.subagent = Some(SubagentCard {
                 status,
@@ -1023,6 +1038,22 @@ fn prepare_system_card(value: &Value, render: &mut NativeChatRender) {
                 active_label: value["active"].as_u64().map(|count| {
                     format!("{count} active worker{}", if count == 1 { "" } else { "s" })
                 }),
+            });
+        }
+        Some("inferay.adaptive") => {
+            let model = value["model"].as_str().unwrap_or("unknown");
+            let tier = value["tier"].as_str().unwrap_or("standard");
+            let sticky = value["sticky"].as_bool().unwrap_or(false);
+            render.adaptive = Some(AdaptiveCard {
+                title: if sticky {
+                    "Adaptive (cached route)".into()
+                } else {
+                    "Adaptive route".into()
+                },
+                model: model.into(),
+                tier: tier.into(),
+                sticky,
+                detail: value["detail"].as_str().map(str::to_owned),
             });
         }
         _ => {}

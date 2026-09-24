@@ -11,7 +11,8 @@ use inferay_core::agent_protocol::{
     AgentProtocolContext, CodexInvocationContext, CodexProtocolState, ProtocolEmission,
 };
 use inferay_core::agents::{
-    MAX_CONCURRENT_WORKERS, SubagentProfile, SubagentStatus, explore_model,
+    self, MAX_CONCURRENT_WORKERS, EvalVerdict, SubagentProfile, SubagentStatus, model_for_profile,
+    parse_eval_verdict,
 };
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, broadcast, oneshot};
@@ -55,6 +56,7 @@ struct WorkerRecord {
     started_at: u64,
     summary: Option<String>,
     detail: Option<String>,
+    last_prompt: String,
     handle: Option<AgentProcessHandle>,
 }
 
@@ -126,7 +128,7 @@ impl AgentsRuntime {
         let card = json!({
             "type": "inferay.subagent",
             "status": "on",
-            "detail": "Subagents enabled. The parent agent can use run_subagent, read_subagent, and list_subagents."
+            "detail": "Subagents enabled. Parent can use run_subagent, resume_subagent, read_subagent, list_subagents. Send /agents help for the short guide."
         });
         self.publish(pane_id, Some(card.clone())).await;
         card
@@ -138,7 +140,7 @@ impl AgentsRuntime {
             return json!({
                 "type": "inferay.subagent",
                 "status": "status",
-                "detail": "Subagents are off.",
+                "detail": "Subagents are off. /agents on to enable; /agents help for the guide.",
                 "active": 0
             });
         };
@@ -149,11 +151,11 @@ impl AgentsRuntime {
             .count();
         let detail = if pane.enabled {
             format!(
-                "Subagents on. {} worker(s) tracked, {active} running.",
+                "Subagents on. {} worker(s) tracked, {active} running. /agents help for commands.",
                 pane.workers.len()
             )
         } else {
-            "Subagents are off.".into()
+            "Subagents are off. /agents on to enable; /agents help for the guide.".into()
         };
         json!({
             "type": "inferay.subagent",
@@ -275,6 +277,7 @@ impl AgentsRuntime {
         }
         match tool {
             "run_subagent" => self.run_subagent(pane_id, args, parent).await,
+            "resume_subagent" => self.resume_subagent(pane_id, args, parent).await,
             "read_subagent" => {
                 let id = args
                     .get("id")
@@ -290,6 +293,55 @@ impl AgentsRuntime {
         }
     }
 
+    async fn resume_subagent(
+        &self,
+        pane_id: &str,
+        args: &Value,
+        parent: ParentWorkerContext,
+    ) -> Result<(Value, Option<Value>), String> {
+        let id = args
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or("id is required")?
+            .to_owned();
+        let (profile, title, prior_prompt) = {
+            let panes = self.inner.lock().await;
+            let worker = panes
+                .get(pane_id)
+                .and_then(|pane| pane.workers.get(&id))
+                .ok_or_else(|| format!("Unknown subagent id: {id}"))?;
+            if worker.status == SubagentStatus::Running {
+                return Err("Subagent is still running. Cancel it first or wait.".into());
+            }
+            (
+                worker.profile,
+                worker.title.clone(),
+                worker.last_prompt.clone(),
+            )
+        };
+        let prompt = args
+            .get("prompt")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| {
+                format!(
+                    "Resume this subagent in the foreground.\n\nPrior task:\n{prior_prompt}\n\nContinue from where you left off. If permissions blocked you before, request them and finish."
+                )
+            });
+        self.spawn_worker(
+            pane_id,
+            profile,
+            title,
+            prompt,
+            false,
+            parent,
+            Some(id),
+        )
+        .await
+    }
+
     async fn run_subagent(
         &self,
         pane_id: &str,
@@ -300,7 +352,7 @@ impl AgentsRuntime {
             .get("profile")
             .and_then(Value::as_str)
             .and_then(SubagentProfile::parse)
-            .ok_or("profile must be explore or general")?;
+            .ok_or("profile must be explore, general, or evaluate")?;
         let prompt = args
             .get("prompt")
             .and_then(Value::as_str)
@@ -319,7 +371,141 @@ impl AgentsRuntime {
             .get("background")
             .and_then(Value::as_bool)
             .unwrap_or(false);
+        let verify = args.get("verify").and_then(Value::as_bool).unwrap_or(false);
+        if verify {
+            if profile != SubagentProfile::General {
+                return Err("verify=true requires profile \"general\"".into());
+            }
+            if background {
+                return Err("verify=true cannot run in background".into());
+            }
+            return self
+                .run_verified(pane_id, title, prompt, parent)
+                .await;
+        }
+        self.spawn_worker(pane_id, profile, title, prompt, background, parent, None)
+            .await
+    }
 
+    /// implement → fresh-context evaluate (default-FAIL) → one retry on NEEDS_WORK.
+    async fn run_verified(
+        &self,
+        pane_id: &str,
+        title: String,
+        prompt: String,
+        parent: ParentWorkerContext,
+    ) -> Result<(Value, Option<Value>), String> {
+        let (implement, _) = self
+            .spawn_worker(
+                pane_id,
+                SubagentProfile::General,
+                format!("{title} (implement)"),
+                prompt.clone(),
+                false,
+                parent.clone(),
+                None,
+            )
+            .await?;
+        let implement_summary = implement["summary"]
+            .as_str()
+            .unwrap_or_else(|| implement["error"].as_str().unwrap_or(""))
+            .to_owned();
+        if implement["status"] != "completed" {
+            return Ok((
+                json!({
+                    "status": "failed",
+                    "phase": "implement",
+                    "implement": implement,
+                    "message": "Implementation worker failed before evaluation."
+                }),
+                None,
+            ));
+        }
+
+        let eval_prompt = format!(
+            "Evaluate whether this task is complete. Default-FAIL.\n\n# Task\n{prompt}\n\n# Implementer summary\n{implement_summary}\n\nInspect the repo for evidence. End with {pass} or {needs}.",
+            pass = agents::EVAL_PASS_MARKER,
+            needs = agents::EVAL_NEEDS_WORK_MARKER,
+        );
+        let (evaluation, _) = self
+            .spawn_worker(
+                pane_id,
+                SubagentProfile::Evaluate,
+                format!("{title} (evaluate)"),
+                eval_prompt,
+                false,
+                parent.clone(),
+                None,
+            )
+            .await?;
+        let eval_text = evaluation["summary"]
+            .as_str()
+            .unwrap_or_else(|| evaluation["error"].as_str().unwrap_or(""))
+            .to_owned();
+        let verdict = parse_eval_verdict(&eval_text);
+
+        if matches!(verdict, EvalVerdict::Pass) {
+            return Ok((
+                json!({
+                    "status": "completed",
+                    "verified": true,
+                    "verdict": "pass",
+                    "implement": implement,
+                    "evaluation": evaluation,
+                    "summary": implement_summary
+                }),
+                None,
+            ));
+        }
+
+        let findings = eval_text
+            .replace(agents::EVAL_PASS_MARKER, "")
+            .replace(agents::EVAL_NEEDS_WORK_MARKER, "")
+            .trim()
+            .to_owned();
+        let retry_prompt = format!(
+            "Previous implementation was graded NEEDS_WORK (default-FAIL). Fix only the findings, then summarize.\n\n# Original task\n{prompt}\n\n# Prior summary\n{implement_summary}\n\n# Evaluator findings\n{findings}"
+        );
+        let (retry, _) = self
+            .spawn_worker(
+                pane_id,
+                SubagentProfile::General,
+                format!("{title} (retry)"),
+                retry_prompt,
+                false,
+                parent,
+                None,
+            )
+            .await?;
+        Ok((
+            json!({
+                "status": retry["status"],
+                "verified": false,
+                "verdict": match verdict {
+                    EvalVerdict::NeedsWork => "needs_work",
+                    EvalVerdict::Inconclusive => "inconclusive",
+                    EvalVerdict::Pass => "pass",
+                },
+                "implement": implement,
+                "evaluation": evaluation,
+                "retry": retry,
+                "summary": retry["summary"].clone(),
+                "message": "Evaluator did not PASS; one implement retry was run. Re-evaluate if needed."
+            }),
+            None,
+        ))
+    }
+
+    async fn spawn_worker(
+        &self,
+        pane_id: &str,
+        profile: SubagentProfile,
+        title: String,
+        prompt: String,
+        background: bool,
+        parent: ParentWorkerContext,
+        resume_id: Option<String>,
+    ) -> Result<(Value, Option<Value>), String> {
         {
             let panes = self.inner.lock().await;
             let running = panes
@@ -338,7 +524,7 @@ impl AgentsRuntime {
             }
         }
 
-        let id = Uuid::new_v4().to_string();
+        let id = resume_id.unwrap_or_else(|| Uuid::new_v4().to_string());
         let started_at = now_millis();
         let handle = AgentProcessHandle::with_skills(self.prompts.clone());
         {
@@ -355,6 +541,7 @@ impl AgentsRuntime {
                     started_at,
                     summary: None,
                     detail: None,
+                    last_prompt: prompt.clone(),
                     handle: Some(handle.clone()),
                 },
             );
@@ -370,13 +557,13 @@ impl AgentsRuntime {
         self.publish(pane_id, Some(start_card.clone())).await;
 
         let runtime = self.clone();
-        let parent_pane = pane_id.to_owned();
         let worker_id = id.clone();
+        let worker_prompt = prompt.clone();
         let (finish_tx, finish_rx) = oneshot::channel::<Result<String, String>>();
 
         tokio::spawn(async move {
             let result = runtime
-                .drive_worker(&worker_id, profile, &prompt, parent, handle)
+                .drive_worker(&worker_id, profile, &worker_prompt, parent, handle)
                 .await;
             let _ = finish_tx.send(result);
         });
@@ -399,7 +586,7 @@ impl AgentsRuntime {
                     "profile": profile.as_str(),
                     "title": title,
                     "background": true,
-                    "message": "Subagent started in background. Use read_subagent when you need the result."
+                    "message": "Subagent started in background. Use read_subagent for the result. If it fails on approvals, resume_subagent in the foreground."
                 }),
                 Some(start_card),
             ));
@@ -408,9 +595,7 @@ impl AgentsRuntime {
         let outcome = finish_rx
             .await
             .unwrap_or_else(|_| Err("Worker task dropped".into()));
-        let card = self
-            .finish_worker(pane_id, &id, outcome.clone())
-            .await;
+        let card = self.finish_worker(pane_id, &id, outcome.clone()).await;
         match outcome {
             Ok(summary) => Ok((
                 json!({
@@ -428,7 +613,8 @@ impl AgentsRuntime {
                     "status": "failed",
                     "profile": profile.as_str(),
                     "title": title,
-                    "error": error
+                    "error": error,
+                    "message": "Worker failed. Use resume_subagent with this id to continue in the foreground."
                 }),
                 card,
             )),
@@ -478,13 +664,20 @@ impl AgentsRuntime {
                 }
                 Err(error) => {
                     worker.status = SubagentStatus::Failed;
-                    worker.detail = Some(error.clone());
+                    let detail = if worker.background {
+                        format!(
+                            "{error} — blocked or failed in background; resume_subagent in the foreground to continue with approvals."
+                        )
+                    } else {
+                        error.clone()
+                    };
+                    worker.detail = Some(detail.clone());
                     json!({
                         "type": "inferay.subagent",
                         "status": "failed",
                         "id": worker_id,
                         "profile": worker.profile.as_str(),
-                        "detail": error
+                        "detail": detail
                     })
                 }
             }
@@ -502,10 +695,7 @@ impl AgentsRuntime {
         handle: AgentProcessHandle,
     ) -> Result<String, String> {
         let agent_kind = parent.agent_kind.clone();
-        let model = match profile {
-            SubagentProfile::Explore => explore_model(&agent_kind, parent.model.as_deref()),
-            SubagentProfile::General => parent.model.clone(),
-        };
+        let model = model_for_profile(profile, &agent_kind, parent.model.as_deref());
         let instructions = profile.worker_instructions();
         let full_prompt = format!("{instructions}\n\n# Task\n{prompt}");
         let kind = if agent_kind == "codex" {
@@ -694,11 +884,12 @@ pub fn parse_agents_command(text: &str) -> Option<AgentsCommand> {
         "on" | "enable" => Some(AgentsCommand::On),
         "off" | "disable" => Some(AgentsCommand::Off),
         "status" | "" => Some(AgentsCommand::Status),
+        "help" | "?" => Some(AgentsCommand::Help),
         "cancel" => {
             let target = parts.next().unwrap_or("all");
             Some(AgentsCommand::Cancel(target.to_owned()))
         }
-        _ => Some(AgentsCommand::Status),
+        _ => Some(AgentsCommand::Help),
     }
 }
 
@@ -707,6 +898,7 @@ pub enum AgentsCommand {
     On,
     Off,
     Status,
+    Help,
     Cancel(String),
 }
 
@@ -760,6 +952,14 @@ mod tests {
             Some(AgentsCommand::Status)
         );
         assert_eq!(
+            parse_agents_command("/agents help"),
+            Some(AgentsCommand::Help)
+        );
+        assert_eq!(
+            parse_agents_command("/agents ?"),
+            Some(AgentsCommand::Help)
+        );
+        assert_eq!(
             parse_agents_command("/agents cancel all"),
             Some(AgentsCommand::Cancel("all".into()))
         );
@@ -774,12 +974,21 @@ mod tests {
     #[test]
     fn explore_model_picks_fast_defaults() {
         assert_eq!(
-            explore_model("claude", Some("claude-opus-5-5")).as_deref(),
+            inferay_core::agents::explore_model("claude", Some("claude-opus-5-5")).as_deref(),
             Some("claude-haiku-4-5")
         );
         assert_eq!(
-            explore_model("codex", Some("gpt-6-astra")).as_deref(),
+            inferay_core::agents::explore_model("codex", Some("gpt-6-astra")).as_deref(),
             Some("gpt-6-luna")
+        );
+        assert_eq!(
+            model_for_profile(
+                SubagentProfile::Evaluate,
+                "claude",
+                Some("claude-opus-5-5")
+            )
+            .as_deref(),
+            Some("claude-haiku-4-5")
         );
     }
 
@@ -864,6 +1073,52 @@ mod tests {
         assert_eq!(listed["workers"].as_array().unwrap().len(), 0);
         let missing = agents.read(pane, "missing").await.unwrap_err();
         assert!(missing.contains("Unknown subagent"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn verify_flag_requires_general_foreground() {
+        let root = std::env::temp_dir().join(format!("inferay-agents-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let agents = test_runtime(&root);
+        let pane = "pane-verify";
+        agents.set_enabled(pane, true).await;
+        let parent = ParentWorkerContext {
+            agent_kind: "claude".into(),
+            model: Some("claude-haiku-4-5".into()),
+            reasoning_level: None,
+            cwd: root.clone(),
+            reference_paths: vec![],
+        };
+        let err = agents
+            .call_tool(
+                pane,
+                "run_subagent",
+                &json!({
+                    "profile": "explore",
+                    "prompt": "noop",
+                    "verify": true
+                }),
+                parent.clone(),
+            )
+            .await
+            .unwrap_err();
+        assert!(err.contains("general"));
+        let err = agents
+            .call_tool(
+                pane,
+                "run_subagent",
+                &json!({
+                    "profile": "general",
+                    "prompt": "noop",
+                    "verify": true,
+                    "background": true
+                }),
+                parent,
+            )
+            .await
+            .unwrap_err();
+        assert!(err.contains("background"));
         let _ = std::fs::remove_dir_all(root);
     }
 }

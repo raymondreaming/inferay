@@ -33,6 +33,10 @@ const styles = stylex.create({
 		textOverflow: "ellipsis",
 		whiteSpace: "nowrap",
 	},
+	failed: {
+		color: color.textMuted,
+		whiteSpace: "normal",
+	},
 	actions: {
 		display: "flex",
 		flexShrink: 0,
@@ -45,29 +49,35 @@ export function SubagentIndicator(props: {
 	status: AgentsStatusState;
 	onCancel: (id: string) => void;
 }) {
+	const running = () =>
+		props.status.workers.filter((worker) => worker.status === "running");
+	const failed = () =>
+		props.status.workers.filter(
+			(worker) =>
+				worker.status === "failed" || worker.status === "cancelled",
+		);
 	return (
-		<Show when={props.status.enabled && props.status.active > 0}>
+		<Show when={props.status.enabled}>
 			<div {...stylex.attrs(styles.bar)}>
 				<div {...stylex.attrs(styles.row)}>
 					<span {...stylex.attrs(styles.meta)}>
-						{props.status.active} subagent
-						{props.status.active === 1 ? "" : "s"} running
+						{props.status.active > 0
+							? `${props.status.active} subagent${props.status.active === 1 ? "" : "s"} running`
+							: "Subagents on · /agents help"}
 					</span>
-					<IconButton
-						type="button"
-						variant="ghost"
-						size="sm"
-						title="Cancel all subagents"
-						onClick={() => props.onCancel("all")}
-					>
-						<IconStop size={12} />
-					</IconButton>
+					<Show when={props.status.active > 0}>
+						<IconButton
+							type="button"
+							variant="ghost"
+							size="sm"
+							title="Cancel all subagents"
+							onClick={() => props.onCancel("all")}
+						>
+							<IconStop size={12} />
+						</IconButton>
+					</Show>
 				</div>
-				<For
-					each={props.status.workers.filter(
-						(worker) => worker.status === "running",
-					)}
-				>
+				<For each={running()}>
 					{(worker) => (
 						<div {...stylex.attrs(styles.row)}>
 							<span {...stylex.attrs(styles.meta)}>
@@ -84,6 +94,16 @@ export function SubagentIndicator(props: {
 									<IconStop size={12} />
 								</IconButton>
 							</div>
+						</div>
+					)}
+				</For>
+				<For each={failed().slice(0, 2)}>
+					{(worker) => (
+						<div {...stylex.attrs(styles.row)}>
+							<span {...stylex.attrs(styles.meta, styles.failed)}>
+								{worker.title} · {worker.status}
+								{worker.detail ? ` — ${worker.detail}` : ""}
+							</span>
 						</div>
 					)}
 				</For>

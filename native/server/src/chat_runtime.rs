@@ -138,7 +138,10 @@ enum GoalStatus {
 struct ChatSession {
     pane_id: String,
     agent_kind: String,
+    /// User-facing model selection (may be `adaptive`).
     model: Option<String>,
+    /// Concrete provider model for the active provider session.
+    provider_model: Option<String>,
     reasoning_level: Option<String>,
     /// MCP servers this pane needs, by name. `None` keeps every configured
     /// server; narrowing it skips reconnecting the rest on each spawn, which
@@ -162,13 +165,19 @@ struct ChatSession {
 }
 
 impl ChatSession {
-    fn requires_new_session(&self, input: &SendMessageInput) -> bool {
+    fn requires_new_session(&self, input: &SendMessageInput, turn_model: Option<&str>) -> bool {
+        let previous_model = self
+            .provider_model
+            .as_deref()
+            .or(self.model.as_deref().filter(|model| {
+                !inferay_core::adaptive::is_adaptive(Some(model))
+            }));
         inferay_core::provider_config::requires_new_session(
             &self.agent_kind,
-            self.model.as_deref(),
+            previous_model,
             self.reasoning_level.as_deref(),
             &input.agent_kind,
-            input.model.as_deref(),
+            turn_model.or(input.model.as_deref()),
             if input.reasoning_level_provided {
                 input.reasoning_level.as_deref()
             } else {
@@ -290,6 +299,24 @@ impl ChatRuntime {
                     (input.agent_kind == "codex").then_some(resolved.reasoning_level);
             }
             let session = self.ensure_session(&input).await;
+            let (turn_model, turn_reasoning, adaptive_route) = {
+                let state = session.lock().await;
+                if inferay_core::adaptive::is_adaptive(input.model.as_deref()) {
+                    let route = inferay_core::adaptive::route(
+                        &input.agent_kind,
+                        &input.text,
+                        !input.images.is_empty(),
+                        state.provider_model.as_deref(),
+                    );
+                    (
+                        Some(route.model.clone()),
+                        route.reasoning_level.clone(),
+                        Some(route),
+                    )
+                } else {
+                    (input.model.clone(), input.reasoning_level.clone(), None)
+                }
+            };
             if input.expand_commands {
                 let expanded = self.prompts.lock().await.expand_chat_command_chain(
                     &input.text,
@@ -336,7 +363,7 @@ impl ChatRuntime {
                     (state.turn_active
                         && state.agent_kind == "codex"
                         && input.agent_kind == "codex"
-                        && !state.requires_new_session(&input))
+                        && !state.requires_new_session(&input, turn_model.as_deref()))
                     .then(|| state.current_handle.clone())
                     .flatten()
                 };
@@ -383,13 +410,18 @@ impl ChatRuntime {
             }
             let system_prefix = {
                 let mut state = session.lock().await;
-                let changed = state.requires_new_session(&input);
+                let changed = state.requires_new_session(&input, turn_model.as_deref());
                 if changed {
                     state.session_id = None;
                 }
                 state.agent_kind = input.agent_kind.clone();
+                // Keep Adaptive as the user selection; provider_model is what the
+                // child process actually runs so session continuity is concrete.
                 state.model.clone_from(&input.model);
-                if input.reasoning_level_provided {
+                state.provider_model.clone_from(&turn_model);
+                if let Some(level) = turn_reasoning.as_ref() {
+                    state.reasoning_level = Some(level.clone());
+                } else if input.reasoning_level_provided {
                     state.reasoning_level.clone_from(&input.reasoning_level);
                 }
                 if input.cwd_provided {
@@ -551,6 +583,29 @@ impl ChatRuntime {
                     json!({"type":"checkpoint:created", "paneId":input.pane_id, "checkpointId":id}),
                 )
                 .await;
+                }
+                if let Some(route) = adaptive_route.as_ref() {
+                    let tier = match route.tier {
+                        inferay_core::adaptive::AdaptiveTier::Fast => "fast",
+                        inferay_core::adaptive::AdaptiveTier::Standard => "standard",
+                        inferay_core::adaptive::AdaptiveTier::Frontier => "frontier",
+                    };
+                    self.emit_system(
+                        &session,
+                        &json!({
+                            "type": "inferay.adaptive",
+                            "model": route.model,
+                            "tier": tier,
+                            "sticky": route.sticky,
+                            "detail": if route.sticky {
+                                format!("Staying on {} for continuity", route.model)
+                            } else {
+                                format!("Routed this turn to {} ({tier})", route.model)
+                            }
+                        })
+                        .to_string(),
+                    )
+                    .await;
                 }
 
                 self.run_goal_loop(
@@ -992,6 +1047,16 @@ impl ChatRuntime {
                 .as_ref()
                 .and_then(|r| r.model.clone())
                 .or_else(|| input.model.clone()),
+            provider_model: saved_reference
+                .as_ref()
+                .and_then(|r| r.model.clone())
+                .filter(|model| !inferay_core::adaptive::is_adaptive(Some(model)))
+                .or_else(|| {
+                    input
+                        .model
+                        .clone()
+                        .filter(|model| !inferay_core::adaptive::is_adaptive(Some(model)))
+                }),
             reasoning_level: saved_reference
                 .as_ref()
                 .and_then(|r| r.reasoning_level.clone())
@@ -1163,7 +1228,11 @@ impl ChatRuntime {
                     cwd: state.cwd.clone(),
                     reference_paths: state.reference_paths.clone(),
                     images,
-                    model: state.model.clone(),
+                    model: state
+                        .provider_model
+                        .clone()
+                        .or_else(|| state.model.clone())
+                        .filter(|model| !inferay_core::adaptive::is_adaptive(Some(model))),
                     reasoning_level: state.reasoning_level.clone(),
                     developer_instructions: (!developer_instructions.is_empty())
                         .then_some(developer_instructions),
@@ -1266,6 +1335,19 @@ impl ChatRuntime {
                 self.emit_system(session, &card.to_string()).await;
                 self.emit(session, self.agents.snapshot_event(pane_id).await)
                     .await;
+            }
+            crate::agents_runtime::AgentsCommand::Help => {
+                self.emit_system(
+                    session,
+                    &json!({
+                        "type": "inferay.subagent",
+                        "status": "help",
+                        "title": "/agents",
+                        "detail": inferay_core::agents::HELP_DETAIL
+                    })
+                    .to_string(),
+                )
+                .await;
             }
             crate::agents_runtime::AgentsCommand::Cancel(target) => {
                 if target.eq_ignore_ascii_case("all") {

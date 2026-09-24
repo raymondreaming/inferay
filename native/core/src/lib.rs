@@ -1,3 +1,4 @@
+pub mod adaptive;
 pub mod agent_context;
 pub mod agent_kind;
 pub mod agent_protocol;

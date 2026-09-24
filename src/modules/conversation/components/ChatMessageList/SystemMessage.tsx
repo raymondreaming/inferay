@@ -24,6 +24,14 @@ type SubagentCardView = {
 	activeLabel?: string | null;
 };
 
+type AdaptiveCardView = {
+	title: string;
+	model: string;
+	tier: string;
+	sticky: boolean;
+	detail?: string | null;
+};
+
 /** Selects the specialized card for a system message's native rendering data. */
 export function SystemMessage(props: {
 	message: ChatMessage;
@@ -37,10 +45,19 @@ export function SystemMessage(props: {
 		() =>
 			(
 				props.message.render as
-					| { subagent?: SubagentCardView }
+					| { subagent?: SubagentCardView; adaptive?: AdaptiveCardView }
 					| null
 					| undefined
 			)?.subagent,
+	);
+	const adaptiveMessage = createMemo(
+		() =>
+			(
+				props.message.render as
+					| { adaptive?: AdaptiveCardView }
+					| null
+					| undefined
+			)?.adaptive,
 	);
 	const commandMessage = createMemo(() => props.message.render?.command);
 	return (
@@ -64,6 +81,9 @@ export function SystemMessage(props: {
 			</Match>
 			<Match when={!!subagentMessage()}>
 				<SubagentSystemCard subagent={subagentMessage()!} />
+			</Match>
+			<Match when={!!adaptiveMessage()}>
+				<AdaptiveSystemCard adaptive={adaptiveMessage()!} />
 			</Match>
 			<Match when={!!commandMessage()}>
 				<CommandSystemCard command={commandMessage()!} />
@@ -136,6 +156,8 @@ function SubagentSystemCard(_props: { subagent: SubagentCardView }) {
 		_props.subagent.status === "failed" ||
 		_props.subagent.status === "cancelled";
 	const complete = _props.subagent.status === "completed";
+	const help =
+		_props.subagent.status === "help" || _props.subagent.status === "status";
 	return (
 		<div
 			{...stylex.attrs(
@@ -185,12 +207,44 @@ function SubagentSystemCard(_props: { subagent: SubagentCardView }) {
 					)}
 				</div>
 				{_props.subagent.detail && (
-					<div {...stylex.attrs(styles.goalDetail)}>{_props.subagent.detail}</div>
+					<div
+						{...stylex.attrs(
+							styles.goalDetail,
+							help && styles.subagentHelpDetail,
+						)}
+					>
+						{_props.subagent.detail}
+					</div>
 				)}
-				{_props.subagent.workerId && (
+				{_props.subagent.workerId && !help && (
 					<div {...stylex.attrs(styles.goalDetail)}>
 						{_props.subagent.workerId}
 					</div>
+				)}
+			</div>
+		</div>
+	);
+}
+
+function AdaptiveSystemCard(_props: { adaptive: AdaptiveCardView }) {
+	return (
+		<div {...stylex.attrs(styles.goalCard, styles.goalCardActive)}>
+			<span {...stylex.attrs(styles.goalIconSlot, styles.goalIconActive)}>
+				<IconTarget size={iconSize.md} />
+			</span>
+			<div {...stylex.attrs(styles.goalCardBody)}>
+				<div {...stylex.attrs(styles.goalCardHeader)}>
+					<span {...stylex.attrs(styles.goalCardTitle)}>
+						{_props.adaptive.title}
+					</span>
+					<span {...stylex.attrs(styles.goalTurns)}>{_props.adaptive.tier}</span>
+					{_props.adaptive.sticky && (
+						<span {...stylex.attrs(styles.goalTurns)}>sticky</span>
+					)}
+				</div>
+				<div {...stylex.attrs(styles.goalObjective)}>{_props.adaptive.model}</div>
+				{_props.adaptive.detail && (
+					<div {...stylex.attrs(styles.goalDetail)}>{_props.adaptive.detail}</div>
 				)}
 			</div>
 		</div>
