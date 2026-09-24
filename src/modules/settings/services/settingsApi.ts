@@ -16,7 +16,7 @@ import {
 	sendJson,
 } from "@shared/lib/native.tsx";
 
-export type SettingsApi = {
+type SettingsApi = {
 	uploadBackgroundImage(file: File): Promise<{ revision: number }>;
 	loadGlobalInstructions(signal?: AbortSignal): Promise<string>;
 	saveGlobalInstructions(instructions: string): Promise<void>;

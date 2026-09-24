@@ -47,7 +47,7 @@ import { GithubSettings } from "./GithubSettings.tsx";
 import { McpSettings } from "./McpSettings.tsx";
 import { styles } from "./styles.ts";
 
-export type SettingsModalSection = "all" | SettingsModalTarget;
+type SettingsModalSection = "all" | SettingsModalTarget;
 
 /** Native models own choices and defaults; this component owns form/query lifecycles. */
 export function SettingsModalContent(props: { section: SettingsModalSection }) {

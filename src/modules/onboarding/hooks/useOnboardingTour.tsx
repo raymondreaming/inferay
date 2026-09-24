@@ -28,7 +28,7 @@ const GRAPH_SELECTOR = '[aria-label="Repository commit history"]';
 const CHANGES_SELECTOR = '[aria-label="Resize changes sidebar"]';
 const WORKSPACE_SELECTOR = "[data-chat-workspace]";
 
-export interface OnboardingProgress {
+interface OnboardingProgress {
 	status: "new" | "running" | "done" | "skipped";
 	step: string;
 	visited: string[];
@@ -137,8 +137,6 @@ export function useOnboardingTour() {
 		},
 	);
 	const step = createMemo(() => tour().step);
-	const enteredDone = { current: false };
-	const stagedStep = { current: "" };
 	const collapsedBeforeTour = { current: null as boolean | null };
 	createEffect(
 		() => tour().active,
@@ -164,11 +162,6 @@ export function useOnboardingTour() {
 		(key) => {
 			if (!key) return;
 			const staged = untrack(step);
-			const id = staged?.id ?? "";
-			if (id !== stagedStep.current) {
-				stagedStep.current = id;
-				enteredDone.current = !!staged?.task && !!staged.taskDone;
-			}
 			if (panelsTouched.current) return;
 			const seen = untrack(observed);
 			if (
@@ -198,9 +191,7 @@ export function useOnboardingTour() {
 				: null,
 		(id) => {
 			if (!id) return;
-			const silent = !untrack(step)?.card;
-			if (enteredDone.current && !silent) return;
-			const timer = setTimeout(() => advance("next"), silent ? 300 : 900);
+			const timer = setTimeout(() => advance("next"), 300);
 			return () => clearTimeout(timer);
 		},
 	);

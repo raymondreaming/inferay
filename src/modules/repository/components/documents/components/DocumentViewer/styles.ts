@@ -203,12 +203,3 @@ export function getSourcePreviewSourceTableStyle(
 		transform: transform,
 	} as CSSProperties;
 }
-export function getSourcePreviewSpanStyle(
-	color: CSSProperties["color"],
-	backgroundColor: CSSProperties["backgroundColor"],
-): CSSProperties {
-	return {
-		color: color,
-		backgroundColor: backgroundColor,
-	} as CSSProperties;
-}

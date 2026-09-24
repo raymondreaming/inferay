@@ -8,6 +8,7 @@ import {
 } from "@settings/hooks/useAppAppearance.tsx";
 import { render } from "@solidjs/web";
 import { RootComponent } from "./app/components/RootComponent/index.tsx";
+import { hydrateAuthorAvatars } from "./modules/repository/hooks/useGitAuthorAvatars.ts";
 import { preloadSkills } from "./modules/skills/services/skillsApi.ts";
 import { configureWorkspacePanels } from "./modules/workspace/hooks/useWorkspacePanelSession.tsx";
 import {
@@ -78,6 +79,7 @@ applyAppTheme(loadAppThemeId());
 applyAppFont(loadAppFontId());
 applyAppBackgroundSurfaces(loadAppBackgroundSettings().mode);
 restoreSyntaxTheme();
+hydrateAuthorAvatars();
 const idle =
 	window.requestIdleCallback ??
 	((callback: IdleRequestCallback) => window.setTimeout(callback, 150));

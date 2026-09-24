@@ -250,13 +250,6 @@ export const diffStyles = stylex.create({
 	shellRelative: {
 		position: "relative",
 	},
-	centerState: {
-		display: "flex",
-		height: "100%",
-		alignItems: "center",
-		justifyContent: "center",
-		backgroundColor: color.transparent,
-	},
 	centerText: {
 		color: color.textMuted,
 		fontSize: font.size_4,
@@ -500,15 +493,6 @@ export function getDiffRowSpacerStyle(
 ): CSSProperties {
 	return {
 		minWidth: minWidth,
-	} as CSSProperties;
-}
-export function getDiffRowSpanStyle(
-	backgroundColor: CSSProperties["backgroundColor"],
-	color: CSSProperties["color"],
-): CSSProperties {
-	return {
-		backgroundColor: backgroundColor,
-		color: color,
 	} as CSSProperties;
 }
 export function getDiffRowDivStyle(

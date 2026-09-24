@@ -31,16 +31,16 @@ declare global {
 }
 export const usesNativeGlass =
 	typeof window !== "undefined" && window.inferayNativeGlass === true;
-export const APP_THEMES = catalog.themes;
-export const APP_BACKGROUNDS = catalog.backgrounds;
+const APP_THEMES = catalog.themes;
+const APP_BACKGROUNDS = catalog.backgrounds;
 export const APP_FONTS = catalog.fonts;
-export const DEFAULT_APP_BACKGROUND_SETTINGS = catalog.defaultBackground;
+const DEFAULT_APP_BACKGROUND_SETTINGS = catalog.defaultBackground;
 export const getThemeById = (id: string) =>
 	(APP_THEMES.find((theme) => theme.id === id) ?? APP_THEMES[0]).theme;
 export function loadAppThemeId(): AppThemeId {
 	return "default";
 }
-export function saveAppThemeId(id: AppThemeId): void {
+function saveAppThemeId(id: AppThemeId): void {
 	writeStoredValue(APP_THEME_STORAGE_KEY, id);
 }
 export function applyAppTheme(id: AppThemeId): void {
@@ -59,13 +59,11 @@ export function loadAppBackgroundSettings(): AppBackgroundSettings {
 		DEFAULT_APP_BACKGROUND_SETTINGS,
 	);
 }
-export function saveAppBackgroundSettings(
-	settings: AppBackgroundSettings,
-): void {
+function saveAppBackgroundSettings(settings: AppBackgroundSettings): void {
 	applyAppBackgroundSurfaces(settings.mode);
 	writeStoredJson(APP_BACKGROUND_STORAGE_KEY, settings);
 }
-export function applyAppBackgroundPalette(
+function applyAppBackgroundPalette(
 	id: AppBackgroundId,
 	themeId = loadAppThemeId(),
 ): void {

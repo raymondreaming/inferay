@@ -9,9 +9,8 @@ import { RepositoryOperationBar } from "./RepositoryOperationBar.tsx";
 import { styles } from "./styles.ts";
 import { useChatDiffPanelState } from "./useChatDiffPanelState.tsx";
 import { ViewerHeader } from "./ViewerHeader.tsx";
-export function gitGraphEmptyLabel(
-	graph: ReturnType<typeof useGitGraph>,
-): string {
+
+function gitGraphEmptyLabel(graph: ReturnType<typeof useGitGraph>): string {
 	switch (graph.state) {
 		case "unborn":
 			return "This branch does not have its first commit yet";

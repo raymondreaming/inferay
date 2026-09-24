@@ -93,9 +93,9 @@ pub fn viewport(input: &Value) -> GraphViewport {
     let scroll = (number(&input["scrollTop"]) - ROW_HEIGHT).max(0.);
     let height = number(&input["height"]).max(0.);
     GraphViewport {
-        visible_start: ((scroll / ROW_HEIGHT).floor() as usize).saturating_sub(12),
+        visible_start: ((scroll / ROW_HEIGHT).floor() as usize).saturating_sub(6),
         visible_end: (((scroll + height) / ROW_HEIGHT).ceil() as usize)
-            .saturating_add(12)
+            .saturating_add(6)
             .min(count),
     }
 }

@@ -90,8 +90,8 @@ const EMPTY_FILE_GROUPS = {
 	untracked: [],
 };
 
-export let detachedFilePanelSequence = 0;
-export function createDetachedFilePanelId() {
+let detachedFilePanelSequence = 0;
+function createDetachedFilePanelId() {
 	detachedFilePanelSequence += 1;
 	return `workspace-file-viewer:${Date.now()}:${detachedFilePanelSequence}`;
 }

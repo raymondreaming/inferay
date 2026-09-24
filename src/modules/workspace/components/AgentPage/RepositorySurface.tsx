@@ -10,7 +10,8 @@ import type { AgentLayoutMode } from "@shared/lib/native.tsx";
 import { createMemo } from "solid-js";
 import { DEFAULT_ROWS, WorkspaceCanvas } from "../WorkspaceCanvas/index.tsx";
 import { AgentMainSurface } from "./AgentMainSurface.tsx";
-export type AgentPaneActions = {
+
+type AgentPaneActions = {
 	handleAddPane: (agentKind: WorkspaceAgentKind) => void;
 	reorderPanes: (fromIndex: number, toIndex: number) => void;
 	handleSetPaneAgentKind: (

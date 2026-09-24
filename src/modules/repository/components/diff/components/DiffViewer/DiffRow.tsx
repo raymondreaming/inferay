@@ -31,6 +31,7 @@ export const DiffRow = function DiffRow(_props: {
 	clipContent?: boolean;
 	line: GitDiffLine;
 	highlightedTokens?: SyntaxToken[];
+	syntaxPending?: boolean;
 	isHighlighted?: boolean;
 	minWidth?: number;
 	hideGutter?: boolean;
@@ -115,8 +116,8 @@ export const DiffRow = function DiffRow(_props: {
 
 						<span
 							{...stylex.attrs(diffStyles.content)}
-							style={domStyle(
-								inlineStyles.getDiffRowContentStyle(
+							style={domStyle({
+								...inlineStyles.getDiffRowContentStyle(
 									DIFF_CONFIG.contentFontSize,
 									(
 										_props.clipContent === undefined
@@ -129,7 +130,8 @@ export const DiffRow = function DiffRow(_props: {
 										? undefined
 										: "var(--color-syntax-plain)",
 								),
-							)}
+								visibility: _props.syntaxPending ? "hidden" : undefined,
+							})}
 						>
 							{_props.highlightedTokens ? (
 								<For each={_props.highlightedTokens} keyed={false}>

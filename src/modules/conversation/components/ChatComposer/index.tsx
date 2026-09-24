@@ -31,10 +31,12 @@ export const ChatComposer = function ChatComposer(
 ) {
 	const view = useChatComposerState(() => props);
 	let textareaElement: HTMLTextAreaElement | undefined;
+	let measuredInput: string | undefined;
 	createEffect(
 		() => [props.input, props.active !== false] as const,
 		([input, active]) => {
-			if (!active || !textareaElement) return;
+			if (!active || !textareaElement || input === measuredInput) return;
+			measuredInput = input;
 			textareaElement.style.height = "20px";
 			if (input)
 				textareaElement.style.height = `${Math.min(Math.max(textareaElement.scrollHeight, 20), 120)}px`;

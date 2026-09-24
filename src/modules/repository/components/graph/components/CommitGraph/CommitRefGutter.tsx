@@ -26,7 +26,7 @@ export function CommitRefGutter(props: {
 		props.showWipRef || hasRefs() || props.showGhostRef;
 	return (
 		<div
-			{...stylex.attrs(styles.refGutter)}
+			class={stylex.attrs(styles.refGutter).class}
 			style={domStyle(inlineStyles.getCommitRowRefGutterStyle(props.width))}
 		>
 			{props.showWipRef ? (
@@ -61,7 +61,7 @@ export function CommitRefGutter(props: {
 			{hasConnector() ? (
 				<span
 					aria-hidden="true"
-					{...stylex.attrs(styles.refConnector)}
+					class={stylex.attrs(styles.refConnector).class}
 					style={domStyle({
 						...inlineStyles.getCommitRowRefConnectorStyle(props.color),
 						...(props.showWipRef

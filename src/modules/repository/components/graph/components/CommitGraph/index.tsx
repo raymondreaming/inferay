@@ -20,7 +20,7 @@ export type {
 	GraphSelectionIntent,
 } from "./useCommitGraphState.tsx";
 
-export const LINE_WIDTH = 2;
+const LINE_WIDTH = 2;
 export const CommitGraph = function CommitGraph(
 	props: ReturnType<Parameters<typeof useCommitGraphState>[0]>,
 ) {
@@ -61,21 +61,6 @@ export const CommitGraph = function CommitGraph(
 				) {
 					view.onLoadMore();
 				}
-			}}
-			onWheel={(event) => {
-				if (
-					event.target instanceof Element &&
-					event.target.closest('[role="menu"]')
-				)
-					return;
-				if (event.cancelable) event.preventDefault();
-				const scroller = event.currentTarget;
-				if (Math.abs(event.deltaY) >= Math.abs(event.deltaX)) {
-					scroller.scrollTop += event.deltaY;
-				} else {
-					scroller.scrollLeft += event.deltaX;
-				}
-				view.rememberScroll(scroller.scrollTop, scroller.scrollLeft);
 			}}
 			onMouseMove={(event) => {
 				const previous = view.mousePositionRef.current;

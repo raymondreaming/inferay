@@ -1,4 +1,7 @@
-import { knownAuthorAvatar } from "@repository/hooks/useGitAuthorAvatars.ts";
+import {
+	knownAuthorAvatar,
+	rememberLoadedAuthorAvatar,
+} from "@repository/hooks/useGitAuthorAvatars.ts";
 import { resolveGitAuthorIdentity } from "@repository/services/gitApi.ts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, Loading } from "solid-js";
@@ -53,6 +56,12 @@ export function DetailIdentity(_props: {
 							alt=""
 							loading="lazy"
 							referrerpolicy="no-referrer"
+							onLoad={(event) =>
+								rememberLoadedAuthorAvatar(
+									_props.email,
+									event.currentTarget.src,
+								)
+							}
 							onError={() => setFailedUrl(avatarUrl() ?? null)}
 							{...stylex.attrs(styles.detailAvatarImage)}
 						/>

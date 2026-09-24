@@ -15,7 +15,7 @@ test("graph column changes propagate to mounted repositories and survive reload"
 		source
 			.slice(
 				source.indexOf("const GRAPH_PREFERENCES_KEY"),
-				source.indexOf("export function scrollPreferencesKey"),
+				source.indexOf("export function nextGitGraphHistoryLimit"),
 			)
 			.replaceAll("export ", ""),
 	);

@@ -216,7 +216,7 @@ export function useComparisonDetails(
 		},
 	};
 }
-export function createGitGraphReader() {
+function createGitGraphReader() {
 	let response: {
 		key: string;
 		etag: string;

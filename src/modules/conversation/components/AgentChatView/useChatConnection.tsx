@@ -416,7 +416,7 @@ export function appendSystemMessage(
 	});
 	return notice ? [...messages, notice] : messages;
 }
-export function mergeNativeTranscript(
+function mergeNativeTranscript(
 	local: ChatMessage[],
 	server: ChatMessage[],
 ): ChatMessage[] {

@@ -12,7 +12,7 @@ export function MergeNode(_props: {
 		<span
 			aria-hidden="true"
 			data-graph-merge-node="true"
-			{...stylex.attrs(styles.mergeNode)}
+			class={stylex.attrs(styles.mergeNode).class}
 			style={domStyle(
 				inlineStyles.getMergeNodeMergeNodeStyle(
 					_props.left + AVATAR_SIZE / 2 - 5,

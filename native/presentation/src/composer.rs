@@ -28,6 +28,13 @@ pub struct ComposerConfigControl {
 /// Project the supplied runtime catalog; providers with no choices omit the control.
 pub fn config_controls(input: &Value) -> Vec<ComposerConfigControl> {
     let definition = &input["definition"];
+    let reasoning_levels = if array(&definition["reasoningLevels"]).is_empty() {
+        json!([])
+    } else {
+        json!(inferay_core::provider_config::reasoning_levels_for(string(
+            &input["model"]
+        )))
+    };
     [
         (
             ComposerConfigKind::Provider,
@@ -45,7 +52,7 @@ pub fn config_controls(input: &Value) -> Vec<ComposerConfigControl> {
             ComposerConfigKind::Reasoning,
             "Reasoning",
             &input["reasoningLevel"],
-            &definition["reasoningLevels"],
+            &reasoning_levels,
         ),
     ]
     .into_iter()

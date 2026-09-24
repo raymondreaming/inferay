@@ -29,6 +29,7 @@ export function useGraphViewport(
 			scroller.scrollLeft = position.left;
 			setScrollTop(position.top);
 			const measure = () => {
+				if (scroller.clientHeight === 0) return;
 				setViewportHeight(scroller.clientHeight);
 				setViewportWidth(scroller.clientWidth);
 			};

@@ -1,3 +1,4 @@
+import { rememberLoadedAuthorAvatar } from "@repository/hooks/useGitAuthorAvatars.ts";
 import { domStyle } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createSignal } from "solid-js";
@@ -24,10 +25,13 @@ export function AuthorAvatar(_props: {
 	stash: boolean;
 }) {
 	const [failedUrl, setFailedUrl] = createSignal<string | null>(null);
+	const [loadedUrl, setLoadedUrl] = createSignal<string | null>(null);
 	return (
 		<span
 			aria-hidden="true"
-			{...stylex.attrs(styles.graphAvatar, _props.stash && styles.stashNode)}
+			class={
+				stylex.attrs(styles.graphAvatar, _props.stash && styles.stashNode).class
+			}
 			style={domStyle(
 				inlineStyles.getAuthorAvatarGraphAvatarStyle(
 					_props.left,
@@ -37,25 +41,31 @@ export function AuthorAvatar(_props: {
 				),
 			)}
 		>
-			{_props.stash ? null : _props.githubAvatar &&
-				_props.githubAvatar !== failedUrl() ? (
-				<img
-					src={_props.githubAvatar}
-					alt=""
-					loading="lazy"
-					referrerpolicy="no-referrer"
-					onError={() => setFailedUrl(_props.githubAvatar ?? null)}
-					{...stylex.attrs(styles.avatarImage)}
-				/>
-			) : (
-				authorInitials(_props.name)
-			)}
+			{_props.stash ? null : authorInitials(_props.name)}
+			{!_props.stash &&
+				_props.githubAvatar &&
+				_props.githubAvatar !== failedUrl() && (
+					<img
+						src={_props.githubAvatar}
+						alt=""
+						loading="eager"
+						referrerpolicy="no-referrer"
+						onLoad={(event) => {
+							const url = event.currentTarget.src;
+							setLoadedUrl(url);
+							rememberLoadedAuthorAvatar(_props.email, url);
+						}}
+						onError={() => setFailedUrl(_props.githubAvatar ?? null)}
+						class={stylex.attrs(styles.avatarImage).class}
+						style={{ opacity: loadedUrl() === _props.githubAvatar ? 1 : 0 }}
+					/>
+				)}
 			{_props.stash && (
 				<svg
 					viewBox="0 0 18 18"
 					width="18"
 					height="18"
-					{...stylex.attrs(styles.nodeOutline)}
+					class={stylex.attrs(styles.nodeOutline).class}
 				>
 					<rect
 						x="0.5"

@@ -33,7 +33,7 @@ export function RefIcon(_props: { kind: GitGraphRefKind }) {
 		<span
 			aria-hidden="true"
 			data-ref-symbol={symbol()}
-			{...stylex.attrs(styles.shrink)}
+			class={stylex.attrs(styles.shrink).class}
 		>
 			<Dynamic
 				component={Icon()}

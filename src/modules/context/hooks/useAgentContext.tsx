@@ -57,4 +57,4 @@ export function useAgentContext(
 		save,
 	};
 }
-export type AgentContextMode = "inherit" | "replace";
+type AgentContextMode = "inherit" | "replace";

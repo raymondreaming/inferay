@@ -363,13 +363,13 @@ export function setWorkspaceSidebarCollapsed(collapsed: boolean) {
 		{ collapsed },
 	);
 }
-export function removeStoredValue(key: string): void {
+function removeStoredValue(key: string): void {
 	setStoredValue(key, null);
 }
 export function writeStoredJson<T>(key: string, value: T) {
 	writeStoredValue(key, JSON.stringify(value));
 }
-export function readStoredBoolean(key: string, fallback = false): boolean {
+function readStoredBoolean(key: string, fallback = false): boolean {
 	const value = readStoredValue(key);
 	return value === null ? fallback : value === "true";
 }

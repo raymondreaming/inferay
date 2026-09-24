@@ -15,7 +15,7 @@ import {
 	snapshot as storeSnapshot,
 } from "solid-js";
 
-export interface WorkspacePersistencePort {
+interface WorkspacePersistencePort {
 	initialize(): Promise<import("@contracts").AgentSavedState>;
 	load(): Promise<import("@contracts").AgentSavedState | null>;
 	save(

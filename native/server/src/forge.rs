@@ -157,7 +157,6 @@ pub(crate) struct ForgeAccount {
 struct AuthorIdentityRequest {
     hash: Option<String>,
     email: Option<String>,
-    name: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ts_rs::TS)]
@@ -330,21 +329,8 @@ fn normalized(value: Option<&str>) -> String {
     value.unwrap_or_default().trim().to_lowercase()
 }
 
-fn compact(value: &str) -> String {
-    value
-        .chars()
-        .filter(|character| character.is_ascii_alphanumeric())
-        .collect()
-}
-
-fn related(left: &str, right: &str) -> bool {
-    let (left, right) = (compact(left), compact(right));
-    left.len().min(right.len()) >= 3 && (left.starts_with(&right) || right.starts_with(&left))
-}
-
 fn resolve_author_identity(accounts: &[ForgeAccount], identity: &AuthorIdentityRequest) -> Value {
     let email = normalized(identity.email.as_deref());
-    let name = normalized(identity.name.as_deref());
     if let Some(handle) = email.strip_suffix("@users.noreply.github.com") {
         let login = handle.split_once('+').map_or(handle, |(prefix, login)| {
             if prefix.bytes().all(|byte| byte.is_ascii_digit()) {
@@ -363,17 +349,7 @@ fn resolve_author_identity(accounts: &[ForgeAccount], identity: &AuthorIdentityR
     }
     accounts
         .iter()
-        .find(|account| {
-            let account_email = normalized(account.email.as_deref());
-            let account_name = normalized(account.name.as_deref());
-            let login = account.login.to_lowercase();
-            (!email.is_empty() && account_email == email)
-                || (!name.is_empty() && (account_name == name || login == name.replace(' ', "")))
-                || (account.active
-                    && (related(email.split('@').next().unwrap_or_default(), &login)
-                        || related(&name, &login)
-                        || related(&name, &account_name)))
-        })
+        .find(|account| !email.is_empty() && normalized(account.email.as_deref()) == email)
         .map_or(
             Value::Null,
             |account| json!({"login":account.login,"avatarUrl":account.avatar_url}),
@@ -414,7 +390,7 @@ async fn resolve_commit_avatars(
         .iter()
         .enumerate()
         .map(|(index, hash)| {
-            format!("c{index}: object(oid: \"{hash}\") {{ ... on Commit {{ author {{ email user {{ login avatarUrl }} }} }} }}")
+            format!("c{index}: object(oid: \"{hash}\") {{ ... on Commit {{ author {{ email user {{ login avatarUrl(size: 64) }} }} }} }}")
         })
         .collect::<Vec<_>>()
         .join(" ");
@@ -474,6 +450,32 @@ fn remember_author_identity(cache: &mut HashMap<String, Value>, author: &Value) 
 #[cfg(test)]
 mod avatar_tests {
     use super::*;
+
+    #[test]
+    fn account_fallback_requires_matching_email() {
+        let accounts = vec![ForgeAccount {
+            provider: "github",
+            host: "github.com".into(),
+            login: "similar-name".into(),
+            name: Some("Similar Name".into()),
+            avatar_url: Some("https://example.com/wrong.png".into()),
+            email: Some("someone-else@example.com".into()),
+            active: true,
+        }];
+        let author = AuthorIdentityRequest {
+            hash: None,
+            email: Some("similar-name@example.com".into()),
+        };
+        assert!(resolve_author_identity(&accounts, &author).is_null());
+        let matching = AuthorIdentityRequest {
+            email: Some("someone-else@example.com".into()),
+            ..author
+        };
+        assert_eq!(
+            resolve_author_identity(&accounts, &matching)["avatarUrl"],
+            "https://example.com/wrong.png"
+        );
+    }
 
     #[test]
     fn verified_author_identity_is_reused_across_commits_and_missing_results() {

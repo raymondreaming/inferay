@@ -94,7 +94,4 @@ export const styles = stylex.create({
 		overflowY: "auto",
 		overscrollBehavior: "contain",
 	},
-	providerStatus: {
-		color: color.textMuted,
-	},
 });

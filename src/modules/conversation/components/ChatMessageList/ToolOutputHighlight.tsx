@@ -57,7 +57,7 @@ export function ToolOutputHighlight(_props: {
 		</>
 	);
 }
-export function getToolOutputSummary(
+function getToolOutputSummary(
 	content: string,
 	nativeSummary?: ToolOutputSummary | null,
 ): ToolOutputSummary {

@@ -965,10 +965,7 @@ pub fn get_git_worktrees(cwd: &str) -> Vec<GitWorktree> {
     let Some(result) = run_git(&["worktree", "list", "--porcelain"], cwd) else {
         return Vec::new();
     };
-    let current_root = run_git(&["rev-parse", "--show-toplevel"], cwd)
-        .map(|value| value.trim().to_string())
-        .unwrap_or_default();
-    result
+    let mut worktrees: Vec<_> = result
         .split("\n\n")
         .filter_map(|block| {
             let mut path = String::new();
@@ -989,8 +986,8 @@ pub fn get_git_worktrees(cwd: &str) -> Vec<GitWorktree> {
                     locked = true;
                 }
             }
-            (!path.is_empty()).then(|| GitWorktree {
-                is_current: path == current_root,
+            (!path.is_empty()).then_some(GitWorktree {
+                is_current: false,
                 path,
                 head,
                 branch,
@@ -999,7 +996,31 @@ pub fn get_git_worktrees(cwd: &str) -> Vec<GitWorktree> {
                 status: None,
             })
         })
-        .collect()
+        .collect();
+    let current = std::fs::canonicalize(cwd).ok().and_then(|cwd| {
+        worktrees
+            .iter()
+            .enumerate()
+            .filter(|(_, worktree)| !worktree.bare)
+            .filter_map(|(index, worktree)| {
+                let path = std::fs::canonicalize(&worktree.path).ok()?;
+                cwd.starts_with(&path)
+                    .then_some((index, path.components().count()))
+            })
+            .max_by_key(|(_, depth)| *depth)
+            .map(|(index, _)| index)
+    });
+    if let Some(index) = current {
+        worktrees[index].is_current = true;
+    } else if let Some(root) = run_git(&["rev-parse", "--show-toplevel"], cwd) {
+        if let Some(worktree) = worktrees
+            .iter_mut()
+            .find(|worktree| worktree.path == root.trim())
+        {
+            worktree.is_current = true;
+        }
+    }
+    worktrees
 }
 
 pub fn get_git_stashes(cwd: &str) -> Vec<GitStash> {
@@ -1923,13 +1944,18 @@ pub fn get_git_commit_details_for_parent(
     let committer_email = info_parts.next().unwrap_or("").to_string();
     let committed_at = info_parts.next().unwrap_or("").to_string();
     let _decorations = info_parts.next();
-    let refs = get_graph_refs(cwd).remove(&full_hash).unwrap_or_default();
     let message = info_parts.next().unwrap_or("").to_string();
     let body = info_parts.next().unwrap_or("").trim().to_string();
-
-    let files = git_change_files(cwd, diff_parent.as_deref(), Some(hash));
-
-    let provider = get_commit_provider_metadata(cwd, &message);
+    let (refs, files, provider) = std::thread::scope(|scope| {
+        let refs = scope.spawn(|| get_graph_refs(cwd).remove(&full_hash).unwrap_or_default());
+        let provider = scope.spawn(|| get_commit_provider_metadata(cwd, &message));
+        let files = git_change_files(cwd, diff_parent.as_deref(), Some(hash));
+        (
+            refs.join().expect("Git refs worker panicked"),
+            files,
+            provider.join().expect("Git provider worker panicked"),
+        )
+    });
     Some(GitCommitDetails {
         file_presentation: Some(GitFilePresentation::from_paths(
             files.iter().map(|file| file.path.clone()).collect(),
@@ -2360,10 +2386,21 @@ fn get_graph_refs_with_worktrees(
     cwd: &str,
     worktrees: &[GitWorktree],
 ) -> HashMap<String, Vec<GitGraphRef>> {
-    let current_head =
-        run_git(&["symbolic-ref", "-q", "HEAD"], cwd).map(|value| value.trim().to_string());
-    let current_oid =
-        run_git(&["rev-parse", "--verify", "HEAD"], cwd).map(|value| value.trim().to_string());
+    let current_worktree = worktrees.iter().find(|worktree| worktree.is_current);
+    let (current_head, current_oid) = if let Some(worktree) = current_worktree {
+        (
+            worktree
+                .branch
+                .as_ref()
+                .map(|branch| format!("refs/heads/{branch}")),
+            Some(worktree.head.clone()),
+        )
+    } else {
+        (
+            run_git(&["symbolic-ref", "-q", "HEAD"], cwd).map(|value| value.trim().to_string()),
+            run_git(&["rev-parse", "--verify", "HEAD"], cwd).map(|value| value.trim().to_string()),
+        )
+    };
     let worktree_paths = worktrees
         .iter()
         .filter_map(|worktree| {
@@ -2588,8 +2625,31 @@ pub struct GitGraphInput {
 
 pub fn prepare_git_graph(cwd: &str) -> GitGraphInput {
     let mut worktrees = get_git_worktrees(cwd);
-    let operation = get_git_repository_operation_state(cwd);
-    let refs_by_target = get_graph_refs_with_worktrees(cwd, &worktrees);
+    let (operation, refs_by_target, statuses) = std::thread::scope(|scope| {
+        let deadline = git_exec::current_git_deadline();
+        let operation = scope.spawn(move || {
+            git_exec::with_git_deadline_until(deadline, || get_git_repository_operation_state(cwd))
+        });
+        let worktrees_for_refs = &worktrees;
+        let refs = scope.spawn(move || {
+            git_exec::with_git_deadline_until(deadline, || {
+                get_graph_refs_with_worktrees(cwd, worktrees_for_refs)
+            })
+        });
+        let statuses = worktrees
+            .iter()
+            .map(|worktree| {
+                (!worktree.bare && (!worktree.locked || worktree.is_current))
+                    .then(|| get_git_status(&worktree.path))
+                    .flatten()
+            })
+            .collect::<Vec<_>>();
+        (
+            operation.join().expect("Git operation worker panicked"),
+            refs.join().expect("Git refs worker panicked"),
+            statuses,
+        )
+    });
     let ordered_refs = refs_by_target
         .iter()
         .collect::<std::collections::BTreeMap<_, _>>();
@@ -2597,22 +2657,20 @@ pub fn prepare_git_graph(cwd: &str) -> GitGraphInput {
         serde_json::to_string(&ordered_refs).unwrap_or_default(),
         format!("{operation:?}"),
     ];
-    for worktree in &mut worktrees {
-        if !worktree.bare && (!worktree.locked || worktree.is_current) {
-            worktree.status = get_git_status(&worktree.path);
-            if let Some(status) = &worktree.status {
-                for file in &status.files {
-                    // Status letters/counts alone do not identify edits to an
-                    // already-modified file. Include its filesystem generation.
-                    let path = std::path::Path::new(&worktree.path).join(&file.path);
-                    parts.push(format!(
-                        "{}:{:?}",
-                        path.display(),
-                        std::fs::metadata(path.clone())
-                            .ok()
-                            .map(|m| (m.len(), m.modified().ok()))
-                    ));
-                }
+    for (worktree, status) in worktrees.iter_mut().zip(statuses) {
+        worktree.status = status;
+        if let Some(status) = &worktree.status {
+            for file in &status.files {
+                // Status letters/counts alone do not identify edits to an
+                // already-modified file. Include its filesystem generation.
+                let path = std::path::Path::new(&worktree.path).join(&file.path);
+                parts.push(format!(
+                    "{}:{:?}",
+                    path.display(),
+                    std::fs::metadata(path.clone())
+                        .ok()
+                        .map(|m| (m.len(), m.modified().ok()))
+                ));
             }
         }
     }
@@ -3059,6 +3117,72 @@ fn layout_graph(mut commits: Vec<GraphCommit>) -> (Vec<GraphCommit>, Vec<GraphRo
 #[cfg(test)]
 mod graph_layout_tests {
     use super::*;
+
+    #[test]
+    fn current_ref_matches_branch_and_detached_worktree_head() {
+        let root = tempfile::tempdir().unwrap();
+        let canonical_root = root.path().canonicalize().unwrap();
+        let cwd = canonical_root.to_str().unwrap();
+        let git = |args: &[&str]| {
+            let output = Command::new("git")
+                .args(args)
+                .current_dir(root.path())
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        git(&["init", "-b", "main"]);
+        git(&["config", "user.email", "fixture@example.invalid"]);
+        git(&["config", "user.name", "Fixture"]);
+        git(&["config", "commit.gpgsign", "false"]);
+        std::fs::write(root.path().join("file.txt"), "content\n").unwrap();
+        git(&["add", "file.txt"]);
+        git(&["commit", "-m", "Initial"]);
+        let head = current_git_head(cwd).unwrap();
+        let subdirectory = canonical_root.join("nested");
+        std::fs::create_dir(&subdirectory).unwrap();
+        let worktrees = get_git_worktrees(subdirectory.to_str().unwrap());
+        assert_eq!(
+            worktrees
+                .iter()
+                .filter(|worktree| worktree.is_current)
+                .count(),
+            1
+        );
+        assert_eq!(
+            worktrees
+                .iter()
+                .find(|worktree| worktree.is_current)
+                .unwrap()
+                .path,
+            cwd
+        );
+
+        let refs = get_graph_refs(cwd);
+        let current = refs[&head]
+            .iter()
+            .find(|reference| reference.is_head)
+            .unwrap();
+        assert_eq!(current.full_name, "refs/heads/main");
+        assert_eq!(current.kind, GitGraphRefKind::Head);
+        let details = get_git_commit_details_for_parent(cwd, &head, None).unwrap();
+        assert_eq!(details.files.len(), 1);
+        assert!(details.refs.iter().any(|reference| reference.is_head));
+
+        git(&["checkout", "--detach", "HEAD"]);
+        let refs = get_graph_refs(cwd);
+        let current = refs[&head]
+            .iter()
+            .find(|reference| reference.is_head)
+            .unwrap();
+        assert_eq!(current.full_name, "HEAD");
+        assert_eq!(current.kind, GitGraphRefKind::Head);
+        assert_eq!(current.worktree_path.as_deref(), Some(cwd));
+    }
 
     #[test]
     fn current_wip_precedes_stashes_and_linked_worktrees() {

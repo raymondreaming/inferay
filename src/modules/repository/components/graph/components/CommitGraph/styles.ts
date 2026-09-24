@@ -43,21 +43,6 @@ export const styles = stylex.create({
 		color: color.textMuted,
 		fontSize: font.size_2,
 	},
-	emptyRoot: {
-		display: "flex",
-		alignItems: "center",
-		justifyContent: "center",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: radius.md,
-		backgroundColor: color.background,
-		paddingBlock: controlSize._8,
-	},
-	emptyText: {
-		color: color.textMuted,
-		fontSize: font.size_2_75,
-	},
 	shrink: {
 		flexShrink: 0,
 	},
@@ -544,6 +529,8 @@ export const styles = stylex.create({
 		overflow: "visible",
 	},
 	avatarImage: {
+		position: "absolute",
+		inset: 0,
 		display: "block",
 		width: "100%",
 		height: "100%",

@@ -294,12 +294,6 @@ export const styles = stylex.create({
 		paddingInline: controlSize._1,
 		textTransform: "uppercase",
 	},
-	accentText: {
-		color: "currentColor",
-	},
-	shrink: {
-		flexShrink: 0,
-	},
 	providerConfigButton: {
 		alignItems: "center",
 		backgroundColor: {

@@ -11,7 +11,8 @@ import {
 } from "solid-js";
 import type { useAgentChatComposerState } from "../../hooks/useAgentChatComposerState.tsx";
 import type { useAgentChatMenus } from "../../hooks/useAgentChatMenus.tsx";
-export type AgentOption = {
+
+type AgentOption = {
 	id: WorkspaceAgentKind;
 	label: string;
 };

@@ -2,7 +2,8 @@ import type { MdInlineToken } from "@contracts";
 import { project } from "@shared/lib/native.tsx";
 import type { JSX } from "@solidjs/web";
 import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
-export type InlineAppearance = Partial<
+
+type InlineAppearance = Partial<
 	Record<
 		MdInlineToken["type"] | "boldItalicEm",
 		{

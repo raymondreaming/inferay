@@ -24,7 +24,7 @@ import { DocumentTabs } from "./DocumentTabs.tsx";
 import { SourcePreview } from "./SourcePreview.tsx";
 import { styles } from "./styles.ts";
 
-export type DocumentViewerProps = {
+type DocumentViewerProps = {
 	readonly cwd: string;
 	readonly sessionId?: string;
 	readonly initialFile?: FileContent;

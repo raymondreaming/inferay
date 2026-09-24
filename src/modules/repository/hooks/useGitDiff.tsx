@@ -50,14 +50,15 @@ export function useGitDiff(
 		},
 	};
 }
-export async function fetchGitDiff(
+async function fetchGitDiff(
 	input: DiffRequest,
 	signal: AbortSignal,
 ): Promise<HunkDiff> {
 	const diff = await loadGitDiff(input, signal);
-	// Prepare the initial viewport; mounted panels classify the rest in the background.
-	await prefetchDiffSyntax(input, diff);
 	signal.throwIfAborted();
+	// Start the priority preview before the mounted panel requests the full file.
+	// The diff itself can resolve while classification continues.
+	void prefetchDiffSyntax(input, diff);
 	return diff;
 }
 

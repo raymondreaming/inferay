@@ -391,7 +391,7 @@ export function hexToRgba(hex: string, alpha: number) {
 	const n = c.length === 3 ? c.replace(/[\s\S]/g, "$&$&") : c;
 	return `rgba(${Number.parseInt(n.slice(0, 2), 16)}, ${Number.parseInt(n.slice(2, 4), 16)}, ${Number.parseInt(n.slice(4, 6), 16)}, ${alpha})`;
 }
-export interface CommitGraphProps {
+interface CommitGraphProps {
 	searchQuery?: string;
 	searchActive?: boolean;
 	emptyLabel?: string;
@@ -439,7 +439,7 @@ export interface GraphPreferences {
 	pinnedRefs: string[];
 }
 export const TOP_PADDING = ROW_HEIGHT;
-export const EMPTY_SELECTED_IDS: readonly string[] = [];
+const EMPTY_SELECTED_IDS: readonly string[] = [];
 const GRAPH_PREFERENCES_KEY = "commit-graph-columns-v13:global";
 let sharedPreferences:
 	| [Accessor<GraphPreferences>, Setter<GraphPreferences>]
@@ -466,13 +466,10 @@ export function useGraphPreferences(repositoryKey?: string) {
 	};
 	return [read, update] as const;
 }
-export function scrollPreferencesKey(repositoryKey?: string) {
-	return `commit-graph-scroll-v1:${repositoryKey ?? "default"}`;
-}
 export function nextGitGraphHistoryLimit(current: number): number {
 	return rustProject("nextHistoryLimit", current);
 }
-export function moveGraphColumn(
+function moveGraphColumn(
 	order: readonly ColumnKey[],
 	source: ColumnKey,
 	target: ColumnKey,
@@ -483,7 +480,7 @@ export function moveGraphColumn(
 		target,
 	});
 }
-export function buildCommitGraphViewModel({
+function buildCommitGraphViewModel({
 	availableWidth,
 	commits,
 	presentation,

@@ -23,10 +23,7 @@ type PanelRequest = {
 };
 const parse = <T,>(value: string): T => JSON.parse(value);
 
-export const panelSessionQuery = (
-	workspaceId: string,
-	send: WorkspacePanelPort,
-) => ({
+const panelSessionQuery = (workspaceId: string, send: WorkspacePanelPort) => ({
 	queryKey: ["workspace-panels", workspaceId],
 	queryFn: async () => (await send({ workspaceId })).session,
 	staleTime: Infinity,

@@ -267,6 +267,11 @@ export const VirtualPanel = function VirtualPanel(props: {
 									<DiffRow
 										line={props3().line}
 										highlightedTokens={props3().highlightedTokens}
+										syntaxPending={
+											!props.disableTokenize &&
+											!!props.filePath &&
+											!_source2.isReady
+										}
 										isHighlighted={props3().isHighlighted}
 										minWidth={minContentWidth()}
 										hideGutter

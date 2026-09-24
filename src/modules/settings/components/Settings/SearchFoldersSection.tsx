@@ -129,7 +129,7 @@ export function SearchFoldersSection() {
 		</>
 	);
 }
-export async function fetchSearchFolders() {
+async function fetchSearchFolders() {
 	return settingsApi.loadSearchFolders();
 }
 export async function saveSearchFolders(folders: string[]) {

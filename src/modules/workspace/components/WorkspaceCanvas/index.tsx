@@ -174,8 +174,6 @@ function observeResponsiveGridColumns(
 				});
 				setAvailableColumns((current) => (current === next ? current : next));
 			};
-			update(element.getBoundingClientRect().width);
-			if (typeof ResizeObserver === "undefined") return;
 			const observer = new ResizeObserver((entries) => {
 				const width = entries[0]?.contentRect.width;
 				if (width !== undefined) update(width);
@@ -210,14 +208,14 @@ export type DragProps = {
 	readonly onDragEnd: () => void;
 };
 
-export type AuxiliaryPanel = {
+type AuxiliaryPanel = {
 	readonly id: string;
 	readonly selected?: boolean;
 	readonly onSelect?: () => void;
 	readonly render: (drag: DragProps) => import("solid-js").Element;
 };
 
-export interface WorkspaceCanvasProps {
+interface WorkspaceCanvasProps {
 	active?: boolean;
 	panes: Pane[];
 	selectedPaneId: string | null;
@@ -243,7 +241,7 @@ export interface WorkspaceCanvasProps {
 	auxiliaryPanels?: readonly AuxiliaryPanel[];
 }
 
-export function dropEdgeStyle(edge: DockEdge | null) {
+function dropEdgeStyle(edge: DockEdge | null) {
 	if (edge === "left") return styles.dropLeft;
 	if (edge === "right") return styles.dropRight;
 	if (edge === "top") return styles.dropTop;
@@ -829,4 +827,4 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 	);
 };
 export const DEFAULT_ROWS = 1 as const;
-export const EMPTY_AUXILIARY_PANELS: readonly AuxiliaryPanel[] = [];
+const EMPTY_AUXILIARY_PANELS: readonly AuxiliaryPanel[] = [];

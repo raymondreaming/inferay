@@ -8,14 +8,24 @@ thread_local! {
 }
 
 pub fn with_git_deadline<T>(duration: Duration, work: impl FnOnce() -> T) -> T {
+    with_git_deadline_until(Some(std::time::Instant::now() + duration), work)
+}
+
+pub(crate) fn current_git_deadline() -> Option<std::time::Instant> {
+    GIT_DEADLINE.with(std::cell::Cell::get)
+}
+
+pub(crate) fn with_git_deadline_until<T>(
+    deadline: Option<std::time::Instant>,
+    work: impl FnOnce() -> T,
+) -> T {
     struct Restore(Option<std::time::Instant>);
     impl Drop for Restore {
         fn drop(&mut self) {
             GIT_DEADLINE.with(|deadline| deadline.set(self.0));
         }
     }
-    let previous =
-        GIT_DEADLINE.with(|deadline| deadline.replace(Some(std::time::Instant::now() + duration)));
+    let previous = GIT_DEADLINE.with(|cell| cell.replace(deadline));
     let _restore = Restore(previous);
     work()
 }

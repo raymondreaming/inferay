@@ -69,7 +69,7 @@ export function Directory(_props: {
 
 const EXPLORER_ROW_HEIGHT = 24;
 const PROJECT_HEADER_HEIGHT = 26;
-export function Entry(_props2: { entry: ProjectFileEntry; depth: number }) {
+function Entry(_props2: { entry: ProjectFileEntry; depth: number }) {
 	const [expanded, setExpanded] = createSignal(false);
 	const activate = () => {
 		if (_props2.entry.isDir) setExpanded((value) => !value);

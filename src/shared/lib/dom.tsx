@@ -10,8 +10,8 @@ import {
 } from "solid-js";
 
 // Class names understood by the native window host.
-export const APP_REGION_DRAG_CLASS = "electrobun-webkit-app-region-drag";
-export const APP_REGION_NO_DRAG_CLASS = "electrobun-webkit-app-region-no-drag";
+export const APP_REGION_DRAG_CLASS = "inferay-app-region-drag";
+export const APP_REGION_NO_DRAG_CLASS = "inferay-app-region-no-drag";
 export type CSSProperties = CSS.Properties<string | number> & {
 	[key: `--${string}`]: string | number | undefined;
 };
@@ -226,7 +226,7 @@ export function createPointerResize() {
 		return cancel;
 	};
 }
-export function trackPointerResize(
+function trackPointerResize(
 	pointerId: number,
 	onMove: (event: PointerEvent) => void,
 	onEnd: () => void = noop,
@@ -376,9 +376,6 @@ export function openSkills(
 ): void {
 	dispatchWindowEvent(OPEN_SKILLS_EVENT, target);
 }
-export type MutableRef<T> = {
-	current: T;
-};
 export const REMOVE_AGENT_PANE_REQUEST_EVENT =
 	"inferay-remove-agent-pane-request";
 export interface RemoveAgentPaneRequestDetail {

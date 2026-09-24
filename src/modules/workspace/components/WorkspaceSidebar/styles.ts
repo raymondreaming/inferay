@@ -73,32 +73,6 @@ export const styles = stylex.create({
 		paddingInline: controlSize._2,
 		textAlign: "center",
 	},
-	sidebarRepositoryActions: {
-		display: "flex",
-	},
-	sidebarRepositoryAction: {
-		alignItems: "center",
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.controlHover,
-		},
-		borderRadius: radius.sm,
-		color: {
-			default: color.textMuted,
-			":hover": color.textMain,
-		},
-		display: "flex",
-		fontSize: font.size_2,
-		fontWeight: font.weight_5,
-		gap: controlSize._1,
-		height: controlSize._7,
-		justifyContent: "center",
-		":disabled": {
-			color: color.textMuted,
-			cursor: "default",
-			opacity: 0.45,
-		},
-	},
 	workspacePaneList: {
 		display: "flex",
 		flexDirection: "column",

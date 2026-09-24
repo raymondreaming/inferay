@@ -9,12 +9,6 @@ import {
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
-	control: {
-		minWidth: {
-			default: controlSize._0,
-			[breakpoint.tablet]: "11rem",
-		},
-	},
 	noShrink: {
 		flexShrink: 0,
 	},

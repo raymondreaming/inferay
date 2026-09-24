@@ -50,7 +50,7 @@ export function InputHighlights(props: Omit<DecoratedTextProps, "pills">) {
 	);
 }
 
-export function decoratedTextSegments(
+function decoratedTextSegments(
 	text: string,
 	slashCommandNames?: readonly string[],
 ): DecoratedTextSegment[] {

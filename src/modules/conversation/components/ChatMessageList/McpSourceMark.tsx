@@ -7,19 +7,28 @@ import { createSignal, onSettled, Show } from "solid-js";
 import { getMcpSourceMarkStyle, styles } from "./styles.ts";
 
 // One refresh timer for the transcript, regardless of how many tool rows mount.
-let observers = 0;
+const mountedServers = new Map<string, number>();
 let refreshTimer: ReturnType<typeof setInterval> | undefined;
 
 /** Brands one MCP call with its server, falling back to a tinted monogram. */
 export function McpSourceMark(props: { source: McpToolSource }) {
 	onSettled(() => {
-		if (observers++ === 0) {
-			refreshTimer = setInterval(() => {
+		const serverId = props.source.serverId;
+		mountedServers.set(serverId, (mountedServers.get(serverId) ?? 0) + 1);
+		refreshTimer ??= setInterval(() => {
+			const icons =
+				queryClient.getQueryData<Record<string, string>>(["mcp-icons"]) ?? {};
+			if ([...mountedServers.keys()].some((id) => !icons[id]))
 				void queryClient.invalidateQueries({ queryKey: ["mcp-icons"] });
-			}, 15_000);
-		}
+		}, 15_000);
 		return () => {
-			if (--observers === 0) clearInterval(refreshTimer);
+			const count = (mountedServers.get(serverId) ?? 1) - 1;
+			if (count > 0) mountedServers.set(serverId, count);
+			else mountedServers.delete(serverId);
+			if (mountedServers.size === 0) {
+				clearInterval(refreshTimer);
+				refreshTimer = undefined;
+			}
 		};
 	});
 	const icons = useQueryResource(

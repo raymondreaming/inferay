@@ -20,7 +20,7 @@ export function CommitGraphCell(_props: {
 }) {
 	return (
 		<div
-			{...stylex.attrs(styles.graphCell)}
+			class={stylex.attrs(styles.graphCell).class}
 			style={domStyle(
 				inlineStyles.getCommitRowGraphCellStyle(_props.graphWidth),
 			)}
@@ -28,7 +28,7 @@ export function CommitGraphCell(_props: {
 			{_props.hasConnector ? (
 				<span
 					aria-hidden="true"
-					{...stylex.attrs(styles.refToNodeConnector)}
+					class={stylex.attrs(styles.refToNodeConnector).class}
 					style={domStyle({
 						...inlineStyles.getCommitRowRefToNodeConnectorStyle(
 							_props.nodeCenter,
@@ -49,7 +49,7 @@ export function CommitGraphCell(_props: {
 					viewBox="0 0 18 18"
 					width="18"
 					height="18"
-					{...stylex.attrs(styles.wipNode)}
+					class={stylex.attrs(styles.wipNode).class}
 					style={domStyle({ left: _props.nodeLeft, top: _props.nodeTop })}
 				>
 					<circle

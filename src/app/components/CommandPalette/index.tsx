@@ -12,7 +12,8 @@ import {
 } from "solid-js";
 
 import { styles } from "./styles.ts";
-export interface CommandPaletteItem {
+
+interface CommandPaletteItem {
 	id: string;
 	label: string;
 	detail: string;

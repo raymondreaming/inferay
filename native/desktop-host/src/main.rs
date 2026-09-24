@@ -34,8 +34,8 @@ document.addEventListener('mousedown', (event) => {
   if (event.button !== 0) return;
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
-  const noDrag = target.closest('.electrobun-webkit-app-region-no-drag');
-  const drag = target.closest('.electrobun-webkit-app-region-drag');
+  const noDrag = target.closest('.inferay-app-region-no-drag');
+  const drag = target.closest('.inferay-app-region-drag');
   const interactive = target.closest(
     'button, a, input, textarea, select, summary, [role="button"], [role="link"], [role="menuitem"], [role="option"], [role="radio"], [contenteditable="true"], [draggable="true"], [data-workspace-dock-drag-source="true"]'
   );
@@ -315,6 +315,7 @@ fn main() -> wry::Result<()> {
             NewWindowResponse::Deny
         })
         .with_transparent(true)
+        .with_devtools(cfg!(debug_assertions))
         .with_initialization_script(INITIALIZATION_SCRIPT)
         .with_accept_first_mouse(true)
         .with_clipboard(true)

@@ -37,6 +37,9 @@ pub struct ModelOption {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub max_reasoning: Option<String>,
 }
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize, ts_rs::TS)]
 pub struct ReasoningLevel {
@@ -203,9 +206,7 @@ pub fn settings_view(input: &Value) -> ProviderSettingsView {
                 .as_str()
                 .unwrap_or_default()
                 .into(),
-            options: catalog()
-                .codex
-                .reasoning_levels
+            options: reasoning_levels_for(settings["model"].as_str().unwrap_or_default())
                 .iter()
                 .map(|level| ProviderSettingsOption {
                     id: level.id.clone(),
@@ -248,8 +249,35 @@ fn models(rows: &[(&str, &str, &str, Option<&str>)]) -> Vec<ModelOption> {
             label: (*label).into(),
             detail: Some((*detail).into()),
             short_label: short_label.map(str::to_owned),
+            max_reasoning: None,
         })
         .collect()
+}
+
+fn with_max_reasoning(mut options: Vec<ModelOption>, caps: &[(&str, &str)]) -> Vec<ModelOption> {
+    for option in &mut options {
+        option.max_reasoning = caps
+            .iter()
+            .find(|(id, _)| *id == option.id)
+            .map(|(_, level)| (*level).into());
+    }
+    options
+}
+
+pub fn reasoning_levels_for(model: &str) -> &'static [ReasoningLevel] {
+    let codex = &catalog().codex;
+    let cap = codex
+        .models
+        .iter()
+        .find(|option| option.id == model)
+        .and_then(|option| option.max_reasoning.as_deref())
+        .unwrap_or("xhigh");
+    let levels = &codex.reasoning_levels;
+    let end = levels
+        .iter()
+        .position(|level| level.id == cap)
+        .map_or(levels.len(), |index| index + 1);
+    &levels[..end]
 }
 
 fn commands(rows: &[(&str, &str)]) -> Vec<SlashCommand> {
@@ -336,15 +364,16 @@ fn catalog() -> &'static AgentCatalog {
             models: models(&[
                 ("claude-fable-5-1", "Fable 5.1", "Hardest tasks", None),
                 ("claude-fable-5", "Fable 5", "Previous Fable", None),
-                ("claude-opus-5", "Opus 5", "★ Most capable", None),
-                ("claude-opus-4-8", "Opus 4.8", "Previous Opus", None),
+                ("claude-opus-5-5", "Opus 5.5", "★ Most capable", None),
+                ("claude-opus-5", "Opus 5", "Previous Opus", None),
+                ("claude-opus-4-8", "Opus 4.8", "Older Opus", None),
                 ("claude-opus-4-7", "Opus 4.7", "Older Opus", None),
                 ("claude-opus-4-6", "Opus 4.6", "Older Opus", None),
                 ("claude-sonnet-5", "Sonnet 5", "Best value", None),
                 ("claude-sonnet-4-6", "Sonnet 4.6", "Previous Sonnet", None),
                 ("claude-haiku-4-5", "Haiku 4.5", "Fastest", None),
             ]),
-            default_model: "claude-opus-5".into(),
+            default_model: "claude-opus-5-5".into(),
             reasoning_levels: vec![],
         },
         codex: AgentDefinition {
@@ -356,52 +385,53 @@ fn catalog() -> &'static AgentCatalog {
                 "goal",
                 "Start, pause, resume, clear, or inspect a Codex objective",
             )]),
-            models: models(&[
-                (
-                    "gpt-6-astra",
-                    "GPT-6 Astra",
-                    "Complex agentic work",
-                    Some("Astra"),
-                ),
-                (
-                    "gpt-5.6-sol",
-                    "GPT-5.6 Sol",
-                    "★ Frontier agentic coding",
-                    Some("Sol"),
-                ),
-                (
-                    "gpt-5.6-terra",
-                    "GPT-5.6 Terra",
-                    "Balanced everyday work",
-                    Some("Terra"),
-                ),
-                (
-                    "gpt-5.6-luna",
-                    "GPT-5.6 Luna",
-                    "Fast & affordable",
-                    Some("Luna"),
-                ),
-                ("gpt-5.5", "GPT-5.5", "Frontier model", None),
-                ("gpt-5.4", "GPT-5.4", "Everyday coding", None),
-                ("gpt-5.2-codex", "GPT-5.2 Codex", "★ Frontier agentic", None),
-                (
-                    "gpt-5.1-codex-max",
-                    "GPT-5.1 Codex Max",
-                    "Deep reasoning",
-                    None,
-                ),
-                ("gpt-5.4-mini", "GPT-5.4 Mini", "Fast & cheap", None),
-                ("gpt-5.3-codex", "GPT-5.3 Codex", "Coding-optimized", None),
-                ("gpt-5.3-codex-spark", "GPT-5.3 Spark", "Ultra-fast", None),
-                ("gpt-5.2", "GPT-5.2", "Long-running agents", None),
-                ("gpt-5.1-codex-mini", "GPT-5.1 Codex Mini", "Cheapest", None),
-            ]),
+            models: with_max_reasoning(
+                models(&[
+                    (
+                        "gpt-6-astra",
+                        "GPT-6 Astra",
+                        "Complex agentic work",
+                        Some("Astra"),
+                    ),
+                    (
+                        "gpt-6-sol",
+                        "GPT-6 Sol",
+                        "★ Everyday coding workhorse",
+                        Some("Sol"),
+                    ),
+                    (
+                        "gpt-6-luna",
+                        "GPT-6 Luna",
+                        "Fast & affordable",
+                        Some("Luna"),
+                    ),
+                    ("gpt-5.6-sol", "GPT-5.6 Sol", "Previous Sol", None),
+                    (
+                        "gpt-5.6-terra",
+                        "GPT-5.6 Terra",
+                        "Balanced everyday work",
+                        Some("Terra"),
+                    ),
+                    ("gpt-5.6-luna", "GPT-5.6 Luna", "Previous Luna", None),
+                    ("gpt-5.5", "GPT-5.5", "Legacy coding model", None),
+                ]),
+                &[
+                    ("gpt-6-astra", "ultra"),
+                    ("gpt-6-sol", "ultra"),
+                    ("gpt-6-luna", "max"),
+                    ("gpt-5.6-sol", "ultra"),
+                    ("gpt-5.6-terra", "ultra"),
+                    ("gpt-5.6-luna", "max"),
+                ],
+            ),
             default_model: "gpt-6-astra".into(),
             reasoning_levels: [
                 ("low", "Low", "Fast responses (default)"),
                 ("medium", "Medium", "Balanced"),
                 ("high", "High", "Greater depth"),
-                ("xhigh", "Extra High", "Maximum reasoning"),
+                ("xhigh", "Extra High", "Deep reasoning"),
+                ("max", "Max", "Longer deliberation"),
+                ("ultra", "Ultra", "Maximum reasoning"),
             ]
             .into_iter()
             .map(|(id, label, detail)| ReasoningLevel {
@@ -445,16 +475,15 @@ pub fn resolve(input: &Value) -> ProviderSettings {
         )
         .find(|model| agent.models.iter().any(|option| option.id == *model))
         .unwrap_or(&agent.default_model);
+    let supported = reasoning_levels_for(model);
+    let all = &catalog().codex.reasoning_levels;
     let reasoning = input["reasoningLevel"]
         .as_str()
         .into_iter()
         .chain(defaults["reasoningLevel"].as_str())
-        .find(|level| {
-            catalog()
-                .codex
-                .reasoning_levels
-                .iter()
-                .any(|option| option.id == *level)
+        .find_map(|level| {
+            let index = all.iter().position(|option| option.id == level)?;
+            Some(supported[index.min(supported.len() - 1)].id.as_str())
         })
         .unwrap_or("low");
     ProviderSettings {

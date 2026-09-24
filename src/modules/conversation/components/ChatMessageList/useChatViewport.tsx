@@ -143,10 +143,10 @@ export function useChatViewport(
 				update("follow", { value: snapshot.atBottom });
 				if (--passes) restoreFrameRef.current = requestAnimationFrame(restore);
 			};
-			restore();
+			restoreFrameRef.current = requestAnimationFrame(restore);
 			return () => {
 				cancelScrollRestore();
-				capture(element);
+				if (untrack(_isVisible)) capture(element);
 			};
 		},
 	);

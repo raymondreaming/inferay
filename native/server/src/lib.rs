@@ -989,10 +989,13 @@ async fn git_graph(state: &ServerState, request: Request) -> ApiResult<Response>
     }
     let started = std::time::Instant::now();
     let task = async move {
-        let (pr_revision, pull_requests) = forge::graph_pull_requests(state, Path::new(&cwd)).await;
         let input_cwd = cwd.clone();
-        let input =
-            render_jobs::run(move || inferay_native_diff::prepare_git_graph(&input_cwd)).await?;
+        let (forge_result, input_result) = tokio::join!(
+            forge::graph_pull_requests(state, Path::new(&cwd)),
+            render_jobs::run(move || inferay_native_diff::prepare_git_graph(&input_cwd))
+        );
+        let (pr_revision, pull_requests) = forge_result;
+        let input = input_result?;
         let key = format!(
             "graph-v5\0{cwd}\0{limit}\0{}\0{pr_revision}\0{query}\0{:?}\0{:?}\0{:?}",
             input.revision, hidden_refs, solo_refs, pinned_refs

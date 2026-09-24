@@ -145,14 +145,16 @@ export function RefBadge(_props: {
 			onMouseLeave={() => setHovered(false)}
 			onFocus={() => setHovered(true)}
 			onBlur={() => setHovered(false)}
-			{...stylex.attrs(
-				styles.refBadge,
-				(_props.kind !== "head" ||
-					(_props.ghost === undefined ? false : _props.ghost)) &&
-					styles.dimmedRefBadge,
-				(_props.ghost === undefined ? false : _props.ghost) &&
-					styles.ghostRefBadge,
-			)}
+			class={
+				stylex.attrs(
+					styles.refBadge,
+					(_props.kind !== "head" ||
+						(_props.ghost === undefined ? false : _props.ghost)) &&
+						styles.dimmedRefBadge,
+					(_props.ghost === undefined ? false : _props.ghost) &&
+						styles.ghostRefBadge,
+				).class
+			}
 			style={domStyle({
 				...inlineStyles.getRefBadgeRefBadgeStyle(
 					(_props.ghost === undefined ? false : _props.ghost)
@@ -168,14 +170,14 @@ export function RefBadge(_props: {
 			})}
 		>
 			<RefIcon kind={_props.kind} />
-			<span {...stylex.attrs(styles.truncate)}>{_props.label}</span>
+			<span class={stylex.attrs(styles.truncate).class}>{_props.label}</span>
 			{
 				<For
 					each={_props.trailingKinds === undefined ? [] : _props.trailingKinds}
 					keyed={(row) => row}
 				>
 					{(trailingKind) => (
-						<span aria-hidden="true" {...stylex.attrs(styles.shrink)}>
+						<span aria-hidden="true" class={stylex.attrs(styles.shrink).class}>
 							<RefIcon kind={trailingKind()} />
 						</span>
 					)}

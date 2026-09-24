@@ -128,7 +128,6 @@ export const ChatMessageList = function ChatMessageList(_props: {
 				update();
 			});
 			viewportObserver.observe(element);
-			setViewportHeight(element.clientHeight);
 			element.addEventListener("scroll", update, {
 				passive: true,
 			});
@@ -362,7 +361,7 @@ export const ChatMessageList = function ChatMessageList(_props: {
 };
 
 /** Reconcile stream patches by message ID so text updates do not regroup the transcript. */
-export function createChatListModel(
+function createChatListModel(
 	source: Accessor<ChatMessage[]>,
 	checkpoints: Accessor<CheckpointMeta[]>,
 ) {

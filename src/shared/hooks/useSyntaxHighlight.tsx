@@ -79,12 +79,28 @@ export function useSyntaxHighlight(_options: Accessor<HighlightInput>) {
 	const options = createMemo(() => syntaxQueryOptions(_options()));
 	const active = createMemo(() => options().enabled);
 	const query = useQuery(options, () => queryClient);
+	const [previewRevision, setPreviewRevision] = createSignal(0);
+	onSettled(() =>
+		queryClient.getQueryCache().subscribe((event) => {
+			if (event.type !== "updated" || event.query.state.data === undefined)
+				return;
+			const key = options().queryKey;
+			const changed = event.query.queryKey;
+			if (
+				changed.length === key.length + 1 &&
+				changed.at(-1) === "preview" &&
+				key.every((part, index) => Object.is(part, changed[index]))
+			)
+				setPreviewRevision((revision) => revision + 1);
+		}),
+	);
 	// Slicing every line up front wastes the work virtualization exists to
 	// avoid, so tokens are cut on demand and kept per document.
 	const document = createMemo(() => {
 		// Observe fetch completion, but always select the current document's cache entry.
 		// Cached navigation must not wait for the observer effect or use the previous file's runs.
 		void query.data;
+		void previewRevision();
 		return active()
 			? (queryClient.getQueryData<ClassifiedDocument | null>(
 					options().queryKey,
@@ -161,8 +177,7 @@ export const SYNTAX_HIGHLIGHT_THEMES = [
 ] as const;
 export type SyntaxHighlightTheme =
 	(typeof SYNTAX_HIGHLIGHT_THEMES)[number]["id"];
-export const DEFAULT_SYNTAX_HIGHLIGHT_THEME: SyntaxHighlightTheme =
-	"vscode-black";
+const DEFAULT_SYNTAX_HIGHLIGHT_THEME: SyntaxHighlightTheme = "vscode-black";
 const SYNTAX_THEME_STORAGE_KEY = "inferay-syntax-highlight-theme";
 const SYNTAX_THEME_EVENT = "inferay-syntax-highlight-theme-change";
 function normalize(value: string | null): SyntaxHighlightTheme {
@@ -174,7 +189,7 @@ function normalize(value: string | null): SyntaxHighlightTheme {
 
 /** The palette is a stylesheet concern, so applying a theme only swaps the
  *  attribute the `--color-syntax-*` variables key off. */
-export function applySyntaxTheme(theme: SyntaxHighlightTheme): void {
+function applySyntaxTheme(theme: SyntaxHighlightTheme): void {
 	document.documentElement.dataset.inferaySyntaxTheme = theme;
 }
 export function useSyntaxHighlightTheme() {

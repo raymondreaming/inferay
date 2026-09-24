@@ -329,14 +329,6 @@ export const runtimeGitGraphLaneColors = [
 	"#76d33c",
 	"#36c894",
 ] as const;
-export const runtimeFont = {
-	familyMono: '"JetBrains Mono", "SF Mono", Menlo, Consolas, monospace',
-	sizeCompact: "11px",
-} as const;
-export const runtimeLayer = {
-	content: 1,
-	criticalOverlay: 9999,
-} as const;
 export const surfaceStyles = stylex.create({
 	/** The one treatment for every floating layer: modals, dialogs, menus, popovers. */
 	overlay: {
@@ -377,7 +369,7 @@ export const surfaceStyles = stylex.create({
 		},
 	},
 });
-export type SelectionVariant = "sidebar" | "repository" | "view" | "list";
+type SelectionVariant = "sidebar" | "repository" | "view" | "list";
 
 /** Owns selection appearance. Callers supply layout, labels, and behavior only. */
 export function selectionAppearance(
