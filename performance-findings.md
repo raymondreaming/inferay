@@ -87,6 +87,12 @@ not establish a new real-network or desktop-launch p95.
 
 ### Desktop app checks
 
+- With two linked worktrees, the running desktop app's conditional graph request
+  took 119 ms p50 across five requests before reading worktree statuses in
+  parallel, and 76.6 ms p50 across eight requests afterward. Both returned
+  HTTP 304 with no body. A full graph response was about 1.33 MB and took
+  93.8 ms in the updated build. These are local HTTP timings, not graph paint
+  times.
 - On the first launch, graph avatars appeared about 3.5 seconds after the graph. On a
   later launch, cached avatars were present in the first visible graph frame.
 - After the graph settled, eight rapid Down key presses moved the selection eight

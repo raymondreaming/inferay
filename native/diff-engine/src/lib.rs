@@ -2636,14 +2636,35 @@ pub fn prepare_git_graph(cwd: &str) -> GitGraphInput {
                 get_graph_refs_with_worktrees(cwd, worktrees_for_refs)
             })
         });
-        let statuses = worktrees
-            .iter()
-            .map(|worktree| {
-                (!worktree.bare && (!worktree.locked || worktree.is_current))
-                    .then(|| get_git_status(&worktree.path))
-                    .flatten()
-            })
-            .collect::<Vec<_>>();
+        // Each worktree has its own index. Read their status concurrently so
+        // linked worktrees do not add their Git and filesystem latency in series.
+        let mut statuses = Vec::with_capacity(worktrees.len());
+        for chunk in worktrees.chunks(4) {
+            let tasks = chunk
+                .iter()
+                .skip(1)
+                .map(|worktree| {
+                    scope.spawn(move || {
+                        git_exec::with_git_deadline_until(deadline, || {
+                            (!worktree.bare && (!worktree.locked || worktree.is_current))
+                                .then(|| get_git_status(&worktree.path))
+                                .flatten()
+                        })
+                    })
+                })
+                .collect::<Vec<_>>();
+            let first = &chunk[0];
+            statuses.push(
+                (!first.bare && (!first.locked || first.is_current))
+                    .then(|| get_git_status(&first.path))
+                    .flatten(),
+            );
+            statuses.extend(
+                tasks
+                    .into_iter()
+                    .map(|task| task.join().expect("Git status worker panicked")),
+            );
+        }
         (
             operation.join().expect("Git operation worker panicked"),
             refs.join().expect("Git refs worker panicked"),
