@@ -2,7 +2,7 @@ import { surfaceStyles } from "@design-system/styles.stylex.ts";
 import { ariaValue, domStyle } from "@shared/lib/dom.tsx";
 import { Portal } from "@solidjs/web";
 import * as stylex from "@stylexjs/stylex";
-import { For } from "solid-js";
+import { For, onSettled } from "solid-js";
 import { getCommitGraphRefContextMenuStyle, styles } from "./styles.ts";
 export interface ContextMenuEntry {
 	label: string;
@@ -16,6 +16,18 @@ export function ContextMenu(_props: {
 	entries: ContextMenuEntry[];
 	onClose: () => void;
 }) {
+	onSettled(() => {
+		const close = () => _props.onClose();
+		const closeOnEscape = (event: KeyboardEvent) => {
+			if (event.key === "Escape") close();
+		};
+		window.addEventListener("pointerdown", close);
+		window.addEventListener("keydown", closeOnEscape);
+		return () => {
+			window.removeEventListener("pointerdown", close);
+			window.removeEventListener("keydown", closeOnEscape);
+		};
+	});
 	return (
 		<Portal mount={document.body}>
 			<div

@@ -123,25 +123,6 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 			if (embedded && ready) scroller?.focus({ preventScroll: true });
 		},
 	);
-	createEffect(
-		() => !!itemContextMenu() || !!refContextMenu(),
-		(open) => {
-			if (!open) return;
-			const close = () => {
-				setRefContextMenu(null);
-				setItemContextMenu(null);
-			};
-			const closeOnEscape = (event: KeyboardEvent) => {
-				if (event.key === "Escape") close();
-			};
-			window.addEventListener("pointerdown", close);
-			window.addEventListener("keydown", closeOnEscape);
-			return () => {
-				window.removeEventListener("pointerdown", close);
-				window.removeEventListener("keydown", closeOnEscape);
-			};
-		},
-	);
 	const graphModel = createMemo(() => {
 		const _source2Value = preferences(),
 			_sourceValue7 = _props();
