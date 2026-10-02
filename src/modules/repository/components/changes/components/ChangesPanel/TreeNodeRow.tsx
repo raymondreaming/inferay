@@ -26,6 +26,7 @@ export function TreeNodeRow(props: {
 	onPrefetchFile?: (file: GitFileEntry | null) => void;
 	onSelect: (f: GitFileEntry) => void;
 	onAction?: (path: string) => void;
+	onContextMenu?: (file: GitFileEntry, event: MouseEvent) => void;
 	actionLabel?: string;
 	collapsedDirs: Set<string>;
 	toggleDir: (path: string) => void;
@@ -92,6 +93,12 @@ export function TreeNodeRow(props: {
 				onMouseLeave={() => {
 					setHovered(false);
 					props.onPrefetchFile?.(null);
+				}}
+				onContextMenu={(event) => {
+					const _fileValue5 = file();
+					if (!_fileValue5 || !props.onContextMenu) return;
+					event.preventDefault();
+					props.onContextMenu(_fileValue5, event);
 				}}
 			>
 				<button

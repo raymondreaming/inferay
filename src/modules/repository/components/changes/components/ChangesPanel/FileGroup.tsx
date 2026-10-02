@@ -4,8 +4,9 @@ import type {
 	SelectedPanelFile,
 } from "@contracts";
 import { iconSize, selectionAppearance } from "@design-system/styles.stylex.ts";
+import { ContextMenu } from "@repository/components/graph/components/CommitGraph/ContextMenu.tsx";
 import { ariaValue } from "@shared/lib/dom.tsx";
-import { IconChevronRight } from "@shared/ui/Icons/index.tsx";
+import { IconChevronRight, IconTrash } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, createMemo, createSignal, For } from "solid-js";
 import { styles } from "./styles.ts";
@@ -22,12 +23,20 @@ export function FileGroup(_props: {
 	actionLabel?: string;
 	onAction?: (path: string) => void;
 	onActionAll?: () => void;
+	onStash?: (path: string) => void;
+	onDiscard?: (path: string) => void;
+	onDiscardAll?: () => void;
 	isCollapsible?: boolean;
 	showHeader?: boolean;
 	viewMode?: "path" | "tree";
 	splitPane?: boolean;
 }) {
 	const [isCollapsed, setIsCollapsed] = createSignal(false);
+	const [menu, setMenu] = createSignal<{
+		file: GitFileEntry;
+		x: number;
+		y: number;
+	} | null>(null);
 	const [collapsedDirs, setCollapsedDirs] = createSignal<Set<string>>(
 		new Set(),
 	);
@@ -106,6 +115,16 @@ export function FileGroup(_props: {
 		get actionLabel() {
 			return _props.actionLabel;
 		},
+		get onContextMenu() {
+			return _props.onAction || _props.onStash || _props.onDiscard
+				? (file: GitFileEntry, event: MouseEvent) =>
+						setMenu({
+							file,
+							x: Math.min(event.clientX, window.innerWidth - 224),
+							y: Math.min(event.clientY, window.innerHeight - 160),
+						})
+				: undefined;
+		},
 		get collapsedDirs() {
 			return collapsedDirs();
 		},
@@ -180,6 +199,17 @@ export function FileGroup(_props: {
 								{_props.actionLabel} All
 							</button>
 						)}
+					{_props.onDiscardAll && !isEmpty() && (
+						<button
+							type="button"
+							onClick={_props.onDiscardAll}
+							title={`Discard all ${_props.title.toLowerCase()} changes`}
+							aria-label={`Discard all ${_props.title.toLowerCase()} changes`}
+							{...stylex.attrs(styles.headerIconButton)}
+						>
+							<IconTrash size={iconSize.sm} />
+						</button>
+					)}
 				</div>
 			) : null}
 			{isEmpty() ? (
@@ -219,6 +249,40 @@ export function FileGroup(_props: {
 						)}
 				</div>
 			) : null}
+			{menu() && (
+				<ContextMenu
+					x={menu()!.x}
+					y={menu()!.y}
+					title={menu()!.file.path}
+					entries={[
+						...(_props.onAction && _props.actionLabel
+							? [
+									{
+										label: `${_props.actionLabel} file`,
+										run: () => _props.onAction?.(menu()!.file.path),
+									},
+								]
+							: []),
+						...(_props.onStash
+							? [
+									{
+										label: "Stash file",
+										run: () => _props.onStash?.(menu()!.file.path),
+									},
+								]
+							: []),
+						...(_props.onDiscard
+							? [
+									{
+										label: "Discard changes…",
+										run: () => _props.onDiscard?.(menu()!.file.path),
+									},
+								]
+							: []),
+					]}
+					onClose={() => setMenu(null)}
+				/>
+			)}
 		</div>
 	);
 }

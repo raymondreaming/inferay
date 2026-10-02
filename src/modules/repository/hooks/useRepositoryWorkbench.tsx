@@ -1108,6 +1108,8 @@ export function useRepositoryWorkbench(
 						onUnstageFile={changeActions.unstageFile}
 						onStageAll={changeActions.stageAll}
 						onUnstageAll={changeActions.unstageAll}
+						onStashFile={changeActions.stashFile}
+						onDiscard={changeActions.discard}
 						hasProject={!!project() || !!selectedLinkedWorktreeStatus()}
 						projectLoading={!!activeCwd() && !gitStatus.loaded}
 						selectedCommitHash={panelSession().selectedCommitHash}

@@ -42,7 +42,7 @@ use inferay_native_diff::{
     get_git_comparison_details, get_git_comparison_hunk_diff, get_git_status,
     get_git_worktree_comparison_details, get_git_worktree_comparison_hunk_diff,
     perform_git_graph_action_with_targets, perform_git_ref_operation, preflight_git_ref_operation,
-    stage_git, unstage_git,
+    discard_git, stage_git, stash_git_file, unstage_git,
 };
 use percent_encoding::percent_decode_str;
 use reqwest::Client;
@@ -197,6 +197,8 @@ struct GitGraphActionBody {
 struct GitFileBody {
     cwd: Option<String>,
     file: Option<String>,
+    #[serde(default)]
+    staged: bool,
 }
 
 #[derive(Deserialize)]
@@ -440,6 +442,8 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             }
             ("/api/git/stage", "POST") => git_stage_change(&state, request, true).await,
             ("/api/git/unstage", "POST") => git_stage_change(&state, request, false).await,
+            ("/api/git/discard", "POST") => git_discard(&state, request).await,
+            ("/api/git/stash-file", "POST") => git_stash_file(&state, request).await,
             ("/api/git/commit", "POST") => git_commit(&state, request).await,
 
             ("/api/agent/commands", "GET") => state
@@ -938,6 +942,33 @@ async fn git_stage_change(state: &ServerState, request: Request, stage: bool) ->
     })
     .await?;
     Ok(json!({"success":success}))
+}
+async fn git_discard(state: &ServerState, request: Request) -> ApiResult {
+    let body: GitFileBody = api_body(request).await?;
+    let cwd = request_cwd(state, body.cwd.as_deref())?;
+    let file = body.file.filter(|file| !file.is_empty());
+    if file
+        .as_deref()
+        .is_some_and(|file| !is_safe_relative_path(file))
+    {
+        return Err(api_error(StatusCode::BAD_REQUEST, "Invalid file parameter"));
+    }
+    tokio::task::spawn_blocking(move || discard_git(&cwd, body.staged, file.as_deref()))
+        .await?
+        .map_err(|error| api_error(StatusCode::CONFLICT, error))?;
+    Ok(json!({"success":true}))
+}
+async fn git_stash_file(state: &ServerState, request: Request) -> ApiResult {
+    let body: GitFileBody = api_body(request).await?;
+    let cwd = request_cwd(state, body.cwd.as_deref())?;
+    let file = required(
+        body.file.filter(|file| is_safe_relative_path(file)),
+        "Invalid file parameter",
+    )?;
+    tokio::task::spawn_blocking(move || stash_git_file(&cwd, &file))
+        .await?
+        .map_err(|error| api_error(StatusCode::CONFLICT, error))?;
+    Ok(json!({"success":true}))
 }
 async fn git_commit(state: &ServerState, request: Request) -> ApiResult {
     let body: GitCommitBody = api_body(request).await?;

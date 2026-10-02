@@ -40,6 +40,8 @@ export const ChangesPanel = function ChangesPanel(props: {
 	onUnstageFile: (path: string) => void;
 	onStageAll: () => void;
 	onUnstageAll: () => void;
+	onStashFile: (path: string) => void;
+	onDiscard: (staged: boolean, path?: string) => void;
 	hasProject: boolean;
 	projectLoading?: boolean;
 	selectedCommitHash: string | null;
@@ -146,6 +148,8 @@ export const ChangesPanel = function ChangesPanel(props: {
 					onUnstageFile={props.onUnstageFile}
 					onStageAll={props.onStageAll}
 					onUnstageAll={props.onUnstageAll}
+					onStashFile={props.onStashFile}
+					onDiscard={props.onDiscard}
 					fileViewMode={props.fileViewMode}
 				/>
 			)}

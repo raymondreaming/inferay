@@ -1,8 +1,10 @@
 import type { GitStatusResult } from "@contracts";
 import {
 	commitGitChanges,
+	discardGitChanges,
 	loadGitStatuses,
 	runGitChangeAction,
+	stashGitFile,
 } from "@repository/services/gitApi.ts";
 import { usePollingQuery } from "@shared/hooks/useQueryResource.tsx";
 import { type Accessor, createMemo, createSignal } from "solid-js";
@@ -96,6 +98,17 @@ export function useGitChangeActions(
 				void _options2().refetchStatus();
 			});
 	};
+	const runReported = (work: (cwd: string) => Promise<void>) => {
+		const cwd = _options2().cwd;
+		if (!cwd) return;
+		void work(cwd)
+			.catch((error: unknown) => {
+				alert(error instanceof Error ? error.message : String(error));
+			})
+			.finally(() => {
+				void _options2().refetchStatus();
+			});
+	};
 	const commit = async () => {
 		const _options2Value2 = _options2(),
 			_commitMessageValue = commitMessage();
@@ -124,5 +137,14 @@ export function useGitChangeActions(
 		unstageFile: (file: string) => gitAction("unstage", file || undefined),
 		stageAll: () => gitAction("stage"),
 		unstageAll: () => gitAction("unstage"),
+		stashFile: (file: string) => runReported((cwd) => stashGitFile(cwd, file)),
+		discard: (staged: boolean, file?: string) => {
+			const scope = staged ? "staged" : "unstaged";
+			const prompt = file
+				? `Discard ${scope} changes to ${file}?`
+				: `Discard all ${scope} changes?${staged ? "" : " Staged changes are kept. New untracked files are deleted."}`;
+			if (!confirm(`${prompt} This cannot be undone.`)) return;
+			runReported((cwd) => discardGitChanges(cwd, staged, file));
+		},
 	};
 }

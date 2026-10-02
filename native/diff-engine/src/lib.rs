@@ -2087,6 +2087,136 @@ pub fn unstage_git(cwd: &str, file_path: Option<&str>) -> bool {
     }
 }
 
+pub fn discard_git(cwd: &str, staged: bool, file_path: Option<&str>) -> Result<(), String> {
+    let status = git_status(cwd, false).ok_or("Could not read repository status")?;
+    let entries: Vec<_> = status
+        .files
+        .iter()
+        .filter(|file| file.staged == staged && file_path.is_none_or(|path| file.path == path))
+        .collect();
+    if entries.is_empty() {
+        return Ok(());
+    }
+    let timeout = Duration::from_secs(30);
+    let git = |args: &[&str]| git_exec::run_git_bytes(args, cwd, timeout).map(|_| ());
+    if !staged {
+        let (untracked, tracked): (Vec<&GitFileEntry>, Vec<&GitFileEntry>) =
+            entries.into_iter().partition(|file| file.status == "?");
+        if !tracked.is_empty() {
+            let mut args = vec!["--literal-pathspecs", "restore", "--worktree", "--"];
+            args.extend(tracked.iter().map(|file| file.path.as_str()));
+            git(&args)?;
+        }
+        if !untracked.is_empty() {
+            let mut args = vec!["--literal-pathspecs", "clean", "-f", "--"];
+            args.extend(untracked.iter().map(|file| file.path.as_str()));
+            git(&args)?;
+        }
+        return Ok(());
+    }
+    let overlap = || {
+        "Unstaged edits overlap these staged changes. Discard or stash the unstaged changes first."
+            .to_owned()
+    };
+    let temporary = |label: &str, bytes: &[u8]| {
+        let path = std::env::temp_dir().join(format!(
+            "inferay-discard-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_nanos())
+        ));
+        std::fs::write(&path, bytes)
+            .map(|()| path)
+            .map_err(|error| error.to_string())
+    };
+    let root = Path::new(cwd);
+    let mut reset = vec!["--literal-pathspecs", "reset", "-q", "--"];
+    let mut restore = Vec::new();
+    let mut remove = Vec::new();
+    let mut write = Vec::new();
+    for file in &entries {
+        let worktree = std::fs::read(root.join(&file.path)).ok();
+        let index =
+            git_exec::run_git_bytes(&["show", &format!(":{}", file.path)], cwd, timeout).ok();
+        let unchanged = worktree.is_none() || worktree == index;
+        reset.extend(file.original_path.as_deref());
+        reset.push(&file.path);
+        match (file.status.as_str(), file.original_path.as_deref()) {
+            (_, Some(original)) if unchanged => {
+                remove.push(file.path.as_str());
+                restore.push(original);
+            }
+            ("A", _) if unchanged => remove.push(file.path.as_str()),
+            ("D", _) if worktree.is_none() => restore.push(file.path.as_str()),
+            (_, None) if worktree.is_some() && worktree == index => {
+                restore.push(file.path.as_str())
+            }
+            ("M" | "T", None) if worktree.is_some() => {
+                let base = temporary("base", &index.ok_or_else(overlap)?)?;
+                let head = git_exec::run_git_bytes(
+                    &["show", &format!("HEAD:{}", file.path)],
+                    cwd,
+                    timeout,
+                )
+                .and_then(|bytes| temporary("head", &bytes));
+                let merged = head.as_ref().map_err(Clone::clone).and_then(|head| {
+                    let ours = root.join(&file.path);
+                    git_exec::run_git_bytes(
+                        &[
+                            "merge-file",
+                            "-p",
+                            &ours.to_string_lossy(),
+                            &base.to_string_lossy(),
+                            &head.to_string_lossy(),
+                        ],
+                        cwd,
+                        timeout,
+                    )
+                });
+                let _ = std::fs::remove_file(&base);
+                if let Ok(head) = &head {
+                    let _ = std::fs::remove_file(head);
+                }
+                write.push((file.path.as_str(), merged.map_err(|_| overlap())?));
+            }
+            _ => return Err(overlap()),
+        }
+    }
+    git(&reset)?;
+    if !restore.is_empty() {
+        let mut args = vec!["--literal-pathspecs", "checkout", "--"];
+        args.extend(restore);
+        git(&args)?;
+    }
+    for path in remove {
+        std::fs::remove_file(root.join(path)).map_err(|error| error.to_string())?;
+    }
+    for (path, bytes) in write {
+        std::fs::write(root.join(path), bytes).map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+pub fn stash_git_file(cwd: &str, file_path: &str) -> Result<(), String> {
+    let status = git_status(cwd, false).ok_or("Could not read repository status")?;
+    let message = format!("Stash {file_path}");
+    let mut args = vec![
+        "--literal-pathspecs",
+        "stash",
+        "push",
+        "--include-untracked",
+        "-m",
+        &message,
+        "--",
+    ];
+    for file in status.files.iter().filter(|file| file.path == file_path) {
+        args.extend(file.original_path.as_deref());
+    }
+    args.push(file_path);
+    git_exec::run_git_bytes(&args, cwd, Duration::from_secs(30)).map(|_| ())
+}
+
 pub fn commit_git(cwd: &str, message: &str) -> GitCommitResult {
     commit_git_mode(cwd, message, false)
 }
@@ -3696,5 +3826,125 @@ mod image_diff_tests {
         assert!(deleted.old_image.unwrap().contains("rev=INDEX"));
 
         assert_eq!(git_blob_bytes(cwd, &head, "icon.png").unwrap(), changed);
+    }
+}
+
+#[cfg(test)]
+mod discard_tests {
+    use super::*;
+
+    fn repository(name: &str) -> (std::path::PathBuf, impl Fn(&[&str]) -> String) {
+        let root = std::env::temp_dir().join(format!(
+            "inferay-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let directory = root.clone();
+        let run = move |args: &[&str]| {
+            let output = Command::new("git")
+                .args(args)
+                .current_dir(&directory)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{args:?}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8_lossy(&output.stdout).into_owned()
+        };
+        run(&["init", "-b", "main"]);
+        run(&["config", "user.email", "fixture@example.invalid"]);
+        run(&["config", "user.name", "Fixture"]);
+        run(&["config", "commit.gpgsign", "false"]);
+        std::fs::write(root.join("file.txt"), "one\ntwo\nthree\n").unwrap();
+        run(&["add", "."]);
+        run(&["commit", "-m", "base"]);
+        (root, run)
+    }
+
+    #[test]
+    fn discarding_unstaged_changes_keeps_the_staged_version() {
+        let (root, run) = repository("discard-unstaged");
+        let cwd = root.to_str().unwrap();
+        std::fs::write(root.join("file.txt"), "ONE\ntwo\nthree\n").unwrap();
+        run(&["add", "file.txt"]);
+        std::fs::write(root.join("file.txt"), "ONE\ntwo\nTHREE\n").unwrap();
+        std::fs::write(root.join("new.txt"), "scratch\n").unwrap();
+
+        discard_git(cwd, false, None).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(root.join("file.txt")).unwrap(),
+            "ONE\ntwo\nthree\n"
+        );
+        assert!(!root.join("new.txt").exists());
+        assert_eq!(run(&["diff", "--cached", "--name-only"]), "file.txt\n");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn discarding_staged_changes_keeps_separate_unstaged_edits() {
+        let (root, run) = repository("discard-staged");
+        let cwd = root.to_str().unwrap();
+        std::fs::write(root.join("file.txt"), "ONE\ntwo\nthree\n").unwrap();
+        std::fs::write(root.join("added.txt"), "added\n").unwrap();
+        run(&["add", "."]);
+        std::fs::write(root.join("file.txt"), "ONE\ntwo\nTHREE\n").unwrap();
+
+        discard_git(cwd, true, None).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(root.join("file.txt")).unwrap(),
+            "one\ntwo\nTHREE\n"
+        );
+        assert!(!root.join("added.txt").exists());
+        assert_eq!(run(&["diff", "--cached", "--name-only"]), "");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn discarding_staged_changes_refuses_overlapping_unstaged_edits() {
+        let (root, run) = repository("discard-overlap");
+        let cwd = root.to_str().unwrap();
+        std::fs::write(root.join("file.txt"), "ONE\ntwo\nthree\n").unwrap();
+        run(&["add", "file.txt"]);
+        std::fs::write(root.join("file.txt"), "ONE!\ntwo\nthree\n").unwrap();
+
+        assert!(discard_git(cwd, true, Some("file.txt")).is_err());
+        assert_eq!(
+            std::fs::read_to_string(root.join("file.txt")).unwrap(),
+            "ONE!\ntwo\nthree\n"
+        );
+        assert_eq!(run(&["diff", "--cached", "--name-only"]), "file.txt\n");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn stashing_a_file_leaves_other_changes_in_place() {
+        let (root, run) = repository("stash-file");
+        let cwd = root.to_str().unwrap();
+        std::fs::write(root.join("other.txt"), "base\n").unwrap();
+        run(&["add", "other.txt"]);
+        run(&["commit", "-m", "other"]);
+        std::fs::write(root.join("file.txt"), "changed\n").unwrap();
+        std::fs::write(root.join("other.txt"), "changed\n").unwrap();
+
+        stash_git_file(cwd, "file.txt").unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(root.join("file.txt")).unwrap(),
+            "one\ntwo\nthree\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("other.txt")).unwrap(),
+            "changed\n"
+        );
+        assert!(run(&["stash", "list"]).contains("Stash file.txt"));
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

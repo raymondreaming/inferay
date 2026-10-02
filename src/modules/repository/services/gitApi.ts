@@ -27,6 +27,28 @@ export async function runGitChangeAction(
 	await postJson(`/api/git/${action}`, { cwd, file });
 }
 
+export async function discardGitChanges(
+	cwd: string,
+	staged: boolean,
+	file?: string,
+): Promise<void> {
+	await postJson(
+		"/api/git/discard",
+		{ cwd, staged, file },
+		{ signal: AbortSignal.timeout(35_000) },
+		{ server: true },
+	);
+}
+
+export async function stashGitFile(cwd: string, file: string): Promise<void> {
+	await postJson(
+		"/api/git/stash-file",
+		{ cwd, file },
+		{ signal: AbortSignal.timeout(35_000) },
+		{ server: true },
+	);
+}
+
 export async function commitGitChanges(
 	cwd: string,
 	message: string,

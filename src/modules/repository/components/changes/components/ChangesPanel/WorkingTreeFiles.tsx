@@ -23,6 +23,8 @@ export function WorkingTreeFiles(_props: {
 	onUnstageFile: (path: string) => void;
 	onStageAll: () => void;
 	onUnstageAll: () => void;
+	onStashFile: (path: string) => void;
+	onDiscard: (staged: boolean, path?: string) => void;
 	fileViewMode: "path" | "tree";
 }) {
 	return (
@@ -41,6 +43,15 @@ export function WorkingTreeFiles(_props: {
 						actionLabel={_props.showFileActions ? "Stage" : undefined}
 						onAction={_props.showFileActions ? _props.onStageFile : undefined}
 						onActionAll={_props.showFileActions ? _props.onStageAll : undefined}
+						onStash={_props.showFileActions ? _props.onStashFile : undefined}
+						onDiscard={
+							_props.showFileActions
+								? (path) => _props.onDiscard(false, path)
+								: undefined
+						}
+						onDiscardAll={
+							_props.showFileActions ? () => _props.onDiscard(false) : undefined
+						}
 						viewMode={_props.fileViewMode}
 						splitPane
 					/>
@@ -55,6 +66,15 @@ export function WorkingTreeFiles(_props: {
 						onAction={_props.showFileActions ? _props.onUnstageFile : undefined}
 						onActionAll={
 							_props.showFileActions ? _props.onUnstageAll : undefined
+						}
+						onStash={_props.showFileActions ? _props.onStashFile : undefined}
+						onDiscard={
+							_props.showFileActions
+								? (path) => _props.onDiscard(true, path)
+								: undefined
+						}
+						onDiscardAll={
+							_props.showFileActions ? () => _props.onDiscard(true) : undefined
 						}
 						viewMode={_props.fileViewMode}
 						splitPane
