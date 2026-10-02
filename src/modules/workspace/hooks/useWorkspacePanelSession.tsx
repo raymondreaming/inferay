@@ -249,7 +249,7 @@ export function useWorkspacePanelSession(_workspaceId: Accessor<string>) {
 		query.error
 			? "Saved workspace panels could not be restored."
 			: mutation.error
-				? "Some workspace panel changes could not be saved."
+				? `Some workspace panel changes could not be saved: ${String(mutation.error)}`
 				: null,
 	);
 	return [
