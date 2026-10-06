@@ -108,6 +108,23 @@ export async function uploadTempChatImage(
 		: null;
 }
 
+export function cancelAgentsWorker(paneId: string, id: string = "all") {
+	return postJson(`/api/agents/${encodeURIComponent(paneId)}/cancel`, { id });
+}
+
+export function loadAgentsStatus(paneId: string, signal?: AbortSignal) {
+	return fetchJson<{
+		enabled: boolean;
+		active: number;
+		workers: Array<{
+			id: string;
+			profile: string;
+			title: string;
+			status: string;
+		}>;
+	}>(`/api/agents/${encodeURIComponent(paneId)}/status`, { signal });
+}
+
 export async function prepareNativeEditDiff(
 	input: { before: string; after: string; edits?: SequentialEdit[] },
 	signal: AbortSignal,

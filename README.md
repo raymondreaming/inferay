@@ -22,9 +22,22 @@ Repository tabs keep related chats together. Arrange panes to suit your work, re
 - **Repository context.** Keep chats attached to their projects and include images and file references in your messages.
 - **Code review alongside chat.** Inspect changed files, diffs, commit history, and worktrees without leaving the workspace.
 - **Reusable instructions.** Use slash commands and saved skills for recurring tasks.
+- **Subagents (`/agents`).** Opt-in workers for explore / general / evaluate (default-FAIL), with Adaptive model routing on the parent turn. Inferay owns the harness and cards; Claude and Codex own the model runs. See the hand-off note below.
 - **Your workspace.** Choose a theme and arrange chat and document panes around the task at hand.
 
 Inferay works with your local Claude and Codex installations and their configured accounts or credentials. Access to those services is managed separately.
+
+## Subagents and Adaptive (hand-off)
+
+Send `/agents on` in a chat, then `/agents help` for the short in-product guide. `/agents status` and `/agents cancel <id|all>` manage workers. `/goal` is unchanged and remains Codex's objective loop.
+
+| Piece | Owned by |
+| --- | --- |
+| Slash mode, worker registry, MCP/Codex tool bridge, cards, Adaptive routing | Inferay |
+| Model tokens, tool approvals, file edits inside a worker | Claude / Codex |
+| Custom `.agents/` profiles | Out of scope for this hand-off |
+
+What's next after this PR: custom agent files, richer evaluate UX, and any Ray feedback on caps or profile defaults.
 
 ## Get Inferay
 

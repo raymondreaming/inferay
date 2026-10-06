@@ -54,7 +54,7 @@ fn resolve_command<'a>(token: &str, skills: &'a [Prompt]) -> Option<(&'a Prompt,
         || !name
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-        || ["exit", "clear", "help"]
+        || ["exit", "clear", "help", "agents", "goal"]
             .iter()
             .any(|local| name.eq_ignore_ascii_case(local))
     {

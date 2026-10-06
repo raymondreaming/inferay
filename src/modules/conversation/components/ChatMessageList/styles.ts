@@ -127,6 +127,11 @@ export const styles = stylex.create({
 		marginTop: controlSize._0_5,
 		overflowWrap: "break-word",
 	},
+	subagentHelpDetail: {
+		whiteSpace: "pre-wrap",
+		fontFamily: font.familyMono,
+		fontSize: font.size_2,
+	},
 	checkpointHeader: {
 		alignItems: "center",
 		display: "flex",

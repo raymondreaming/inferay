@@ -162,6 +162,8 @@ pub struct ClaudeRun<'a> {
     /// ambient configuration; `Some` writes a minimal config and passes
     /// `--strict-mcp-config`, which skips reconnecting every other server.
     pub mcp_servers: Option<&'a [String]>,
+    /// When set, Inferay's subagent MCP server is merged into the Claude config.
+    pub agents_mcp: Option<&'a Value>,
 }
 
 pub struct CodexRun<'a> {
@@ -169,6 +171,9 @@ pub struct CodexRun<'a> {
     pub prompt: &'a str,
     pub invocation: &'a CodexInvocationContext,
     pub env: &'a HashMap<OsString, OsString>,
+    /// When true, expose Inferay subagent tools (run/resume/read/list).
+    pub agents_tools: bool,
+    pub agents_bridge: Option<&'a crate::agents_runtime::AgentsToolBridge>,
 }
 
 pub async fn run_claude(
@@ -177,7 +182,7 @@ pub async fn run_claude(
     context: &mut AgentProtocolContext,
     emissions: &mpsc::UnboundedSender<ProtocolEmission>,
 ) -> String {
-    let scoped_mcp = run.mcp_servers.and_then(write_scoped_mcp_config);
+    let scoped_mcp = write_claude_mcp_config(run.mcp_servers, run.agents_mcp);
     let arguments = claude_invocation_args(&run, scoped_mcp.as_ref().map(|file| file.path()));
     let spawn = spawn_direct(&arguments, run.cwd, run.env);
     let mut child = match spawn {
@@ -284,16 +289,39 @@ pub(crate) fn write_empty_mcp_config() -> Option<tempfile::NamedTempFile> {
 /// falls back to Claude's ambient configuration rather than silently removing
 /// every server.
 fn write_scoped_mcp_config(wanted: &[String]) -> Option<tempfile::NamedTempFile> {
-    let home = std::env::var_os("HOME")?;
-    let source = std::path::Path::new(&home).join(".claude.json");
-    let text = std::fs::read_to_string(source).ok()?;
-    let parsed: serde_json::Value = serde_json::from_str(&text).ok()?;
-    let available = parsed.get("mcpServers")?.as_object()?;
+    write_claude_mcp_config(Some(wanted), None)
+}
+
+/// Claude MCP config for a turn. `wanted = None` keeps ambient servers (when no
+/// agents entry). `wanted = Some([])` means no user servers. `agents_mcp` always
+/// merges the Inferay subagent bridge when provided.
+pub(crate) fn write_claude_mcp_config(
+    wanted: Option<&[String]>,
+    agents_mcp: Option<&Value>,
+) -> Option<tempfile::NamedTempFile> {
     let mut scoped = serde_json::Map::new();
-    for name in wanted {
-        if let Some(entry) = available.get(name) {
-            scoped.insert(name.clone(), entry.clone());
+    match wanted {
+        None if agents_mcp.is_none() => return None,
+        None => {
+            if let Some(available) = read_user_mcp_servers() {
+                scoped = available;
+            }
         }
+        Some(wanted) => {
+            if let Some(available) = read_user_mcp_servers() {
+                for name in wanted {
+                    if let Some(entry) = available.get(name) {
+                        scoped.insert(name.clone(), entry.clone());
+                    }
+                }
+            }
+        }
+    }
+    if let Some(entry) = agents_mcp {
+        scoped.insert(
+            inferay_core::agents::INFERAY_AGENTS_MCP_NAME.into(),
+            entry.clone(),
+        );
     }
     let file = tempfile::Builder::new()
         .prefix("inferay-mcp-")
@@ -306,6 +334,17 @@ fn write_scoped_mcp_config(wanted: &[String]) -> Option<tempfile::NamedTempFile>
     )
     .ok()?;
     Some(file)
+}
+
+fn read_user_mcp_servers() -> Option<serde_json::Map<String, Value>> {
+    let home = std::env::var_os("HOME")?;
+    let source = std::path::Path::new(&home).join(".claude.json");
+    let text = std::fs::read_to_string(source).ok()?;
+    let parsed: serde_json::Value = serde_json::from_str(&text).ok()?;
+    parsed
+        .get("mcpServers")?
+        .as_object()
+        .cloned()
 }
 
 pub async fn run_codex(
@@ -359,11 +398,15 @@ pub async fn run_codex(
             .await?;
         let mut start_params = codex_thread_params(run.invocation);
         configure_codex_session(&mut start_params, &config["config"], run.env);
-        start_params["dynamicTools"] = inferay_core::prompts::tools::tool_definitions();
+        start_params["dynamicTools"] = inferay_core::agents::merge_tool_definitions(
+            inferay_core::prompts::tools::tool_definitions(),
+            run.agents_tools,
+        );
         let thread_response = if let Some(thread_id) = &run.invocation.session_id {
             let mut params = codex_thread_params(run.invocation);
             configure_codex_session(&mut params, &config["config"], run.env);
             params["threadId"] = json!(thread_id);
+            params["dynamicTools"] = start_params["dynamicTools"].clone();
             rpc.request(
                 "thread/resume",
                 params,
@@ -521,7 +564,14 @@ pub async fn run_codex(
                     {
                         let tool = message.pointer("/params/tool").and_then(Value::as_str).unwrap_or("");
                         let args = message.pointer("/params/arguments").cloned().unwrap_or(Value::Null);
-                        let result = handle.skills.lock().await.call_tool(tool, &args);
+                        let result = if inferay_core::agents::is_agents_tool(tool) {
+                            match run.agents_bridge {
+                                Some(bridge) => bridge.call_tool(tool, &args).await,
+                                None => Err("Subagents are off. Send /agents on first.".into()),
+                            }
+                        } else {
+                            handle.skills.lock().await.call_tool(tool, &args)
+                        };
                         let (success, output) = match result {
                             Ok((output, card)) => {
                                 if let Some(card) = card {
@@ -1234,6 +1284,7 @@ mod runner_tests {
             session_id: None,
             env: &env,
             mcp_servers: None,
+            agents_mcp: None,
         };
         assert_eq!(
             run_claude(make_run(), &handle, &mut context, &tx).await,

@@ -5,6 +5,7 @@ import type {
 	CheckpointMeta,
 	WorkspaceAgentKind,
 } from "@contracts";
+import { cancelAgentsWorker as requestCancelAgentsWorker } from "@conversation/services/conversationApi.ts";
 import {
 	ChatReplica,
 	ChatSessionRetention,
@@ -27,6 +28,22 @@ import type { QueuedChatMessage } from "../../hooks/useAgentChatComposerState.ts
 export type ChatMessage = ChatTranscriptMessage & {
 	optimistic?: boolean;
 	localOnly?: boolean;
+};
+
+export type AgentsWorkerInfo = {
+	id: string;
+	profile: string;
+	title: string;
+	status: string;
+	background?: boolean;
+	detail?: string | null;
+	summary?: string | null;
+};
+
+export type AgentsStatusState = {
+	enabled: boolean;
+	active: number;
+	workers: AgentsWorkerInfo[];
 };
 
 export function admittedTranscriptMessages(
@@ -141,6 +158,11 @@ export function useChatConnection(
 	const [expandedTools, setExpandedTools] = createSignal(
 		retained?.expandedTools ?? new Set<string>(),
 	);
+	const [agentsStatus, setAgentsStatus] = createSignal<AgentsStatusState>({
+		enabled: false,
+		active: 0,
+		workers: [],
+	});
 	let replica: ChatReplica | null = retained?.replica ?? new ChatReplica();
 	let nativeTranscript: ChatMessage[] | null =
 		retained?.nativeTranscript ?? null;
@@ -227,6 +249,19 @@ export function useChatConnection(
 		let subscribed = true;
 		const cleanup = wsClient.subscribe(paneId, (rawMessage, serialized) => {
 			if (!subscribed) return;
+			const agentsEvent = rawMessage as {
+				type?: string;
+				enabled?: boolean;
+				active?: number;
+				workers?: AgentsWorkerInfo[];
+			};
+			if (agentsEvent.type === "agents:status") {
+				setAgentsStatus({
+					enabled: !!agentsEvent.enabled,
+					active: agentsEvent.active ?? 0,
+					workers: agentsEvent.workers ?? [],
+				});
+			}
 			const plan: ChatEventPlan | null = JSON.parse(
 				replica!.receive(serialized, paneId, JSON.stringify(runStatus())),
 			);
@@ -375,6 +410,12 @@ export function useChatConnection(
 		beginRun,
 		failSend,
 		chatUiState,
+		get agentsStatus() {
+			return agentsStatus();
+		},
+		cancelAgentsWorker(id: string) {
+			void requestCancelAgentsWorker(_options().paneId, id);
+		},
 		get checkpoints() {
 			return checkpoints();
 		},

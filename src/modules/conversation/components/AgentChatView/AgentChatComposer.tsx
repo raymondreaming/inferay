@@ -2,6 +2,7 @@ import * as stylex from "@stylexjs/stylex";
 import { AgentWorkspaceControl } from "../AgentChatHeader/index.tsx";
 import { AgentChatStatusBar } from "../AgentChatStatusBar/index.tsx";
 import { ChatComposer } from "../ChatComposer/index.tsx";
+import { SubagentIndicator } from "../ChatComposer/SubagentIndicator.tsx";
 import { styles } from "./styles.ts";
 import type { AgentChatState } from "./useAgentChatState.tsx";
 export function AgentChatComposer(props: {
@@ -21,6 +22,10 @@ export function AgentChatComposer(props: {
 					isLoading={props.state.connection.chatUiState.isLoading}
 					startTime={props.state.connection.chatUiState.startTime}
 					onStop={props.state.stopGeneration}
+				/>
+				<SubagentIndicator
+					status={props.state.connection.agentsStatus}
+					onCancel={(id) => props.state.connection.cancelAgentsWorker(id)}
 				/>
 				{props.state.settings.configurationError && (
 					<div role="alert">{props.state.settings.configurationError}</div>
