@@ -1,6 +1,6 @@
 import { Button } from "@shared/ui/Button/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { createSignal } from "solid-js";
+import { createSignal, For } from "solid-js";
 import {
 	projects,
 	saveProjectCommand,
@@ -83,45 +83,47 @@ export function RunHistory(props: { automationId?: string } = {}) {
 					</p>
 				</div>
 			) : null}
-			{catalog()
-				?.runs.filter(
+			<For
+				each={catalog()?.runs.filter(
 					(run) =>
 						!props.automationId || run.automationId === props.automationId,
-				)
-				.map((run) => (
+				)}
+				keyed={(item) => item.id}
+			>
+				{(run) => (
 					<article {...stylex.attrs(styles.card)}>
 						<div {...stylex.attrs(styles.row)}>
-							<strong>{run.name}</strong>
-							<span {...stylex.attrs(styles.badge)}>{run.status}</span>
+							<strong>{run().name}</strong>
+							<span {...stylex.attrs(styles.badge)}>{run().status}</span>
 						</div>
 						<span {...stylex.attrs(styles.muted)}>
-							{new Date(run.requestedAt).toLocaleString()}
+							{new Date(run().requestedAt).toLocaleString()}
 						</span>
-						{run.error ? <p role="alert">{run.error}</p> : null}
-						{typeof (run.result as { message?: unknown } | null)?.message ===
+						{run().error ? <p role="alert">{run().error}</p> : null}
+						{typeof (run().result as { message?: unknown } | null)?.message ===
 						"string" ? (
 							<p {...stylex.attrs(styles.taskSummary)}>
-								{(run.result as { message: string }).message}
+								{(run().result as { message: string }).message}
 							</p>
 						) : null}
-						{run.conversationAvailable ? (
+						{run().conversationAvailable ? (
 							<Button
 								size="sm"
 								disabled={opening()}
-								onClick={() => void continueRun(run.id)}
+								onClick={() => void continueRun(run().id)}
 							>
 								Open in chat
 							</Button>
 						) : null}
 						<div {...stylex.attrs(styles.row)}>
-							{["queued", "running", "waiting_input"].includes(run.status) ? (
+							{["queued", "running", "waiting_input"].includes(run().status) ? (
 								<Button
 									size="sm"
 									disabled={projects.busy()}
 									onClick={() =>
 										void saveProjectCommand({
 											type: "stopRun",
-											id: run.id,
+											id: run().id,
 										}).catch(() => {})
 									}
 								>
@@ -129,7 +131,7 @@ export function RunHistory(props: { automationId?: string } = {}) {
 								</Button>
 							) : null}
 							{["failed", "cancelled", "interrupted", "waiting_input"].includes(
-								run.status,
+								run().status,
 							) ? (
 								<Button
 									size="sm"
@@ -137,7 +139,7 @@ export function RunHistory(props: { automationId?: string } = {}) {
 									onClick={() =>
 										void saveProjectCommand({
 											type: "retryRun",
-											id: run.id,
+											id: run().id,
 											requestId: crypto.randomUUID(),
 										}).catch(() => {})
 									}
@@ -147,7 +149,7 @@ export function RunHistory(props: { automationId?: string } = {}) {
 							) : null}
 							<Button
 								size="sm"
-								onClick={() => void inspect(run.directory, "inputs/run.json")}
+								onClick={() => void inspect(run().directory, "inputs/run.json")}
 							>
 								Captured inputs
 							</Button>
@@ -155,8 +157,8 @@ export function RunHistory(props: { automationId?: string } = {}) {
 								size="sm"
 								onClick={() =>
 									void inspect(
-										run.directory,
-										(run.snapshot as { execution?: { kind?: string } } | null)
+										run().directory,
+										(run().snapshot as { execution?: { kind?: string } } | null)
 											?.execution?.kind === "agent"
 											? "logs/agent.jsonl"
 											: "logs/stdout.txt",
@@ -165,41 +167,47 @@ export function RunHistory(props: { automationId?: string } = {}) {
 							>
 								Execution log
 							</Button>
-							{(run.snapshot as { execution?: { kind?: string } } | null)
+							{(run().snapshot as { execution?: { kind?: string } } | null)
 								?.execution?.kind === "tool" ? (
 								<Button
 									size="sm"
-									onClick={() => void inspect(run.directory, "logs/stderr.txt")}
+									onClick={() =>
+										void inspect(run().directory, "logs/stderr.txt")
+									}
 								>
 									Error log
 								</Button>
 							) : null}
 						</div>
-						{run.result ? (
+						{run().result ? (
 							<details>
 								<summary>Result</summary>
 								<pre {...stylex.attrs(styles.pre)}>
-									{JSON.stringify(run.result, null, 2)}
+									{JSON.stringify(run().result, null, 2)}
 								</pre>
 							</details>
 						) : null}
 						<div {...stylex.attrs(styles.row)}>
-							{catalog()
-								?.artifacts.filter((a) => a.runId === run.id)
-								.map((a) => (
+							<For
+								each={catalog()?.artifacts.filter((a) => a.runId === run().id)}
+								keyed={(item) => item.id}
+							>
+								{(a) => (
 									<Button
 										size="sm"
 										onClick={() =>
-											void inspect(run.directory, `output/${a.name}`)
+											void inspect(run().directory, `output/${a().name}`)
 										}
 									>
-										{a.name} · {a.byteSize} bytes
+										{a().name} · {a().byteSize} bytes
 									</Button>
-								))}
+								)}
+							</For>
 						</div>
-						<p {...stylex.attrs(styles.muted)}>{run.directory}</p>
+						<p {...stylex.attrs(styles.muted)}>{run().directory}</p>
 					</article>
-				))}
+				)}
+			</For>
 			<div {...stylex.attrs(styles.row)}>
 				{page() ? (
 					<Button size="sm" onClick={() => setPage(null)}>

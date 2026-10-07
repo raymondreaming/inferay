@@ -3,7 +3,7 @@ import { Button } from "@shared/ui/Button/index.tsx";
 import { Modal } from "@shared/ui/Modal/index.tsx";
 import { Switch } from "@shared/ui/Switch/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { createSignal } from "solid-js";
+import { createSignal, For } from "solid-js";
 import { saveProjectCommand } from "../../hooks/useProjects.tsx";
 import { automationScheduleLabel } from "../../model/automationSchedule.ts";
 import { DefinitionChanges } from "./DefinitionChanges.tsx";
@@ -46,17 +46,19 @@ export function PluginReviewDialog(props: {
 					Permissions: {props.review.permissions.join(", ") || "None declared"}
 				</p>
 				<p {...stylex.attrs(styles.muted)}>
-					Agent permissions are advisory until provider sandbox enforcement is
-					available.
+					Automation runs apply filesystem and network limits. Git actions and
+					read access are not yet fully isolated.
 				</p>
-				{props.review.automations.map((automation) => (
-					<div {...stylex.attrs(styles.row)}>
-						<strong>{automation.name}</strong>
-						<span {...stylex.attrs(styles.muted)}>
-							{automationScheduleLabel(automation)}
-						</span>
-					</div>
-				))}
+				<For each={props.review.automations} keyed={(item) => item.id}>
+					{(automation) => (
+						<div {...stylex.attrs(styles.row)}>
+							<strong>{automation().name}</strong>
+							<span {...stylex.attrs(styles.muted)}>
+								{automationScheduleLabel(automation())}
+							</span>
+						</div>
+					)}
+				</For>
 				<DefinitionChanges
 					files={props.review.files}
 					beforeLabel="Previously approved"

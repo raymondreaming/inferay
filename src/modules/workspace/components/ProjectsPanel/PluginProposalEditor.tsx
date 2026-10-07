@@ -3,7 +3,7 @@ import { Button } from "@shared/ui/Button/index.tsx";
 import { Modal } from "@shared/ui/Modal/index.tsx";
 import { TextInput } from "@shared/ui/TextInput/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { createSignal } from "solid-js";
+import { createSignal, For } from "solid-js";
 import { reviewPluginProposal } from "../../services/projectsApi.ts";
 import { styles } from "./styles.ts";
 
@@ -90,16 +90,18 @@ export function PluginProposalEditor(props: {
 					Changes stay in this draft until you review and save them.
 				</p>
 				<div {...stylex.attrs(styles.row)}>
-					{Object.keys(files()).map((file) => (
-						<Button
-							size="sm"
-							variant={selected() === file ? "primary" : "ghost"}
-							disabled={busy()}
-							onClick={() => setSelected(file)}
-						>
-							{file}
-						</Button>
-					))}
+					<For each={Object.keys(files())} keyed={(item) => item}>
+						{(file) => (
+							<Button
+								size="sm"
+								variant={selected() === file() ? "primary" : "ghost"}
+								disabled={busy()}
+								onClick={() => setSelected(file())}
+							>
+								{file()}
+							</Button>
+						)}
+					</For>
 				</div>
 				{selected() && selected() in files() && (
 					<>
@@ -133,21 +135,23 @@ export function PluginProposalEditor(props: {
 						)}
 					</>
 				)}
-				{remove().map((file) => (
-					<div {...stylex.attrs(styles.row)}>
-						<span {...stylex.attrs(styles.muted)}>Remove {file}</span>
-						<Button
-							size="sm"
-							variant="ghost"
-							disabled={busy()}
-							onClick={() =>
-								setRemove(remove().filter((item) => item !== file))
-							}
-						>
-							Keep file
-						</Button>
-					</div>
-				))}
+				<For each={remove()} keyed={(item) => item}>
+					{(file) => (
+						<div {...stylex.attrs(styles.row)}>
+							<span {...stylex.attrs(styles.muted)}>Remove {file()}</span>
+							<Button
+								size="sm"
+								variant="ghost"
+								disabled={busy()}
+								onClick={() =>
+									setRemove(remove().filter((item) => item !== file()))
+								}
+							>
+								Keep file
+							</Button>
+						</div>
+					)}
+				</For>
 				<div {...stylex.attrs(styles.row)}>
 					<TextInput
 						aria-label="File path within library"

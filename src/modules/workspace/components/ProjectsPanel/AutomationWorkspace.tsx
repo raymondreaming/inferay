@@ -132,36 +132,40 @@ export function AutomationWorkspace() {
 							</div>
 						)}
 					</For>
-					{automations()
-						.filter((a) =>
+					<For
+						each={automations().filter((a) =>
 							a.name.toLowerCase().includes(search().toLowerCase()),
-						)
-						.map((a) => (
+						)}
+						keyed={(item) => item.id}
+					>
+						{(a) => (
 							<div
 								{...stylex.attrs(
 									listStyles.row,
 									screen() === "detail" &&
-										current()?.id === a.id &&
+										current()?.id === a().id &&
 										styles.selectedTab,
 								)}
 							>
 								<button
 									type="button"
 									aria-pressed={ariaValue(
-										screen() === "detail" && current()?.id === a.id,
+										screen() === "detail" && current()?.id === a().id,
 									)}
 									onClick={() => {
-										setSelected(a.id);
+										setSelected(a().id);
 										setScreen("detail");
 									}}
 									{...stylex.attrs(listStyles.button)}
 								>
 									<span {...stylex.attrs(listStyles.meta)}>
-										{a.file.error ? "Needs repair" : automationScheduleLabel(a)}
+										{a().file.error
+											? "Needs repair"
+											: automationScheduleLabel(a())}
 									</span>
-									<strong {...stylex.attrs(listStyles.name)}>{a.name}</strong>
+									<strong {...stylex.attrs(listStyles.name)}>{a().name}</strong>
 									{(() => {
-										const execution = a.execution;
+										const execution = a().execution;
 										if (execution.kind !== "agent")
 											return (
 												<span {...stylex.attrs(listStyles.meta)}>
@@ -184,7 +188,7 @@ export function AutomationWorkspace() {
 												{target.base === "repository"
 													? (projects
 															.list()
-															.find((p) => p.id === a.file.projectId)
+															.find((p) => p.id === a().file.projectId)
 															?.repositories.find(
 																(repo) => repo.id === target.id,
 															)?.name ?? "Repository")
@@ -196,17 +200,18 @@ export function AutomationWorkspace() {
 									})()}
 								</button>
 								<Switch
-									label={`Enable ${a.name}`}
-									checked={a.enabled}
+									label={`Enable ${a().name}`}
+									checked={a().enabled}
 									disabled={
 										projects.busy() ||
-										!!a.file.error ||
-										a.trigger.kind === "manual"
+										!!a().file.error ||
+										a().trigger.kind === "manual"
 									}
-									onChange={(enabled) => void enable(a, enabled)}
+									onChange={(enabled) => void enable(a(), enabled)}
 								/>
 							</div>
-						))}
+						)}
+					</For>
 				</div>
 				<button
 					type="button"
@@ -255,23 +260,25 @@ export function AutomationWorkspace() {
 							Pick a starting point, or write your own task.
 						</p>
 						<div {...stylex.attrs(styles.starterGrid)}>
-							{starters.map((seed) => (
-								<button
-									type="button"
-									onClick={() => begin(undefined, seed)}
-									{...stylex.attrs(styles.starterCard)}
-								>
-									<strong>{seed.name}</strong>
-									<p {...stylex.attrs(styles.muted)}>{seed.description}</p>
-									<span {...stylex.attrs(styles.muted)}>
-										{seed.intervalSeconds === 86400
-											? "Every day"
-											: seed.intervalSeconds
-												? "Every week"
-												: "Your schedule"}
-									</span>
-								</button>
-							))}
+							<For each={starters} keyed={(item) => item.name}>
+								{(seed) => (
+									<button
+										type="button"
+										onClick={() => begin(undefined, seed())}
+										{...stylex.attrs(styles.starterCard)}
+									>
+										<strong>{seed().name}</strong>
+										<p {...stylex.attrs(styles.muted)}>{seed().description}</p>
+										<span {...stylex.attrs(styles.muted)}>
+											{seed().intervalSeconds === 86400
+												? "Every day"
+												: seed().intervalSeconds
+													? "Every week"
+													: "Your schedule"}
+										</span>
+									</button>
+								)}
+							</For>
 						</div>
 					</>
 				) : (

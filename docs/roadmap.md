@@ -139,7 +139,7 @@ Build an automation for a domain nobody designed for (for example a weekly finan
 
 ## Known gaps
 
-- The Solid principles audit still finds reactive collections rendered with `.map` in several project pages and the workspace bar. Automation context/tool controls use keyed collections; the remaining views need the same ownership review.
+- The Solid principles audit still finds three reactive collections rendered with `.map` in the Memory file browser (`ResourceFiles.tsx`), which is owned by the concurrent Memory work. Automation, plugin, history and project-navigation lists use stable identities.
 
 
 - Permission enforcement is partial: Codex requests scoped filesystem/network limits; Claude requests restricted tool access and a required Bash sandbox; macOS local tools enforce approved write roots and network access through an OS sandbox, including subprocesses. Other platforms refuse local tools. Push/PR/commit isolation, read isolation, provider network checks and additional platform adapters remain open in M3.

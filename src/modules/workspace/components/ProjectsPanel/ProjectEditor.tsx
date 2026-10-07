@@ -2,7 +2,7 @@ import { Button } from "@shared/ui/Button/index.tsx";
 import { Modal } from "@shared/ui/Modal/index.tsx";
 import { TextInput } from "@shared/ui/TextInput/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { createSignal } from "solid-js";
+import { createSignal, For } from "solid-js";
 import {
 	projects,
 	saveProjectCommand,
@@ -137,25 +137,29 @@ export function ProjectEditor(props: { project?: Project; close: () => void }) {
 					</p>
 					{props.project ? (
 						<div {...stylex.attrs(styles.repositoryChoiceList)}>
-							{choices().map((path) => (
-								<label {...stylex.attrs(styles.row)}>
-									<input
-										type="checkbox"
-										checked={repositories().includes(path)}
-										onChange={(event) =>
-											setRepositories((current) =>
-												event.currentTarget.checked
-													? [...current, path]
-													: current.filter((p) => p !== path),
-											)
-										}
-									/>
-									<span {...stylex.attrs(styles.listText)}>
-										<strong>{path.split("/").filter(Boolean).at(-1)}</strong>
-										<span {...stylex.attrs(styles.muted)}>{path}</span>
-									</span>
-								</label>
-							))}
+							<For each={choices()} keyed={(item) => item}>
+								{(path) => (
+									<label {...stylex.attrs(styles.row)}>
+										<input
+											type="checkbox"
+											checked={repositories().includes(path())}
+											onChange={(event) =>
+												setRepositories((current) =>
+													event.currentTarget.checked
+														? [...current, path()]
+														: current.filter((p) => p !== path()),
+												)
+											}
+										/>
+										<span {...stylex.attrs(styles.listText)}>
+											<strong>
+												{path().split("/").filter(Boolean).at(-1)}
+											</strong>
+											<span {...stylex.attrs(styles.muted)}>{path()}</span>
+										</span>
+									</label>
+								)}
+							</For>
 						</div>
 					) : null}
 					{!props.project ? (

@@ -59,21 +59,25 @@ export function ProjectNavigation() {
 		>
 			{projects.selectedId() ? (
 				<>
-					{items.map((item) => (
-						<button
-							type="button"
-							{...stylex.attrs(
-								styles.tab,
-								styles.mainNavigationItem,
-								projects.view() === item.view && styles.selectedTab,
-							)}
-							aria-current={projects.view() === item.view ? "page" : undefined}
-							onClick={() => showProjectView(item.view)}
-						>
-							<item.icon size={15} />
-							<span>{item.label}</span>
-						</button>
-					))}
+					<For each={items} keyed>
+						{(item) => (
+							<button
+								type="button"
+								{...stylex.attrs(
+									styles.tab,
+									styles.mainNavigationItem,
+									projects.view() === item.view && styles.selectedTab,
+								)}
+								aria-current={
+									projects.view() === item.view ? "page" : undefined
+								}
+								onClick={() => showProjectView(item.view)}
+							>
+								<item.icon size={15} />
+								<span>{item.label}</span>
+							</button>
+						)}
+					</For>
 					<button
 						type="button"
 						aria-expanded={ariaValue(expanded())}

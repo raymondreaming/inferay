@@ -5,7 +5,7 @@ import { queryClient } from "@shared/lib/dom.tsx";
 import { Button } from "@shared/ui/Button/index.tsx";
 import { Modal } from "@shared/ui/Modal/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { createSignal, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import { saveProjectCommand } from "../../hooks/useProjects.tsx";
 import { type ProjectPlugin, pluginName } from "../../model/projectFiles.ts";
 import {
@@ -143,20 +143,24 @@ export function PluginLibraryDialog(props: {
 										<div>
 											<strong>{label}</strong>
 											<div {...stylex.attrs(styles.row)}>
-												{files().map((file) => (
-													<Button
-														size="sm"
-														variant={path() === file.path ? "primary" : "ghost"}
-														disabled={!!editing()}
-														onClick={() => {
-															setSelected(file.path);
-															setSaved(false);
-															setError("");
-														}}
-													>
-														{file.path}
-													</Button>
-												))}
+												<For each={files()} keyed={(item) => item.path}>
+													{(file) => (
+														<Button
+															size="sm"
+															variant={
+																path() === file().path ? "primary" : "ghost"
+															}
+															disabled={!!editing()}
+															onClick={() => {
+																setSelected(file().path);
+																setSaved(false);
+																setError("");
+															}}
+														>
+															{file().path}
+														</Button>
+													)}
+												</For>
 											</div>
 										</div>
 									</Show>

@@ -27,7 +27,7 @@ import {
 	panelQuery,
 	usePanelVisibility,
 } from "@workspace/hooks/useWorkspacePanelSession.tsx";
-import { createMemo, createSignal, onSettled } from "solid-js";
+import { createMemo, createSignal, For, onSettled } from "solid-js";
 import {
 	projects,
 	reorderProject,
@@ -161,21 +161,22 @@ export function RepositoryWorkspaceBar() {
 				<ProjectEditor close={() => setCreatingProject(false)} />
 			) : null}
 			<div role="tablist" aria-label="Projects" {...stylex.attrs(styles.tabs)}>
-				{projects
-					.list()
-					.filter((p) => !p.archived)
-					.map((project) => (
+				<For
+					each={projects.list().filter((p) => !p.archived)}
+					keyed={(item) => item.id}
+				>
+					{(project) => (
 						<button
 							type="button"
 							role="tab"
 							draggable="true"
-							data-project-tab={project.id}
-							title={`${project.name} · Drag to reorder`}
+							data-project-tab={project().id}
+							title={`${project().name} · Drag to reorder`}
 							onDragStart={(event) => {
-								setDraggedProject(project.id);
+								setDraggedProject(project().id);
 								event.dataTransfer?.setData(
 									"application/x-inferay-project",
-									project.id,
+									project().id,
 								);
 								if (event.dataTransfer)
 									event.dataTransfer.effectAllowed = "move";
@@ -190,8 +191,8 @@ export function RepositoryWorkspaceBar() {
 									.map((p) => p.id);
 								setDropBefore(
 									event.clientX < bounds.left + bounds.width / 2
-										? project.id
-										: (ids[ids.indexOf(project.id) + 1] ?? null),
+										? project().id
+										: (ids[ids.indexOf(project().id) + 1] ?? null),
 								);
 							}}
 							onDrop={(event) => {
@@ -206,26 +207,26 @@ export function RepositoryWorkspaceBar() {
 								setDraggedProject(null);
 								setDropBefore(undefined);
 							}}
-							aria-selected={ariaValue(projects.selectedId() === project.id)}
-							tabindex={projects.selectedId() === project.id ? 0 : -1}
+							aria-selected={ariaValue(projects.selectedId() === project().id)}
+							tabindex={projects.selectedId() === project().id ? 0 : -1}
 							{...stylex.attrs(
 								styles.tab,
-								draggedProject() === project.id && styles.draggingTab,
-								dropBefore() === project.id && styles.dropBefore,
+								draggedProject() === project().id && styles.draggingTab,
+								dropBefore() === project().id && styles.dropBefore,
 								dropBefore() === null &&
 									projects
 										.list()
 										.filter((p) => !p.archived)
-										.at(-1)?.id === project.id &&
+										.at(-1)?.id === project().id &&
 									styles.dropAfter,
 								...selectionAppearance(
 									"repository",
-									projects.selectedId() === project.id,
+									projects.selectedId() === project().id,
 								),
 							)}
 							onClick={() => {
-								if (projects.selectedId() !== project.id)
-									void selectProject(project.id);
+								if (projects.selectedId() !== project().id)
+									void selectProject(project().id);
 								else showProjectView("chat");
 							}}
 							onKeyDown={(event) => {
@@ -245,11 +246,11 @@ export function RepositoryWorkspaceBar() {
 										.list()
 										.filter((p) => !p.archived)
 										.map((p) => p.id);
-									const index = ids.indexOf(project.id);
+									const index = ids.indexOf(project().id);
 									if (event.key === "ArrowLeft" && index > 0)
-										reorderProject(project.id, ids[index - 1]!);
+										reorderProject(project().id, ids[index - 1]!);
 									if (event.key === "ArrowRight" && index < ids.length - 1)
-										reorderProject(project.id, ids[index + 2] ?? null);
+										reorderProject(project().id, ids[index + 2] ?? null);
 									return;
 								}
 								const tabs = Array.from(
@@ -272,9 +273,10 @@ export function RepositoryWorkspaceBar() {
 							}}
 						>
 							<IconFolder size={iconSize.sm} />
-							<span {...stylex.attrs(styles.tabLabel)}>{project.name}</span>
+							<span {...stylex.attrs(styles.tabLabel)}>{project().name}</span>
 						</button>
-					))}
+					)}
+				</For>
 			</div>
 			{projects.list().find((p) => p.id === projects.selectedId()) ? (
 				<button
