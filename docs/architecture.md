@@ -46,6 +46,8 @@ Inferay owns no MCP server configuration. It reads each provider's own: Codex th
 
 ## Chat runtime and storage
 
+The full storage model (files versus databases, every table, how writes and reads flow) is in [storage.md](storage.md).
+
 Everything lives in the profile directory, `~/Library/Application Support/Inferay` (`INFERAY_USER_DATA_DIR` overrides it).
 
 | File | Contents | Owner |
