@@ -6,6 +6,7 @@ use std::{collections::BTreeSet, path::Path};
 #[derive(Clone)]
 pub(crate) struct AutomationSandbox {
     roots: Vec<String>,
+    reads: BTreeSet<std::path::PathBuf>,
     network: bool,
     gpu: bool,
     commit: bool,
@@ -23,7 +24,21 @@ impl AutomationSandbox {
         if may.contains(&Permission::WriteProjectFiles) {
             roots.insert(project.to_string_lossy().into_owned());
         }
+        let mut reads = BTreeSet::from([project.to_path_buf()]);
+        if may.contains(&Permission::ReadRepositories)
+            || may.contains(&Permission::WriteRepositories)
+        {
+            reads.extend(
+                repositories
+                    .as_object()
+                    .into_iter()
+                    .flat_map(|paths| paths.values())
+                    .filter_map(Value::as_str)
+                    .map(std::path::PathBuf::from),
+            );
+        }
         Self {
+            reads,
             git_writes: BTreeSet::new(),
             roots: roots.into_iter().collect(),
             network: may.contains(&Permission::Network),
@@ -146,8 +161,103 @@ impl AutomationSandbox {
             .env("TMP", &scratch)
             .env("TEMP", &scratch);
         let mut profile = String::from(
-            "(version 1)\n(deny default)\n(allow file-read*)\n(allow process-exec process-fork sysctl-read)\n(allow signal (target same-sandbox))\n(allow process-info* (target same-sandbox))\n(allow file-write-data (literal \"/dev/null\"))\n",
+            "(version 1)\n(deny default)\n(allow file-read-metadata)\n(allow process-exec process-fork sysctl-read)\n(allow signal (target same-sandbox))\n(allow process-info* (target same-sandbox))\n(allow file-write-data (literal \"/dev/null\"))\n",
         );
+        let executable = crate::agent_command::resolve_local_program(
+            program,
+            &std::env::var_os("PATH").unwrap_or_default(),
+        )?;
+        if executable.is_absolute() {
+            let path = executable
+                .canonicalize()
+                .map_err(|error| format!("Cannot resolve tool executable: {error}"))?;
+            command
+                .arg("-D")
+                .arg(format!("TOOL_EXECUTABLE={}", path.display()));
+            profile.push_str("(allow file-read-data (literal (param \"TOOL_EXECUTABLE\")))\n");
+        }
+        if let Some(bundle) = executable
+            .ancestors()
+            .find(|path| path.extension().is_some_and(|extension| extension == "app"))
+        {
+            let bundle = bundle
+                .canonicalize()
+                .map_err(|error| format!("Cannot resolve runtime bundle: {error}"))?;
+            command
+                .arg("-D")
+                .arg(format!("RUNTIME_BUNDLE={}", bundle.display()));
+            profile.push_str("(allow file-read-data (subpath (param \"RUNTIME_BUNDLE\")))\n");
+        }
+        // Runtime code is readable; user data is limited to the approved project
+        // and explicitly selected repositories. Metadata access supports path lookup.
+        let mut reads = self.reads.clone();
+        reads.extend([output.to_path_buf(), scratch.to_path_buf()]);
+        reads.extend(git_metadata_directories(self.reads.iter())?);
+        for directory in [
+            "/System/Library",
+            "/usr/bin",
+            "/usr/sbin",
+            "/usr/lib",
+            "/usr/libexec",
+            "/usr/share",
+            "/usr/local/bin",
+            "/usr/local/lib",
+            "/usr/local/Cellar",
+            "/usr/local/opt",
+            "/bin",
+            "/sbin",
+            "/Applications/Xcode.app",
+            "/Library/Developer",
+            "/Library/Frameworks",
+            "/Library/Apple",
+            "/Library/Fonts",
+            "/opt/homebrew/Cellar",
+            "/opt/homebrew/opt",
+            "/opt/homebrew/lib",
+            "/opt/homebrew/bin",
+        ] {
+            if Path::new(directory).exists() {
+                reads.insert(directory.into());
+            }
+        }
+        for (index, path) in reads.iter().enumerate() {
+            let canonical = path
+                .canonicalize()
+                .map_err(|error| format!("Sandbox read directory is unavailable: {error}"))?;
+            let name = format!("READ_{index}");
+            command
+                .arg("-D")
+                .arg(format!("{name}={}", canonical.display()));
+            profile.push_str(&format!(
+                "(allow file-read-data (subpath (param \"{name}\")))\n"
+            ));
+        }
+        for (index, file) in [
+            "/",
+            "/dev/null",
+            "/dev/urandom",
+            "/dev/random",
+            "/Library/Preferences/com.apple.dt.Xcode.plist",
+            "/private/etc/localtime",
+            "/private/etc/hosts",
+            "/private/etc/resolv.conf",
+        ]
+        .iter()
+        .enumerate()
+        {
+            if Path::new(file).exists() {
+                let canonical = Path::new(file)
+                    .canonicalize()
+                    .map_err(|error| format!("Cannot resolve runtime file: {error}"))?;
+                let name = format!("RUNTIME_FILE_{index}");
+                command
+                    .arg("-D")
+                    .arg(format!("{name}={}", canonical.display()));
+                profile.push_str(&format!(
+                    "(allow file-read-data (literal (param \"{name}\")))\n"
+                ));
+            }
+        }
         let mut writable_roots = Vec::new();
         for (index, root) in self
             .roots
@@ -224,10 +334,6 @@ impl AutomationSandbox {
 "#,
             );
         }
-        let executable = crate::agent_command::resolve_local_program(
-            program,
-            &std::env::var_os("PATH").unwrap_or_default(),
-        )?;
         command
             .args(["-p", &profile, "--"])
             .arg(executable)
@@ -375,8 +481,8 @@ fn git_metadata_aliases(
 
 /// Resolve worktree and separate-git-dir pointers without invoking repository
 /// hooks or inheriting Git configuration. Invalid metadata blocks execution.
-pub(crate) fn git_metadata_directories<'a>(
-    roots: impl Iterator<Item = &'a String>,
+pub(crate) fn git_metadata_directories<'a, P: AsRef<Path> + 'a>(
+    roots: impl Iterator<Item = &'a P>,
 ) -> Result<BTreeSet<std::path::PathBuf>, String> {
     fn pointer(path: &Path) -> Result<String, String> {
         use std::io::Read;
@@ -402,7 +508,7 @@ pub(crate) fn git_metadata_directories<'a>(
     }
     let mut protected = BTreeSet::new();
     for root in roots {
-        let root = Path::new(root);
+        let root = root.as_ref();
         let marker = root.join(".git");
         let git = match std::fs::metadata(&marker) {
             Ok(metadata) if metadata.is_dir() => canonical(&marker)?,
@@ -448,6 +554,67 @@ pub(crate) fn git_metadata_directories<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn native_reads_are_limited_to_project_and_granted_repositories() {
+        let temp = tempfile::tempdir().unwrap();
+        let project = temp.path().join("project");
+        let repo = temp.path().join("repository");
+        let output = temp.path().join("output");
+        let scratch = temp.path().join("scratch");
+        for path in [&project, &repo, &output, &scratch] {
+            std::fs::create_dir(path).unwrap();
+        }
+        std::fs::write(project.join("context.txt"), "project").unwrap();
+        std::fs::write(repo.join("context.txt"), "repository").unwrap();
+        let outside = temp.path().join("private.txt");
+        std::fs::write(&outside, "private").unwrap();
+        std::os::unix::fs::symlink(&outside, project.join("escape.txt")).unwrap();
+        let script = r#"import errno, pathlib, sys
+project, repo, outside, allowed = sys.argv[1:]
+assert pathlib.Path(project, 'context.txt').read_text() == 'project'
+paths = [(pathlib.Path(repo, 'context.txt'), allowed == 'yes'), (pathlib.Path(outside), False), (pathlib.Path(project, 'escape.txt'), False)]
+volume_alias = pathlib.Path('/System/Volumes/Data') / pathlib.Path(outside).relative_to('/')
+if volume_alias.exists():
+    paths.append((volume_alias, False))
+for path, permitted in paths:
+    try:
+        value = path.read_text()
+    except OSError as error:
+        assert not permitted and error.errno in [errno.EPERM, errno.EACCES], (path, error)
+    else:
+        assert permitted and value == 'repository', path
+"#;
+        for read in [false, true] {
+            let permissions = if read {
+                BTreeSet::from([Permission::ReadRepositories])
+            } else {
+                BTreeSet::new()
+            };
+            let policy = AutomationSandbox::new(&permissions, &json!({"repo": repo}), &project);
+            let args = vec![
+                "-c".into(),
+                script.into(),
+                project.to_string_lossy().into_owned(),
+                repo.to_string_lossy().into_owned(),
+                outside.to_string_lossy().into_owned(),
+                if read { "yes" } else { "no" }.into(),
+            ];
+            let result = policy
+                .tool_command("/usr/bin/python3", &args, &output, &scratch)
+                .unwrap()
+                .current_dir(&project)
+                .output()
+                .await
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+        }
+    }
+
     #[cfg(target_os = "macos")]
     #[tokio::test]
     async fn external_git_metadata_needs_reviewed_paths_and_commit_permission() {
@@ -570,6 +737,7 @@ else: raise AssertionError('unapproved parent became writable')
                 let result = policy
                     .tool_command("/usr/bin/python3", &args, &output, &scratch)
                     .unwrap()
+                    .current_dir(&project)
                     .env_clear()
                     .env("PATH", "/usr/bin:/bin")
                     .env("HOME", &scratch)
@@ -593,7 +761,11 @@ else: raise AssertionError('unapproved parent became writable')
             let error = reviewed
                 .tool_command("/usr/bin/true", &[], &output, &scratch)
                 .unwrap_err();
-            assert!(error.contains("changed before execution"), "{error}");
+            assert!(
+                error.contains("changed before execution")
+                    || error.contains("Cannot resolve Git metadata directory"),
+                "{error}"
+            );
             std::fs::write(repo.join(".git"), format!("gitdir: {}", other.display())).unwrap();
             assert!(
                 AutomationSandbox::new(&may, &repositories, &project)
@@ -658,6 +830,7 @@ print('verified')
             let result = policy
                 .tool_command("/usr/bin/python3", &args, &output, &scratch)
                 .unwrap()
+                .current_dir(&project)
                 .env_clear()
                 .env("PATH", "/usr/bin:/bin")
                 .output()
@@ -821,6 +994,7 @@ print('verified')
                 let result = policy
                     .tool_command("/usr/bin/python3", &args, &output, &scratch)
                     .unwrap()
+                    .current_dir(&project)
                     .env_clear()
                     .env("PATH", "/usr/bin:/bin")
                     .env("HOME", &scratch)

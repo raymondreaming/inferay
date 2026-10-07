@@ -1001,6 +1001,12 @@ async fn repository_tool_executes_in_place_and_dirty_checkout_revokes_approval()
     tool["pack"] = json!({"repositoryId":repository,"commit":revision,"sha256":project_store::hash(script.as_bytes())});
     std::fs::write(path, tool.to_string()).unwrap();
     std::fs::remove_file(root.join("plugins/report/tools/report/run.py")).unwrap();
+    for path in ["plugins/report/plugin.json", "plugins/report/automations/report.json"] {
+        let file = root.join(path);
+        let mut definition: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        definition["may"] = json!(["read_repositories"]);
+        std::fs::write(file, definition.to_string()).unwrap();
+    }
     let runtime = runtime(profile.path());
     runtime.command(ProjectFileCommand::LinkRepository { project_id:project.clone(),repository_id:repository,expected_project_hash:project_store::hash(&std::fs::read(root.join("project.json")).unwrap()),path:checkout.path().display().to_string() },true).await.unwrap();
     let id = approved_run(&runtime, &automation, "pack").await;
