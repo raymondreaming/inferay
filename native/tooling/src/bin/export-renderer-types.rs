@@ -12,11 +12,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .truncate(false)
         .open(presentation_path.join(".contracts.lock"))?;
     export_lock.lock()?;
-    let root = presentation_path.join("contracts");
-    // Do not let obsolete generated declarations hide a removed backend type.
-    if root.exists() {
-        std::fs::remove_dir_all(&root)?;
-    }
+    // Generate a complete replacement before exposing it to Vite or tsc.
+    // The exporter lock serializes writers; readers never take that lock.
+    let stage = tempfile::Builder::new()
+        .prefix(".contracts-")
+        .tempdir_in(&presentation_path)?;
+    let root = stage.path();
     let cfg = Config::new()
         .with_large_int("number")
         .with_out_dir(&root)
@@ -135,7 +136,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     inferay_server::export_renderer_types(&cfg)?;
     // Keep the renderer's type-only entry point in sync with every exported dependency.
-    let mut contracts = std::fs::read_dir(&root)?
+    let mut contracts = std::fs::read_dir(root)?
         .map(|entry| entry.map(|entry| entry.path()))
         .collect::<Result<Vec<_>, _>>()?;
     contracts.retain(|path| {
@@ -152,18 +153,137 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         barrel.push_str(&format!("export type * from \"./{filename}\";\n"));
     }
     std::fs::write(root.join("index.ts"), barrel)?;
-    std::fs::write(
-        presentation_path.join("appearance-catalog.json"),
-        serde_json::to_string(&inferay_presentation::appearance::catalog())?,
+    publish_contracts(root, &presentation_path.join("contracts"))?;
+    publish_file(
+        &presentation_path.join("appearance-catalog.json"),
+        serde_json::to_string(&inferay_presentation::appearance::catalog())?.as_bytes(),
     )?;
     let catalog_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../build/presentation/provider-catalog.json");
-    std::fs::write(
-        catalog_path,
+    publish_file(
+        &catalog_path,
         serde_json::to_string(&inferay_core::provider_config::renderer_catalog(
             &serde_json::Value::Null,
             &[],
-        ))?,
+        ))?
+        .as_bytes(),
     )?;
     Ok(())
+}
+
+fn publish_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut staged = tempfile::NamedTempFile::new_in(
+        path.parent()
+            .ok_or_else(|| std::io::Error::other("Missing output parent"))?,
+    )?;
+    staged.write_all(bytes)?;
+    staged.persist(path).map_err(|error| error.error)?;
+    Ok(())
+}
+
+fn publish_contracts(stage: &std::path::Path, target: &std::path::Path) -> std::io::Result<()> {
+    if !stage.join("index.ts").is_file() {
+        return Err(std::io::Error::other("Contract export has no entry point"));
+    }
+    if !target.try_exists()? {
+        return std::fs::rename(stage, target);
+    }
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        let from = std::ffi::CString::new(stage.as_os_str().as_encoded_bytes())?;
+        let to = std::ffi::CString::new(target.as_os_str().as_encoded_bytes())?;
+        // Exchange completed directories without ever removing the live path.
+        // The tempfile owner cleans up the old output at the staging path.
+        #[cfg(target_os = "macos")]
+        let result = unsafe {
+            libc::renameatx_np(
+                libc::AT_FDCWD,
+                from.as_ptr(),
+                libc::AT_FDCWD,
+                to.as_ptr(),
+                libc::RENAME_SWAP,
+            )
+        };
+        #[cfg(target_os = "linux")]
+        let result = unsafe {
+            libc::renameat2(
+                libc::AT_FDCWD,
+                from.as_ptr(),
+                libc::AT_FDCWD,
+                to.as_ptr(),
+                libc::RENAME_EXCHANGE,
+            )
+        };
+        if result != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        // Platforms without directory exchange still retain their live output.
+        // Replace files atomically, publish the barrel last, then prune obsolete types.
+        for entry in std::fs::read_dir(stage)? {
+            let entry = entry?;
+            if entry.file_name() != "index.ts" {
+                publish_file(
+                    &target.join(entry.file_name()),
+                    &std::fs::read(entry.path())?,
+                )?;
+            }
+        }
+        publish_file(
+            &target.join("index.ts"),
+            &std::fs::read(stage.join("index.ts"))?,
+        )?;
+        for entry in std::fs::read_dir(target)? {
+            let entry = entry?;
+            if !stage.join(entry.file_name()).exists() {
+                std::fs::remove_file(entry.path())?;
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn contracts_remain_readable_during_publication_and_obsolete_types_disappear() {
+        let root = tempfile::tempdir().unwrap();
+        let target = root.path().join("contracts");
+        std::fs::create_dir(&target).unwrap();
+        std::fs::write(target.join("index.ts"), "old").unwrap();
+        std::fs::write(target.join("Old.ts"), "old").unwrap();
+        let incomplete = tempfile::tempdir_in(root.path()).unwrap();
+        assert!(publish_contracts(incomplete.path(), &target).is_err());
+        assert_eq!(
+            std::fs::read_to_string(target.join("index.ts")).unwrap(),
+            "old"
+        );
+        let reading = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let reader_path = target.clone();
+        let reader_active = reading.clone();
+        let reader = std::thread::spawn(move || {
+            while reader_active.load(std::sync::atomic::Ordering::Relaxed) {
+                let text = std::fs::read_to_string(reader_path.join("index.ts")).unwrap();
+                assert!(text == "old" || text == "new");
+            }
+        });
+        for _ in 0..30 {
+            let stage = tempfile::tempdir_in(root.path()).unwrap();
+            std::fs::write(stage.path().join("index.ts"), "new").unwrap();
+            std::fs::write(stage.path().join("New.ts"), "new").unwrap();
+            publish_contracts(stage.path(), &target).unwrap();
+        }
+        reading.store(false, std::sync::atomic::Ordering::Relaxed);
+        reader.join().unwrap();
+        assert!(!target.join("Old.ts").exists());
+        assert_eq!(
+            std::fs::read_to_string(target.join("New.ts")).unwrap(),
+            "new"
+        );
+    }
 }

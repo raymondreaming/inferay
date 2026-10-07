@@ -1523,6 +1523,7 @@ dependencies = [
  "inferay-native-diff",
  "inferay-presentation",
  "inferay-server",
+ "libc",
  "regex",
  "serde_json",
  "sha2",
