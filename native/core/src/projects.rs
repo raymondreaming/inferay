@@ -129,6 +129,15 @@ pub struct ProjectArtifact {
     pub path: String,
     pub byte_size: i64,
 }
+/// Durable execution history, independent of definition storage.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectHistory {
+    pub runs: Vec<ProjectRun>,
+    pub artifacts: Vec<ProjectArtifact>,
+    pub has_more_runs: bool,
+    pub next_run_cursor: Option<String>,
+}
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectPlugin {
@@ -442,7 +451,6 @@ fn validate_json_at(schema: &Value, value: &Value, path: &str, depth: usize) -> 
     Ok(())
 }
 
-
 /// Wall-clock recurrence; weekday is Monday=0 through Sunday=6, or daily when absent.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -456,18 +464,36 @@ impl CalendarSchedule {
     /// Fall overlaps run once, at the earlier occurrence.
     pub fn next_after(&self, after_ms: i64) -> Result<i64, String> {
         use chrono::{Datelike, TimeZone};
-        let zone: chrono_tz::Tz = self.timezone.parse().map_err(|_| "Choose a valid IANA timezone")?;
-        let time = chrono::NaiveTime::parse_from_str(&self.time, "%H:%M").map_err(|_| "Time must be HH:MM")?;
-        if self.time.len() != 5 || self.weekday.is_some_and(|d| d > 6) { return Err("Invalid calendar schedule".into()); }
-        let date = chrono::DateTime::from_timestamp_millis(after_ms).ok_or("Invalid timestamp")?.with_timezone(&zone).date_naive();
+        let zone: chrono_tz::Tz = self
+            .timezone
+            .parse()
+            .map_err(|_| "Choose a valid IANA timezone")?;
+        let time = chrono::NaiveTime::parse_from_str(&self.time, "%H:%M")
+            .map_err(|_| "Time must be HH:MM")?;
+        if self.time.len() != 5 || self.weekday.is_some_and(|d| d > 6) {
+            return Err("Invalid calendar schedule".into());
+        }
+        let date = chrono::DateTime::from_timestamp_millis(after_ms)
+            .ok_or("Invalid timestamp")?
+            .with_timezone(&zone)
+            .date_naive();
         for offset in 0..=8 {
-            let day = date.checked_add_days(chrono::Days::new(offset)).ok_or("Invalid date")?;
-            if self.weekday.is_some_and(|d| d != day.weekday().num_days_from_monday()) { continue; }
+            let day = date
+                .checked_add_days(chrono::Days::new(offset))
+                .ok_or("Invalid date")?;
+            if self
+                .weekday
+                .is_some_and(|d| d != day.weekday().num_days_from_monday())
+            {
+                continue;
+            }
             let local = day.and_time(time);
             for minute in 0..=180 {
                 let candidate = local + chrono::Duration::minutes(minute);
                 if let Some(instant) = zone.from_local_datetime(&candidate).earliest() {
-                    if instant.timestamp_millis() > after_ms { return Ok(instant.timestamp_millis()); }
+                    if instant.timestamp_millis() > after_ms {
+                        return Ok(instant.timestamp_millis());
+                    }
                     break;
                 }
             }
@@ -479,17 +505,39 @@ impl CalendarSchedule {
 #[cfg(test)]
 mod calendar_tests {
     use super::*;
-    fn ms(value: &str) -> i64 { chrono::DateTime::parse_from_rfc3339(value).unwrap().timestamp_millis() }
+    fn ms(value: &str) -> i64 {
+        chrono::DateTime::parse_from_rfc3339(value)
+            .unwrap()
+            .timestamp_millis()
+    }
     #[test]
     fn calendar_follows_local_time_across_dst_and_week_boundaries() {
-        let mut schedule = CalendarSchedule { time:"09:00".into(),timezone:"America/Chicago".into(),weekday:None };
-        assert_eq!(schedule.next_after(ms("2026-03-07T15:00:00Z")).unwrap(),ms("2026-03-08T14:00:00Z"));
-        schedule.weekday=Some(0);
-        assert_eq!(schedule.next_after(ms("2026-03-07T15:00:00Z")).unwrap(),ms("2026-03-09T14:00:00Z"));
-        schedule.weekday=None; schedule.time="02:30".into();
-        assert_eq!(schedule.next_after(ms("2026-03-08T06:00:00Z")).unwrap(),ms("2026-03-08T08:00:00Z"));
-        schedule.time="01:30".into();
-        assert_eq!(schedule.next_after(ms("2026-11-01T06:30:00Z")).unwrap(),ms("2026-11-02T07:30:00Z"));
-        schedule.time="25:30".into(); assert!(schedule.next_after(0).is_err());
+        let mut schedule = CalendarSchedule {
+            time: "09:00".into(),
+            timezone: "America/Chicago".into(),
+            weekday: None,
+        };
+        assert_eq!(
+            schedule.next_after(ms("2026-03-07T15:00:00Z")).unwrap(),
+            ms("2026-03-08T14:00:00Z")
+        );
+        schedule.weekday = Some(0);
+        assert_eq!(
+            schedule.next_after(ms("2026-03-07T15:00:00Z")).unwrap(),
+            ms("2026-03-09T14:00:00Z")
+        );
+        schedule.weekday = None;
+        schedule.time = "02:30".into();
+        assert_eq!(
+            schedule.next_after(ms("2026-03-08T06:00:00Z")).unwrap(),
+            ms("2026-03-08T08:00:00Z")
+        );
+        schedule.time = "01:30".into();
+        assert_eq!(
+            schedule.next_after(ms("2026-11-01T06:30:00Z")).unwrap(),
+            ms("2026-11-02T07:30:00Z")
+        );
+        schedule.time = "25:30".into();
+        assert!(schedule.next_after(0).is_err());
     }
 }

@@ -74,6 +74,20 @@ pub(crate) fn replace_definition_tables(db: &mut Connection) -> Result<()> {
             DROP TABLE projects;",
         )?;
         crate::project_index::create_schema(&tx)?;
+        // Old queued work was admitted against database definitions. It must
+        // not execute after migration without review of the exported files.
+        let pending: Vec<(String, bool)> = tx.prepare("SELECT id,stop_requested_at IS NOT NULL FROM runs WHERE status IN ('queued','running','waiting_input')")?
+            .query_map([], |r|Ok((r.get(0)?,r.get(1)?)))?.collect::<std::result::Result<_,_>>()?;
+        for (id, stopped) in pending {
+            let status = if stopped { "cancelled" } else { "interrupted" };
+            tx.execute("UPDATE runs SET status=?,finished_at=?,error='Project definitions migrated. Review and retry explicitly.' WHERE id=?", params![status,now(),id])?;
+            crate::project_store::event(
+                &tx,
+                &id,
+                status,
+                &serde_json::json!({"reason":"definition_migration"}),
+            )?;
+        }
         let broken: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM pragma_foreign_key_check)",
             [],

@@ -10,6 +10,105 @@ pub const ENTRYPOINT_LIMIT: usize = 1_000_000;
 pub const PLUGIN_BYTE_LIMIT: usize = 50_000_000;
 pub const PLUGIN_ENTRY_LIMIT: usize = 1_000;
 
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum ProjectFileCommand {
+    SaveDefinition {
+        project_id: String,
+        path: String,
+        content: String,
+        expected_hash: Option<String>,
+    },
+    ReviewAutomation {
+        id: String,
+    },
+    ApproveAutomation {
+        id: String,
+        expected_inputs_hash: String,
+        enable: bool,
+    },
+    DisableAutomation {
+        id: String,
+    },
+    RunAutomation {
+        id: String,
+        request_id: String,
+    },
+    RetryRun {
+        id: String,
+        request_id: String,
+    },
+    StopRun {
+        id: String,
+    },
+    LinkRepository {
+        project_id: String,
+        repository_id: String,
+        expected_project_hash: String,
+        path: String,
+    },
+    AssociateConversation {
+        project_id: String,
+        pane_id: String,
+    },
+}
+
+/// A file observed by the index. Invalid files remain visible and editable;
+/// their last valid definition is never silently substituted.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexedDefinition<T> {
+    pub id: String,
+    pub project_id: String,
+    pub plugin_id: Option<String>,
+    pub source_path: String,
+    pub source_hash: Option<String>,
+    pub error: Option<String>,
+    pub definition: Option<T>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexedAutomation {
+    pub file: IndexedDefinition<AutomationDefinition>,
+    pub enabled: bool,
+    pub next_due_at: Option<i64>,
+    pub inputs_changed: bool,
+    pub execution_error: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexedPlugin {
+    pub file: IndexedDefinition<PluginDefinition>,
+    pub approved_hash: Option<String>,
+    pub approved_at: Option<i64>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DefinitionIssue {
+    pub project_id: String,
+    pub source_path: String,
+    pub error: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectFileCatalog {
+    pub projects: Vec<IndexedDefinition<ProjectDefinition>>,
+    pub resources: Vec<IndexedDefinition<ResourceDefinition>>,
+    pub plugins: Vec<IndexedPlugin>,
+    pub automations: Vec<IndexedAutomation>,
+    pub issues: Vec<DefinitionIssue>,
+    pub repository_paths: BTreeMap<String, String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum Permission {

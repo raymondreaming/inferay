@@ -60,6 +60,13 @@ fn invalid_and_deleted_files_replace_index_without_erasing_history_or_approval()
     )
     .unwrap();
     refresh(&mut db, profile.path(), &BTreeSet::new()).unwrap();
+    let view = catalog(&db, Some(&project)).unwrap();
+    assert_eq!(view.projects.len(), 1);
+    assert_eq!(
+        view.automations[0].file.definition.as_ref().unwrap().name,
+        "Daily"
+    );
+    assert!(view.issues.is_empty());
     db.execute(
         "UPDATE automation_state SET enabled=1,next_due_at=123,approved_hash='approved'",
         [],
@@ -79,6 +86,17 @@ fn invalid_and_deleted_files_replace_index_without_erasing_history_or_approval()
         .join("plugins/daily/automations/daily.json");
     fs::write(&path, "{broken").unwrap();
     refresh(&mut db, profile.path(), &BTreeSet::new()).unwrap();
+    let invalid = catalog(&db, Some(&project)).unwrap();
+    assert!(invalid.automations[0].file.definition.is_none());
+    assert!(invalid.automations[0].file.source_hash.is_some());
+    assert!(
+        invalid
+            .issues
+            .iter()
+            .any(|issue| issue.source_path.ends_with("daily.json"))
+    );
+    assert!(!invalid.automations[0].enabled);
+    assert!(catalog(&db, None).unwrap().automations.is_empty());
     let state: (bool, Option<i64>, String) = db
         .query_row(
             "SELECT enabled,next_due_at,approved_hash FROM automation_state WHERE automation_id=?",
@@ -269,5 +287,93 @@ fn definition_saves_validate_before_publication_and_refuse_stale_hashes() {
     assert_eq!(
         fs::read(root.join(path)).unwrap(),
         definition.to_string().as_bytes()
+    );
+}
+
+#[test]
+fn approval_rejects_stale_review_and_manual_runs_cannot_bypass_input_changes() {
+    let (profile, project, automation) = fixture();
+    let root = profile.path().join("projects").join(project);
+    let mut db = Connection::open_in_memory().unwrap();
+    create_schema(&db).unwrap();
+    refresh(&mut db, profile.path(), &BTreeSet::new()).unwrap();
+    let reviewed = execution_inputs(&db, profile.path(), &automation, &[]).unwrap();
+    let digest = hash(&serde_json::to_vec(&reviewed).unwrap());
+    assert!(approved_inputs(&db, profile.path(), &automation, false, &[]).is_err());
+    approve_automation(&db, profile.path(), &automation, &digest, true, &[]).unwrap();
+    assert_eq!(
+        approved_inputs(&db, profile.path(), &automation, true, &[]).unwrap(),
+        reviewed
+    );
+    disable_automation(&db, &automation).unwrap();
+    assert!(approved_inputs(&db, profile.path(), &automation, true, &[]).is_err());
+    assert!(approved_inputs(&db, profile.path(), &automation, false, &[]).is_ok());
+    files::write(&root, "plugins/daily/helper.py", b"print('changed')", None).unwrap();
+    assert!(approve_automation(&db, profile.path(), &automation, &digest, true, &[]).is_err());
+    assert!(approved_inputs(&db, profile.path(), &automation, false, &[]).is_err());
+    let state: (bool, Option<i64>, bool) = db
+        .query_row(
+            "SELECT enabled,next_due_at,inputs_changed FROM automation_state",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(state, (false, None, true));
+    let current = execution_inputs(&db, profile.path(), &automation, &[]).unwrap();
+    approve_automation(
+        &db,
+        profile.path(),
+        &automation,
+        &hash(&serde_json::to_vec(&current).unwrap()),
+        false,
+        &[],
+    )
+    .unwrap();
+    assert!(approved_inputs(&db, profile.path(), &automation, false, &[]).is_ok());
+    assert!(approved_inputs(&db, profile.path(), &automation, true, &[]).is_err());
+}
+
+#[test]
+fn captured_skill_instructions_remain_pinned_after_library_edit() {
+    let (profile, project, automation) = fixture();
+    let root = profile.path().join("projects").join(project);
+    let skill = uuid::Uuid::new_v4().to_string();
+    let markdown = format!(
+        "---\nid: {skill}\nname: Daily research\ndescription: Research procedure\n---\nUse the original research procedure."
+    );
+    files::write(
+        &root,
+        "plugins/daily/skills/research.md",
+        markdown.as_bytes(),
+        None,
+    )
+    .unwrap();
+    let path = root.join("plugins/daily/automations/daily.json");
+    let mut definition: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    definition["execution"]["skills"] = json!([skill]);
+    fs::write(path, definition.to_string()).unwrap();
+    let mut db = Connection::open_in_memory().unwrap();
+    create_schema(&db).unwrap();
+    refresh(&mut db, profile.path(), &BTreeSet::new()).unwrap();
+    let captured = execution_inputs(&db, profile.path(), &automation, &[]).unwrap();
+    assert!(
+        captured["skills"][0]["instructions"]
+            .as_str()
+            .unwrap()
+            .contains("original research procedure")
+    );
+    let digest = hash(&serde_json::to_vec(&captured).unwrap());
+    approve_automation(&db, profile.path(), &automation, &digest, true, &[]).unwrap();
+    fs::write(
+        root.join("plugins/daily/skills/research.md"),
+        markdown.replace("original research procedure", "changed research procedure"),
+    )
+    .unwrap();
+    assert!(approved_inputs(&db, profile.path(), &automation, false, &[]).is_err());
+    assert!(
+        captured["skills"][0]["instructions"]
+            .as_str()
+            .unwrap()
+            .contains("original research procedure")
     );
 }

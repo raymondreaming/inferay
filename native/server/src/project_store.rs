@@ -60,34 +60,12 @@ impl ProjectStore {
             "SELECT json_object('id',id,'projectId',project_id,'name',name,'revision',revision,'execution',json(execution),'inputsChanged',json(CASE WHEN inputs_changed=1 THEN 'true' ELSE 'false' END),'intervalSeconds',interval_seconds,'calendar',json(calendar),'enabled',json(CASE WHEN enabled=1 THEN 'true' ELSE 'false' END),'nextDueAt',next_due_at,'overlapPolicy',overlap_policy,'archived',json(CASE WHEN archived=1 THEN 'true' ELSE 'false' END)) FROM automations WHERE project_id=?1 ORDER BY name,id LIMIT 256",
             [project],
         )?;
-        let (before_time, before_id) = match before {
-            Some(cursor) => {
-                let (time, id) = cursor.split_once(':').ok_or("Invalid run cursor")?;
-                (time.parse::<i64>()?, id)
-            }
-            None => (i64::MAX, ""),
-        };
-        let mut runs = rows::<ProjectRun>(
-            &self.db,
-            "SELECT json_object('id',id,'projectId',project_id,'automationId',automation_id,'name',name,'status',status,'requestedAt',requested_at,'startedAt',started_at,'finishedAt',finished_at,'result',json(result),'error',error,'snapshot',json(snapshot),'directory',?3||'/projects/'||project_id||'/runs/'||id) FROM runs WHERE project_id=?1 AND (requested_at<?2 OR (requested_at=?2 AND id<?4)) ORDER BY requested_at DESC,id DESC LIMIT 51",
-            params![project, before_time, self.root.to_string_lossy(), before_id],
-        )?;
-        let has_more_runs = runs.len() > 50;
-        runs.truncate(50);
-        let next_run_cursor = if has_more_runs {
-            runs.last()
-                .map(|run| format!("{}:{}", run.requested_at, run.id))
-        } else {
-            None
-        };
-        let artifacts = rows(
-            &self.db,
-            "SELECT json_object('id',id,'runId',run_id,'name',name,'path',path,'byteSize',byte_size) FROM artifacts WHERE project_id=?1 AND run_id IN (SELECT value FROM json_each(?2)) ORDER BY created_at DESC,id LIMIT 5000",
-            params![
-                project,
-                serde_json::to_string(&runs.iter().map(|r| &r.id).collect::<Vec<_>>())?
-            ],
-        )?;
+        let ProjectHistory {
+            runs,
+            artifacts,
+            has_more_runs,
+            next_run_cursor,
+        } = crate::project_runs::history(&self.db, &self.root, project, before)?;
         let plugins = rows(
             &self.db,
             "SELECT json_object('id',id,'projectId',project_id,'name',name,'version',version,'enabled',json(CASE WHEN enabled=1 THEN 'true' ELSE 'false' END),'directory',directory) FROM plugins WHERE project_id=?1 ORDER BY name LIMIT 100",
@@ -173,10 +151,16 @@ impl ProjectStore {
 pub(crate) fn open_database(root: &Path) -> Result<Connection> {
     let db = Connection::open(root.join("projects.sqlite3"))?;
     let version: i64 = db.pragma_query_value(None, "user_version", |r| r.get(0))?;
-    if version > 2 {
+    if version > 3 {
         return Err("Project database is newer than this Inferay build".into());
     }
     db.busy_timeout(std::time::Duration::from_secs(5))?;
+    if version == 3 {
+        db.execute_batch(
+            "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;",
+        )?;
+        return Ok(db);
+    }
     db.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
 CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY,name TEXT NOT NULL,description TEXT NOT NULL,instructions TEXT NOT NULL,revision INTEGER NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,archived INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS plugins(id TEXT PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id),name TEXT NOT NULL,version TEXT NOT NULL,directory TEXT NOT NULL,manifest_hash TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 0);
@@ -711,18 +695,7 @@ pub(crate) fn prepare_run(
     retry: Option<&str>,
     skills: &[inferay_core::prompts::Prompt],
 ) -> Result<String> {
-    bounded_text(key, 300, true)?;
-    if let Some((id, owner)) = db
-        .query_row(
-            "SELECT id,automation_id FROM runs WHERE request_key=?",
-            [key],
-            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
-        )
-        .optional()?
-    {
-        if owner != automation {
-            return Err("Request key belongs to another automation".into());
-        }
+    if let Some(id) = crate::project_runs::existing(db, automation, key)? {
         return Ok(id);
     }
     let (project,name,revision,text,overlap):(String,String,i64,String,String)=db.query_row("SELECT project_id,name,revision,execution,overlap_policy FROM automations WHERE id=? AND archived=0",[automation],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?)))?;
@@ -756,35 +729,22 @@ pub(crate) fn prepare_run(
             )?;
         }
     }
-    let active:i64=db.query_row("SELECT count(*) FROM runs WHERE automation_id=? AND status IN ('queued','running','waiting_input')",[automation],|r|r.get(0))?;
-    let queued: i64 = db.query_row(
-        "SELECT count(*) FROM runs WHERE automation_id=? AND status='queued'",
-        [automation],
-        |r| r.get(0),
-    )?;
-    let pending: i64 =
-        db.query_row("SELECT count(*) FROM runs WHERE status='queued'", [], |r| {
-            r.get(0)
-        })?;
-    if pending >= 64 {
-        preflight_error = Some("Queue is full (64 pending runs)".into());
-    }
-    let status = if preflight_error.is_some() {
-        "failed"
-    } else if occurrence.is_some()
-        && ((overlap == "skip" && active > 0) || (overlap == "queue_one" && queued > 0))
-    {
-        "skipped"
-    } else {
-        "queued"
-    };
-    let id = Uuid::new_v4().to_string();
-    let snapshot = snapshot.to_string();
-    let time = now();
-    db.execute("INSERT INTO runs(id,project_id,automation_id,name,request_key,occurrence_at,retry_of,status,snapshot,input_hash,requested_at,finished_at,error) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",params![id,project,automation,name,key,occurrence,retry,status,snapshot,hash(snapshot.as_bytes()),time,if status=="queued"{None}else{Some(time)},preflight_error])?;
-    event(db, &id, status, &json!({"occurrenceAt":occurrence}))?;
-    Ok(id)
+    crate::project_runs::enqueue(
+        db,
+        crate::project_runs::RunIntent {
+            project: &project,
+            automation,
+            name: &name,
+            request_key: key,
+            occurrence,
+            retry,
+            overlap: &overlap,
+            snapshot,
+            preflight_error,
+        },
+    )
 }
+
 fn create_example(db: &Connection, root: &Path, project: &str) -> Result<Value> {
     let dir = project_directory(db, root, project)?;
     let script = "import json, os, pathlib, sys\ndata = json.load(sys.stdin)\nout = pathlib.Path(os.environ['INFERAY_RUN_OUTPUT'])\nreport = out / 'report.txt'\nreport.write_text('Project report\\n' + data.get('message', 'Hello from Inferay') + '\\n')\nprint(json.dumps({'message': 'Report created', 'artifacts': ['report.txt']}))\n";

@@ -9,6 +9,138 @@ fn command(store: &mut ProjectStore, value: Value) -> Value {
 }
 
 #[test]
+fn file_scheduler_deduplicates_due_runs_and_rechecks_waiting_inputs() {
+    let root = tempfile::tempdir().unwrap();
+    let mut store = ProjectStore::open(root.path()).unwrap();
+    let project = command(
+        &mut store,
+        json!({"type":"saveProject","name":"Schedule","description":"","instructions":""}),
+    )["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let automation = command(
+        &mut store,
+        json!({"type":"createExample","projectId":project}),
+    )["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    export(&mut store.db, root.path(), &[]).unwrap();
+    replace_definition_tables(&mut store.db).unwrap();
+    crate::project_index::refresh(&mut store.db, root.path(), &BTreeSet::new()).unwrap();
+    let inputs =
+        crate::project_index::execution_inputs(&store.db, root.path(), &automation, &[]).unwrap();
+    crate::project_index::approve_automation(
+        &store.db,
+        root.path(),
+        &automation,
+        &hash(&serde_json::to_vec(&inputs).unwrap()),
+        true,
+        &[],
+    )
+    .unwrap();
+    let time = now();
+    store
+        .db
+        .execute("UPDATE automation_state SET next_due_at=?", [time - 1000])
+        .unwrap();
+    crate::project_runs::schedule_due(&mut store.db, root.path(), &[], time).unwrap();
+    crate::project_runs::schedule_due(&mut store.db, root.path(), &[], time).unwrap();
+    assert_eq!(
+        store
+            .db
+            .query_row("SELECT count(*) FROM runs WHERE status='queued'", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    assert!(
+        store
+            .db
+            .query_row("SELECT next_due_at FROM automation_state", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap()
+            > time
+    );
+    // Turning off a schedule also prevents its already queued occurrence from
+    // starting. A later direct Run now remains a separate user action.
+    crate::project_index::disable_automation(&store.db, &automation).unwrap();
+    assert!(
+        crate::project_runs::claim_next(&mut store.db, root.path(), &[])
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        store
+            .db
+            .query_row("SELECT status FROM runs", [], |r| r.get::<_, String>(0))
+            .unwrap(),
+        "failed"
+    );
+    crate::project_index::approve_automation(
+        &store.db,
+        root.path(),
+        &automation,
+        &hash(&serde_json::to_vec(&inputs).unwrap()),
+        true,
+        &[],
+    )
+    .unwrap();
+    crate::project_runs::prepare_file_run(
+        &store.db,
+        root.path(),
+        &automation,
+        "second-occurrence",
+        Some(time),
+        None,
+        &[],
+    )
+    .unwrap();
+    let directory = root.path().join("projects").join(project);
+    files::write(
+        &directory,
+        &format!("plugins/automation-{automation}/helper.py"),
+        b"print('changed while queued')",
+        None,
+    )
+    .unwrap();
+    assert!(
+        crate::project_runs::claim_next(&mut store.db, root.path(), &[])
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        store
+            .db
+            .query_row(
+                "SELECT status FROM runs WHERE request_key='second-occurrence'",
+                [],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+        "failed"
+    );
+    let state: (bool, Option<i64>) = store
+        .db
+        .query_row(
+            "SELECT enabled,next_due_at FROM automation_state",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(state, (false, None));
+    crate::project_runs::schedule_due(&mut store.db, root.path(), &[], time + 86400000).unwrap();
+    assert_eq!(
+        store
+            .db
+            .query_row("SELECT count(*) FROM runs", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        2
+    );
+}
+
+#[test]
 fn handover_removes_definition_ownership_and_preserves_runtime_relations() {
     let root = tempfile::tempdir().unwrap();
     let mut store = ProjectStore::open(root.path()).unwrap();
@@ -51,6 +183,14 @@ fn handover_removes_definition_ownership_and_preserves_runtime_relations() {
     export(&mut store.db, root.path(), &[]).unwrap();
     replace_definition_tables(&mut store.db).unwrap();
     replace_definition_tables(&mut store.db).unwrap();
+    assert_eq!(
+        store
+            .db
+            .query_row("SELECT status FROM runs WHERE id=?", [&run], |r| r
+                .get::<_, String>(0))
+            .unwrap(),
+        "interrupted"
+    );
     crate::project_index::refresh(&mut store.db, root.path(), &BTreeSet::new()).unwrap();
     assert_eq!(
         store
@@ -63,12 +203,71 @@ fn handover_removes_definition_ownership_and_preserves_runtime_relations() {
             .unwrap(),
         1
     );
+    use inferay_core::project_files::ProjectFileCommand;
+    let review = crate::project_file_commands::apply(
+        &mut store.db,
+        root.path(),
+        ProjectFileCommand::ReviewAutomation {
+            id: automation.clone(),
+        },
+        false,
+        &[],
+    )
+    .unwrap();
+    let inputs = review["inputs"].clone();
+    let approve = ProjectFileCommand::ApproveAutomation {
+        id: automation.clone(),
+        expected_inputs_hash: review["inputsHash"].as_str().unwrap().into(),
+        enable: false,
+    };
+    assert!(
+        crate::project_file_commands::apply(
+            &mut store.db,
+            root.path(),
+            approve.clone(),
+            false,
+            &[]
+        )
+        .is_err()
+    );
+    crate::project_file_commands::apply(&mut store.db, root.path(), approve, true, &[]).unwrap();
+    let retry = ProjectFileCommand::RetryRun {
+        id: run.clone(),
+        request_id: "after-migration".into(),
+    };
+    assert!(
+        crate::project_file_commands::apply(&mut store.db, root.path(), retry.clone(), false, &[])
+            .is_err()
+    );
+    let result =
+        crate::project_file_commands::apply(&mut store.db, root.path(), retry.clone(), true, &[])
+            .unwrap();
+    let queued = result["id"].as_str().unwrap().to_owned();
+    assert_eq!(
+        result,
+        crate::project_file_commands::apply(&mut store.db, root.path(), retry, true, &[]).unwrap()
+    );
+    let persisted: (String, String, Value) = store
+        .db
+        .query_row(
+            "SELECT status,retry_of,snapshot FROM runs WHERE id=?",
+            [&queued],
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    serde_json::from_str(&r.get::<_, String>(2)?).unwrap(),
+                ))
+            },
+        )
+        .unwrap();
+    assert_eq!(persisted, ("queued".into(), run.clone(), inputs));
     // Deleting every definition must leave evidence and conversation links intact.
     fs::remove_dir_all(root.path().join("projects").join(&project)).unwrap();
     crate::project_index::refresh(&mut store.db, root.path(), &BTreeSet::new()).unwrap();
     for (table, expected) in [
-        ("runs", 1),
-        ("run_events", 1),
+        ("runs", 2),
+        ("run_events", 3),
         ("artifacts", 1),
         ("project_conversations", 1),
         ("automations", 0),

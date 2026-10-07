@@ -25,7 +25,7 @@ The work is a sequence of milestones. Each one ends with something real running,
 
 ## M1. Definitions are files
 
-Development continues directly on `main`. The formats and validators exist; this milestone connects them to storage. Managed file writes use expected hashes, and global custom skills have a separate `skills.sqlite3` store so rebuilding the project index does not remove them. The bounded filesystem scanner, validated writer, index rebuild and legacy exporter have disposable-profile tests; the schema handover is not yet connected to startup. Live catalog and command integration remain unfinished.
+Development continues directly on `main`. The formats and validators exist; this milestone connects them to storage. Managed file writes use expected hashes, and global custom skills have a separate `skills.sqlite3` store so rebuilding the project index does not remove them. The bounded filesystem scanner, validated writer, index rebuild, legacy exporter and file-store startup have disposable-profile tests. File-backed approval and queue admission feed the existing executor, including a verified local-tool run and artifact. Chat-context lookup reads current files, and run history has a shared durable reader. The application still opens the legacy store: runtime, API and renderer cutover remain unfinished; the live profile has not migrated.
 
 **Storage.** `project_store.rs` and `project_runtime.rs` read definitions from files.
 

@@ -42,6 +42,72 @@ async fn completed(runtime: &Arc<ProjectRuntime>, project: &str, id: &str) -> Pr
     .await
     .unwrap()
 }
+
+#[tokio::test]
+async fn migrated_file_automation_executes_with_the_existing_runner_and_artifacts() {
+    let root = tempfile::tempdir().unwrap();
+    let runtime = runtime(root.path());
+    let (project, run, snapshot) = {
+        let mut store = runtime.store.lock().unwrap();
+        let project = project(&mut store);
+        let automation = example(&mut store, &project);
+        crate::project_migration::export(&mut store.db, root.path(), &[]).unwrap();
+        crate::project_migration::replace_definition_tables(&mut store.db).unwrap();
+        crate::project_index::refresh(&mut store.db, root.path(), &Default::default()).unwrap();
+        let inputs =
+            crate::project_index::execution_inputs(&store.db, root.path(), &automation, &[])
+                .unwrap();
+        crate::project_index::approve_automation(
+            &store.db,
+            root.path(),
+            &automation,
+            &project_store::hash(&serde_json::to_vec(&inputs).unwrap()),
+            false,
+            &[],
+        )
+        .unwrap();
+        let run = crate::project_runs::prepare_file_run(
+            &store.db,
+            root.path(),
+            &automation,
+            "file-tool-run",
+            None,
+            None,
+            &[],
+        )
+        .unwrap();
+        let (claimed, owner, snapshot) =
+            crate::project_runs::claim_next(&mut store.db, root.path(), &[])
+                .unwrap()
+                .unwrap();
+        assert_eq!(claimed, run);
+        assert_eq!(owner, project);
+        (project, run, snapshot)
+    };
+    let output = runtime.execute(&run, &project, &snapshot).await;
+    assert!(output.is_ok(), "{output:?}");
+    runtime.finish(&run, &project, output).unwrap();
+    let store = runtime.store.lock().unwrap();
+    assert_eq!(
+        store
+            .db
+            .query_row("SELECT status FROM runs WHERE id=?", [&run], |r| r
+                .get::<_, String>(0))
+            .unwrap(),
+        "succeeded"
+    );
+    let path: String = store
+        .db
+        .query_row("SELECT path FROM artifacts WHERE run_id=?", [&run], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert!(
+        std::fs::read_to_string(path)
+            .unwrap()
+            .contains("durable run")
+    );
+}
 #[test]
 fn project_revisions_profile_lease_and_recovery_preserve_records() {
     let root = tempfile::tempdir().unwrap();
@@ -152,15 +218,40 @@ fn schedule_consent_detects_changed_files_and_occurrences_deduplicate() {
         catalog.runs.iter().find(|r| r.id == next).unwrap().status,
         "failed"
     );
-    let manual = command(&mut store, json!({"type":"runAutomation","id":automation,"requestId":"manual-after-edit"}))["id"].as_str().unwrap().to_owned();
+    let manual = command(
+        &mut store,
+        json!({"type":"runAutomation","id":automation,"requestId":"manual-after-edit"}),
+    )["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let catalog = store.catalog(Some(&id), None).unwrap();
     let refused = catalog.runs.iter().find(|r| r.id == manual).unwrap();
     assert_eq!(refused.status, "failed");
     assert!(refused.error.as_deref().unwrap().contains("approval"));
     let revision = catalog.automations[0].revision;
-    command(&mut store, json!({"type":"enableAutomation","id":automation,"expectedRevision":revision,"enabled":true}));
-    let accepted = command(&mut store, json!({"type":"runAutomation","id":automation,"requestId":"manual-after-review"}))["id"].as_str().unwrap().to_owned();
-    assert_eq!(store.catalog(Some(&id), None).unwrap().runs.iter().find(|r|r.id==accepted).unwrap().status, "queued");
+    command(
+        &mut store,
+        json!({"type":"enableAutomation","id":automation,"expectedRevision":revision,"enabled":true}),
+    );
+    let accepted = command(
+        &mut store,
+        json!({"type":"runAutomation","id":automation,"requestId":"manual-after-review"}),
+    )["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(
+        store
+            .catalog(Some(&id), None)
+            .unwrap()
+            .runs
+            .iter()
+            .find(|r| r.id == accepted)
+            .unwrap()
+            .status,
+        "queued"
+    );
 }
 #[test]
 fn agents_cannot_enable_execution_or_bypass_skill_approval() {
@@ -475,14 +566,39 @@ fn automation_preview_validates_without_saving_and_accepts_four_hours() {
     let mut store = ProjectStore::open(&root).unwrap();
     let project_id = project(&mut store);
     let definition = json!({"type":"saveAutomation","id":"preview-four-hours","projectId":project_id,"name":"Daily research","execution":{"kind":"agent","instructions":"Research the project","provider":"codex","timeoutSeconds":14400},"intervalSeconds":86400,"overlapPolicy":"skip"});
-    store.preview_automation(serde_json::from_value(definition.clone()).unwrap()).unwrap();
-    assert!(store.catalog(Some(&project_id), None).unwrap().automations.is_empty());
+    store
+        .preview_automation(serde_json::from_value(definition.clone()).unwrap())
+        .unwrap();
+    assert!(
+        store
+            .catalog(Some(&project_id), None)
+            .unwrap()
+            .automations
+            .is_empty()
+    );
     let mut invalid = definition.clone();
     invalid["execution"]["timeoutSeconds"] = json!(86401);
-    assert!(store.preview_automation(serde_json::from_value(invalid).unwrap()).is_err());
-    assert!(store.catalog(Some(&project_id), None).unwrap().automations.is_empty());
+    assert!(
+        store
+            .preview_automation(serde_json::from_value(invalid).unwrap())
+            .is_err()
+    );
+    assert!(
+        store
+            .catalog(Some(&project_id), None)
+            .unwrap()
+            .automations
+            .is_empty()
+    );
     command(&mut store, definition);
-    assert_eq!(store.catalog(Some(&project_id), None).unwrap().automations.len(), 1);
+    assert_eq!(
+        store
+            .catalog(Some(&project_id), None)
+            .unwrap()
+            .automations
+            .len(),
+        1
+    );
     drop(store);
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -493,20 +609,45 @@ fn saving_enabled_automation_preserves_approval_and_disables_schedule() {
     let mut store = ProjectStore::open(root.path()).unwrap();
     let project = project(&mut store);
     let id = example(&mut store, &project);
-    command(&mut store, json!({"type":"enableAutomation","id":id,"expectedRevision":1,"enabled":true}));
-    let approval = |store: &ProjectStore| store.db.query_row("SELECT snapshot_hash,approved_at FROM automation_approvals WHERE automation_id=?", [&id], |r| Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?))).unwrap();
+    command(
+        &mut store,
+        json!({"type":"enableAutomation","id":id,"expectedRevision":1,"enabled":true}),
+    );
+    let approval = |store: &ProjectStore| {
+        store
+            .db
+            .query_row(
+                "SELECT snapshot_hash,approved_at FROM automation_approvals WHERE automation_id=?",
+                [&id],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
+            )
+            .unwrap()
+    };
     let before = approval(&store);
-    let automation = store.catalog(Some(&project),None).unwrap().automations.remove(0);
-    command(&mut store, json!({"type":"saveAutomation","id":id,"projectId":project,"expectedRevision":automation.revision,"name":"Changed report","execution":automation.execution,"intervalSeconds":86400,"overlapPolicy":"skip"}));
-    let saved = store.catalog(Some(&project),None).unwrap().automations.remove(0);
+    let automation = store
+        .catalog(Some(&project), None)
+        .unwrap()
+        .automations
+        .remove(0);
+    command(
+        &mut store,
+        json!({"type":"saveAutomation","id":id,"projectId":project,"expectedRevision":automation.revision,"name":"Changed report","execution":automation.execution,"intervalSeconds":86400,"overlapPolicy":"skip"}),
+    );
+    let saved = store
+        .catalog(Some(&project), None)
+        .unwrap()
+        .automations
+        .remove(0);
     assert!(!saved.enabled);
     assert!(saved.next_due_at.is_none());
     assert!(saved.inputs_changed);
     assert_eq!(approval(&store), before);
-    command(&mut store, json!({"type":"enableAutomation","id":id,"expectedRevision":saved.revision,"enabled":true}));
-    assert!(store.catalog(Some(&project),None).unwrap().automations[0].enabled);
+    command(
+        &mut store,
+        json!({"type":"enableAutomation","id":id,"expectedRevision":saved.revision,"enabled":true}),
+    );
+    assert!(store.catalog(Some(&project), None).unwrap().automations[0].enabled);
 }
-
 
 #[test]
 fn managed_file_writes_require_current_hash_and_preserve_conflicts() {
@@ -518,7 +659,10 @@ fn managed_file_writes_require_current_hash_and_preserve_conflicts() {
     assert!(write_file(root.path(), path, "overwrite", Some("original")).is_err());
     write_file(root.path(), path, "updated", Some(&hash(b"original"))).unwrap();
     assert!(write_file(root.path(), path, "stale", Some(&hash(b"original"))).is_err());
-    assert_eq!(std::fs::read_to_string(root.path().join(path)).unwrap(), "updated");
+    assert_eq!(
+        std::fs::read_to_string(root.path().join(path)).unwrap(),
+        "updated"
+    );
     assert!(write_file(root.path(), "files/missing.md", "new", Some(&hash(b""))).is_err());
     assert!(!root.path().join("files/missing.md").exists());
     assert!(write_file(root.path(), "files/../../escape", "bad", None).is_err());
@@ -534,9 +678,16 @@ fn managed_file_writes_refuse_symlink_files_and_directories() {
     std::fs::write(outside.path().join("note.md"), "untouched").unwrap();
     std::fs::create_dir(root.path().join("files")).unwrap();
     symlink(outside.path(), root.path().join("files/linked")).unwrap();
-    symlink(outside.path().join("note.md"), root.path().join("files/note.md")).unwrap();
+    symlink(
+        outside.path().join("note.md"),
+        root.path().join("files/note.md"),
+    )
+    .unwrap();
     assert!(write_file(root.path(), "files/linked/new.md", "bad", None).is_err());
     assert!(write_file(root.path(), "files/note.md", "bad", None).is_err());
-    assert_eq!(std::fs::read_to_string(outside.path().join("note.md")).unwrap(), "untouched");
+    assert_eq!(
+        std::fs::read_to_string(outside.path().join("note.md")).unwrap(),
+        "untouched"
+    );
     assert!(!outside.path().join("new.md").exists());
 }

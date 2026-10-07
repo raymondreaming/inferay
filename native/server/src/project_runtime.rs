@@ -65,14 +65,19 @@ impl ProjectRuntime {
     }
     pub fn attach_run_chat(&self, id: &str, pane: &str) -> Result<()> {
         let store = self.store.lock().map_err(|_| "Project store lock failed")?;
-        store.db.execute("UPDATE runs SET result=json_set(COALESCE(result,'{}'),'$.chatPaneId',?2) WHERE id=?1",params![id,pane])?;
+        store.db.execute(
+            "UPDATE runs SET result=json_set(COALESCE(result,'{}'),'$.chatPaneId',?2) WHERE id=?1",
+            params![id, pane],
+        )?;
         Ok(())
     }
     pub fn run_for_chat(&self, id: &str) -> Result<ProjectRun> {
         let store = self.store.lock().map_err(|_| "Project store lock failed")?;
-        let mut runs = project_store::rows::<ProjectRun>(&store.db,
+        let mut runs = project_store::rows::<ProjectRun>(
+            &store.db,
             "SELECT json_object('id',id,'projectId',project_id,'automationId',automation_id,'name',name,'status',status,'requestedAt',requested_at,'startedAt',started_at,'finishedAt',finished_at,'result',json(result),'error',error,'snapshot',json(snapshot),'directory',?2||'/projects/'||project_id||'/runs/'||id) FROM runs WHERE id=?1",
-            params![id,store.root.to_string_lossy()])?;
+            params![id, store.root.to_string_lossy()],
+        )?;
         runs.pop().ok_or_else(|| "Run not found".into())
     }
     pub async fn catalog(
@@ -92,8 +97,12 @@ impl ProjectRuntime {
     pub async fn preview_automation(self: &Arc<Self>, command: ProjectCommand) -> Result<()> {
         let this = self.clone();
         tokio::task::spawn_blocking(move || {
-            this.store.lock().map_err(|_| "Project store lock failed")?.preview_automation(command)
-        }).await?
+            this.store
+                .lock()
+                .map_err(|_| "Project store lock failed")?
+                .preview_automation(command)
+        })
+        .await?
     }
     pub async fn command(self: &Arc<Self>, cmd: ProjectCommand, host: bool) -> Result<Value> {
         let skills = self.prompts.lock().await.load()?;
@@ -206,7 +215,7 @@ impl ProjectRuntime {
         let this = self.clone();
         tokio::task::spawn_blocking(move||->Result<()>{let mut store=this.store.lock().map_err(|_|"Project store lock failed")?;let root=store.root.clone();let tx=store.db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
             let due:Vec<(String,i64,i64,Option<String>)>=tx.prepare("SELECT a.id,a.next_due_at,a.interval_seconds,a.calendar FROM automations a JOIN projects p ON p.id=a.project_id WHERE a.enabled=1 AND a.archived=0 AND p.archived=0 AND a.next_due_at<=? ORDER BY a.next_due_at LIMIT 8")?.query_map([now()],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?.collect::<std::result::Result<_,_>>()?;
-            for (id,due,interval,calendar) in due {let result=prepare_run(&tx,&root,&id,&format!("schedule:{id}:{due}"),Some(due),None,&skills);if let Err(e)=result{eprintln!("Automation {id}: {e}");tx.execute("UPDATE automations SET enabled=0 WHERE id=?",[&id])?;}let next=match calendar {Some(text)=>serde_json::from_str::<CalendarSchedule>(&text)?.next_after(now())?,None=>due+((now()-due)/(interval*1000)+1)*interval*1000};tx.execute("UPDATE automations SET next_due_at=? WHERE id=?",params![next,id])?;}
+            for (id,due,interval,calendar) in due {let result=prepare_run(&tx,&root,&id,&format!("schedule:{id}:{due}"),Some(due),None,&skills);if let Err(e)=result{eprintln!("Automation {id}: {e}");tx.execute("UPDATE automations SET enabled=0 WHERE id=?",[&id])?;}let next=match calendar {Some(text)=>serde_json::from_str::<CalendarSchedule>(&text)?.next_after(now())?,None=>due+((now()-due)/(interval*1000)+1)*interval*1000};tx.execute("UPDATE automations SET next_due_at=? WHERE id=? AND enabled=1",params![next,id])?;}
             tx.commit()?;Ok(())}).await??;
         for _ in 0..2 {
             let Ok(background) = self.background.clone().try_acquire_owned() else {
@@ -248,11 +257,35 @@ impl ProjectRuntime {
             .unwrap_or(true)
     }
     async fn execute(self: &Arc<Self>, id: &str, project: &str, snapshot: &Value) -> Result<Value> {
-        let root = self
-            .store
-            .lock()
-            .map_err(|_| "Project store lock failed")?
-            .project_dir(project)?;
+        let file_automation = snapshot.pointer("/automation/id").and_then(Value::as_str);
+        let root = if let Some(automation) = file_automation {
+            let skills = self.prompts.lock().await.load()?;
+            let store = self.store.lock().map_err(|_| "Project store lock failed")?;
+            let current = crate::project_index::approved_inputs(
+                &store.db,
+                &store.root,
+                automation,
+                false,
+                &skills,
+            )?;
+            if current != *snapshot || snapshot["projectId"].as_str() != Some(project) {
+                return Err("Execution inputs changed after admission. Review and retry.".into());
+            }
+            uuid::Uuid::parse_str(project)?;
+            crate::project_definitions::managed_path(
+                &store.root,
+                &format!("projects/{project}/project.json"),
+                false,
+            )?
+            .parent()
+            .ok_or("Project directory missing")?
+            .canonicalize()?
+        } else {
+            self.store
+                .lock()
+                .map_err(|_| "Project store lock failed")?
+                .project_dir(project)?
+        };
         let dir = root.join("runs").join(id);
         for folder in ["inputs", "output", "logs"] {
             let path = dir.join(folder);
@@ -271,7 +304,7 @@ impl ProjectRuntime {
         match serde_json::from_value::<ProjectExecution>(snapshot["execution"].clone())? {
             ProjectExecution::Tool { tool_id, input } => {
                 // Recheck existence and plugin enablement without substituting current content for the pinned definition.
-                {
+                if file_automation.is_none() {
                     let store = self.store.lock().map_err(|_| "Project store lock failed")?;
                     project_store::resource(&store.db, &tool_id, project)?;
                 }
@@ -397,11 +430,14 @@ impl ProjectRuntime {
                     allow_save: false,
                     reads: Arc::default(),
                 };
-                let recalled = self.memory.prompt(project, &root, &instructions, provider == "codex");
+                let recalled =
+                    self.memory
+                        .prompt(project, &root, &instructions, provider == "codex");
                 if let Ok(mut reads) = memory.reads.lock() {
                     reads.extend(recalled.read);
                 }
-                let handle = AgentProcessHandle::with_skills(self.prompts.clone()).with_memory(Some(memory.clone()));
+                let handle = AgentProcessHandle::with_skills(self.prompts.clone())
+                    .with_memory(Some(memory.clone()));
                 let kind = if provider == "codex" {
                     AgentKind::Codex
                 } else {
@@ -410,10 +446,11 @@ impl ProjectRuntime {
                 let binary = self.resolver.resolve_agent_binary(kind);
                 let env = self.resolver.create_agent_env(kind);
                 let prompt = format!(
-                    "{}\n\n{}\n\nPinned resources:\n{}\n\nManaged project files: {}\nWrite intended outputs under {}. Report the outcome accurately; ask for input if blocked.",
+                    "{}\n\n{}\n\nPinned resources:\n{}\n\nPinned skill instructions (use these captured versions for this run):\n{}\n\nManaged project files: {}\nWrite intended outputs under {}. Report the outcome accurately; ask for input if blocked.",
                     snapshot["projectInstructions"].as_str().unwrap_or(""),
                     instructions,
                     snapshot["resources"],
+                    snapshot["skills"],
                     root.display(),
                     dir.join("output").display()
                 );
