@@ -484,11 +484,13 @@ impl ProjectRuntime {
                 let log = dir.join("logs/agent.jsonl");
                 let waiting = Arc::new(std::sync::atomic::AtomicBool::new(false));
                 let waiting_signal = waiting.clone();
+                let event_runtime = self.clone();
+                let event_run_id = id.to_owned();
                 let drain = tokio::spawn(async move {
                     let mut file = tokio::fs::File::create(log).await?;
                     let mut size = 0;
                     let mut failed = false;
-                    let mut usage = None;
+                    let mut last_usage = None;
                     while let Some(emission) = receiver.recv().await {
                         let data = match emission {
                             ProtocolEmission::Chat(value) => {
@@ -513,10 +515,17 @@ impl ProjectRuntime {
                             ProtocolEmission::Session(id) => json!({"providerSessionId":id}),
                             _ => continue,
                         };
-                        if data["type"] == "inferay.usage" {
-                            usage = Some(data.clone());
+                        let usage = if data["type"] == "inferay.usage" {
+                            Some(data.clone())
                         } else if data["type"] == "result" && data["usage"].is_object() {
-                            usage = Some(json!({"provider":"claude","usage":data["usage"],"modelUsage":data["modelUsage"],"reportedCostUsd":data["total_cost_usd"]}));
+                            Some(json!({"provider":"claude","usage":data["usage"],"modelUsage":data["modelUsage"],"reportedCostUsd":data["total_cost_usd"]}))
+                        } else { None };
+                        if let Some(usage) = usage.filter(|usage| Some(usage) != last_usage.as_ref()) {
+                            // Commit received usage before awaiting further provider output.
+                            // A crash can lose unreported consumption, not this snapshot.
+                            let store = event_runtime.store.lock().map_err(|_| "Project store lock failed")?;
+                            event(&store.db, &event_run_id, "provider_usage", &usage)?;
+                            last_usage = Some(usage);
                         }
                         let line = format!("{data}\n");
                         if size + line.len() <= 1_048_576 {
@@ -524,7 +533,7 @@ impl ProjectRuntime {
                             size += line.len();
                         }
                     }
-                    Ok::<_, std::io::Error>((failed, usage))
+                    Ok::<_, Box<dyn std::error::Error + Send + Sync>>(failed)
                 });
                 let result = {
                     let run = async {
@@ -573,13 +582,7 @@ impl ProjectRuntime {
                 };
                 tools.close().await;
                 drop(sender);
-                let (provider_failed, usage) = drain.await??;
-                if let Some(usage) = usage {
-                    // Retain the final reported totals even if the transcript reached
-                    // its size cap or the provider failed after consuming tokens.
-                    let store = self.store.lock().map_err(|_| "Project store lock failed")?;
-                    event(&store.db, id, "provider_usage", &usage)?;
-                }
+                let provider_failed = drain.await??;
                 let reads = memory.reads.lock().map(|r| r.clone()).unwrap_or_default();
                 if !reads.is_empty()
                     && let Ok(store) = self.store.lock()

@@ -1090,3 +1090,36 @@ async fn history_projects_latest_reported_usage_without_guessing_missing_counts(
     assert_eq!(usage.reported_cost_usd, None);
     assert_eq!(runtime.run_for_chat(&id).unwrap().usage.as_ref(), Some(usage));
 }
+
+#[tokio::test]
+#[ignore = "launches a real provider and consumes account usage"]
+async fn real_codex_usage_is_durable_before_cancellation() {
+    let profile = tempfile::tempdir().unwrap();
+    let (project, automation) = definition_files(profile.path(), "print('{}')");
+    let root = profile.path().join("projects").join(&project);
+    let path = root.join("plugins/report/automations/report.json");
+    let mut definition: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    definition["execution"] = json!({"kind":"agent","provider":"codex","instructions":"This is a disposable cancellation test. Execute exactly one shell command: sleep 30. Wait for it to finish before replying done. Do not substitute a shorter wait or perform any other task.","tools":[],"skills":[],"resources":[],"repositories":[],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":90});
+    std::fs::write(path, definition.to_string()).unwrap();
+    let runtime = runtime(profile.path());
+    let id = approved_run(&runtime, &automation, "live-usage").await;
+    runtime.tick().await.unwrap();
+    let observed = tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            let run = runtime.run_for_chat(&id).unwrap();
+            if run.usage.is_some() || !["queued", "running"].contains(&run.status.as_str()) { break run; }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }).await;
+    runtime.command(ProjectFileCommand::StopRun { id: id.clone() }, true).await.unwrap();
+    let done = completed(&runtime, &project, &id).await;
+    let observed = observed.expect("Provider did not report usage before timeout");
+    assert_eq!(observed.status, "running", "Usage arrived only after the run finished");
+    let usage = observed.usage.expect("No live usage");
+    assert!(usage.input_tokens.is_some_and(|count| count > 0));
+    assert_eq!(done.status, "cancelled");
+    assert!(done.usage.as_ref().and_then(|usage| usage.input_tokens).is_some_and(|count| count >= usage.input_tokens.unwrap()));
+    let db = rusqlite::Connection::open(profile.path().join("projects.sqlite3")).unwrap();
+    let count: i64 = db.query_row("SELECT count(*) FROM run_events WHERE run_id=? AND kind='provider_usage'", [&id], |row| row.get(0)).unwrap();
+    assert!(count > 0, "Usage must be committed, not just held in memory");
+}
