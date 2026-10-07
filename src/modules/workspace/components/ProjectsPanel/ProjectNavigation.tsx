@@ -5,13 +5,10 @@ import {
 	IconBookmark,
 	IconChevronDown,
 	IconChevronRight,
-	IconCode,
-	IconFileDiff,
 	IconGitBranch,
 	IconPlus,
 	IconSparkles,
 	IconWorkflow,
-	IconWrench,
 } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For } from "solid-js";
@@ -52,9 +49,6 @@ export function ProjectNavigation() {
 	);
 	const items = [
 		{ view: "memory", label: "Memory", icon: IconBookmark },
-		{ view: "resources", label: "Resources", icon: IconWrench },
-		{ view: "files", label: "Files", icon: IconFileDiff },
-		{ view: "tools", label: "Tools", icon: IconCode },
 		{ view: "plugins", label: "Plugins", icon: IconSparkles },
 		{ view: "automations", label: "Automations", icon: IconWorkflow },
 	];

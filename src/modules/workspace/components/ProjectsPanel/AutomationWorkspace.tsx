@@ -1,5 +1,5 @@
 import { AgentIcon } from "@agents/components/AgentIcon/index.tsx";
-import type { ProjectAutomation, ProjectCommand } from "@contracts";
+import type { ProjectFileCommand } from "@contracts";
 import { ariaValue } from "@shared/lib/dom.tsx";
 import { getAgentDefinition } from "@shared/lib/native.tsx";
 import { Button } from "@shared/ui/Button/index.tsx";
@@ -18,6 +18,10 @@ import { color, font } from "../../../../design-system/styles.stylex.ts";
 import { projects, saveProjectCommand } from "../../hooks/useProjects.tsx";
 import { automationScheduleLabel } from "../../model/automationSchedule.ts";
 import { automationStarters as starters } from "../../model/automationStarters.ts";
+import {
+	editDefinition,
+	type ProjectAutomation,
+} from "../../model/projectFiles.ts";
 import { AutomationEditor } from "./AutomationEditor.tsx";
 import { RunHistory } from "./RunHistory.tsx";
 import { styles } from "./styles.ts";
@@ -95,11 +99,39 @@ export function AutomationWorkspace() {
 		projects.catalog()?.automations.filter((a) => !a.archived) ?? [];
 	const current = () =>
 		automations().find((a) => a.id === selected()) ?? automations()[0];
-	async function act(command: ProjectCommand) {
+	async function act(command: ProjectFileCommand) {
 		try {
 			await saveProjectCommand(command);
+			return true;
 		} catch {
 			/* Shared error shown below. */
+			return false;
+		}
+	}
+	const [approval, setApproval] = createSignal<{
+		automation: ProjectAutomation;
+		hash: string;
+		run: boolean;
+	} | null>(null);
+	async function enable(
+		automation: ProjectAutomation,
+		enabled: boolean,
+		run = false,
+	) {
+		if (!enabled) {
+			await act({ type: "disableAutomation", id: automation.id });
+			return;
+		}
+		try {
+			const review = await saveProjectCommand({
+				type: "reviewAutomation",
+				id: automation.id,
+			});
+			if (!review.inputsHash)
+				throw new Error("Review did not return an input hash");
+			setApproval({ automation, hash: review.inputsHash, run });
+		} catch {
+			/* Shared mutation error is displayed. */
 		}
 	}
 	function begin(a?: ProjectAutomation, seed?: (typeof starters)[number]) {
@@ -135,6 +167,29 @@ export function AutomationWorkspace() {
 					</IconButton>
 				</div>
 				<div {...stylex.attrs(listStyles.scrollList)}>
+					<For
+						each={
+							projects
+								.catalog()
+								?.issues.filter(
+									(issue) =>
+										issue.sourcePath.includes("/automations/") &&
+										!automations().some(
+											(a) => a.file.sourcePath === issue.sourcePath,
+										),
+								) ?? []
+						}
+					>
+						{(issue) => (
+							<div role="alert" {...stylex.attrs(listStyles.row)}>
+								<div {...stylex.attrs(listStyles.button)}>
+									<strong>Needs repair</strong>
+									<span>{issue.sourcePath}</span>
+									<span>{issue.error}</span>
+								</div>
+							</div>
+						)}
+					</For>
 					{automations()
 						.filter((a) =>
 							a.name.toLowerCase().includes(search().toLowerCase()),
@@ -160,7 +215,7 @@ export function AutomationWorkspace() {
 									{...stylex.attrs(listStyles.button)}
 								>
 									<span {...stylex.attrs(listStyles.meta)}>
-										{automationScheduleLabel(a)}
+										{a.file.error ? "Needs repair" : automationScheduleLabel(a)}
 									</span>
 									<strong {...stylex.attrs(listStyles.name)}>{a.name}</strong>
 									{(() => {
@@ -174,20 +229,23 @@ export function AutomationWorkspace() {
 										const provider = getAgentDefinition(
 											execution.provider === "claude" ? "claude" : "codex",
 										);
+										const target = execution.workingDirectory;
 										const modelId = execution.model || provider.defaultModel;
 										const model = provider.models.find((m) => m.id === modelId);
 										return (
 											<span {...stylex.attrs(listStyles.meta)}>
-												{execution.workingDirectory.base === "external" ? (
+												{target.base === "repository" ? (
 													<IconGitBranch size={12} />
 												) : (
 													<IconFolder size={12} />
 												)}
-												{execution.workingDirectory.base === "external"
-													? execution.workingDirectory.path
-															.split("/")
-															.filter(Boolean)
-															.at(-1)
+												{target.base === "repository"
+													? (projects
+															.list()
+															.find((p) => p.id === a.file.projectId)
+															?.repositories.find(
+																(repo) => repo.id === target.id,
+															)?.name ?? "Repository")
 													: "Project-wide"}
 												<AgentIcon kind={provider.kind} size={12} />
 												{model?.shortLabel ?? model?.label ?? modelId}
@@ -198,23 +256,15 @@ export function AutomationWorkspace() {
 								<Switch
 									label={`Enable ${a.name}`}
 									checked={a.enabled}
-									disabled={projects.busy() || !a.intervalSeconds}
-									onChange={(enabled) =>
-										void act({
-											type: "enableAutomation",
-											id: a.id,
-											expectedRevision: a.revision,
-											enabled,
-										})
+									disabled={
+										projects.busy() ||
+										!!a.file.error ||
+										a.trigger.kind === "manual"
 									}
+									onChange={(enabled) => void enable(a, enabled)}
 								/>
 							</div>
 						))}
-					{!automations().length ? (
-						<p {...stylex.attrs(styles.muted)}>
-							Your automations will appear here.
-						</p>
-					) : null}
 				</div>
 				<button
 					type="button"
@@ -298,13 +348,16 @@ export function AutomationWorkspace() {
 										History
 									</Button>
 								</div>
+								<Show when={a().file.error}>
+									<p role="alert">{a().file.error}</p>
+								</Show>
 								<AutomationEditor
 									persistent
 									onDelete={() => {
 										setRemoveError("");
 										setRemoving(a());
 									}}
-									projectId={a().projectId}
+									projectId={a().file.projectId}
 									automation={a()}
 									resources={projects.catalog()?.resources ?? []}
 									busy={projects.busy()}
@@ -312,27 +365,57 @@ export function AutomationWorkspace() {
 									save={async (command) => {
 										await saveProjectCommand(command);
 									}}
-									onRun={() =>
-										void act({
-											type: "runAutomation",
-											id: a().id,
-											requestId: crypto.randomUUID(),
-										}).then(() => setScreen("history"))
-									}
-									onEnabledChange={(enabled) =>
-										void act({
-											type: "enableAutomation",
-											id: a().id,
-											expectedRevision: a().revision,
-											enabled,
-										})
-									}
+									onRun={() => void enable(a(), true, true)}
+									onEnabledChange={(enabled) => void enable(a(), enabled)}
 								/>
 							</>
 						)}
 					</For>
 				)}
 			</div>
+			<Show when={approval()} keyed>
+				{(review) => (
+					<Modal
+						label={review.run ? "Run automation" : "Enable automation"}
+						onClose={() => setApproval(null)}
+					>
+						<h3>
+							{review.run ? "Run" : "Enable"} {review.automation.name}?
+						</h3>
+						<p>{automationScheduleLabel(review.automation)}</p>
+						<p>
+							The current plugin files, selected resources, and skills will be
+							approved for this automation.
+						</p>
+						<Button
+							onClick={async () => {
+								const approved = await act({
+									type: "approveAutomation",
+									id: review.automation.id,
+									expectedInputsHash: review.hash,
+									enable: review.run ? review.automation.enabled : true,
+								});
+								if (!approved) return;
+								if (review.run) {
+									if (
+										!(await act({
+											type: "runAutomation",
+											id: review.automation.id,
+											requestId: crypto.randomUUID(),
+										}))
+									)
+										return;
+									setScreen("history");
+								}
+								setApproval(null);
+							}}
+						>
+							{review.run ? "Approve & run" : "Approve & enable"}
+						</Button>
+					</Modal>
+				)}
+			</Show>
+
 			<Show when={removing()}>
 				<Modal
 					label="Delete automation"
@@ -361,11 +444,12 @@ export function AutomationWorkspace() {
 								const automation = removing();
 								if (!automation) return;
 								try {
-									await saveProjectCommand({
-										type: "archiveAutomation",
-										id: automation.id,
-										expectedRevision: automation.revision,
-									});
+									await saveProjectCommand(
+										editDefinition(automation.file, {
+											...automation.file.definition!,
+											archived: true,
+										}),
+									);
 									setRemoving(null);
 									setSelected(null);
 								} catch (error) {

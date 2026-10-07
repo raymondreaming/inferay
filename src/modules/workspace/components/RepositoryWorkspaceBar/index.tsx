@@ -1,4 +1,3 @@
-import type { Project } from "@contracts";
 import { iconSize, selectionAppearance } from "@design-system/styles.stylex.ts";
 import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
 import {
@@ -39,6 +38,7 @@ import {
 	openAgentPane,
 	useWorkspaceState,
 } from "../../hooks/useWorkspaceState.tsx";
+import type { Project } from "../../model/projectFiles.ts";
 import { ProjectEditor } from "../ProjectsPanel/ProjectEditor.tsx";
 import { RepositoryPanelControls } from "./RepositoryPanelControls.tsx";
 import { SidebarChatFlyout } from "./SidebarChatFlyout.tsx";

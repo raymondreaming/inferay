@@ -1,4 +1,3 @@
-import type { ProjectCatalog } from "@contracts";
 import { Button } from "@shared/ui/Button/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createSignal } from "solid-js";
@@ -8,6 +7,7 @@ import {
 	showProjectView,
 } from "../../hooks/useProjects.tsx";
 import { loadCanonicalAgentState } from "../../hooks/useWorkspaceState.tsx";
+import type { ProjectWorkspaceView } from "../../model/projectFiles.ts";
 import {
 	loadProjects,
 	openRunChat,
@@ -30,7 +30,7 @@ export function RunHistory(props: { automationId?: string } = {}) {
 			setOpening(false);
 		}
 	}
-	const [page, setPage] = createSignal<ProjectCatalog | null>(null);
+	const [page, setPage] = createSignal<ProjectWorkspaceView | null>(null);
 	const [preview, setPreview] = createSignal<{
 		name: string;
 		content: string;

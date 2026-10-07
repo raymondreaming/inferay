@@ -1,11 +1,16 @@
-import type { ProjectCatalog, ProjectCommand } from "@contracts";
+import type { ProjectFileCommand } from "@contracts";
 import { readStoredValue, writeStoredValue } from "@shared/lib/native.tsx";
 import { createMemo, createSignal } from "solid-js";
+import {
+	editDefinition,
+	type Project,
+	type ProjectWorkspaceView,
+} from "../model/projectFiles.ts";
 import { changeProject, loadProjects } from "../services/projectsApi.ts";
 
 const [loaded, setLoaded] = createSignal<{
 	projectId: string;
-	catalog: ProjectCatalog;
+	catalog: ProjectWorkspaceView;
 } | null>(null);
 const catalog = () =>
 	loaded()?.projectId === selectedId() ? loaded()!.catalog : null;
@@ -97,7 +102,7 @@ export async function initializeProjects() {
 	)
 		await selectProject("");
 }
-export async function saveProjectCommand(command: ProjectCommand) {
+export async function saveProjectCommand(command: ProjectFileCommand) {
 	setBusy(true);
 	setError("");
 	try {
@@ -110,4 +115,27 @@ export async function saveProjectCommand(command: ProjectCommand) {
 	} finally {
 		setBusy(false);
 	}
+}
+
+export async function addProjectRepository(project: Project, path: string) {
+	const repository = {
+		id: crypto.randomUUID(),
+		name: path.split("/").filter(Boolean).at(-1) ?? "Repository",
+		remote: null,
+	};
+	const saved = await saveProjectCommand(
+		editDefinition(project.file, {
+			...project.file.definition!,
+			repositories: [...project.repositories, repository],
+		}),
+	);
+	if (!saved.sourceHash)
+		throw new Error("Project save did not return a file hash");
+	await saveProjectCommand({
+		type: "linkRepository",
+		projectId: project.id,
+		repositoryId: repository.id,
+		expectedProjectHash: saved.sourceHash,
+		path,
+	});
 }

@@ -1,14 +1,13 @@
-import type { ProjectCommand } from "@contracts";
+import type { ProjectFileCommand } from "@contracts";
 import { createEffect, createSignal, onSettled } from "solid-js";
 
 export function useAutomationAutosave(
 	enabled: () => boolean,
-	draft: () => ProjectCommand,
-	save: (command: ProjectCommand) => Promise<void>,
+	draft: () => ProjectFileCommand,
+	save: (command: ProjectFileCommand) => Promise<void>,
 	setError: (message: string) => void,
 ) {
-	const fingerprint = () =>
-		JSON.stringify({ ...draft(), expectedRevision: null });
+	const fingerprint = () => JSON.stringify({ ...draft(), expectedHash: null });
 	let savedDraft = fingerprint();
 	let saving: Promise<boolean> | undefined;
 	const [savingEdits, setSavingEdits] = createSignal(false);

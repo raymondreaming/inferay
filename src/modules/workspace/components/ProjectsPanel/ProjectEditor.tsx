@@ -1,4 +1,3 @@
-import type { Project } from "@contracts";
 import { Button } from "@shared/ui/Button/index.tsx";
 import { Modal } from "@shared/ui/Modal/index.tsx";
 import { TextInput } from "@shared/ui/TextInput/index.tsx";
@@ -9,6 +8,7 @@ import {
 	saveProjectCommand,
 	selectProject,
 } from "../../hooks/useProjects.tsx";
+import { editDefinition, type Project } from "../../model/projectFiles.ts";
 import { InlineDirectoryPicker } from "../InlineDirectoryPicker/index.tsx";
 import { styles } from "./styles.ts";
 export function ProjectEditor(props: { project?: Project; close: () => void }) {
@@ -35,16 +35,53 @@ export function ProjectEditor(props: { project?: Project; close: () => void }) {
 		if (confirmingArchive()) return;
 		try {
 			const existing = props.project;
+			const id = existing?.id ?? crypto.randomUUID();
+			const bindings = projects.catalog()?.repositoryBindings ?? {};
+			const selectedRepositories = repositories().map((path) => ({
+				path,
+				repository: existing?.repositories.find(
+					(repo) => bindings[repo.id] === path,
+				) ?? {
+					id: crypto.randomUUID(),
+					name: path.split("/").filter(Boolean).at(-1) ?? "Repository",
+					remote: null,
+				},
+			}));
 			const saved = await saveProjectCommand({
-				type: "saveProject",
-				id: existing?.id ?? null,
-				expectedRevision: existing?.revision ?? null,
-				name: name(),
-				description: description(),
-				instructions: instructions(),
-				repositoryPaths: repositories(),
+				type: "saveDefinition",
+				projectId: id,
+				path: "project.json",
+				expectedHash: existing?.file.sourceHash ?? null,
+				content: JSON.stringify(
+					{
+						schema: "inferay.project/1",
+						id,
+						name: name(),
+						description: description(),
+						instructions: instructions(),
+						archived: false,
+						repositories: [
+							...selectedRepositories.map((item) => item.repository),
+							...(existing?.repositories.filter((repo) => !bindings[repo.id]) ??
+								[]),
+						],
+					},
+					null,
+					2,
+				),
 			});
-			if (saved.id) await selectProject(saved.id);
+			if (!saved.sourceHash)
+				throw new Error("Project save did not return a file hash");
+			for (const { path, repository } of selectedRepositories) {
+				await saveProjectCommand({
+					type: "linkRepository",
+					projectId: id,
+					repositoryId: repository.id,
+					expectedProjectHash: saved.sourceHash,
+					path,
+				});
+			}
+			await selectProject(id);
 			props.close();
 		} catch {
 			/* The shared mutation owner displays the error. */
@@ -206,11 +243,12 @@ export function ProjectEditor(props: { project?: Project; close: () => void }) {
 										onClick={() => {
 											const project = props.project;
 											if (!project || archiveName() !== project.name) return;
-											void saveProjectCommand({
-												type: "archiveProject",
-												id: project.id,
-												expectedRevision: project.revision,
-											})
+											void saveProjectCommand(
+												editDefinition(project.file, {
+													...project.file.definition!,
+													archived: true,
+												}),
+											)
 												.then(async () => {
 													await selectProject("");
 													props.close();

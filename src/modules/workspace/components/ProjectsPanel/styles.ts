@@ -5,6 +5,14 @@ import {
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
+	documentCard: { cursor: "pointer", textAlign: "left", overflow: "hidden" },
+	documentThumbnail: {
+		width: "100%",
+		height: 160,
+		objectFit: "cover",
+		borderRadius: 8,
+	},
+	documentImage: { width: "100%", maxHeight: "65vh", objectFit: "contain" },
 	resourceCategories: { display: "flex", flexWrap: "wrap", gap: 8 },
 	resourceCard: { padding: 24, gap: 12, minHeight: 210, borderRadius: 16 },
 	resourcePreview: {
@@ -430,7 +438,7 @@ export const styles = stylex.create({
 		textAlign: "center",
 		color: color.textMuted,
 	},
-	dialog: { width: 520, overflowY: "auto" },
+	dialog: { width: 600, maxWidth: "calc(100vw - 48px)", overflowY: "auto" },
 	form: {
 		display: "flex",
 		flexDirection: "column",

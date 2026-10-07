@@ -1,8 +1,4 @@
-import type {
-	ProjectAutomation,
-	ProjectCommand,
-	ProjectResource,
-} from "@contracts";
+import type { AutomationDefinition, ProjectFileCommand } from "@contracts";
 import { ComposerControls } from "@conversation/components/ChatComposer/ComposerControls.tsx";
 import { ProviderConfigMenu } from "@conversation/components/ChatComposer/ProviderConfigMenu.tsx";
 import { useAgentConfiguration } from "@conversation/components/ChatComposer/useAgentConfiguration.tsx";
@@ -21,6 +17,10 @@ import * as stylex from "@stylexjs/stylex";
 import { createSignal, Show } from "solid-js";
 import { useAutomationAutosave } from "../../hooks/useAutomationAutosave.tsx";
 import { projects } from "../../hooks/useProjects.tsx";
+import type {
+	ProjectAutomation,
+	ProjectResource,
+} from "../../model/projectFiles.ts";
 import { AutomationTrigger } from "./AutomationTrigger.tsx";
 import { styles } from "./styles.ts";
 export function AutomationEditor(props: {
@@ -32,19 +32,30 @@ export function AutomationEditor(props: {
 	seed?: { name: string; instructions: string; intervalSeconds: number | null };
 	automation?: ProjectAutomation;
 	resources: ProjectResource[];
-	save: (command: ProjectCommand) => Promise<void>;
+	save: (command: ProjectFileCommand) => Promise<void>;
 	close: () => void;
 	busy: boolean;
 }) {
+	const trigger = props.automation?.trigger;
+	const schedule = trigger?.kind === "calendar" ? trigger : undefined;
+	const automationId = props.automation?.id ?? crypto.randomUUID();
+	const pluginPath =
+		props.automation?.file.sourcePath.split("/").slice(0, 2).join("/") ??
+		`automations/${automationId}`;
+	const tools = () =>
+		(projects.catalog()?.tools ?? []).filter((tool) =>
+			tool.file.sourcePath.startsWith(`${pluginPath}/`),
+		);
 	const [scheduleTime, setScheduleTime] = createSignal(
-		props.automation?.calendar?.time ?? "09:00",
+		schedule?.times[0] ?? "09:00",
 	);
 	const [timezone, setTimezone] = createSignal(
-		props.automation?.calendar?.timezone ??
-			Intl.DateTimeFormat().resolvedOptions().timeZone,
+		schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
 	);
 	const [weekday, setWeekday] = createSignal(
-		String(props.automation?.calendar?.weekday ?? 0),
+		String(
+			(schedule?.days[0] !== undefined ? schedule.days[0] - 1 : undefined) ?? 0,
+		),
 	);
 	const [instructionsFocused, setInstructionsFocused] = createSignal(false);
 	const library = useBackgroundQuery(skillsQuery, () => queryClient);
@@ -55,8 +66,8 @@ export function AutomationEditor(props: {
 	const [kind, setKind] = createSignal(initial?.kind ?? "agent");
 	const [toolId, setToolId] = createSignal(
 		initial?.kind === "tool"
-			? initial.toolId
-			: (props.resources.find((r) => r.typeId === "inferay.tool")?.id ?? ""),
+			? initial.tool
+			: (tools()[0]?.file.sourcePath.split("/").at(-2) ?? ""),
 	);
 	const [input, setInput] = createSignal(
 		JSON.stringify(initial?.kind === "tool" ? initial.input : {}, null, 2),
@@ -96,23 +107,31 @@ export function AutomationEditor(props: {
 		onReasoningLevelChange: setReasoning,
 	}));
 	const [context, setContext] = createSignal(
-		initial?.kind === "agent" ? initial.resourceIds.join(", ") : "",
+		initial?.kind === "agent" ? initial.resources.join(", ") : "",
 	);
 	const [skills, setSkills] = createSignal(
-		initial?.kind === "agent" ? initial.skillIds.join(", ") : "",
+		initial?.kind === "agent" ? initial.skills.join(", ") : "",
 	);
 	const [cwd, setCwd] = createSignal(
-		initial?.kind === "agent" && initial.workingDirectory.base === "external"
-			? initial.workingDirectory.path
+		initial?.kind === "agent" && initial.workingDirectory.base === "repository"
+			? initial.workingDirectory.id
 			: "",
 	);
 	const [seconds, setSeconds] = createSignal(
 		String(
-			props.automation?.intervalSeconds ?? props.seed?.intervalSeconds ?? "",
+			(trigger?.kind === "interval"
+				? trigger.seconds
+				: schedule
+					? schedule.days.length === 7
+						? 86400
+						: 604800
+					: undefined) ??
+				props.seed?.intervalSeconds ??
+				"",
 		),
 	);
 	const [overlap, setOverlap] = createSignal(
-		props.automation?.overlapPolicy ?? "skip",
+		props.automation?.overlap ?? "skip",
 	);
 	const [settingsOpen, setSettingsOpen] = createSignal(false);
 	const [toolInputOpen, setToolInputOpen] = createSignal(
@@ -128,49 +147,59 @@ export function AutomationEditor(props: {
 		!!seconds() && !presets.some((p) => p.value === seconds()),
 	);
 	const [error, setError] = createSignal("");
-	const draft = (): ProjectCommand => ({
-		type: "saveAutomation",
-		id: props.automation?.id ?? null,
-		expectedRevision: props.automation?.revision ?? null,
-		projectId: props.projectId,
+	const definition = (): AutomationDefinition => ({
+		schema: "inferay.automation/1",
+		id: automationId,
 		name: name(),
-		intervalSeconds: seconds() ? Number(seconds()) : null,
-		calendar:
-			!customSchedule() && ["86400", "604800"].includes(seconds())
+		archived: false,
+		may: props.automation?.may ?? [],
+		overlap: overlap(),
+		trigger: !seconds()
+			? { kind: "manual" }
+			: !customSchedule() && ["86400", "604800"].includes(seconds())
 				? {
-						time: scheduleTime(),
+						kind: "calendar",
 						timezone: timezone(),
-						weekday: seconds() === "604800" ? Number(weekday()) : null,
+						days:
+							seconds() === "604800"
+								? [Number(weekday()) + 1]
+								: [1, 2, 3, 4, 5, 6, 7],
+						times: [scheduleTime()],
 					}
-				: null,
-		overlapPolicy: overlap(),
+				: { kind: "interval", seconds: Number(seconds()) },
 		execution:
 			kind() === "tool"
-				? { kind: "tool", toolId: toolId(), input: JSON.parse(input()) }
+				? { kind: "tool", tool: toolId(), input: JSON.parse(input()) }
 				: {
 						kind: "agent",
-						instructions: instructions(),
 						provider: provider(),
 						model: model() || null,
 						reasoningLevel: reasoning() || null,
-						resourceIds: context()
+						instructions: instructions(),
+						resources: context()
 							.split(",")
 							.map((s) => s.trim())
 							.filter(Boolean),
-						skillIds: skills()
+						skills: skills()
 							.split(",")
 							.map((s) => s.trim())
 							.filter(Boolean),
+						repositories: cwd() ? [cwd()] : [],
+						workingDirectory: cwd()
+							? { base: "repository", id: cwd() }
+							: { base: "project", path: "." },
 						timeoutSeconds:
 							initial?.kind === "agent" ? initial.timeoutSeconds : 300,
-						workingDirectory: cwd()
-							? { base: "external", path: cwd() }
-							: initial?.kind === "agent" &&
-									initial.workingDirectory.base === "project"
-								? initial.workingDirectory
-								: { base: "project", path: "." },
 					},
 	});
+	const draft = (): ProjectFileCommand => ({
+		type: "saveDefinition",
+		projectId: props.projectId,
+		path: props.automation?.file.sourcePath ?? `${pluginPath}/automation.json`,
+		expectedHash: props.automation?.file.sourceHash ?? null,
+		content: JSON.stringify(definition(), null, 2),
+	});
+
 	const { flush, savingEdits } = useAutomationAutosave(
 		() => !!props.persistent,
 		draft,
@@ -233,7 +262,7 @@ export function AutomationEditor(props: {
 					<Show when={props.onRun}>
 						<Button
 							size="sm"
-							disabled={props.busy}
+							disabled={props.busy || !!props.automation?.file.error}
 							onClick={async () => {
 								if (await flush()) props.onRun?.();
 							}}
@@ -262,7 +291,11 @@ export function AutomationEditor(props: {
 					<Switch
 						label="Active automation"
 						checked={!!props.automation?.enabled}
-						disabled={props.busy || !props.automation?.intervalSeconds}
+						disabled={
+							props.busy ||
+							!!props.automation?.file.error ||
+							props.automation?.trigger.kind === "manual"
+						}
 						onChange={async (enabled) => {
 							if (await flush()) props.onEnabledChange?.(enabled);
 						}}
@@ -292,14 +325,12 @@ export function AutomationEditor(props: {
 								label: "Project-wide",
 								iconComponent: () => <IconFolder size={14} />,
 							},
-							...[
-								...new Set([
-									...(projects.catalog()?.repositoryPaths ?? []),
-									...(cwd() ? [cwd()] : []),
-								]),
-							].map((path) => ({
-								id: path,
-								label: path.split("/").at(-1) || path,
+							...(
+								projects.list().find((p) => p.id === props.projectId)
+									?.repositories ?? []
+							).map((repo) => ({
+								id: repo.id,
+								label: repo.name,
 								iconComponent: () => <IconGitBranch size={14} />,
 							})),
 						]}
@@ -331,14 +362,15 @@ export function AutomationEditor(props: {
 							value={toolId() || null}
 							placeholder="Select a tool"
 							emptyLabel="No tools in this project"
-							options={props.resources
-								.filter((r) => r.typeId === "inferay.tool" && !r.archived)
-								.map((r) => ({ id: r.id, label: r.name }))}
+							options={tools().map((tool) => ({
+								id: tool.file.sourcePath.split("/").at(-2)!,
+								label: tool.name,
+							}))}
 							onChange={setToolId}
 						/>
 					</div>
 					{props.resources.some(
-						(r) => r.typeId === "inferay.tool" && !r.archived,
+						(r) => r.type === "inferay.tool" && !r.archived,
 					) ? (
 						<>
 							<Button
@@ -452,7 +484,7 @@ export function AutomationEditor(props: {
 													setContext(ids.join(", "));
 												}}
 											/>
-											{r.name} · {r.typeId}
+											{r.name} · {r.type}
 										</label>
 									))}
 							</fieldset>
@@ -465,14 +497,15 @@ export function AutomationEditor(props: {
 											checked={skills()
 												.split(",")
 												.map((v) => v.trim())
-												.includes(skill._id)}
+												.includes(`global:${skill._id}`)}
 											onChange={(e) => {
 												const ids = skills()
 													.split(",")
 													.map((v) => v.trim())
 													.filter(Boolean)
-													.filter((id) => id !== skill._id);
-												if (e.currentTarget.checked) ids.push(skill._id);
+													.filter((id) => id !== `global:${skill._id}`);
+												if (e.currentTarget.checked)
+													ids.push(`global:${skill._id}`);
 												setSkills(ids.join(", "));
 											}}
 										/>

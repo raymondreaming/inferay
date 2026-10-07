@@ -12,6 +12,7 @@ import {
 } from "@skills/components/SkillProposalCard/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { AutomationProposalCard } from "@workspace/components/ProjectsPanel/AutomationProposalCard.tsx";
+import { PluginProposalCard } from "@workspace/components/ProjectsPanel/PluginProposalCard.tsx";
 import { createMemo, Match, Switch } from "solid-js";
 import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
 import { styles } from "./styles.ts";
@@ -35,6 +36,16 @@ export function SystemMessage(props: {
 				<p {...stylex.attrs(styles.systemText)}>{props.message.content}</p>
 			}
 		>
+			<Match
+				when={props.message.render?.pluginProposal?.type === "createPlugin"}
+			>
+				{() => {
+					const command = props.message.render?.pluginProposal;
+					return command?.type === "createPlugin" ? (
+						<PluginProposalCard command={command} />
+					) : null;
+				}}
+			</Match>
 			<Match when={automationProposal()?.type === "saveAutomation"}>
 				{() => {
 					const command = automationProposal();

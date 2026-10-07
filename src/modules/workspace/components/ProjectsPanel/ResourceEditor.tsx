@@ -1,13 +1,10 @@
-import type {
-	ProjectCommand,
-	ProjectResource,
-	ProjectResourceType,
-} from "@contracts";
+import type { ProjectFileCommand } from "@contracts";
 import { Button } from "@shared/ui/Button/index.tsx";
 import { DropdownButton } from "@shared/ui/DropdownButton/index.tsx";
 import { TextInput } from "@shared/ui/TextInput/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createSignal } from "solid-js";
+import type { ProjectResource } from "../../model/projectFiles.ts";
 import { styles } from "./styles.ts";
 
 export function ResourceEditor(props: {
@@ -15,18 +12,15 @@ export function ResourceEditor(props: {
 	resource?: ProjectResource;
 	initialType?: string;
 	brands: ProjectResource[];
-	types: ProjectResourceType[];
-	save: (command: ProjectCommand) => Promise<void>;
+	save: (command: ProjectFileCommand) => Promise<void>;
 	close: () => void;
 	busy: boolean;
 }) {
 	const [name, setName] = createSignal(props.resource?.name ?? "");
 	const [kind, setKind] = createSignal(
-		props.resource?.typeId ?? props.initialType ?? "brand.brand",
+		props.resource?.type ?? props.initialType ?? "brand.brand",
 	);
-	const [version, setVersion] = createSignal(
-		props.resource?.schemaVersion ?? 1,
-	);
+	const [version, setVersion] = createSignal(props.resource?.typeVersion ?? 1);
 	const [body, setBody] = createSignal(
 		JSON.stringify(
 			props.resource?.body ??
@@ -62,33 +56,30 @@ export function ResourceEditor(props: {
 			typography: [],
 			rules: [],
 		},
-		"inferay.repository": {
-			location: { base: "external", path: "/absolute/path/to/repository" },
-			instructions: "",
-		},
-		"inferay.tool": {
-			program: "python3",
-			entrypoint: { base: "project", path: "tools/main.py" },
-			arguments: [],
-			workingDirectory: { base: "project", path: "." },
-			timeoutSeconds: 300,
-			inputSchema: { type: "object" },
-			outputSchema: { type: "object" },
-		},
 	};
 	async function submit(event: SubmitEvent) {
 		event.preventDefault();
 		setError("");
 		try {
+			const id = props.resource?.id ?? crypto.randomUUID();
 			await props.save({
-				type: "saveResource",
-				id: props.resource?.id ?? null,
-				expectedRevision: props.resource?.revision ?? null,
+				type: "saveDefinition",
 				projectId: props.projectId,
-				typeId: kind(),
-				name: name(),
-				body: JSON.parse(body()),
-				schemaVersion: version(),
+				path: props.resource?.file.sourcePath ?? `memory/${kind()}/${id}.json`,
+				expectedHash: props.resource?.file.sourceHash ?? null,
+				content: JSON.stringify(
+					{
+						schema: "inferay.resource/1",
+						id,
+						type: kind(),
+						typeVersion: version(),
+						name: name(),
+						body: JSON.parse(body()),
+						archived: false,
+					},
+					null,
+					2,
+				),
 			});
 			props.close();
 		} catch (e) {
@@ -118,17 +109,11 @@ export function ResourceEditor(props: {
 							id: type,
 							label: type,
 						})),
-						...props.types.map((type) => ({
-							id: `${type.id}@${type.version}`,
-							label: `${type.id} · v${type.version}${type.enabled ? "" : " (disabled)"}`,
-						})),
-						...(props.resource &&
-						!templates[props.resource.typeId] &&
-						!props.types.some((t) => t.id === props.resource?.typeId)
+						...(props.resource && !templates[props.resource.type]
 							? [
 									{
-										id: `${props.resource.typeId}@${props.resource.schemaVersion}`,
-										label: props.resource.typeId,
+										id: `${props.resource.type}@${props.resource.typeVersion}`,
+										label: props.resource.type,
 									},
 								]
 							: []),

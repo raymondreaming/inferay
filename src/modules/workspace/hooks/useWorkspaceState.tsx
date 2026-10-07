@@ -6,7 +6,11 @@ import type {
 	WorkspaceSnapshot,
 } from "@contracts";
 import { dispatchFocusAgentChatComposer } from "@shared/lib/dom.tsx";
-import { WorkspaceReplica } from "@shared/lib/native.tsx";
+import {
+	loadDefaultChatSettings,
+	saveStoredInput,
+	WorkspaceReplica,
+} from "@shared/lib/native.tsx";
 import {
 	type Accessor,
 	createEffect,
@@ -15,6 +19,7 @@ import {
 	snapshot as storeSnapshot,
 } from "solid-js";
 import {
+	addProjectRepository,
 	openProjectRepository,
 	projects,
 	refreshProjects,
@@ -173,19 +178,7 @@ export async function mutateAgentWorkspaceState(action: AgentWorkspaceAction) {
 			action.path !== project.directory &&
 			!projects.catalog()?.repositoryPaths.includes(action.path)
 		) {
-			await saveProjectCommand({
-				type: "saveResource",
-				id: null,
-				expectedRevision: null,
-				projectId,
-				typeId: "inferay.repository",
-				name: action.path.split("/").filter(Boolean).at(-1) ?? "Repository",
-				schemaVersion: 1,
-				body: {
-					location: { base: "external", path: action.path },
-					instructions: "",
-				},
-			});
+			await addProjectRepository(project, action.path);
 		}
 		await refreshProjects();
 	}
@@ -203,6 +196,35 @@ export const openAgentPane = async (
 	requestAnimationFrame(() =>
 		requestAnimationFrame(() => dispatchFocusAgentChatComposer(paneId)),
 	);
+};
+/** The chat with this pane id and the group it belongs to, if it still exists. */
+export const findAgentPane = (paneId: string) => {
+	for (const group of published.state?.groups ?? []) {
+		const pane = group.panes.find((p) => p.id === paneId);
+		if (pane) return { groupId: group.id, pane };
+	}
+	return undefined;
+};
+/** Starts a chat in the current project with its composer pre-filled, so the user reviews before sending. */
+export const startAgentChatWithDraft = async (
+	draft: string,
+	reveal: () => void,
+) => {
+	const before = new Set(
+		(published.state?.groups ?? []).flatMap((g) => g.panes.map((p) => p.id)),
+	);
+	await mutateAgentWorkspaceState({
+		type: "addPane",
+		agentKind: loadDefaultChatSettings().agentKind,
+	});
+	for (const group of published.state?.groups ?? []) {
+		const pane = group.panes.find((p) => !before.has(p.id));
+		if (!pane) continue;
+		saveStoredInput(pane.id, draft);
+		await openAgentPane(group.id, pane.id, reveal);
+		return pane.id;
+	}
+	return undefined;
 };
 export const changePaneAgentKind = (
 	paneId: string,
