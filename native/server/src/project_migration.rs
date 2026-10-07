@@ -1,5 +1,6 @@
 //! One-time export of database-owned definitions. Sources are preserved until the
 //! index schema replaces them; exported files are never overwritten on retry.
+pub(crate) mod standalone;
 use crate::{
     project_definitions as files,
     project_store::{Result, hash, now, rows},
@@ -13,6 +14,187 @@ use rusqlite::{Connection, params};
 use serde_json::Value;
 use std::{collections::BTreeSet, fs, path::Path};
 use uuid::Uuid;
+
+/// Rename the former library directory without copying, dropping, or replacing
+/// user content. A conflict stops startup and leaves both directories intact.
+pub(crate) fn memory_directories(db: &Connection, root: &Path) -> Result<()> {
+    if db.query_row("SELECT count(*) FROM project_migrations WHERE name='memory-directory-v1'", [], |r| r.get::<_, i64>(0))? != 0 {
+        return Ok(());
+    }
+    let projects = root.join("projects");
+    if projects.exists() {
+        for entry in fs::read_dir(&projects)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() { continue; }
+            let directory = entry.path();
+            if !directory.join("project.json").is_file() { continue; }
+            let source = directory.join("resources");
+            if let Ok(meta) = fs::symlink_metadata(&source) {
+                if !meta.is_dir() || meta.file_type().is_symlink() {
+                    return Err(format!("Cannot migrate library at {}: expected a directory", source.display()).into());
+                }
+                let target = directory.join("memory");
+                files::rename_directory(&source, &target)?;
+                fs::File::open(&directory)?.sync_all()?;
+            }
+            // Only structural project paths are rewritten. Instructions, note
+            // bodies, historical run snapshots and arbitrary record data stay exact.
+            for file in files::scan(&directory, &BTreeSet::new())? {
+                if !matches!(file.definition, Some(files::DefinitionFile::Automation(_) | files::DefinitionFile::Tool(_))) { continue; }
+                let bytes = files::read(&directory, &file.path, MANIFEST_LIMIT)?;
+                let mut body: Value = serde_json::from_slice(&bytes)?;
+                let mut changed = false;
+                for pointer in ["/execution/workingDirectory", "/workingDirectory", "/entrypoint"] {
+                    if let Some(value) = body.pointer_mut(pointer) {
+                        if value["base"] == "project" {
+                            if let Some(path) = value["path"].as_str() {
+                                let replacement = if path == "resources" { Some("memory".to_owned()) } else { path.strip_prefix("resources/").map(|suffix| format!("memory/{suffix}")) };
+                                if let Some(path) = replacement { value["path"] = path.into(); changed = true; }
+                            }
+                        }
+                    }
+                }
+                if changed {
+                    files::write(&directory, &file.path, &serde_json::to_vec_pretty(&body)?, Some(&hash(&bytes)))?;
+                }
+            }
+        }
+    }
+    db.execute("INSERT INTO project_migrations VALUES('memory-directory-v1',?)", [now()])?;
+    Ok(())
+}
+
+/// Bring pre-project workspace chats into file-backed projects once. Stable
+/// IDs and conflict-safe publication make retries after a crash idempotent.
+pub(crate) fn workspace_projects(
+    db: &mut Connection,
+    root: &Path,
+    state: &Value,
+    skills: &[Prompt],
+) -> Result<()> {
+    if db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM project_migrations WHERE name='repositories-v1')",
+        [],
+        |r| r.get::<_, bool>(0),
+    )? {
+        return Ok(());
+    }
+    let root = root.canonicalize()?;
+    let catalog = crate::project_index::catalog(db, None)?;
+    let mut paths = std::collections::BTreeMap::<String, BTreeSet<String>>::new();
+    for project in &catalog.projects {
+        if project.definition.is_some() {
+            paths
+                .entry(
+                    root.join("projects")
+                        .join(&project.id)
+                        .to_string_lossy()
+                        .into(),
+                )
+                .or_default()
+                .insert(project.id.clone());
+        }
+    }
+    let bindings = db
+        .prepare("SELECT project_id,path FROM repository_paths")?
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    for (project, path) in bindings {
+        if catalog
+            .projects
+            .iter()
+            .any(|p| p.id == project && p.definition.is_some())
+        {
+            let path = Path::new(&path)
+                .canonicalize()
+                .unwrap_or_else(|_| Path::new(&path).to_path_buf());
+            paths
+                .entry(path.to_string_lossy().into())
+                .or_default()
+                .insert(project);
+        }
+    }
+    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    for group in state["groups"].as_array().into_iter().flatten() {
+        for pane in group["panes"].as_array().into_iter().flatten() {
+            let Some(pane_id) = pane["id"].as_str() else {
+                continue;
+            };
+            if tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM project_conversations WHERE pane_id=?)",
+                [pane_id],
+                |r| r.get::<_, bool>(0),
+            )? {
+                continue;
+            }
+            let Some(path) = pane["cwd"].as_str().filter(|p| !p.is_empty()) else {
+                continue;
+            };
+            let path = Path::new(path);
+            if !path.is_absolute() {
+                return Err("Workspace repository path must be absolute".into());
+            }
+            let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+            let key = path.to_string_lossy().to_string();
+            let project = if let Some(ids) = paths.get(&key) {
+                if ids.len() != 1 {
+                    return Err(format!(
+                        "More than one project owns {key}; associate its chats before migration"
+                    )
+                    .into());
+                }
+                ids.first().unwrap().clone()
+            } else {
+                if path.starts_with(&root) {
+                    return Err(
+                        "Workspace points to an unrecognized managed project directory".into(),
+                    );
+                }
+                let id = derived_id("workspace-project", &key);
+                let repository = derived_id("workspace-repository", &key);
+                let name = path
+                    .file_name()
+                    .and_then(|v| v.to_str())
+                    .unwrap_or("Project")
+                    .to_owned();
+                let value = ProjectDefinition {
+                    schema: "inferay.project/1".into(),
+                    id: id.clone(),
+                    name: name.clone(),
+                    description: String::new(),
+                    instructions: String::new(),
+                    repositories: vec![RepositoryDefinition {
+                        id: repository.clone(),
+                        name,
+                        remote: None,
+                    }],
+                    archived: false,
+                };
+                let target =
+                    files::managed_path(&root, &format!("projects/{id}/project.json"), true)?;
+                definition(
+                    target.parent().ok_or("Project directory missing")?,
+                    "project.json",
+                    &value,
+                )?;
+                tx.execute("INSERT INTO repository_paths(project_id,repository_id,path) VALUES(?,?,?) ON CONFLICT(project_id,repository_id) DO UPDATE SET path=excluded.path",params![id,repository,key])?;
+                paths.entry(key).or_default().insert(id.clone());
+                id
+            };
+            tx.execute(
+                "INSERT INTO project_conversations(pane_id,project_id) VALUES(?,?)",
+                params![pane_id, project],
+            )?;
+        }
+    }
+    tx.execute(
+        "INSERT INTO project_migrations VALUES('repositories-v1',?)",
+        [now()],
+    )?;
+    tx.commit()?;
+    crate::project_index::refresh(db, &root, skills)?;
+    Ok(())
+}
 
 /// Commit the ownership handover only after the export completed. Runtime IDs
 /// deliberately have no foreign keys to the rebuildable definition index.
@@ -316,12 +498,12 @@ pub(crate) fn export(db: &mut Connection, root: &Path, skills: &[Prompt]) -> Res
             };
             definition(
                 &directory,
-                &format!("resources/{kind}/{}.json", value.id),
+                &format!("memory/{kind}/{}.json", value.id),
                 &value,
             )?;
         }
         // Copy first; removal happens only after successful schema handover.
-        copy_tree(&directory.join("files"), &directory, "resources/documents")?;
+        copy_tree(&directory.join("files"), &directory, "memory/documents")?;
         let automations: Vec<Value> = rows(
             &tx,
             "SELECT json_object('id',id,'name',name,'execution',json(execution),'interval',interval_seconds,'calendar',json(calendar),'overlap',overlap_policy,'archived',archived) FROM automations WHERE project_id=? ORDER BY id",
@@ -382,9 +564,9 @@ pub(crate) fn export(db: &mut Connection, root: &Path, skills: &[Prompt]) -> Res
                     let working_directory = match working_directory {
                         ProjectPath::Project { path } => DefinitionDirectory::Project {
                             path: if path == "files" {
-                                "resources/documents".into()
+                                "memory/documents".into()
                             } else if let Some(suffix) = path.strip_prefix("files/") {
-                                format!("resources/documents/{suffix}")
+                                format!("memory/documents/{suffix}")
                             } else {
                                 path
                             },
@@ -407,7 +589,7 @@ pub(crate) fn export(db: &mut Connection, root: &Path, skills: &[Prompt]) -> Res
                         reasoning_level,
                         instructions,
                         skills: selected,
-                        resources: resource_ids,
+                        resources: resource_ids.into_iter().filter(|id| !repositories.iter().any(|repository| &repository.id == id)).collect(),
                         repositories: repositories.iter().map(|r| r.id.clone()).collect(),
                         working_directory,
                         timeout_seconds,
@@ -531,7 +713,7 @@ pub(crate) fn export(db: &mut Connection, root: &Path, skills: &[Prompt]) -> Res
         if !warnings.is_empty() {
             publish(
                 &directory,
-                "resources/documents/migration-review.txt",
+                "memory/documents/migration-review.txt",
                 warnings.join("\n").as_bytes(),
             )?;
         }

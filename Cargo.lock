@@ -1496,6 +1496,7 @@ dependencies = [
  "inferay-core",
  "inferay-native-diff",
  "inferay-presentation",
+ "libc",
  "percent-encoding",
  "regex",
  "reqwest",

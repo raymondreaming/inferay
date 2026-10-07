@@ -21,6 +21,27 @@ pub(crate) struct FileProjectStore {
 }
 
 impl FileProjectStore {
+    pub fn project_dir(&self, id: &str) -> Result<PathBuf> {
+        uuid::Uuid::parse_str(id)?;
+        let path = crate::project_definitions::managed_path(
+            &self.root,
+            &format!("projects/{id}/project.json"),
+            false,
+        )?;
+        let directory = path.parent().ok_or("Project directory missing")?;
+        let bytes = crate::project_definitions::read(
+            directory,
+            "project.json",
+            inferay_core::project_files::MANIFEST_LIMIT,
+        )?;
+        let project: ProjectDefinition =
+            inferay_core::project_files::parse("project.json", &bytes)?;
+        if project.id != id || project.archived {
+            return Err("Project is archived or its identity changed".into());
+        }
+        Ok(directory.canonicalize()?)
+    }
+
     pub fn history(
         &self,
         project: &str,
@@ -123,6 +144,9 @@ impl FileProjectStore {
             project_migration::export(&mut db, &root, skills)?;
             project_migration::replace_definition_tables(&mut db)?;
         }
+        project_index::create_schema(&db)?;
+        project_migration::memory_directories(&db, &root)?;
+        project_migration::standalone::migrate(&db, &root)?;
         project_index::refresh(&mut db, &root, skills)?;
         // Restart recovery changes execution state, never definition files or
         // approval. Queued work is rechecked against approval when claimed.

@@ -1,89 +1,115 @@
 {
-	"saveProject": {
-		"type": "saveProject",
-		"id": null,
-		"expectedRevision": null,
-		"name": "My project",
-		"description": "",
-		"instructions": "",
-		"repositoryPaths": []
-	},
-	"saveResource": {
-		"type": "saveResource",
-		"id": null,
-		"projectId": "PROJECT_ID",
-		"expectedRevision": null,
-		"typeId": "inferay.tool",
-		"name": "Report",
-		"schemaVersion": 1,
-		"body": {
-			"program": "python3",
-			"entrypoint": {
-				"base": "project",
-				"path": "tools/report.py"
-			},
-			"arguments": [],
-			"timeoutSeconds": 300,
-			"inputSchema": {
-				"type": "object"
-			},
-			"outputSchema": {
-				"type": "object"
-			}
-		}
-	},
-	"writeFile": {
-		"type": "writeFile",
-		"projectId": "PROJECT_ID",
-		"path": "tools/report.py",
-		"content": "...",
-		"expectedHash": null
-	},
-	"saveAutomation": {
-		"type": "saveAutomation",
-		"id": null,
-		"projectId": "PROJECT_ID",
-		"expectedRevision": null,
-		"name": "Report",
-		"execution": {
-			"kind": "tool",
-			"toolId": "TOOL_ID",
-			"input": {}
-		},
-		"intervalSeconds": 604800,
-		"overlapPolicy": "skip",
-		"calendar": {
-			"time": "09:00",
-			"timezone": "America/Chicago",
-			"weekday": 0
-		}
-	},
-	"agentExecution": {
-		"kind": "agent",
-		"instructions": "Prepare a brief",
-		"provider": "codex",
-		"model": null,
-		"skillIds": [],
-		"resourceIds": [],
-		"workingDirectory": {
-			"base": "project",
-			"path": "."
-		},
-		"timeoutSeconds": 300,
-		"reasoningLevel": null
-	},
-	"associateConversation": {
-		"type": "associateConversation",
-		"projectId": "PROJECT_ID",
-		"paneId": "PANE_ID"
-	},
-	"resourceTypes": [
-		"inferay.repository",
-		"inferay.skill",
-		"inferay.tool",
-		"brand.brand",
-		"brand.mind",
-		"brand.genome"
+	"storage": "Project definitions are files under projects/<project-id>. SQLite is a rebuildable index plus local approval and run state. Never edit SQLite.",
+	"layout": [
+		"project.json",
+		"memory/<type>/<id>.json",
+		"memory/documents/",
+		"plugins/<slug>/plugin.json",
+		"plugins/<slug>/skills/<name>.md",
+		"plugins/<slug>/tools/<slug>/tool.json",
+		"plugins/<slug>/automations/<name>.json",
+		"plugins/<slug>/README.md",
+		"plugins/<slug>/src/",
+		"plugins/<slug>/assets/"
 	],
-	"notes": "Agent execution timeoutSeconds is 1\u201386400 seconds (up to 24 hours); local tools are limited to 1\u20133600 seconds. Proposals are validated before displaying a card. Use the existing Inferay Skills library and proposal approval tool for skill changes; skillIds refer to library IDs. Resource edits require id and expectedRevision. Brand minds/genomes require brandId. Only prepare work requested by the user. Tool processes receive JSON stdin, return JSON stdout and may return artifacts under INFERAY_RUN_OUTPUT. saveAutomation from chat produces an approval card, not a saved automation. The user can accept, edit, run, or enable from the card. Do not propose a skill for an automation request unless explicitly asked. For daily/weekly schedules, ask for a local time and IANA timezone (and weekday for weekly), then supply calendar {time:HH:MM,timezone,weekday:null for daily or Monday=0 through Sunday=6}. Do not assume the user means an interval from now. intervalSeconds must be 86400 for daily or 604800 for weekly. Hourly/custom intervals use calendar:null."
+	"references": "Repository references use UUIDs with local checkout bindings. Local skill references use UUIDs; global skills use global:<id>. Tool references use a plugin-local tool folder name.",
+	"agentCommands": {
+		"reviewAutomation": {
+			"type": "reviewAutomation",
+			"id": "AUTOMATION_UUID"
+		},
+		"createPlugin": {
+			"type": "createPlugin",
+			"projectId": "PROJECT_UUID",
+			"slug": "research-kit",
+			"files": {
+				"plugin.json": "COMPLETE_PLUGIN_JSON",
+				"README.md": "PURPOSE_AND_USAGE",
+				"src/research.py": "REUSABLE_IMPLEMENTATION"
+			}
+		},
+		"readPlugin": {
+			"type": "readPlugin",
+			"id": "PLUGIN_UUID",
+			"path": null
+		}
+	},
+	"userCommands": {
+		"saveDefinition": {
+			"type": "saveDefinition",
+			"projectId": "PROJECT_UUID",
+			"path": "project.json",
+			"content": "JSON_OR_SKILL_MARKDOWN_OR_PLUGIN_TEXT",
+			"expectedHash": null
+		},
+		"approveAutomation": {
+			"type": "approveAutomation",
+			"id": "AUTOMATION_UUID",
+			"expectedInputsHash": "HASH_FROM_REVIEW",
+			"enable": false
+		},
+		"disableAutomation": {
+			"type": "disableAutomation",
+			"id": "AUTOMATION_UUID"
+		},
+		"runAutomation": {
+			"type": "runAutomation",
+			"id": "AUTOMATION_UUID",
+			"requestId": "UNIQUE_REQUEST_ID"
+		},
+		"retryRun": {
+			"type": "retryRun",
+			"id": "RUN_UUID",
+			"requestId": "UNIQUE_REQUEST_ID"
+		},
+		"stopRun": {
+			"type": "stopRun",
+			"id": "RUN_UUID"
+		},
+		"linkRepository": {
+			"type": "linkRepository",
+			"projectId": "PROJECT_UUID",
+			"repositoryId": "REPOSITORY_UUID",
+			"expectedProjectHash": "PROJECT_FILE_HASH",
+			"path": "LOCAL_CHECKOUT"
+		},
+		"associateConversation": {
+			"type": "associateConversation",
+			"projectId": "PROJECT_UUID",
+			"paneId": "PANE_ID"
+		}
+	},
+	"approval": "createPlugin validates a complete new bundle and displays one proposal card without saving or enabling anything. The user saves it from that card. A review returns the exact inputsHash; only a user action may approve execution against that hash. Changes disable schedules and require renewed review; reverting files never reenables them. Run now also needs current approval. Never claim a proposed bundle is saved or active.",
+	"writeRules": "expectedHash=null creates a new file only; updating requires the current sourceHash. Keep UUIDs stable. A successful save changes the file and rebuilds its index; it does not approve execution.",
+	"exampleAutomation": {
+		"schema": "inferay.automation/1",
+		"id": "AUTOMATION_UUID",
+		"name": "Weekly briefing",
+		"trigger": {
+			"kind": "calendar",
+			"timezone": "America/Chicago",
+			"days": [1],
+			"times": ["09:00"]
+		},
+		"overlap": "skip",
+		"execution": {
+			"kind": "agent",
+			"provider": "codex",
+			"model": null,
+			"reasoningLevel": "medium",
+			"instructions": "Review the selected resources and summarize changes with evidence.",
+			"skills": [],
+			"resources": [],
+			"repositories": [],
+			"workingDirectory": {
+				"base": "project",
+				"path": "."
+			},
+			"timeoutSeconds": 3600
+		},
+		"may": ["read_repositories", "write_project_files"]
+	},
+	"bundleRules": "Use createPlugin for a reusable library, including its manifest, README and needed code, assets or local skills in one files map. Tools and automations are optional; do not invent a schedule for a code library. Group related helpers and jobs by purpose rather than creating one plugin per automation. Paths are relative to plugins/<slug>. Existing plugin folders cannot be replaced by createPlugin. Reuse existing global skills using global:<id> instead of creating copies. Every JSON file is a serialized string. Match the plugin may list to the automation permissions. Saving installs the bundle with schedules off.",
+	"plugins": "A plugin is a persistent workspace for reusable capabilities: code, helper modules, documentation, templates and supporting assets. Skills teach when and how to use it; automations optionally schedule work using it. Neither skills nor automations are required. Discover existing plugins before building another implementation. Put a concise usage guide in README.md and describe the capability in plugin.json. Declare tool entry points when Inferay must execute a script. Keep project knowledge in Memory and generated results in run artifacts; never bundle credentials.",
+	"readRules": "List projects to discover plugin names and descriptions. readPlugin with path=null lists the library files and hashes; supply a relative path such as README.md or src/render.py to read UTF-8 content. Reading never executes code or approves it. Inspect the usage guide before reuse."
 }

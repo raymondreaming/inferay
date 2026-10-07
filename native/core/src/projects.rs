@@ -157,22 +157,7 @@ pub struct ProjectResourceType {
     pub enabled: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectCatalog {
-    pub projects: Vec<Project>,
-    pub resources: Vec<ProjectResource>,
-    pub automations: Vec<ProjectAutomation>,
-    pub runs: Vec<ProjectRun>,
-    pub artifacts: Vec<ProjectArtifact>,
-    pub plugins: Vec<ProjectPlugin>,
-    pub resource_types: Vec<ProjectResourceType>,
-    pub has_more_runs: bool,
-    pub next_run_cursor: Option<String>,
-    pub root: String,
-    pub conversation_projects: std::collections::BTreeMap<String, String>,
-    pub repository_paths: Vec<String>,
-}
+/// Read-only payload retained for automation cards in persisted older chats.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(
     tag = "type",
@@ -180,40 +165,7 @@ pub struct ProjectCatalog {
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
-pub enum ProjectCommand {
-    SaveProject {
-        id: Option<String>,
-        expected_revision: Option<i64>,
-        name: String,
-        description: String,
-        instructions: String,
-        #[serde(default)]
-        repository_paths: Option<Vec<String>>,
-    },
-    ArchiveProject {
-        id: String,
-        expected_revision: i64,
-    },
-    SaveResource {
-        id: Option<String>,
-        project_id: String,
-        expected_revision: Option<i64>,
-        type_id: String,
-        name: String,
-        body: Value,
-        #[serde(default = "schema_one")]
-        schema_version: i64,
-    },
-    ArchiveResource {
-        id: String,
-        expected_revision: i64,
-    },
-    WriteFile {
-        project_id: String,
-        path: String,
-        content: String,
-        expected_hash: Option<String>,
-    },
+pub enum LegacyAutomationProposal {
     SaveAutomation {
         id: Option<String>,
         project_id: String,
@@ -225,44 +177,6 @@ pub enum ProjectCommand {
         calendar: Option<CalendarSchedule>,
         overlap_policy: String,
     },
-    EnableAutomation {
-        id: String,
-        expected_revision: i64,
-        enabled: bool,
-    },
-    ArchiveAutomation {
-        id: String,
-        expected_revision: i64,
-    },
-    RunAutomation {
-        id: String,
-        request_id: String,
-    },
-    StopRun {
-        id: String,
-    },
-    RetryRun {
-        id: String,
-        request_id: String,
-    },
-    InstallPlugin {
-        project_id: String,
-        path: String,
-    },
-    EnablePlugin {
-        id: String,
-        enabled: bool,
-    },
-    AssociateConversation {
-        project_id: String,
-        pane_id: String,
-    },
-    CreateExample {
-        project_id: String,
-    },
-}
-fn schema_one() -> i64 {
-    1
 }
 
 pub fn bounded_text(value: &str, max: usize, required: bool) -> Result<(), String> {
@@ -275,37 +189,6 @@ pub fn bounded_text(value: &str, max: usize, required: bool) -> Result<(), Strin
         Ok(())
     }
 }
-pub fn validate_execution(execution: &ProjectExecution) -> Result<(), String> {
-    match execution {
-        ProjectExecution::Tool { tool_id, input } => {
-            bounded_text(tool_id, 200, true)?;
-            if input.to_string().len() > 64_000 {
-                return Err("Tool input exceeds 64 KB".into());
-            }
-        }
-        ProjectExecution::Agent {
-            instructions,
-            provider,
-            skill_ids,
-            resource_ids,
-            timeout_seconds,
-            ..
-        } => {
-            bounded_text(instructions, 64_000, true)?;
-            if !["claude", "codex"].contains(&provider.as_str()) {
-                return Err("Choose Claude or Codex".into());
-            }
-            if skill_ids.len() > 20 || resource_ids.len() > 32 {
-                return Err("Too many context resources".into());
-            }
-            if !(1..=86_400).contains(timeout_seconds) {
-                return Err("Agent timeout must be 1–86400 seconds (up to 24 hours)".into());
-            }
-        }
-    }
-    Ok(())
-}
-
 /// Deliberately small, offline JSON Schema subset. Unsupported keywords are rejected at registration.
 /// No remote refs, executable validators or implicit network access.
 pub fn validate_schema_definition(schema: &Value, depth: usize) -> Result<(), String> {

@@ -91,7 +91,8 @@ pub struct NativeChatRender {
     pub skill_proposal: Option<SkillProposal>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub automation_proposal: Option<crate::projects::ProjectCommand>,
+    pub automation_proposal: Option<crate::projects::LegacyAutomationProposal>,
+    pub plugin_proposal: Option<crate::project_files::ProjectFileCommand>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub skill_read: Option<SkillRead>,
@@ -374,8 +375,21 @@ impl ChatMessageBuffer {
                     if let Ok(value) = serde_json::from_str::<Value>(&message.content) {
                         prepare_system_card(&value, &mut render);
                         if value["type"] == "inferay.automation-proposal" {
-                            if let Ok(command @ crate::projects::ProjectCommand::SaveAutomation { .. }) = serde_json::from_value(value["command"].clone()) {
+                            if let Ok(
+                                command @ crate::projects::LegacyAutomationProposal::SaveAutomation { .. },
+                            ) = serde_json::from_value(value["command"].clone())
+                            {
                                 render.automation_proposal = Some(command);
+                            }
+                        }
+                        if value["type"] == "inferay.plugin-proposal" {
+                            if let Ok(
+                                command @ crate::project_files::ProjectFileCommand::CreatePlugin {
+                                    ..
+                                },
+                            ) = serde_json::from_value(value["command"].clone())
+                            {
+                                render.plugin_proposal = Some(command);
                             }
                         }
                         render.skill_proposal = crate::prompts::cards::chat_skill_proposal(&value);
@@ -991,13 +1005,42 @@ mod output_reference_tests {
     use super::*;
 
     #[test]
+    fn plugin_card_reloads_only_bundle_proposals() {
+        for command in [
+            serde_json::json!({"type":"createPlugin","projectId":"project-1","slug":"daily","files":{"plugin.json":"{}"}}),
+            serde_json::json!({"type":"runAutomation","id":"automation-1","requestId":"request-1"}),
+        ] {
+            let message: ChatTranscriptMessage = serde_json::from_value(serde_json::json!({
+                "id":"plugin-card", "role":"system",
+                "content":serde_json::json!({"type":"inferay.plugin-proposal","command":command}).to_string()
+            })).unwrap();
+            let mut buffer = ChatMessageBuffer::default();
+            buffer.replace_messages(vec![message]);
+            let render = buffer.messages()[0].render.as_ref().unwrap();
+            if command["type"] == "createPlugin" {
+                assert_eq!(
+                    serde_json::to_value(&render.plugin_proposal).unwrap(),
+                    command
+                );
+            } else {
+                assert!(render.plugin_proposal.is_none());
+            }
+            assert!(render.automation_proposal.is_none());
+            assert!(render.skill_proposal.is_none());
+        }
+    }
+
+    #[test]
     fn automation_card_survives_transcript_reload_without_becoming_a_skill() {
         let command = serde_json::json!({"type":"saveAutomation","id":"proposal-1","projectId":"project-1","expectedRevision":null,"name":"Weekly briefing","execution":{"kind":"agent","instructions":"Prepare a briefing","provider":"codex","model":null,"reasoningLevel":"medium","skillIds":[],"resourceIds":[],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":300},"intervalSeconds":604800,"calendar":null,"overlapPolicy":"skip"});
         let message: ChatTranscriptMessage = serde_json::from_value(serde_json::json!({"id":"card-1","role":"system","content":serde_json::json!({"type":"inferay.automation-proposal","command":command}).to_string()})).unwrap();
         let mut buffer = ChatMessageBuffer::default();
         buffer.replace_messages(vec![message]);
         let render = buffer.messages()[0].render.as_ref().unwrap();
-        assert_eq!(serde_json::to_value(&render.automation_proposal).unwrap(), command);
+        assert_eq!(
+            serde_json::to_value(&render.automation_proposal).unwrap(),
+            command
+        );
         assert!(render.skill_proposal.is_none());
     }
 

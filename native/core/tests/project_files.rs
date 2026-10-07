@@ -55,19 +55,19 @@ fn references_and_permission_ceiling_are_checked_without_io() {
     let mut p:PluginDefinition=parse("plugin.json",json!({"schema":"inferay.plugin/1","id":ID,"name":"Research","version":"0.1.0","description":"","may":[]}).to_string().as_bytes()).unwrap();
     let empty = BTreeSet::new();
     assert!(
-        validate_references(&a, &p, &empty, &empty, &empty, &empty)
+        validate_references(&a, Some(&p), &empty, &empty, &empty, &empty)
             .unwrap_err()
             .contains("may")
     );
     p.may = a.may.clone();
     assert!(
-        validate_references(&a, &p, &empty, &empty, &empty, &empty)
+        validate_references(&a, Some(&p), &empty, &empty, &empty, &empty)
             .unwrap_err()
             .contains("unresolved skill")
     );
     let skills = BTreeSet::from([ID.into()]);
     let repos = BTreeSet::from([ID.into()]);
-    assert!(validate_references(&a, &p, &skills, &empty, &empty, &repos).is_ok());
+    assert!(validate_references(&a, Some(&p), &skills, &empty, &empty, &repos).is_ok());
     for (reference, valid) in [("daily", false), ("global:daily", true), ("global:", false)] {
         let mut candidate = a.clone();
         if let DefinitionExecution::Agent { skills, .. } = &mut candidate.execution {
@@ -75,7 +75,7 @@ fn references_and_permission_ceiling_are_checked_without_io() {
         }
         let inventory = BTreeSet::from([reference.into()]);
         assert_eq!(
-            validate_references(&candidate, &p, &inventory, &empty, &empty, &repos).is_ok(),
+            validate_references(&candidate, Some(&p), &inventory, &empty, &empty, &repos).is_ok(),
             valid
         );
     }

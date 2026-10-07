@@ -16,8 +16,35 @@ pub(crate) fn apply(
     host: bool,
     skills: &[Prompt],
 ) -> Result<Value> {
-    if !host && !matches!(&command, ProjectFileCommand::ReviewAutomation { .. }) {
+    if !host
+        && !matches!(
+            &command,
+            ProjectFileCommand::ReviewAutomation { .. }
+                | ProjectFileCommand::ReviewPlugin { .. }
+                | ProjectFileCommand::ReadPlugin { .. }
+        )
+    {
         return Err("Prepare a proposal for the user to review; agent tools cannot approve or execute project changes.".into());
+    }
+    if let ProjectFileCommand::CreatePlugin {
+        project_id,
+        slug,
+        files: bundle,
+    } = &command
+    {
+        uuid::Uuid::parse_str(project_id)?;
+        let root = profile.join("projects").join(project_id);
+        let project: ProjectDefinition = parse(
+            "project.json",
+            &files::read(&root, "project.json", MANIFEST_LIMIT)?,
+        )?;
+        if project.id != *project_id || project.archived {
+            return Err("Project is missing or archived".into());
+        }
+        let globals = skills.iter().map(|s| format!("global:{}", s.id)).collect();
+        let id = files::create_plugin(&root, slug, bundle, &globals)?;
+        index::refresh(db, profile, skills)?;
+        return Ok(json!({"id":id}));
     }
     if let ProjectFileCommand::SaveDefinition {
         project_id,
@@ -40,6 +67,86 @@ pub(crate) fn apply(
     index::refresh(db, profile, skills)?;
     let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let result = match command {
+        ProjectFileCommand::ReadPlugin { id, path } => {
+            let (project, manifest): (String, String) = tx.query_row(
+                "SELECT project_id,source_path FROM plugins WHERE id=?",
+                [&id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )?;
+            let root = profile.join("projects").join(project);
+            let prefix = manifest
+                .strip_suffix("/plugin.json")
+                .ok_or("Invalid plugin location")?;
+            match path {
+                Some(path) => {
+                    relative_path(&path)?;
+                    let bytes = files::read(&root, &format!("{prefix}/{path}"), ENTRYPOINT_LIMIT)?;
+                    let content = std::str::from_utf8(&bytes).map_err(
+                        |_| "This file is binary; use its declared tool to work with it",
+                    )?;
+                    serde_json::to_value(PluginTextFile {
+                        id,
+                        path,
+                        source_hash: hash(&bytes),
+                        content: content.into(),
+                    })?
+                }
+                None => {
+                    let entries = index::package_files(&root, prefix)?
+                        .into_iter()
+                        .map(|(path, hash)| PluginLibraryFile {
+                            path: path
+                                .strip_prefix(&format!("{prefix}/"))
+                                .unwrap_or(&path)
+                                .into(),
+                            source_hash: hash,
+                        })
+                        .collect::<Vec<_>>();
+                    serde_json::to_value(PluginLibrary { id, files: entries })?
+                }
+            }
+        }
+        ProjectFileCommand::ReviewPlugin { id } => {
+            serde_json::to_value(index::review_plugin(&tx, profile, &id, skills)?)?
+        }
+        ProjectFileCommand::ApprovePlugin {
+            id,
+            expected_inputs_hash,
+            enable,
+        } => {
+            let inputs = index::plugin_inputs(&tx, profile, &id, skills)?;
+            if hash(&serde_json::to_vec(&inputs)?) != expected_inputs_hash {
+                return Err(
+                    "Plugin inputs changed since review. Review again before approving.".into(),
+                );
+            }
+            for (automation_id, snapshot) in inputs["automations"]
+                .as_object()
+                .ok_or("Plugin automations missing")?
+            {
+                let definition: AutomationDefinition =
+                    serde_json::from_value(snapshot["automation"].clone())?;
+                index::approve_automation(
+                    &tx,
+                    profile,
+                    automation_id,
+                    &hash(&serde_json::to_vec(snapshot)?),
+                    enable && !matches!(definition.trigger, Trigger::Manual),
+                    skills,
+                )?;
+            }
+            // Recheck the entire bundle after writing approvals; any conflict rolls
+            // back every approval and schedule in this transaction.
+            if index::plugin_inputs(&tx, profile, &id, skills)? != inputs {
+                return Err("Plugin inputs changed while approving".into());
+            }
+            tx.execute("INSERT INTO plugin_state(plugin_id,approved_hash,approved_at,approved_inputs) VALUES(?,?,?,?) ON CONFLICT(plugin_id) DO UPDATE SET approved_hash=excluded.approved_hash,approved_at=excluded.approved_at,approved_inputs=excluded.approved_inputs",params![id,expected_inputs_hash,now(),inputs.to_string()])?;
+            json!({"id":id})
+        }
+        ProjectFileCommand::DisablePlugin { id } => {
+            tx.execute("UPDATE automation_state SET enabled=0,next_due_at=NULL WHERE automation_id IN (SELECT id FROM automations WHERE plugin_id=?)",[&id])?;
+            json!({"id":id})
+        }
         ProjectFileCommand::ReviewAutomation { id } => {
             let inputs = index::execution_inputs(&tx, profile, &id, skills)?;
             json!({"id":id,"inputsHash":hash(&serde_json::to_vec(&inputs)?),"inputs":inputs})
@@ -120,7 +227,7 @@ pub(crate) fn apply(
             tx.execute("UPDATE automation_state SET enabled=0,next_due_at=NULL,inputs_changed=1,error='Repository location changed. Review before running.' WHERE automation_id IN (SELECT id FROM automations WHERE project_id=?)",[project_id])?;
             json!({"id":repository_id})
         }
-        ProjectFileCommand::SaveDefinition { .. } => {
+        ProjectFileCommand::SaveDefinition { .. } | ProjectFileCommand::CreatePlugin { .. } => {
             unreachable!("definition writes handled before transaction")
         }
     };

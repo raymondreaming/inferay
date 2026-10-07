@@ -2,7 +2,8 @@
 use crate::{
     agent_command::AgentCommandResolver,
     agent_runner::{self, AgentProcessHandle, RuntimePidTracker},
-    project_store::{self, ProjectStore, Result, event, now, prepare_run, resolve_path},
+    project_file_store::FileProjectStore,
+    project_store::{self, Result, event, now, resolve_path},
     prompt_store::PromptStore,
 };
 use inferay_core::{
@@ -10,12 +11,12 @@ use inferay_core::{
     agent_protocol::{
         AgentProtocolContext, CodexInvocationContext, CodexProtocolState, ProtocolEmission,
     },
+    project_files::{ProjectFileCommand, ProjectWorkspace},
     projects::*,
 };
-use rusqlite::{OptionalExtension, params};
+use rusqlite::params;
 use serde_json::{Value, json};
 use std::{
-    collections::HashMap,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
@@ -26,7 +27,7 @@ use tokio::{
 };
 
 pub(crate) struct ProjectRuntime {
-    pub store: Mutex<ProjectStore>,
+    pub store: Mutex<FileProjectStore>,
     pub capacity: Arc<Semaphore>,
     background: Arc<Semaphore>,
     resolver: Arc<AgentCommandResolver>,
@@ -41,8 +42,13 @@ impl ProjectRuntime {
         prompts: Arc<tokio::sync::Mutex<PromptStore>>,
         tracker: RuntimePidTracker,
     ) -> Result<Arc<Self>> {
+        let skills = prompts
+            .try_lock()
+            .map_err(|_| "Skills startup lock unavailable")?
+            .load()?;
+        let store = FileProjectStore::open(root, &skills)?;
         Ok(Arc::new(Self {
-            store: Mutex::new(ProjectStore::open(root)?),
+            store: Mutex::new(store),
             capacity: Arc::new(Semaphore::new(4)),
             background: Arc::new(Semaphore::new(2)),
             resolver,
@@ -84,27 +90,156 @@ impl ProjectRuntime {
         self: &Arc<Self>,
         project: Option<String>,
         before: Option<String>,
-    ) -> Result<ProjectCatalog> {
+    ) -> Result<ProjectWorkspace> {
+        let skills = self.prompts.lock().await.load()?;
         let this = self.clone();
         tokio::task::spawn_blocking(move || {
-            this.store
-                .lock()
-                .map_err(|_| "Project store lock failed")?
-                .catalog(project.as_deref(), before.as_deref())
+            let mut store = this.store.lock().map_err(|_| "Project store lock failed")?;
+            let catalog = store.catalog(project.as_deref(), &skills)?;
+            let history = store.history(project.as_deref().unwrap_or(""), before.as_deref())?;
+            let conversation_projects = store.db.prepare("SELECT pane_id,project_id FROM project_conversations ORDER BY pane_id LIMIT 4096")?
+                .query_map([], |r| Ok((r.get(0)?,r.get(1)?)))?
+                .collect::<std::result::Result<_,_>>()?;
+            Ok(ProjectWorkspace {catalog,history,conversation_projects,root:store.root.to_string_lossy().into()})
+        }).await?
+    }
+    pub fn migrate_workspace(&self, state: &Value) -> Result<()> {
+        let skills = self
+            .prompts
+            .try_lock()
+            .map_err(|_| "Skills startup lock unavailable")?
+            .load()?;
+        let mut store = self.store.lock().map_err(|_| "Project store lock failed")?;
+        let root = store.root.clone();
+        crate::project_migration::workspace_projects(&mut store.db, &root, state, &skills)
+    }
+
+    pub async fn documents(
+        self: &Arc<Self>,
+        project_id: String,
+    ) -> Result<Vec<inferay_core::project_files::ProjectDocument>> {
+        let this = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let store = this.store.lock().map_err(|_| "Project store lock failed")?;
+            let root = store.project_dir(&project_id)?;
+            let directory =
+                crate::project_definitions::managed_path(&root, "memory/documents", false)?;
+            if !directory.try_exists()? {
+                return Ok(vec![]);
+            }
+            let mut documents = Vec::new();
+            for (count, entry) in walkdir::WalkDir::new(&directory)
+                .follow_links(false)
+                .max_depth(16)
+                .into_iter()
+                .enumerate()
+            {
+                if count >= 10_000 {
+                    return Err("Document library exceeds the 10,000 entry browsing limit".into());
+                }
+                let entry = entry?;
+                if !entry.file_type().is_file() {
+                    continue;
+                }
+                let path = entry
+                    .path()
+                    .strip_prefix(&root)?
+                    .to_str()
+                    .ok_or("Document path is not UTF-8")?
+                    .replace('\\', "/");
+                let name = entry
+                    .file_name()
+                    .to_str()
+                    .ok_or("Document name is not UTF-8")?
+                    .to_owned();
+                documents.push(inferay_core::project_files::ProjectDocument {
+                    category: inferay_core::project_files::document_category(&name).into(),
+                    path,
+                    name,
+                    size: entry.metadata()?.len(),
+                });
+            }
+            documents.sort_by(|a, b| {
+                a.name
+                    .to_lowercase()
+                    .cmp(&b.name.to_lowercase())
+                    .then(a.path.cmp(&b.path))
+            });
+            Ok(documents)
         })
         .await?
     }
-    pub async fn preview_automation(self: &Arc<Self>, command: ProjectCommand) -> Result<()> {
+
+    pub async fn document_bytes(
+        self: &Arc<Self>,
+        project_id: String,
+        path: String,
+    ) -> Result<Vec<u8>> {
         let this = self.clone();
         tokio::task::spawn_blocking(move || {
-            this.store
-                .lock()
-                .map_err(|_| "Project store lock failed")?
-                .preview_automation(command)
+            if !path.starts_with("memory/documents/") {
+                return Err("Choose a project document".into());
+            }
+            let store = this.store.lock().map_err(|_| "Project store lock failed")?;
+            let root = store.project_dir(&project_id)?;
+            crate::project_definitions::read(&root, &path, 20 * 1024 * 1024)
         })
         .await?
     }
-    pub async fn command(self: &Arc<Self>, cmd: ProjectCommand, host: bool) -> Result<Value> {
+
+    pub async fn import_document(
+        self: &Arc<Self>,
+        project_id: String,
+        name: String,
+        bytes: Vec<u8>,
+    ) -> Result<Value> {
+        if name.is_empty() || name.contains(['/', '\\']) || name == "." || name == ".." {
+            return Err("Choose a file with a plain filename".into());
+        }
+        if bytes.len() > 20 * 1024 * 1024 {
+            return Err("Documents must be no larger than 20 MB".into());
+        }
+        let this = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let store = this.store.lock().map_err(|_| "Project store lock failed")?;
+            let root = store.project_dir(&project_id)?;
+            let path = format!("memory/documents/{name}");
+            let hash = crate::project_definitions::write(&root, &path, &bytes, None)?;
+            Ok(json!({"path":path,"sourceHash":hash}))
+        })
+        .await?
+    }
+
+    pub async fn import_library(self: &Arc<Self>, project_id: String, name: String, originals: std::collections::BTreeMap<String, Vec<u8>>) -> Result<Value> {
+        let this = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let store = this.store.lock().map_err(|_| "Project store lock failed")?;
+            let root = store.project_dir(&project_id)?;
+            let id = crate::project_definitions::import_library(&root, &name, &originals)?;
+            Ok(json!({"id":id}))
+        }).await?
+    }
+
+    pub async fn preview_plugin(self: &Arc<Self>, command: &ProjectFileCommand) -> Result<()> {
+        let ProjectFileCommand::CreatePlugin {
+            project_id,
+            slug,
+            files,
+        } = command
+        else {
+            return Err("Expected a plugin bundle".into());
+        };
+        let skills = self.prompts.lock().await.load()?;
+        let store = self.store.lock().map_err(|_| "Project store lock failed")?;
+        let root = store.project_dir(project_id)?;
+        crate::project_definitions::validate_bundle(
+            &root,
+            slug,
+            files,
+            &skills.iter().map(|s| format!("global:{}", s.id)).collect(),
+        )
+    }
+    pub async fn command(self: &Arc<Self>, cmd: ProjectFileCommand, host: bool) -> Result<Value> {
         let skills = self.prompts.lock().await.load()?;
         let this = self.clone();
         tokio::task::spawn_blocking(move || {
@@ -115,108 +250,27 @@ impl ProjectRuntime {
         })
         .await?
     }
-    pub fn context(&self, pane: &str, cwd: &Path) -> Result<Option<(String, String, PathBuf)>> {
-        let store = self.store.lock().map_err(|_| "Project store lock failed")?;
-        let id: Option<String> = store
-            .db
-            .query_row(
-                "SELECT project_id FROM project_conversations WHERE pane_id=?",
-                [pane],
-                |r| r.get(0),
-            )
-            .optional()?;
-        let id = if id.is_some() {
-            id
-        } else {
-            store.db.query_row("SELECT r.project_id FROM resources r JOIN resource_revisions v ON v.resource_id=r.id AND v.revision=r.revision WHERE r.type_id='inferay.repository' AND json_extract(v.body,'$.location.path')=? AND r.archived=0 LIMIT 1",[cwd.to_string_lossy().as_ref()],|r|r.get(0)).optional()?
-        };
-        let Some(id) = id else { return Ok(None) };
-        let dir = store.project_dir(&id)?;
-        let mut instructions: String = store.db.query_row(
-            "SELECT instructions FROM projects WHERE id=? AND archived=0",
-            [&id],
-            |r| r.get(0),
-        )?;
-        let repositories: Vec<String> = store.db.prepare("SELECT json_extract(v.body,'$.location.path') FROM resources r JOIN resource_revisions v ON v.resource_id=r.id AND v.revision=r.revision WHERE r.project_id=? AND r.type_id='inferay.repository' AND r.archived=0 ORDER BY r.name LIMIT 128")?
-            .query_map([&id], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?;
-        if !repositories.is_empty() {
-            instructions.push_str("\nLinked repositories (project context; use the appropriate folder for repository commands):\n");
-            instructions.push_str(&serde_json::to_string(&repositories)?);
-        }
-        Ok(Some((id, instructions, dir)))
-    }
-    pub fn migrate_repositories(&self, state: &Value) -> Result<()> {
-        let mut store = self.store.lock().map_err(|_| "Project store lock failed")?;
-        if store.db.query_row(
-            "SELECT EXISTS(SELECT 1 FROM project_migrations WHERE name='repositories-v1')",
-            [],
-            |r| r.get::<_, bool>(0),
-        )? {
-            return Ok(());
-        }
-        let root = store.root.clone();
-        let tx = store
-            .db
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let mut paths: HashMap<String, String> = HashMap::new();
-        if let Some(groups) = state["groups"].as_array() {
-            for group in groups {
-                if let Some(panes) = group["panes"].as_array() {
-                    for pane in panes {
-                        let Some(path) = pane["cwd"].as_str().filter(|p| !p.is_empty()) else {
-                            continue;
-                        };
-                        let id = if let Some(id) = paths.get(path) {
-                            id.clone()
-                        } else {
-                            let id = uuid::Uuid::new_v4().to_string();
-                            let name = Path::new(path)
-                                .file_name()
-                                .and_then(|n| n.to_str())
-                                .unwrap_or("Project");
-                            tx.execute(
-                                "INSERT INTO projects VALUES(?1,?2,'','',1,?3,?3,0)",
-                                params![id, name, now()],
-                            )?;
-                            project_store::project_directory(&tx, &root, &id)?;
-                            project_store::save_resource(
-                                &tx,
-                                &id,
-                                None,
-                                None,
-                                "inferay.repository",
-                                name,
-                                json!({"location":{"base":"external","path":path},"instructions":""}),
-                                1,
-                                None,
-                            )?;
-                            paths.insert(path.into(), id.clone());
-                            id
-                        };
-                        if let Some(pane) = pane["id"].as_str() {
-                            tx.execute(
-                                "INSERT OR IGNORE INTO project_conversations VALUES(?1,?2)",
-                                params![pane, id],
-                            )?;
-                        }
-                    }
-                }
-            }
-        }
-        tx.execute(
-            "INSERT INTO project_migrations VALUES('repositories-v1',?)",
-            [now()],
-        )?;
-        tx.commit()?;
-        Ok(())
+    pub async fn context(
+        &self,
+        pane: &str,
+        cwd: &Path,
+    ) -> Result<Option<(String, String, PathBuf)>> {
+        let skills = self.prompts.lock().await.load()?;
+        self.store
+            .lock()
+            .map_err(|_| "Project store lock failed")?
+            .context(pane, cwd, &skills)
     }
     async fn tick(self: &Arc<Self>) -> Result<()> {
         let skills = self.prompts.lock().await.load()?;
         let this = self.clone();
-        tokio::task::spawn_blocking(move||->Result<()>{let mut store=this.store.lock().map_err(|_|"Project store lock failed")?;let root=store.root.clone();let tx=store.db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-            let due:Vec<(String,i64,i64,Option<String>)>=tx.prepare("SELECT a.id,a.next_due_at,a.interval_seconds,a.calendar FROM automations a JOIN projects p ON p.id=a.project_id WHERE a.enabled=1 AND a.archived=0 AND p.archived=0 AND a.next_due_at<=? ORDER BY a.next_due_at LIMIT 8")?.query_map([now()],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?.collect::<std::result::Result<_,_>>()?;
-            for (id,due,interval,calendar) in due {let result=prepare_run(&tx,&root,&id,&format!("schedule:{id}:{due}"),Some(due),None,&skills);if let Err(e)=result{eprintln!("Automation {id}: {e}");tx.execute("UPDATE automations SET enabled=0 WHERE id=?",[&id])?;}let next=match calendar {Some(text)=>serde_json::from_str::<CalendarSchedule>(&text)?.next_after(now())?,None=>due+((now()-due)/(interval*1000)+1)*interval*1000};tx.execute("UPDATE automations SET next_due_at=? WHERE id=? AND enabled=1",params![next,id])?;}
-            tx.commit()?;Ok(())}).await??;
+        let scheduled_skills = skills.clone();
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            let mut store = this.store.lock().map_err(|_| "Project store lock failed")?;
+            let root = store.root.clone();
+            crate::project_runs::schedule_due(&mut store.db, &root, &scheduled_skills, now())
+        })
+        .await??;
         for _ in 0..2 {
             let Ok(background) = self.background.clone().try_acquire_owned() else {
                 break;
@@ -225,9 +279,13 @@ impl ProjectRuntime {
                 break;
             };
             let this = self.clone();
-            let selected=tokio::task::spawn_blocking(move||->Result<Option<(String,String,Value)>>{let mut store=this.store.lock().map_err(|_|"Project store lock failed")?;let tx=store.db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-                let run=tx.query_row("SELECT r.id,r.project_id,r.snapshot FROM runs r JOIN projects p ON p.id=r.project_id WHERE r.status='queued' AND r.stop_requested_at IS NULL AND p.archived=0 AND NOT EXISTS(SELECT 1 FROM runs active WHERE active.automation_id=r.automation_id AND active.status='running') ORDER BY r.requested_at,r.id LIMIT 1",[],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?))).optional()?;
-                let out=if let Some((id,project,snapshot))=run{tx.execute("UPDATE runs SET status='running',started_at=? WHERE id=?",params![now(),id])?;event(&tx,&id,"running",&json!({}))?;Some((id,project,serde_json::from_str(&snapshot)?))}else{None};tx.commit()?;Ok(out)}).await??;
+            let skills = skills.clone();
+            let selected = tokio::task::spawn_blocking(move || {
+                let mut store = this.store.lock().map_err(|_| "Project store lock failed")?;
+                let root = store.root.clone();
+                crate::project_runs::claim_next(&mut store.db, &root, &skills)
+            })
+            .await??;
             let Some((id, project, snapshot)) = selected else {
                 break;
             };
@@ -257,9 +315,12 @@ impl ProjectRuntime {
             .unwrap_or(true)
     }
     async fn execute(self: &Arc<Self>, id: &str, project: &str, snapshot: &Value) -> Result<Value> {
-        let file_automation = snapshot.pointer("/automation/id").and_then(Value::as_str);
-        let root = if let Some(automation) = file_automation {
-            let skills = self.prompts.lock().await.load()?;
+        let automation = snapshot
+            .pointer("/automation/id")
+            .and_then(Value::as_str)
+            .ok_or("Run is missing its file-backed automation definition")?;
+        let skills = self.prompts.lock().await.load()?;
+        let root = {
             let store = self.store.lock().map_err(|_| "Project store lock failed")?;
             let current = crate::project_index::approved_inputs(
                 &store.db,
@@ -280,11 +341,6 @@ impl ProjectRuntime {
             .parent()
             .ok_or("Project directory missing")?
             .canonicalize()?
-        } else {
-            self.store
-                .lock()
-                .map_err(|_| "Project store lock failed")?
-                .project_dir(project)?
         };
         let dir = root.join("runs").join(id);
         for folder in ["inputs", "output", "logs"] {
@@ -302,12 +358,7 @@ impl ProjectRuntime {
             serde_json::to_vec_pretty(snapshot)?,
         )?;
         match serde_json::from_value::<ProjectExecution>(snapshot["execution"].clone())? {
-            ProjectExecution::Tool { tool_id, input } => {
-                // Recheck existence and plugin enablement without substituting current content for the pinned definition.
-                if file_automation.is_none() {
-                    let store = self.store.lock().map_err(|_| "Project store lock failed")?;
-                    project_store::resource(&store.db, &tool_id, project)?;
-                }
+            ProjectExecution::Tool { tool_id: _, input } => {
                 let tool: LocalTool = serde_json::from_value(snapshot["tool"].clone())?;
                 let file = resolve_path(&root, &tool.entrypoint)?;
                 let bytes = std::fs::read(&file)?;

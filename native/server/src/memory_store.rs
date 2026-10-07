@@ -1,4 +1,4 @@
-//! Project memory: Markdown notes under each project's `resources/notes`, with a rebuildable local index.
+//! Project memory: Markdown notes under each project's `memory/notes`, with a rebuildable local index.
 //! The files are the source of truth; `memory.sqlite3` can be deleted and is rebuilt on the next read.
 use crate::{atomic_write, project_store::Result};
 use inferay_core::memory::{
@@ -440,7 +440,13 @@ impl MemoryStore {
     ) -> std::result::Result<(Value, Option<Value>), String> {
         let text = |key: &str| args[key].as_str().unwrap_or("").to_owned();
         let result = match args["action"].as_str() {
-            Some("search") => self.search(project, dir, &text("query"), args["tag"].as_str(), args["limit"].as_u64().unwrap_or(10) as usize).map(|v| json!(v)),
+            Some("search") => self
+                .search(project, dir, &text("query"), args["tag"].as_str(), args["limit"].as_u64().unwrap_or(10) as usize)
+                .map(|v| {
+                    let names: Vec<&str> = v.hits.iter().take(5).map(|h| h.title.as_str()).collect();
+                    let summary = if names.is_empty() { "Nothing found in memory".to_owned() } else { format!("Found {}: {}", v.hits.len(), names.join(" · ")) };
+                    json!({"summary": summary, "hits": v.hits, "total": v.total})
+                }),
             Some("read") => self.read(project, dir, &text("id")).map(|v| json!({"id": v.note.id, "title": v.note.title, "tags": v.note.tags, "source": v.note.source, "created": v.note.created, "supersededBy": v.superseded_by, "body": v.note.body, "linksOut": v.links_out.iter().map(|h| &h.title).collect::<Vec<_>>(), "linksIn": v.links_in.iter().map(|h| &h.title).collect::<Vec<_>>()})),
             Some("save") if allow_save => serde_json::from_value::<MemoryNoteInput>(args["note"].clone())
                 .map_err(|e| e.to_string().into())
@@ -453,6 +459,189 @@ impl MemoryStore {
             _ => Err("Use action search, read or save".into()),
         };
         result.map(|v| (v, None)).map_err(|e| e.to_string())
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GraphNode {
+    pub id: String,
+    /// `note`, `image`, `file` or `source` (a chat or run that items came from).
+    pub kind: String,
+    pub title: String,
+    pub source: String,
+    pub created: String,
+    pub path: String,
+    pub tags: Vec<String>,
+    pub superseded: bool,
+    pub size: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct GraphEdge {
+    pub from: String,
+    pub to: String,
+    /// `source` (item to the chat or run it came from), `link` (`[[Title]]`) or `supersedes`.
+    pub kind: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MemoryGraph {
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
+    pub truncated: bool,
+}
+
+pub(crate) const GRAPH_LIMIT: usize = 2000;
+const DOCUMENTS_DIR: &str = "memory/documents";
+
+/// The chat or run an item came from: `chat:<pane>` or `run:<id>`, without the message part.
+fn source_group(source: &str) -> Option<String> {
+    let head = source.split('/').next().unwrap_or("");
+    (head.starts_with("chat:") || head.starts_with("run:")).then(|| head.to_owned())
+}
+
+impl MemoryStore {
+    /// Everything in a project's memory as a bounded graph: notes, documents, the chats and runs they came from,
+    /// `[[links]]` and supersedes edges. Positions are a view concern and are not stored here.
+    pub fn graph(&self, project: &str, dir: &Path) -> Result<MemoryGraph> {
+        let db = self.db.lock().map_err(|_| "Memory lock failed")?;
+        self.sync(&db, project, dir)?;
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+        let mut truncated = false;
+        let today = today();
+        let mut statement = db.prepare(&format!(
+            "SELECT {HIT_COLUMNS}, n.path FROM notes n WHERE n.project=?1 ORDER BY n.created DESC LIMIT {GRAPH_LIMIT}"
+        ))?;
+        let rows = statement.query_map(params![project, today], |r| {
+            Ok((Self::hit(r, String::new())?, r.get::<_, String>(7)?))
+        })?;
+        let mut titles: HashMap<String, String> = HashMap::new();
+        let mut groups: HashMap<String, usize> = HashMap::new();
+        for row in rows {
+            let (hit, path) = row?;
+            titles.insert(hit.title.clone(), hit.id.clone());
+            if let Some(group) = source_group(&hit.source) {
+                *groups.entry(group.clone()).or_default() += 1;
+                edges.push(GraphEdge { from: hit.id.clone(), to: format!("source:{group}"), kind: "source".into() });
+            }
+            nodes.push(GraphNode {
+                id: hit.id,
+                kind: "note".into(),
+                title: hit.title,
+                source: hit.source,
+                created: hit.created,
+                path,
+                tags: hit.tags,
+                superseded: hit.superseded,
+                size: 0,
+            });
+        }
+        let notes = nodes.len();
+        truncated |= notes >= GRAPH_LIMIT;
+        for (id, target) in db
+            .prepare("SELECT id,target FROM links WHERE project=?")?
+            .query_map([project], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+            .flatten()
+        {
+            if let Some(to) = titles.get(&target)
+                && to != &id
+            {
+                edges.push(GraphEdge { from: id, to: to.clone(), kind: "link".into() });
+            }
+        }
+        for (id, old) in db
+            .prepare("SELECT id,supersedes FROM notes WHERE project=? AND supersedes IS NOT NULL")?
+            .query_map([project], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+            .flatten()
+        {
+            edges.push(GraphEdge { from: id, to: old, kind: "supersedes".into() });
+        }
+        let documents = dir.join(DOCUMENTS_DIR);
+        if documents.is_dir() {
+            for entry in std::fs::read_dir(&documents)?.flatten() {
+                if nodes.len() >= GRAPH_LIMIT {
+                    truncated = true;
+                    break;
+                }
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if name.starts_with('.') || !entry.file_type()?.is_file() {
+                    continue;
+                }
+                let meta = entry.metadata()?;
+                let created = meta
+                    .modified()
+                    .ok()
+                    .and_then(|m| m.duration_since(UNIX_EPOCH).ok())
+                    .map(|d| utc(d.as_secs() as i64))
+                    .unwrap_or_default();
+                let path = format!("{DOCUMENTS_DIR}/{name}");
+                let image = inferay_core::project_files::document_category(&name) == "Images";
+                nodes.push(GraphNode {
+                    id: format!("doc:{path}"),
+                    kind: if image { "image" } else { "file" }.into(),
+                    title: name,
+                    source: "dropped".into(),
+                    created,
+                    path,
+                    tags: vec![],
+                    superseded: false,
+                    size: meta.len(),
+                });
+            }
+        }
+        for (group, count) in groups {
+            let kind = if group.starts_with("chat:") { "Chat" } else { "Run" };
+            nodes.push(GraphNode {
+                id: format!("source:{group}"),
+                kind: "source".into(),
+                title: format!("{kind} · {count} saved"),
+                source: group,
+                created: String::new(),
+                path: String::new(),
+                tags: vec![],
+                superseded: false,
+                size: count as u64,
+            });
+        }
+        Ok(MemoryGraph { nodes, edges, truncated })
+    }
+
+    /// Remove one memory item: a note by id, or a dropped document by its `memory/documents/…` path.
+    pub fn delete(&self, project: &str, dir: &Path, id: Option<&str>, path: Option<&str>) -> Result<()> {
+        let db = self.db.lock().map_err(|_| "Memory lock failed")?;
+        self.sync(&db, project, dir)?;
+        let relative = match (id, path) {
+            (Some(id), _) if !id.is_empty() => db
+                .query_row("SELECT path FROM notes WHERE project=? AND id=?", params![project, id], |r| r.get::<_, String>(0))
+                .optional()?
+                .ok_or("Note not found")?,
+            (_, Some(path)) => {
+                let name = path.strip_prefix(&format!("{DOCUMENTS_DIR}/")).ok_or("Only memory documents can be deleted this way")?;
+                if name.is_empty() || name.contains(['/', '\\', '\0']) || name.starts_with('.') {
+                    return Err("Invalid document path".into());
+                }
+                path.to_owned()
+            }
+            _ => return Err("Name a note id or a document path".into()),
+        };
+        let file = dir.join(&relative);
+        let canonical = file.canonicalize()?;
+        let root = dir.canonicalize()?;
+        let allowed = [Path::new(NOTES_DIR), Path::new(DOCUMENTS_DIR)].map(|folder| root.join(folder));
+        if !allowed.iter().any(|folder| canonical.starts_with(folder)) || !canonical.is_file() {
+            return Err("That item is not in this project's memory".into());
+        }
+        std::fs::remove_file(&canonical)?;
+        if let Some(name) = canonical.file_name() {
+            let sidecar = canonical.with_file_name(format!(".{}.json", name.to_string_lossy()));
+            let _ = std::fs::remove_file(sidecar);
+        }
+        self.sync(&db, project, dir)?;
+        Ok(())
     }
 }
 
@@ -546,6 +735,24 @@ pub(crate) mod http {
         serde_json::to_value(view).map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, e))
     }
 
+    /// `GET /api/memory/graph?projectId`: every note and document with the chats, runs and links that connect them.
+    pub(crate) async fn graph(state: &ServerState, request: Request) -> ApiResult {
+        let (project, dir) = scope(state, query_value(&request, "projectId"), query_value(&request, "paneId"))?;
+        let graph = state.projects.memory.graph(&project, &dir).map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
+        serde_json::to_value(graph).map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, e))
+    }
+
+    /// `POST /api/memory/delete {projectId, id?, path?}`: remove one note or dropped document from memory.
+    pub(crate) async fn delete(state: &ServerState, request: Request) -> ApiResult {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Input { project_id: String, id: Option<String>, path: Option<String> }
+        let input: Input = api_body(request).await?;
+        let (project, dir) = scope(state, Some(input.project_id), None)?;
+        state.projects.memory.delete(&project, &dir, input.id.as_deref(), input.path.as_deref()).map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
+        Ok(json!({"deleted": true}))
+    }
+
     /// `GET /api/memory/pane?paneId`: which project a chat saves into, or null.
     pub(crate) async fn pane(state: &ServerState, request: Request) -> ApiResult {
         let pane = query_value(&request, "paneId");
@@ -619,7 +826,7 @@ mod tests {
         assert!(
             project
                 .path()
-                .join("resources/notes/paywall-decision.md")
+                .join("memory/notes/paywall-decision.md")
                 .exists()
         );
 
@@ -673,6 +880,36 @@ mod tests {
     }
 
     #[test]
+    fn graph_groups_by_source_and_delete_stays_inside_memory() {
+        let profile = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        let store = MemoryStore::open(profile.path()).unwrap();
+        let chat = |title: &str, body: &str| MemoryNoteInput {
+            source: Some("chat:pane-1/message:4".into()),
+            ..input(title, body, &[])
+        };
+        let a = store.save("p", project.path(), chat("Scanner", "See [[Rules]].")).unwrap();
+        let b = store.save("p", project.path(), chat("Rules", "Boxes alternate.")).unwrap();
+        std::fs::create_dir_all(project.path().join("memory/documents")).unwrap();
+        std::fs::write(project.path().join("memory/documents/shot.png"), b"png").unwrap();
+        std::fs::write(project.path().join("memory/documents/.shot.png.json"), b"{}").unwrap();
+
+        let graph = store.graph("p", project.path()).unwrap();
+        let kinds: Vec<&str> = graph.nodes.iter().map(|n| n.kind.as_str()).collect();
+        assert_eq!(kinds.iter().filter(|k| **k == "note").count(), 2);
+        assert!(kinds.contains(&"image") && kinds.contains(&"source"));
+        assert!(graph.edges.iter().any(|e| e.kind == "link" && e.from == a.id && e.to == b.id));
+        assert_eq!(graph.edges.iter().filter(|e| e.to == "source:chat:pane-1").count(), 2);
+
+        assert!(store.delete("p", project.path(), None, Some("memory/documents/../../escape")).is_err());
+        store.delete("p", project.path(), None, Some("memory/documents/shot.png")).unwrap();
+        assert!(!project.path().join("memory/documents/.shot.png.json").exists());
+        store.delete("p", project.path(), Some(&a.id), None).unwrap();
+        let graph = store.graph("p", project.path()).unwrap();
+        assert_eq!(graph.nodes.iter().filter(|n| n.kind != "source").count(), 1);
+    }
+
+    #[test]
     fn edits_on_disk_are_picked_up_and_invalid_files_reported() {
         let profile = tempfile::tempdir().unwrap();
         let project = tempfile::tempdir().unwrap();
@@ -680,7 +917,7 @@ mod tests {
         let note = store
             .save("p", project.path(), input("Voice", "Short sentences.", &[]))
             .unwrap();
-        let path = project.path().join("resources/notes/voice.md");
+        let path = project.path().join("memory/notes/voice.md");
         let text = std::fs::read_to_string(&path)
             .unwrap()
             .replace("Short sentences.", "Warm, specific, never hype.");
@@ -694,7 +931,7 @@ mod tests {
             note.id
         );
         std::fs::write(
-            project.path().join("resources/notes/broken.md"),
+            project.path().join("memory/notes/broken.md"),
             "no header",
         )
         .unwrap();

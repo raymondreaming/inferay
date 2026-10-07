@@ -7,7 +7,7 @@ pub const TITLE_LIMIT: usize = 200;
 pub const TAG_LIMIT: usize = 30;
 pub const NOTES_PER_PROJECT: usize = 10_000;
 /// Notes live beside project records; the definition indexer ignores Markdown here.
-pub const NOTES_DIR: &str = "resources/notes";
+pub const NOTES_DIR: &str = "memory/notes";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

@@ -138,7 +138,7 @@ pub(crate) fn decode(path: &str, bytes: &[u8]) -> Result<DefinitionFile> {
     let parts: Vec<_> = path.split('/').collect();
     let value = match parts.as_slice() {
         ["project.json"] => DefinitionFile::Project(format::parse(path, bytes)?),
-        ["resources", kind, file] if *kind != "documents" && file.ends_with(".json") => {
+        ["memory", kind, file] if *kind != "documents" && file.ends_with(".json") => {
             let value: ResourceDefinition = format::parse(path, bytes)?;
             if value.type_id != *kind {
                 return Err(format!("{path}: resource type must match its directory").into());
@@ -146,13 +146,16 @@ pub(crate) fn decode(path: &str, bytes: &[u8]) -> Result<DefinitionFile> {
             DefinitionFile::Resource(value)
         }
         ["plugins", _, "plugin.json"] => DefinitionFile::Plugin(format::parse(path, bytes)?),
-        ["plugins", _, "automations", file] if file.ends_with(".json") => {
+        ["automations", _, "automation.json"]
+        | ["plugins" | "automations", _, "automations", _]
+            if path.ends_with(".json") =>
+        {
             DefinitionFile::Automation(format::parse(path, bytes)?)
         }
-        ["plugins", _, "tools", _, "tool.json"] => {
+        ["plugins" | "automations", _, "tools", _, "tool.json"] => {
             DefinitionFile::Tool(format::parse(path, bytes)?)
         }
-        ["plugins", _, "skills", file] if file.ends_with(".md") => {
+        ["plugins" | "automations", _, "skills", file] if file.ends_with(".md") => {
             DefinitionFile::Skill(format::parse_skill(path, std::str::from_utf8(bytes)?)?)
         }
         ["plugins", _, "types", file] if file.ends_with(".schema.json") => {
@@ -170,10 +173,11 @@ fn is_definition(path: &str) -> bool {
     match parts.as_slice() {
         ["project.json"]
         | ["plugins", _, "plugin.json"]
-        | ["plugins", _, "tools", _, "tool.json"] => true,
-        ["resources", kind, name] => *kind != "documents" && name.ends_with(".json"),
-        ["plugins", _, "automations", name] => name.ends_with(".json"),
-        ["plugins", _, "skills", name] => name.ends_with(".md"),
+        | ["automations", _, "automation.json"]
+        | ["plugins" | "automations", _, "tools", _, "tool.json"] => true,
+        ["memory", kind, name] => *kind != "documents" && name.ends_with(".json"),
+        ["plugins" | "automations", _, "automations", name] => name.ends_with(".json"),
+        ["plugins" | "automations", _, "skills", name] => name.ends_with(".md"),
         ["plugins", _, "types", name] => name.ends_with(".schema.json"),
         _ => false,
     }
@@ -182,7 +186,7 @@ fn is_definition(path: &str) -> bool {
 /// Index malformed definitions with their error instead of silently retaining stale data.
 /// Ignore documents and run output: they are not executable definitions.
 pub(crate) fn scan(root: &Path, globals: &BTreeSet<String>) -> Result<Vec<IndexedFile>> {
-    scan_candidate(root, globals, None)
+    scan_candidate(root, globals, &Default::default(), None)
 }
 
 /// Validate against the resulting project without publishing a preview to disk.
@@ -193,9 +197,27 @@ pub(crate) fn validate_write(
     globals: &BTreeSet<String>,
 ) -> Result<()> {
     managed_path(root, path, false)?;
-    decode(path, bytes)?;
+    if is_definition(path) {
+        decode(path, bytes)?;
+    } else {
+        // Supporting code/assets belong to an existing plugin. They participate
+        // in its size limits and approval hash just like executable definitions.
+        let parts: Vec<_> = path.split('/').collect();
+        if parts.first() != Some(&"plugins")
+            || parts.len() < 3
+            || parts.len() > 16
+            || parts.iter().any(|part| part.starts_with('.'))
+        {
+            return Err("Supporting files must be inside a visible plugin folder".into());
+        }
+        let manifest = format!("plugins/{}/plugin.json", parts[1]);
+        decode(&manifest, &read(root, &manifest, MANIFEST_LIMIT)?)?;
+        if bytes.len() > ENTRYPOINT_LIMIT {
+            return Err("Plugin text file exceeds the 1 MB editing limit".into());
+        }
+    }
     let before = scan(root, globals)?;
-    let after = scan_candidate(root, globals, Some((path, bytes)))?;
+    let after = scan_candidate(root, globals, &[(path, bytes)].into_iter().collect(), None)?;
     for entry in after {
         if let Some(error) = entry.error {
             let existing = before.iter().find(|old| old.path == entry.path);
@@ -207,13 +229,92 @@ pub(crate) fn validate_write(
     Ok(())
 }
 
+/// Preview a complete plugin before its staging directory is published.
+pub(crate) fn validate_bundle(
+    root: &Path,
+    slug: &str,
+    bundle: &std::collections::BTreeMap<String, String>,
+    globals: &BTreeSet<String>,
+) -> Result<()> {
+    relative_path(slug)?;
+    if slug.contains('/') || slug.starts_with('.') {
+        return Err("Use a visible plugin folder name".into());
+    }
+    if !bundle.contains_key("plugin.json") {
+        return Err("Bundle needs plugin.json".into());
+    }
+    if bundle.len() > PLUGIN_ENTRY_LIMIT
+        || bundle
+            .values()
+            .fold(0usize, |total, value| total.saturating_add(value.len()))
+            > PLUGIN_BYTE_LIMIT
+    {
+        return Err("Plugin bundle exceeds size limit".into());
+    }
+    let prefix = format!("plugins/{slug}");
+    if managed_path(root, &prefix, false)?.try_exists()? {
+        return Err("Plugin folder already exists; edit the existing plugin instead".into());
+    }
+    let mut entries = BTreeSet::new();
+    for path in bundle.keys() {
+        let mut parent = String::new();
+        for part in path.split('/') {
+            if !parent.is_empty() {
+                parent.push('/');
+            }
+            parent.push_str(part);
+            entries.insert(parent.clone());
+        }
+    }
+    if entries.len() > PLUGIN_ENTRY_LIMIT {
+        return Err("Plugin bundle exceeds entry limit".into());
+    }
+    let mut files = std::collections::BTreeMap::new();
+    for (path, content) in bundle {
+        if path.split('/').any(|part| part.starts_with('.')) {
+            return Err("Plugin files must use visible normalized paths".into());
+        }
+        let path = format!("{prefix}/{path}");
+        managed_path(root, &path, false)?;
+        if path.split('/').count() > 16 {
+            return Err("Plugin file tree is too deep".into());
+        }
+        files.insert(path, content.as_bytes());
+    }
+    let overlay = files
+        .iter()
+        .map(|(path, bytes)| (path.as_str(), *bytes))
+        .collect();
+    let before = scan(root, globals)?;
+    let after = scan_candidate(root, globals, &overlay, Some(&prefix))?;
+    for entry in after {
+        if let Some(error) = entry.error {
+            if entry.path.starts_with(&format!("{prefix}/"))
+                || before
+                    .iter()
+                    .find(|old| old.path == entry.path)
+                    .and_then(|old| old.error.as_ref())
+                    != Some(&error)
+            {
+                return Err(format!("{}: {error}", entry.path).into());
+            }
+        }
+    }
+    Ok(())
+}
+
 fn scan_candidate(
     root: &Path,
     globals: &BTreeSet<String>,
-    candidate: Option<(&str, &[u8])>,
+    overlay: &std::collections::BTreeMap<&str, &[u8]>,
+    replace_prefix: Option<&str>,
 ) -> Result<Vec<IndexedFile>> {
     let mut paths = vec!["project.json".to_string()];
-    let mut pending = vec!["resources".to_string(), "plugins".to_string()];
+    let mut pending = vec![
+        "memory".to_string(),
+        "plugins".to_string(),
+        "automations".to_string(),
+    ];
     let mut entries = 0;
     let mut plugin_sizes = std::collections::BTreeMap::<String, (usize, u64)>::new();
     while let Some(relative) = pending.pop() {
@@ -235,7 +336,12 @@ fn scan_candidate(
                 continue;
             }
             let path = format!("{relative}/{name}");
-            if path == "resources/documents" {
+            if path == "memory/documents" || path == "memory/notes" {
+                continue;
+            }
+            if replace_prefix
+                .is_some_and(|prefix| path == prefix || path.starts_with(&format!("{prefix}/")))
+            {
                 continue;
             }
             let meta = fs::symlink_metadata(entry.path())?;
@@ -262,8 +368,8 @@ fn scan_candidate(
     if plugin_sizes.len() > 100 {
         return Err("Project exceeds 100 plugins".into());
     }
-    if let Some((path, bytes)) = candidate {
-        if !paths.iter().any(|p| p == path) {
+    for (&path, &bytes) in overlay {
+        if is_definition(path) && !paths.iter().any(|p| p == path) {
             paths.push(path.into());
         }
         if let Some(plugin) = path
@@ -271,7 +377,11 @@ fn scan_candidate(
             .and_then(|p| p.split('/').next())
         {
             let size = plugin_sizes.entry(plugin.into()).or_default();
-            match fs::symlink_metadata(root.join(path)) {
+            match if replace_prefix.is_some() {
+                Err(std::io::Error::from(std::io::ErrorKind::NotFound))
+            } else {
+                fs::symlink_metadata(root.join(path))
+            } {
                 Ok(meta) => size.1 = size.1.saturating_sub(meta.len()),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => size.0 += 1,
                 Err(error) => return Err(error.into()),
@@ -286,9 +396,10 @@ fn scan_candidate(
     let mut indexed: Vec<IndexedFile> = paths
         .into_iter()
         .map(|path| {
-            let result = match candidate {
-                Some((candidate_path, bytes)) if path == candidate_path => Ok(bytes.to_vec()),
-                _ => read(root, &path, MANIFEST_LIMIT),
+            let result = match overlay.get(path.as_str()) {
+                Some(bytes) if bytes.len() <= MANIFEST_LIMIT => Ok(bytes.to_vec()),
+                Some(_) => Err("Definition exceeds size limit".into()),
+                None => read(root, &path, MANIFEST_LIMIT),
             };
             let hash = result.as_ref().ok().map(|bytes| hash(bytes));
             let result = result.and_then(|bytes| decode(&path, &bytes));
@@ -330,10 +441,11 @@ fn scan_candidate(
         .collect();
     for i in 0..indexed.len() {
         let parts: Vec<_> = indexed[i].path.split('/').collect();
-        if parts.first() != Some(&"plugins") {
+        if !matches!(parts.first(), Some(&"plugins" | &"automations")) {
             continue;
         }
-        let prefix = format!("plugins/{}/", parts[1]);
+        let standalone = parts[0] == "automations";
+        let prefix = format!("{}/{}/", parts[0], parts[1]);
         let plugin = indexed.iter().find_map(|r| {
             if r.path == format!("{prefix}plugin.json") {
                 match &r.definition {
@@ -348,7 +460,7 @@ fn scan_candidate(
             && (*count > PLUGIN_ENTRY_LIMIT || *bytes > PLUGIN_BYTE_LIMIT as u64)
         {
             Some("Plugin exceeds 1000 entries or 50 MB".into())
-        } else if let Some(plugin) = plugin {
+        } else if standalone || plugin.is_some() {
             if let Some(DefinitionFile::Automation(automation)) = &indexed[i].definition {
                 let mut skills = globals.clone();
                 let mut tools = BTreeSet::new();
@@ -386,11 +498,21 @@ fn scan_candidate(
         if entry.error.is_none() {
             if let Some(DefinitionFile::Tool(tool)) = &entry.definition {
                 let parent = entry.path.rsplit_once('/').unwrap().0;
-                if let Err(error) = read(
-                    root,
-                    &format!("{parent}/{}", tool.entrypoint),
-                    ENTRYPOINT_LIMIT,
-                ) {
+                let entrypoint = format!("{parent}/{}", tool.entrypoint);
+                let result = if let Some(bytes) = overlay.get(entrypoint.as_str()) {
+                    if bytes.len() <= ENTRYPOINT_LIMIT {
+                        Ok(())
+                    } else {
+                        Err("Tool entrypoint exceeds size limit".into())
+                    }
+                } else if replace_prefix
+                    .is_some_and(|prefix| entrypoint.starts_with(&format!("{prefix}/")))
+                {
+                    Err("Tool entrypoint is missing from the bundle".into())
+                } else {
+                    read(root, &entrypoint, ENTRYPOINT_LIMIT).map(|_| ())
+                };
+                if let Err(error) = result {
                     entry.error = Some(format!("Tool entrypoint: {error}"));
                 }
             }
@@ -523,3 +645,130 @@ fn scan_candidate(
 
 #[cfg(test)]
 mod tests;
+
+/// Publish a new package with one directory rename. Readers see the entire
+/// validated package or none of it; an existing folder is never overwritten.
+pub(crate) fn create_plugin(
+    root: &Path,
+    slug: &str,
+    bundle: &std::collections::BTreeMap<String, String>,
+    globals: &BTreeSet<String>,
+) -> Result<String> {
+    validate_bundle(root, slug, bundle, globals)?;
+    let manifest: PluginDefinition =
+        format::parse("plugin.json", bundle["plugin.json"].as_bytes())?;
+    let target = managed_path(root, &format!("plugins/{slug}"), true)?;
+    let parent = target.parent().ok_or("Plugin parent missing")?;
+    let stage = tempfile::Builder::new()
+        .prefix(".staging-")
+        .tempdir_in(parent)?;
+    for (path, content) in bundle {
+        write(stage.path(), path, content.as_bytes(), None)?;
+    }
+    fs::File::open(stage.path())?.sync_all()?;
+    rename_directory(stage.path(), &target)?;
+    fs::File::open(parent)?.sync_all()?;
+    Ok(manifest.id)
+}
+
+/// Atomically move a directory without replacing an existing destination.
+pub(crate) fn rename_directory(source: &Path, target: &Path) -> Result<()> {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        let from = std::ffi::CString::new(source.as_os_str().as_encoded_bytes())?;
+        let to = std::ffi::CString::new(target.as_os_str().as_encoded_bytes())?;
+        // Both C strings remain alive for the call. Exclusive rename makes the
+        // absence check atomic, including when another process creates target.
+        #[cfg(target_os = "macos")]
+        let result = unsafe {
+            libc::renameatx_np(
+                libc::AT_FDCWD,
+                from.as_ptr(),
+                libc::AT_FDCWD,
+                to.as_ptr(),
+                libc::RENAME_EXCL,
+            )
+        };
+        #[cfg(target_os = "linux")]
+        let result = unsafe {
+            libc::renameat2(
+                libc::AT_FDCWD,
+                from.as_ptr(),
+                libc::AT_FDCWD,
+                to.as_ptr(),
+                libc::RENAME_NOREPLACE,
+            )
+        };
+        if result != 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+    }
+    #[cfg(target_os = "windows")]
+    fs::rename(source, target)?;
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    return Err("Atomic plugin publication is unsupported on this platform".into());
+    Ok(())
+}
+
+/// Raw intake preserves original bytes under source/ without interpreting them as
+/// executable definitions. Only explicit later edits introduce tools or jobs.
+pub(crate) fn import_library(
+    root: &Path,
+    name: &str,
+    originals: &std::collections::BTreeMap<String, Vec<u8>>,
+) -> Result<String> {
+    if name.trim().is_empty() || name.len() > 200 || originals.is_empty() {
+        return Err("Choose a named folder containing files".into());
+    }
+    let mut entries = BTreeSet::new();
+    let mut total = 0usize;
+    for (path, bytes) in originals {
+        format::relative_path(path)?;
+        let parts: Vec<_> = path.split('/').collect();
+        if parts.len() > 13 {
+            return Err("Imported file tree is too deep".into());
+        }
+        for count in 1..=parts.len() {
+            entries.insert(parts[..count].join("/"));
+        }
+        total = total
+            .checked_add(bytes.len())
+            .ok_or("Import size overflow")?;
+    }
+    // Reserve room for the manifest, guide and source directory.
+    if entries.len() + 3 > PLUGIN_ENTRY_LIMIT || total > PLUGIN_BYTE_LIMIT - MANIFEST_LIMIT {
+        return Err("Library exceeds 1,000 entries or 50 MB".into());
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    let slug: String = name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let slug = format!("{}-{}", slug.trim_matches('-'), &id[..8]);
+    let target = managed_path(root, &format!("plugins/{slug}"), true)?;
+    let parent = target.parent().ok_or("Plugin parent missing")?;
+    let stage = tempfile::Builder::new()
+        .prefix(".staging-")
+        .tempdir_in(parent)?;
+    let manifest = PluginDefinition { schema: "inferay.plugin/1".into(), id: id.clone(), name: name.trim().into(), description: "Imported library. Organize its original files with chat and add reusable skills and tools.".into(), version: "1".into(), may: BTreeSet::new() };
+    write(
+        stage.path(),
+        "plugin.json",
+        &serde_json::to_vec_pretty(&manifest)?,
+        None,
+    )?;
+    write(stage.path(), "README.md", b"# Imported library\n\nOriginal files are preserved in `source/`. Inspect them before using them.\n\nAsk chat to explain the contents, organize reusable code and assets, document requirements, and propose skills and named tools. No tools or schedules have been installed by this import.\n", None)?;
+    for (path, bytes) in originals {
+        write(stage.path(), &format!("source/{path}"), bytes, None)?;
+    }
+    fs::File::open(stage.path())?.sync_all()?;
+    rename_directory(stage.path(), &target)?;
+    fs::File::open(parent)?.sync_all()?;
+    Ok(id)
+}

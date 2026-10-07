@@ -23,10 +23,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_import_extension(Some("ts"));
     macro_rules! export { ($($ty:ty),* $(,)?) => { $(<$ty>::export_all(&cfg)?;)* }; }
     export!(
-        inferay_core::projects::ProjectCatalog,
         inferay_core::projects::ProjectHistory,
         inferay_core::project_files::ProjectDefinition,
         inferay_core::project_files::ProjectFileCatalog,
+        inferay_core::project_files::ProjectWorkspace,
+        inferay_core::project_files::ProjectDocument,
+        inferay_core::project_files::PluginReview,
+        inferay_core::project_files::PluginLibrary,
+        inferay_core::project_files::PluginTextFile,
         inferay_core::project_files::ProjectFileCommand,
         inferay_core::project_files::ResourceDefinition,
         inferay_core::project_files::PluginDefinition,
@@ -36,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         inferay_core::memory::MemoryNote,
         inferay_core::memory::MemoryHit,
         inferay_core::memory::MemoryNoteInput,
-        inferay_core::projects::ProjectCommand,
+        inferay_core::projects::LegacyAutomationProposal,
         inferay_core::projects::LocalTool,
         inferay_presentation::documents::DocumentView,
         inferay_presentation::dock_session::DockRequest,

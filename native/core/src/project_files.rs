@@ -10,7 +10,7 @@ pub const ENTRYPOINT_LIMIT: usize = 1_000_000;
 pub const PLUGIN_BYTE_LIMIT: usize = 50_000_000;
 pub const PLUGIN_ENTRY_LIMIT: usize = 1_000;
 
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(
     tag = "type",
     rename_all = "camelCase",
@@ -18,11 +18,31 @@ pub const PLUGIN_ENTRY_LIMIT: usize = 1_000;
     deny_unknown_fields
 )]
 pub enum ProjectFileCommand {
+    CreatePlugin {
+        project_id: String,
+        slug: String,
+        files: BTreeMap<String, String>,
+    },
     SaveDefinition {
         project_id: String,
         path: String,
         content: String,
         expected_hash: Option<String>,
+    },
+    ReviewPlugin {
+        id: String,
+    },
+    ReadPlugin {
+        id: String,
+        path: Option<String>,
+    },
+    ApprovePlugin {
+        id: String,
+        expected_inputs_hash: String,
+        enable: bool,
+    },
+    DisablePlugin {
+        id: String,
     },
     ReviewAutomation {
         id: String,
@@ -104,9 +124,19 @@ pub struct ProjectFileCatalog {
     pub projects: Vec<IndexedDefinition<ProjectDefinition>>,
     pub resources: Vec<IndexedDefinition<ResourceDefinition>>,
     pub plugins: Vec<IndexedPlugin>,
+    pub tools: Vec<IndexedDefinition<ToolDefinition>>,
     pub automations: Vec<IndexedAutomation>,
     pub issues: Vec<DefinitionIssue>,
     pub repository_paths: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectWorkspace {
+    pub catalog: ProjectFileCatalog,
+    pub history: crate::projects::ProjectHistory,
+    pub conversation_projects: BTreeMap<String, String>,
+    pub root: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, TS)]
@@ -442,13 +472,13 @@ impl Definition for AutomationDefinition {
 /// References are resolved against a caller-supplied inventory, never the filesystem.
 pub fn validate_references(
     automation: &AutomationDefinition,
-    plugin: &PluginDefinition,
+    plugin: Option<&PluginDefinition>,
     skills: &BTreeSet<String>,
     tools: &BTreeSet<String>,
     resources: &BTreeSet<String>,
     repositories: &BTreeSet<String>,
 ) -> Result<(), String> {
-    if !automation.may.is_subset(&plugin.may) {
+    if plugin.is_some_and(|plugin| !automation.may.is_subset(&plugin.may)) {
         return Err("may exceeds plugin permissions".into());
     }
     let check = |kind: &str, id: &str, available: &BTreeSet<String>| {
@@ -535,4 +565,72 @@ pub fn parse_skill(path: &str, text: &str) -> Result<SkillDefinition, String> {
         relative_path(command.trim_start_matches('/'))?;
     }
     Ok(value)
+}
+
+/// Rebuildable document metadata; original bytes remain in memory/documents.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectDocument {
+    pub path: String,
+    pub name: String,
+    pub category: String,
+    pub size: u64,
+}
+
+pub fn document_category(name: &str) -> &'static str {
+    match name
+        .rsplit('.')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "avif" => "Images",
+        "txt" | "md" | "csv" | "json" | "yaml" | "yml" | "toml" | "log" => "Text",
+        "pdf" | "doc" | "docx" | "ppt" | "pptx" | "xls" | "xlsx" => "Documents",
+        "mp4" | "mov" | "mp3" | "wav" | "m4a" | "webm" => "Media",
+        _ => "Other",
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginReview {
+    pub id: String,
+    pub name: String,
+    pub inputs_hash: String,
+    pub permissions: BTreeSet<Permission>,
+    pub automations: Vec<AutomationDefinition>,
+    pub files: Vec<PluginReviewFile>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginReviewFile {
+    pub path: String,
+    pub hash: Option<String>,
+    pub previous_hash: Option<String>,
+    pub content: Option<String>,
+    pub previous_content: Option<String>,
+}
+
+/// Read-only inventory and text access, independent of execution approval.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginLibrary {
+    pub id: String,
+    pub files: Vec<PluginLibraryFile>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginLibraryFile {
+    pub path: String,
+    pub source_hash: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginTextFile {
+    pub id: String,
+    pub path: String,
+    pub source_hash: String,
+    pub content: String,
 }

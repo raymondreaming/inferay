@@ -4,7 +4,7 @@ use crate::{
     project_store::{Result, hash},
 };
 use inferay_core::project_files::*;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -57,7 +57,10 @@ pub(crate) fn catalog(db: &Connection, project: Option<&str>) -> Result<ProjectF
     issues.sort_by(|a, b| a.source_path.cmp(&b.source_path));
     let repository_paths = db.prepare("SELECT repository_id,path FROM repository_paths WHERE project_id=? ORDER BY repository_id")?
         .query_map([project], |r|Ok((r.get(0)?,r.get(1)?)))?.collect::<std::result::Result<_,_>>()?;
+    let tools = db.prepare("SELECT id,project_id,plugin_id,source_path,source_hash,error,body FROM tools WHERE project_id=? ORDER BY source_path LIMIT 512")?
+        .query_map([project], indexed)?.collect::<std::result::Result<_,_>>()?;
     Ok(ProjectFileCatalog {
+        tools,
         projects,
         resources,
         plugins,
@@ -195,6 +198,10 @@ pub(crate) fn create_schema(db: &Connection) -> Result<()> {
         CREATE TABLE IF NOT EXISTS plugin_state(plugin_id TEXT PRIMARY KEY,approved_hash TEXT,approved_at INTEGER);
         CREATE TABLE IF NOT EXISTS repository_paths(project_id TEXT NOT NULL,repository_id TEXT NOT NULL,path TEXT NOT NULL,PRIMARY KEY(project_id,repository_id));
         CREATE TABLE IF NOT EXISTS definition_errors(project_id TEXT NOT NULL,source_path TEXT NOT NULL,error TEXT NOT NULL,PRIMARY KEY(project_id,source_path));")?;
+    let has_snapshot: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('plugin_state') WHERE name='approved_inputs')", [], |r|r.get(0))?;
+    if !has_snapshot {
+        db.execute_batch("ALTER TABLE plugin_state ADD COLUMN approved_inputs TEXT CHECK(approved_inputs IS NULL OR json_valid(approved_inputs))")?;
+    }
     Ok(())
 }
 
@@ -202,11 +209,12 @@ fn table(path: &str) -> Option<&'static str> {
     let parts: Vec<_> = path.split('/').collect();
     match parts.as_slice() {
         ["project.json"] => Some("projects"),
-        ["resources", _, _] => Some("resources"),
+        ["memory", kind, _] if !["documents", "notes"].contains(kind) => Some("resources"),
         ["plugins", _, "plugin.json"] => Some("plugins"),
-        ["plugins", _, "automations", _] => Some("automations"),
-        ["plugins", _, "tools", _, "tool.json"] => Some("tools"),
-        ["plugins", _, "skills", _] => Some("project_skills"),
+        ["automations", _, "automation.json"]
+        | ["plugins" | "automations", _, "automations", _] => Some("automations"),
+        ["plugins" | "automations", _, "tools", _, "tool.json"] => Some("tools"),
+        ["plugins" | "automations", _, "skills", _] => Some("project_skills"),
         ["plugins", _, "types", _] => Some("resource_types"),
         _ => None,
     }
@@ -448,6 +456,145 @@ pub(crate) fn execution_inputs(
 
 /// Hash all package files, including companion scripts. An entrypoint importing
 /// another script must not bypass approval invalidation by leaving tool.json unchanged.
+/// Capture a whole capability, including every active automation's selected
+/// resources, global skills, and local repository bindings.
+pub(crate) fn plugin_inputs(
+    db: &Connection,
+    profile: &Path,
+    id: &str,
+    skills: &[inferay_core::prompts::Prompt],
+) -> Result<Value> {
+    let (project, path): (String, String) = db.query_row(
+        "SELECT project_id,source_path FROM plugins WHERE id=? AND valid=1",
+        [id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    let root = profile.canonicalize()?.join("projects").join(&project);
+    let prefix = path
+        .strip_suffix("/plugin.json")
+        .ok_or("Invalid plugin path")?;
+    let globals = skills.iter().map(|s| format!("global:{}", s.id)).collect();
+    let scanned = files::scan(&root, &globals)?;
+    for entry in &scanned {
+        if (entry.path == "project.json" || entry.path.starts_with(&format!("{prefix}/")))
+            && entry.error.is_some()
+        {
+            return Err(format!("{}: {}", entry.path, entry.error.as_deref().unwrap()).into());
+        }
+    }
+    let project_bytes = files::read(&root, "project.json", MANIFEST_LIMIT)?;
+    let project_definition: ProjectDefinition = parse("project.json", &project_bytes)?;
+    if project_definition.id != project || project_definition.archived {
+        return Err("Project changed or archived".into());
+    }
+    let package = package_files(&root, prefix)?;
+    let mut contents = BTreeMap::<String, Option<String>>::new();
+    for (path, expected) in &package {
+        let bytes = files::read(&root, path, PLUGIN_BYTE_LIMIT)?;
+        if hash(&bytes) != *expected {
+            return Err("Plugin changed during review".into());
+        }
+        contents.insert(
+            path.clone(),
+            if bytes.len() <= ENTRYPOINT_LIMIT {
+                String::from_utf8(bytes).ok()
+            } else {
+                None
+            },
+        );
+    }
+    let manifest: PluginDefinition =
+        parse("plugin.json", &files::read(&root, &path, MANIFEST_LIMIT)?)?;
+    if manifest.id != id {
+        return Err("Plugin identity changed".into());
+    }
+    let mut automations = BTreeMap::new();
+    for entry in &scanned {
+        if entry.path.starts_with(&format!("{prefix}/")) {
+            if entry.hash.as_ref() != package.get(&entry.path) {
+                return Err("Plugin changed during review".into());
+            }
+            if let Some(DefinitionFile::Automation(automation)) = &entry.definition {
+                if !automation.archived {
+                    let inputs = execution_inputs(db, profile, &automation.id, skills)?;
+                    for (path, expected) in &package {
+                        if inputs["files"][path].as_str() != Some(expected.as_str()) {
+                            return Err("Plugin changed during review".into());
+                        }
+                    }
+                    automations.insert(automation.id.clone(), inputs);
+                }
+            }
+        }
+    }
+    if package_files(&root, prefix)? != package
+        || files::read(&root, "project.json", MANIFEST_LIMIT)? != project_bytes
+    {
+        return Err("Plugin or project changed during review".into());
+    }
+    Ok(
+        json!({"plugin":manifest,"projectHash":hash(&project_bytes),"files":package,"contents":contents,"automations":automations}),
+    )
+}
+
+pub(crate) fn review_plugin(
+    db: &Connection,
+    profile: &Path,
+    id: &str,
+    skills: &[inferay_core::prompts::Prompt],
+) -> Result<PluginReview> {
+    let inputs = plugin_inputs(db, profile, id, skills)?;
+    let previous: Option<String> = db
+        .query_row(
+            "SELECT approved_inputs FROM plugin_state WHERE plugin_id=?",
+            [id],
+            |r| r.get(0),
+        )
+        .optional()?
+        .flatten();
+    let previous: Value = previous
+        .map(|v| serde_json::from_str(&v))
+        .transpose()?
+        .unwrap_or(Value::Null);
+    let manifest: PluginDefinition = serde_json::from_value(inputs["plugin"].clone())?;
+    let paths: BTreeSet<_> = inputs["files"]
+        .as_object()
+        .into_iter()
+        .flat_map(|v| v.keys())
+        .chain(
+            previous["files"]
+                .as_object()
+                .into_iter()
+                .flat_map(|v| v.keys()),
+        )
+        .cloned()
+        .collect();
+    let files = paths
+        .into_iter()
+        .map(|path| PluginReviewFile {
+            hash: inputs["files"][&path].as_str().map(str::to_owned),
+            previous_hash: previous["files"][&path].as_str().map(str::to_owned),
+            content: inputs["contents"][&path].as_str().map(str::to_owned),
+            previous_content: previous["contents"][&path].as_str().map(str::to_owned),
+            path,
+        })
+        .collect();
+    let automations = inputs["automations"]
+        .as_object()
+        .into_iter()
+        .flat_map(|v| v.values())
+        .map(|v| serde_json::from_value(v["automation"].clone()))
+        .collect::<std::result::Result<_, _>>()?;
+    Ok(PluginReview {
+        id: id.into(),
+        name: manifest.name,
+        inputs_hash: hash(&serde_json::to_vec(&inputs)?),
+        permissions: manifest.may,
+        automations,
+        files,
+    })
+}
+
 pub(crate) fn package_files(root: &Path, prefix: &str) -> Result<BTreeMap<String, String>> {
     relative_path(prefix)?;
     let mut hashes = BTreeMap::new();
@@ -605,6 +752,26 @@ pub(crate) fn refresh(
                 .map(|e| e.to_string())
                 .unwrap_or_else(|| "Execution inputs changed. Review before running.".into());
             tx.execute("UPDATE automation_state SET enabled=0,next_due_at=NULL,inputs_changed=1,error=? WHERE automation_id=?",params![error,id])?;
+        }
+    }
+    // A reusable library can have no automations. Its own approval still covers
+    // every supporting file and must be revoked independently of schedules.
+    let approved_plugins = tx
+        .prepare(
+            "SELECT plugin_id,approved_hash FROM plugin_state WHERE approved_hash IS NOT NULL",
+        )?
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    for (id, expected) in approved_plugins {
+        let current = plugin_inputs(&tx, profile, &id, skills)
+            .and_then(|inputs| Ok(hash(&serde_json::to_vec(&inputs)?)));
+        if current.as_ref().ok() != Some(&expected) {
+            // Retain the previous snapshot for review, but never revive approval
+            // merely because a later edit restores the old file contents.
+            tx.execute(
+                "UPDATE plugin_state SET approved_hash=NULL WHERE plugin_id=?",
+                [id],
+            )?;
         }
     }
     tx.commit()?;

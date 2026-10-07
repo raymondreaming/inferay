@@ -401,7 +401,7 @@ fn refresh_checks_selected_inputs_without_disabling_for_unrelated_resources() {
     let resource = json!({"schema":"inferay.resource/1","id":uuid::Uuid::new_v4().to_string(),"type":"brand.brand","typeVersion":1,"name":"Unrelated","body":{"name":"Other","description":"Other project context"}});
     files::write(
         &root,
-        "resources/brand.brand/other.json",
+        "memory/brand.brand/other.json",
         resource.to_string().as_bytes(),
         None,
     )
@@ -426,4 +426,264 @@ fn refresh_checks_selected_inputs_without_disabling_for_unrelated_resources() {
     skills[0].prompt_template = "Read the original sources".into();
     refresh(&mut db, profile.path(), &skills).unwrap();
     assert!(approved_inputs(&db, profile.path(), &automation, false, &skills).is_err());
+}
+
+#[test]
+fn plugin_approval_is_host_only_hash_bound_and_disables_after_file_change() {
+    let (profile, project, automation) = fixture();
+    let mut db = Connection::open_in_memory().unwrap();
+    create_schema(&db).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
+    let plugin = catalog(&db, Some(&project)).unwrap().plugins[0]
+        .file
+        .id
+        .clone();
+    let review = review_plugin(&db, profile.path(), &plugin, &[]).unwrap();
+    assert_eq!(review.automations.len(), 1);
+    assert!(review.files.iter().all(|f| f.previous_hash.is_none()));
+    let command = ProjectFileCommand::ApprovePlugin {
+        id: plugin.clone(),
+        expected_inputs_hash: review.inputs_hash.clone(),
+        enable: true,
+    };
+    assert!(
+        crate::project_file_commands::apply(&mut db, profile.path(), command.clone(), false, &[])
+            .is_err()
+    );
+    crate::project_file_commands::apply(&mut db, profile.path(), command.clone(), true, &[])
+        .unwrap();
+    assert!(catalog(&db, Some(&project)).unwrap().automations[0].enabled);
+    let root = profile.path().join("projects").join(&project);
+    files::write(
+        &root,
+        "plugins/daily/helper.py",
+        b"print('new input')",
+        None,
+    )
+    .unwrap();
+    assert!(
+        crate::project_file_commands::apply(&mut db, profile.path(), command, true, &[]).is_err()
+    );
+    let state = catalog(&db, Some(&project)).unwrap();
+    assert!(!state.automations[0].enabled);
+    assert!(state.automations[0].inputs_changed);
+    let changed = review_plugin(&db, profile.path(), &plugin, &[]).unwrap();
+    assert_ne!(changed.inputs_hash, review.inputs_hash);
+    let new_file = changed
+        .files
+        .iter()
+        .find(|f| f.path.ends_with("helper.py"))
+        .unwrap();
+    assert!(new_file.previous_hash.is_none());
+    assert_eq!(new_file.content.as_deref(), Some("print('new input')"));
+    assert!(
+        changed
+            .files
+            .iter()
+            .any(|f| f.hash.is_some() && f.hash == f.previous_hash)
+    );
+    crate::project_file_commands::apply(
+        &mut db,
+        profile.path(),
+        ProjectFileCommand::ApprovePlugin {
+            id: plugin.clone(),
+            expected_inputs_hash: changed.inputs_hash,
+            enable: true,
+        },
+        true,
+        &[],
+    )
+    .unwrap();
+    crate::project_file_commands::apply(
+        &mut db,
+        profile.path(),
+        ProjectFileCommand::DisablePlugin { id: plugin },
+        true,
+        &[],
+    )
+    .unwrap();
+    assert!(!catalog(&db, Some(&project)).unwrap().automations[0].enabled);
+    assert!(approved_inputs(&db, profile.path(), &automation, false, &[]).is_ok());
+}
+
+#[test]
+fn code_only_library_edits_revoke_approval_even_after_reverting() {
+    let (profile, project, _) = fixture();
+    let root = profile.path().join("projects").join(&project);
+    fs::remove_file(root.join("plugins/daily/automations/daily.json")).unwrap();
+    files::write(&root, "plugins/daily/library.py", b"VERSION = 1", None).unwrap();
+    let mut db = Connection::open_in_memory().unwrap();
+    create_schema(&db).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
+    let plugin = catalog(&db, Some(&project)).unwrap().plugins[0]
+        .file
+        .id
+        .clone();
+    let review = review_plugin(&db, profile.path(), &plugin, &[]).unwrap();
+    assert!(review.automations.is_empty());
+    crate::project_file_commands::apply(
+        &mut db,
+        profile.path(),
+        ProjectFileCommand::ApprovePlugin {
+            id: plugin.clone(),
+            expected_inputs_hash: review.inputs_hash,
+            enable: false,
+        },
+        true,
+        &[],
+    )
+    .unwrap();
+    assert!(
+        catalog(&db, Some(&project)).unwrap().plugins[0]
+            .approved_hash
+            .is_some()
+    );
+    let original_hash = hash(b"VERSION = 1");
+    save_definition(
+        &mut db,
+        profile.path(),
+        &project,
+        "plugins/daily/library.py",
+        b"VERSION = 2",
+        Some(&original_hash),
+        &[],
+    )
+    .unwrap();
+    assert!(
+        save_definition(
+            &mut db,
+            profile.path(),
+            &project,
+            "plugins/daily/library.py",
+            b"stale editor",
+            Some(&original_hash),
+            &[]
+        )
+        .is_err()
+    );
+    assert_eq!(
+        fs::read(root.join("plugins/daily/library.py")).unwrap(),
+        b"VERSION = 2"
+    );
+    let changed = catalog(&db, Some(&project)).unwrap();
+    assert!(changed.plugins[0].approved_hash.is_none());
+    assert!(changed.plugins[0].approved_at.is_some());
+    let diff = review_plugin(&db, profile.path(), &plugin, &[]).unwrap();
+    let script = diff
+        .files
+        .iter()
+        .find(|file| file.path.ends_with("library.py"))
+        .unwrap();
+    assert_eq!(script.previous_content.as_deref(), Some("VERSION = 1"));
+    assert_eq!(script.content.as_deref(), Some("VERSION = 2"));
+    fs::write(root.join("plugins/daily/library.py"), b"VERSION = 1").unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
+    assert!(
+        catalog(&db, Some(&project)).unwrap().plugins[0]
+            .approved_hash
+            .is_none()
+    );
+}
+
+#[test]
+fn agents_can_discover_and_read_library_files_without_approval_or_execution() {
+    let (profile, project, _) = fixture();
+    let root = profile.path().join("projects").join(&project);
+    files::write(
+        &root,
+        "plugins/daily/README.md",
+        b"Use the scene helper.",
+        None,
+    )
+    .unwrap();
+    files::write(&root, "plugins/daily/assets/raw.bin", &[255, 0], None).unwrap();
+    // A missing checkout blocks approval, but must not hide reusable files.
+    let repository = uuid::Uuid::new_v4().to_string();
+    let mut project_file: Value =
+        serde_json::from_slice(&fs::read(root.join("project.json")).unwrap()).unwrap();
+    project_file["repositories"] = json!([{"id":repository,"name":"Source"}]);
+    fs::write(root.join("project.json"), project_file.to_string()).unwrap();
+    let automation_path = root.join("plugins/daily/automations/daily.json");
+    let mut automation: Value =
+        serde_json::from_slice(&fs::read(&automation_path).unwrap()).unwrap();
+    automation["execution"]["workingDirectory"] = json!({"base":"repository","id":repository});
+    fs::write(automation_path, automation.to_string()).unwrap();
+    let mut db = Connection::open_in_memory().unwrap();
+    create_schema(&db).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
+    let plugin = catalog(&db, Some(&project)).unwrap().plugins[0]
+        .file
+        .id
+        .clone();
+    assert!(
+        review_plugin(&db, profile.path(), &plugin, &[])
+            .unwrap_err()
+            .to_string()
+            .contains("not linked")
+    );
+    let list = crate::project_file_commands::apply(
+        &mut db,
+        profile.path(),
+        ProjectFileCommand::ReadPlugin {
+            id: plugin.clone(),
+            path: None,
+        },
+        false,
+        &[],
+    )
+    .unwrap();
+    assert!(
+        list["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["path"] == "README.md")
+    );
+    let note = crate::project_file_commands::apply(
+        &mut db,
+        profile.path(),
+        ProjectFileCommand::ReadPlugin {
+            id: plugin.clone(),
+            path: Some("README.md".into()),
+        },
+        false,
+        &[],
+    )
+    .unwrap();
+    assert_eq!(note["content"], "Use the scene helper.");
+    for path in ["../../project.json", "/etc/passwd", "assets/raw.bin"] {
+        assert!(
+            crate::project_file_commands::apply(
+                &mut db,
+                profile.path(),
+                ProjectFileCommand::ReadPlugin {
+                    id: plugin.clone(),
+                    path: Some(path.into())
+                },
+                false,
+                &[]
+            )
+            .is_err()
+        );
+    }
+    let state = catalog(&db, Some(&project)).unwrap();
+    assert!(state.plugins[0].approved_hash.is_none());
+    assert!(!state.automations[0].enabled);
+}
+
+#[test]
+fn memory_records_are_indexed_from_the_current_library_directory() {
+    let (profile, project, _) = fixture();
+    let root = profile.path().join("projects").join(&project);
+    let record = uuid::Uuid::new_v4().to_string();
+    let path = format!("memory/brand.genome/{record}.json");
+    files::write(&root, &path, json!({"schema":"inferay.resource/1","id":record,"type":"brand.genome","typeVersion":1,"name":"Brand genome","archived":false,"body":{"brandId":"test-brand"}}).to_string().as_bytes(), None).unwrap();
+    let mut db = Connection::open_in_memory().unwrap();
+    create_schema(&db).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
+    let view = catalog(&db, Some(&project)).unwrap();
+    assert_eq!(view.resources.len(), 1);
+    assert_eq!(view.resources[0].id, record);
+    assert_eq!(view.resources[0].source_path, path);
+    assert!(view.resources[0].definition.is_some());
 }

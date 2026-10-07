@@ -98,6 +98,73 @@ impl AgentProcessHandle {
         self
     }
 
+    pub(crate) fn tool_definitions(&self) -> Value {
+        let mut definitions = inferay_core::prompts::tools::tool_definitions();
+        if self.projects.is_some() {
+            definitions.as_array_mut().unwrap().push(json!({"type":"function","name":"inferay_projects","description":"Inspect file-backed Inferay projects, resources, plugins and automations. Use help for the current file formats and commands. createPlugin prepares one complete bundle proposal card without saving or enabling it. Definitions are files; never edit SQLite. Approval, writes and execution require a user action. Skills are reusable instructions; automations are scheduled or manually triggered executions. Do not create a skill for an automation request unless explicitly asked.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["list","help","command"]},"projectId":{"type":"string"},"command":{"type":"object"}},"required":["action"]}}));
+        }
+        if self.memory.is_some() {
+            definitions.as_array_mut().unwrap().push(
+                serde_json::from_str(crate::memory_store::TOOL_DEFINITION)
+                    .expect("memory tool definition"),
+            );
+        }
+        definitions
+    }
+
+    /// All providers share tool policy and proposal construction. Transports
+    /// only translate the returned output and optional persisted card.
+    pub(crate) async fn call_tool(
+        &self,
+        tool: &str,
+        args: Value,
+    ) -> Result<(Value, Option<Value>), String> {
+        if tool == "inferay_projects" {
+            if let Some(projects) = &self.projects {
+                match args["action"].as_str() {
+                                    Some("list") => projects.catalog(args["projectId"].as_str().map(str::to_owned),None).await.map(|v|(json!(v),None)).map_err(|e|e.to_string()),
+                                    Some("help") => Ok((json!({"commands":include_str!("project_commands.json")}),None)),
+                                    Some("command") => match serde_json::from_value::<inferay_core::project_files::ProjectFileCommand>(args["command"].clone()) {
+                                        Ok(command @ inferay_core::project_files::ProjectFileCommand::CreatePlugin {..}) => {
+                                            match projects.preview_plugin(&command).await {
+                                                Ok(()) => Ok((json!({"status":"proposed","message":"One plugin bundle card is ready for review. Nothing has been saved or enabled. Do not also propose a skill unless requested."}),Some(json!({"type":"inferay.plugin-proposal","command":command})))),
+                                                Err(error) => Err(format!("Plugin proposal invalid: {error}")),
+                                            }
+                                        },
+                                        Ok(command) => projects.command(command,false).await.map(|v|(v,None)).map_err(|e|e.to_string()),
+                                        Err(error) => Err(error.to_string()),
+                                    },
+                                    _ => Err("Use list, help, or command".into()),
+                                }
+            } else {
+                Err("Project tools unavailable".into())
+            }
+        } else if tool == "inferay_memory" {
+            match &self.memory {
+                Some(memory) => {
+                    let result = memory.runtime.memory.tool(
+                        &memory.project,
+                        &memory.dir,
+                        &args,
+                        memory.allow_save,
+                    );
+                    if let (Ok((note, _)), Some("read")) = (&result, args["action"].as_str())
+                        && let Ok(mut reads) = memory.reads.lock()
+                    {
+                        reads
+                            .push(json!({"id": note["id"], "title": note["title"], "via": "tool"}));
+                    }
+                    result
+                }
+                None => {
+                    Err("This conversation is not part of a project, so it has no memory".into())
+                }
+            }
+        } else {
+            self.skills.lock().await.call_tool(tool, &args)
+        }
+    }
+
     pub fn pid(&self) -> Option<u32> {
         match self.pid.load(Ordering::Acquire) {
             0 => None,
@@ -205,7 +272,47 @@ pub async fn run_claude(
     emissions: &mpsc::UnboundedSender<ProtocolEmission>,
 ) -> String {
     let scoped_mcp = run.mcp_servers.and_then(write_scoped_mcp_config);
-    let arguments = claude_invocation_args(&run, scoped_mcp.as_ref().map(|file| file.path()));
+    let bridge =
+        match crate::agent_tools_mcp::ToolBridge::start(handle.clone(), emissions.clone()).await {
+            Ok(bridge) => bridge,
+            Err(error) => {
+                emit_error(context, format!("Inferay tools could not start: {error}"));
+                flush_emissions(context, emissions);
+                return String::new();
+            }
+        };
+    let config_path = if let Some(scoped) = &scoped_mcp {
+        let merged = (|| -> Result<(), String> {
+            let mut config: Value =
+                serde_json::from_reader(scoped.reopen().map_err(|e| e.to_string())?)
+                    .map_err(|e| e.to_string())?;
+            let internal: Value =
+                serde_json::from_reader(bridge.config.reopen().map_err(|e| e.to_string())?)
+                    .map_err(|e| e.to_string())?;
+            config["mcpServers"]["inferay"] = internal["mcpServers"]["inferay"].clone();
+            scoped.as_file().set_len(0).map_err(|e| e.to_string())?;
+            serde_json::to_writer(scoped.reopen().map_err(|e| e.to_string())?, &config)
+                .map_err(|e| e.to_string())
+        })();
+        if let Err(error) = merged {
+            emit_error(
+                context,
+                format!("Inferay tool configuration failed: {error}"),
+            );
+            flush_emissions(context, emissions);
+            return String::new();
+        }
+        Some(scoped.path())
+    } else {
+        None
+    };
+    let mut arguments = claude_invocation_args(&run, config_path);
+    if config_path.is_none() {
+        arguments.extend([
+            "--mcp-config".into(),
+            bridge.config.path().to_string_lossy().into_owned(),
+        ]);
+    }
     let spawn = spawn_direct(&arguments, run.cwd, run.env);
     let mut child = match spawn {
         Ok(child) => child,
@@ -386,13 +493,7 @@ pub async fn run_codex(
             .await?;
         let mut start_params = codex_thread_params(run.invocation);
         configure_codex_session(&mut start_params, &config["config"], run.env);
-        start_params["dynamicTools"] = inferay_core::prompts::tools::tool_definitions();
-        if handle.projects.is_some() {
-            start_params["dynamicTools"].as_array_mut().unwrap().push(json!({"type":"function","name":"inferay_projects","description":"List local projects and their resources, or prepare a project command. Commands use ProjectCommand: saveProject, saveResource, writeFile, saveAutomation, associateConversation, createExample, stopRun. Read action=help for complete command shapes. saveAutomation displays an automation approval card without saving. Users accept, edit, run, and enable from that card. Skills are separate reusable instructions; never create a skill for an automation request unless explicitly requested. Running/enabling/installing requires a user action. Never edit SQLite directly.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["list","help","command"]},"projectId":{"type":"string"},"command":{"type":"object"}},"required":["action"]}}));
-        }
-        if handle.memory.is_some() {
-            start_params["dynamicTools"].as_array_mut().unwrap().push(serde_json::from_str(crate::memory_store::TOOL_DEFINITION).expect("memory tool definition"));
-        }
+        start_params["dynamicTools"] = handle.tool_definitions();
         let thread_response = if let Some(thread_id) = &run.invocation.session_id {
             let mut params = codex_thread_params(run.invocation);
             configure_codex_session(&mut params, &config["config"], run.env);
@@ -554,41 +655,7 @@ pub async fn run_codex(
                     {
                         let tool = message.pointer("/params/tool").and_then(Value::as_str).unwrap_or("");
                         let args = message.pointer("/params/arguments").cloned().unwrap_or(Value::Null);
-                        let result = if tool == "inferay_projects" {
-                            if let Some(projects) = &handle.projects {
-                                match args["action"].as_str() {
-                                    Some("list") => projects.catalog(args["projectId"].as_str().map(str::to_owned),None).await.map(|v|(json!(v),None)).map_err(|e|e.to_string()),
-                                    Some("help") => Ok((json!({"commands":include_str!("project_commands.json")}),None)),
-                                    Some("command") => match serde_json::from_value::<inferay_core::projects::ProjectCommand>(args["command"].clone()) {
-                                        Ok(mut command @ inferay_core::projects::ProjectCommand::SaveAutomation { .. }) => {
-                                            if let inferay_core::projects::ProjectCommand::SaveAutomation { id, .. } = &mut command {
-                                                if id.is_none() { *id = Some(uuid::Uuid::new_v4().to_string()); }
-                                            }
-                                            match projects.preview_automation(command.clone()).await {
-                                                Ok(()) => Ok((json!({"status":"proposed", "message":"Validated automation proposal displayed. Nothing saved yet. The user can accept, edit, run, or enable from the chat card. Do not also propose a skill unless explicitly requested."}), Some(json!({"type":"inferay.automation-proposal","command":command})))),
-                                                Err(error) => Err(format!("Automation proposal was not displayed: {error}. Correct the definition before proposing it again.")),
-                                            }
-                                        },
-                                        Ok(command) => projects.command(command,false).await.map(|v|(v,None)).map_err(|e|e.to_string()),
-                                        Err(error) => Err(error.to_string()),
-                                    },
-                                    _ => Err("Use list, help, or command".into()),
-                                }
-                            } else { Err("Project tools unavailable".into()) }
-                        } else if tool == "inferay_memory" {
-                            match &handle.memory {
-                                Some(memory) => {
-                                    let result = memory.runtime.memory.tool(&memory.project, &memory.dir, &args, memory.allow_save);
-                                    if let (Ok((note, _)), Some("read")) = (&result, args["action"].as_str())
-                                        && let Ok(mut reads) = memory.reads.lock()
-                                    {
-                                        reads.push(json!({"id": note["id"], "title": note["title"], "via": "tool"}));
-                                    }
-                                    result
-                                }
-                                None => Err("This conversation is not part of a project, so it has no memory".into()),
-                            }
-                        } else { handle.skills.lock().await.call_tool(tool, &args) };
+                        let result = handle.call_tool(tool, args).await;
                         let (success, output) = match result {
                             Ok((output, card)) => {
                                 if let Some(card) = card {

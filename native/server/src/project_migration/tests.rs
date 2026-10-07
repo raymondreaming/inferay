@@ -1,31 +1,78 @@
 use super::*;
-use crate::project_store::ProjectStore;
+use rusqlite::params;
 use serde_json::json;
+use std::path::PathBuf;
 
-fn command(store: &mut ProjectStore, value: Value) -> Value {
-    store
-        .command(serde_json::from_value(value).unwrap(), true, &[])
-        .unwrap()
+// Seed the persisted legacy format directly: migration tests must not retain
+// the retired command implementation or use it as their expected behavior.
+struct LegacyFixture {
+    db: Connection,
+    root: PathBuf,
+}
+impl LegacyFixture {
+    fn open(root: &Path) -> Self {
+        Self {
+            db: crate::project_store::open_database(root).unwrap(),
+            root: root.canonicalize().unwrap(),
+        }
+    }
+    fn project_dir(&self, id: &str) -> PathBuf {
+        self.root.join("projects").join(id)
+    }
+    fn project(&self, name: &str, instructions: &str) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        self.db
+            .execute(
+                "INSERT INTO projects VALUES(?,?, '',?,1,1,1,0)",
+                params![id, name, instructions],
+            )
+            .unwrap();
+        for child in ["files", "tools", "plugins"] {
+            fs::create_dir_all(self.project_dir(&id).join(child)).unwrap();
+        }
+        id
+    }
+    fn automation(&self, project: &str) -> String {
+        let tool = uuid::Uuid::new_v4().to_string();
+        let id = uuid::Uuid::new_v4().to_string();
+        fs::write(
+            self.project_dir(project).join("tools/report.py"),
+            "print('{}')",
+        )
+        .unwrap();
+        let body = json!({"program":"python3","entrypoint":{"base":"project","path":"tools/report.py"},"arguments":[],"timeoutSeconds":30,"inputSchema":{"type":"object"},"outputSchema":{"type":"object"}}).to_string();
+        self.db
+            .execute(
+                "INSERT INTO resources VALUES(?,?,'inferay.tool','Report',1,NULL,0)",
+                params![tool, project],
+            )
+            .unwrap();
+        self.db
+            .execute(
+                "INSERT INTO resource_revisions VALUES(?,1,1,?,?,1)",
+                params![tool, body, hash(body.as_bytes())],
+            )
+            .unwrap();
+        let execution = json!({"kind":"tool","toolId":tool,"input":{}}).to_string();
+        self.db.execute("INSERT INTO automations(id,project_id,name,revision,execution,interval_seconds,overlap_policy) VALUES(?,?,'Report',1,?,604800,'skip')",params![id,project,execution]).unwrap();
+        id
+    }
+    fn run(&self, automation: &str, key: &str) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        self.db.execute("INSERT INTO runs(id,project_id,automation_id,name,request_key,status,snapshot,input_hash,requested_at) SELECT ?,project_id,id,name,?,'queued','{}','legacy-hash',1 FROM automations WHERE id=?",params![id,key,automation]).unwrap();
+        self.db
+            .execute("INSERT INTO run_events VALUES(?,1,'queued','{}',1)", [&id])
+            .unwrap();
+        id
+    }
 }
 
 #[test]
 fn file_scheduler_deduplicates_due_runs_and_rechecks_waiting_inputs() {
     let root = tempfile::tempdir().unwrap();
-    let mut store = ProjectStore::open(root.path()).unwrap();
-    let project = command(
-        &mut store,
-        json!({"type":"saveProject","name":"Schedule","description":"","instructions":""}),
-    )["id"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    let automation = command(
-        &mut store,
-        json!({"type":"createExample","projectId":project}),
-    )["id"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let mut store = LegacyFixture::open(root.path());
+    let project = store.project("Schedule", "");
+    let automation = store.automation(&project);
     export(&mut store.db, root.path(), &[]).unwrap();
     replace_definition_tables(&mut store.db).unwrap();
     crate::project_index::refresh(&mut store.db, root.path(), &[]).unwrap();
@@ -143,29 +190,11 @@ fn file_scheduler_deduplicates_due_runs_and_rechecks_waiting_inputs() {
 #[test]
 fn handover_removes_definition_ownership_and_preserves_runtime_relations() {
     let root = tempfile::tempdir().unwrap();
-    let mut store = ProjectStore::open(root.path()).unwrap();
+    let mut store = LegacyFixture::open(root.path());
     assert!(replace_definition_tables(&mut store.db).is_err());
-    let project = command(
-        &mut store,
-        json!({"type":"saveProject","name":"History","description":"","instructions":""}),
-    )["id"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    let automation = command(
-        &mut store,
-        json!({"type":"createExample","projectId":project}),
-    )["id"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    let run = command(
-        &mut store,
-        json!({"type":"runAutomation","id":automation,"requestId":"preserved"}),
-    )["id"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let project = store.project("History", "");
+    let automation = store.automation(&project);
+    let run = store.run(&automation, "preserved");
     store
         .db
         .execute(
@@ -314,7 +343,7 @@ fn handover_removes_definition_ownership_and_preserves_runtime_relations() {
 #[test]
 fn failed_handover_rolls_back_schema_and_restores_foreign_keys() {
     let root = tempfile::tempdir().unwrap();
-    let mut store = ProjectStore::open(root.path()).unwrap();
+    let mut store = LegacyFixture::open(root.path());
     export(&mut store.db, root.path(), &[]).unwrap();
     // Simulate old corrupt evidence: the migration must refuse it without
     // leaving half the schema converted or foreign-key checks disabled.
@@ -380,28 +409,26 @@ fn failed_handover_rolls_back_schema_and_restores_foreign_keys() {
 #[test]
 fn export_preserves_ids_history_and_documents_and_disables_schedules() {
     let root = tempfile::tempdir().unwrap();
-    let mut store = ProjectStore::open(root.path()).unwrap();
-    let project = command(&mut store,json!({"type":"saveProject","name":"Research","description":"","instructions":"Read sources"}))["id"].as_str().unwrap().to_owned();
-    let automation = command(
-        &mut store,
-        json!({"type":"createExample","projectId":project}),
-    )["id"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    command(
-        &mut store,
-        json!({"type":"enableAutomation","id":automation,"expectedRevision":1,"enabled":true}),
-    );
-    let run = command(
-        &mut store,
-        json!({"type":"runAutomation","id":automation,"requestId":"before-migration"}),
-    )["id"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    let directory = store.project_dir(&project).unwrap();
-    crate::project_store::write_file(&directory, "files/reference.md", "Reference", None).unwrap();
+    let mut store = LegacyFixture::open(root.path());
+    let project = store.project("Research", "Read sources");
+    let automation = store.automation(&project);
+    store
+        .db
+        .execute(
+            "UPDATE automations SET enabled=1,next_due_at=1 WHERE id=?",
+            [&automation],
+        )
+        .unwrap();
+    store
+        .db
+        .execute(
+            "INSERT INTO automation_approvals VALUES(?,'legacy-approved',1)",
+            [&automation],
+        )
+        .unwrap();
+    let run = store.run(&automation, "before-migration");
+    let directory = store.project_dir(&project);
+    fs::write(directory.join("files/reference.md"), "Reference").unwrap();
     export(&mut store.db, root.path(), &[]).unwrap();
     let backup = Connection::open(root.path().join("projects.pre-files.sqlite3")).unwrap();
     assert_eq!(
@@ -439,7 +466,7 @@ fn export_preserves_ids_history_and_documents_and_disables_schedules() {
         0
     );
     assert_eq!(
-        fs::read_to_string(directory.join("resources/documents/reference.md")).unwrap(),
+        fs::read_to_string(directory.join("memory/documents/reference.md")).unwrap(),
         "Reference"
     );
     let indexed = files::scan(&directory, &BTreeSet::new()).unwrap();
@@ -473,15 +500,9 @@ fn export_preserves_ids_history_and_documents_and_disables_schedules() {
 #[test]
 fn migration_conflict_keeps_existing_bytes_and_legacy_rows() {
     let root = tempfile::tempdir().unwrap();
-    let mut store = ProjectStore::open(root.path()).unwrap();
-    let id = command(
-        &mut store,
-        json!({"type":"saveProject","name":"Original","description":"","instructions":""}),
-    )["id"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    let directory = store.project_dir(&id).unwrap();
+    let mut store = LegacyFixture::open(root.path());
+    let id = store.project("Original", "");
+    let directory = store.project_dir(&id);
     fs::write(directory.join("project.json"), b"user data").unwrap();
     assert!(
         export(&mut store.db, root.path(), &[])
@@ -517,26 +538,53 @@ fn migration_conflict_keeps_existing_bytes_and_legacy_rows() {
 #[test]
 fn installed_plugin_schema_and_source_manifest_survive_conversion() {
     let root = tempfile::tempdir().unwrap();
-    let package = tempfile::tempdir().unwrap();
     let original = json!({"name":"Briefs","version":"1","types":[{"id":"studio.brief","version":2,"schema":{"type":"object","required":["title"],"properties":{"title":{"type":"string"}}}}],"resources":[{"typeId":"studio.brief","schemaVersion":2,"name":"Launch","body":{"title":"Hello"}}]}).to_string();
-    fs::write(package.path().join("plugin.json"), &original).unwrap();
-    let mut store = ProjectStore::open(root.path()).unwrap();
-    let project = command(
-        &mut store,
-        json!({"type":"saveProject","name":"Studio","description":"","instructions":""}),
-    )["id"]
-        .as_str()
-        .unwrap()
-        .to_owned();
-    let plugin = command(
-        &mut store,
-        json!({"type":"installPlugin","projectId":project,"path":package.path()}),
-    )["id"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let mut store = LegacyFixture::open(root.path());
+    let project = store.project("Studio", "");
+    let plugin = uuid::Uuid::new_v4().to_string();
+    let directory = store.project_dir(&project).join("plugins").join(&plugin);
+    fs::create_dir_all(&directory).unwrap();
+    fs::write(directory.join("plugin.json"), &original).unwrap();
+    store
+        .db
+        .execute(
+            "INSERT INTO plugins VALUES(?,?,'Briefs','1',?,?,0)",
+            params![
+                plugin,
+                project,
+                directory.to_string_lossy(),
+                hash(original.as_bytes())
+            ],
+        )
+        .unwrap();
+    let schema =
+        json!({"type":"object","required":["title"],"properties":{"title":{"type":"string"}}})
+            .to_string();
+    store
+        .db
+        .execute(
+            "INSERT INTO resource_types VALUES('studio.brief',2,?,?)",
+            params![plugin, schema],
+        )
+        .unwrap();
+    let resource = uuid::Uuid::new_v4().to_string();
+    store
+        .db
+        .execute(
+            "INSERT INTO resources VALUES(?,?,'studio.brief','Launch',1,?,0)",
+            params![resource, project, plugin],
+        )
+        .unwrap();
+    let body = json!({"title":"Hello"}).to_string();
+    store
+        .db
+        .execute(
+            "INSERT INTO resource_revisions VALUES(?,1,2,?,?,1)",
+            params![resource, body, hash(body.as_bytes())],
+        )
+        .unwrap();
     export(&mut store.db, root.path(), &[]).unwrap();
-    let directory = store.project_dir(&project).unwrap();
+    let directory = store.project_dir(&project);
     assert_eq!(
         fs::read_to_string(directory.join(format!("plugins/{plugin}/.legacy-plugin.json")))
             .unwrap(),
@@ -552,4 +600,146 @@ fn installed_plugin_schema_and_source_manifest_survive_conversion() {
         )
         .unwrap();
     export(&mut store.db, root.path(), &[]).unwrap();
+}
+
+#[test]
+fn workspace_chats_migrate_once_and_keep_existing_associations() {
+    let profile = tempfile::tempdir().unwrap();
+    let repository = tempfile::tempdir().unwrap();
+    let mut store = crate::project_file_store::FileProjectStore::open(profile.path(), &[]).unwrap();
+    let state = json!({"groups":[{"panes":[{"id":"first","cwd":repository.path()},{"id":"second","cwd":repository.path()}]}]});
+    workspace_projects(&mut store.db, profile.path(), &state, &[]).unwrap();
+    let catalog = store.catalog(None, &[]).unwrap();
+    assert_eq!(catalog.projects.len(), 1);
+    let project = &catalog.projects[0].id;
+    let definition = fs::read(
+        profile
+            .path()
+            .join("projects")
+            .join(project)
+            .join("project.json"),
+    )
+    .unwrap();
+    assert_eq!(
+        store
+            .db
+            .query_row(
+                "SELECT count(*) FROM project_conversations WHERE project_id=?",
+                [project],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+        2
+    );
+    workspace_projects(&mut store.db, profile.path(), &state, &[]).unwrap();
+    assert_eq!(store.catalog(None, &[]).unwrap().projects.len(), 1);
+    // Replay after an interrupted marker write reuses definitions and bindings.
+    store
+        .db
+        .execute(
+            "DELETE FROM project_migrations WHERE name='repositories-v1'",
+            [],
+        )
+        .unwrap();
+    let updated = json!({"groups":[{"panes":[{"id":"first","cwd":"/different/repo"},{"id":"third","cwd":repository.path()}]}]});
+    workspace_projects(&mut store.db, profile.path(), &updated, &[]).unwrap();
+    assert_eq!(
+        store
+            .db
+            .query_row(
+                "SELECT count(*) FROM project_conversations WHERE project_id=?",
+                [project],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+        3
+    );
+    assert_eq!(
+        fs::read(
+            profile
+                .path()
+                .join("projects")
+                .join(project)
+                .join("project.json")
+        )
+        .unwrap(),
+        definition
+    );
+    assert_eq!(store.catalog(None, &[]).unwrap().projects.len(), 1);
+}
+
+#[test]
+fn workspace_migration_preserves_conflicting_files_without_marking_complete() {
+    let profile = tempfile::tempdir().unwrap();
+    let repository = tempfile::tempdir().unwrap();
+    let mut store = crate::project_file_store::FileProjectStore::open(profile.path(), &[]).unwrap();
+    let key = repository
+        .path()
+        .canonicalize()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+    let id = derived_id("workspace-project", &key);
+    let directory = profile.path().join("projects").join(id);
+    fs::create_dir_all(&directory).unwrap();
+    fs::write(directory.join("project.json"), b"existing user file").unwrap();
+    let state = json!({"groups":[{"panes":[{"id":"first","cwd":repository.path()}]}]});
+    assert!(
+        workspace_projects(&mut store.db, profile.path(), &state, &[])
+            .unwrap_err()
+            .to_string()
+            .contains("conflict")
+    );
+    assert_eq!(
+        fs::read(directory.join("project.json")).unwrap(),
+        b"existing user file"
+    );
+    assert_eq!(
+        store
+            .db
+            .query_row("SELECT count(*) FROM project_conversations", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        store
+            .db
+            .query_row(
+                "SELECT count(*) FROM project_migrations WHERE name='repositories-v1'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+        0
+    );
+}
+
+#[test]
+fn legacy_repository_context_migrates_as_repository_not_missing_resource() {
+    let root = tempfile::tempdir().unwrap();
+    let repo = tempfile::tempdir().unwrap();
+    let mut legacy = LegacyFixture::open(root.path());
+    let project = legacy.project("Research", "");
+    let repository = uuid::Uuid::new_v4().to_string();
+    let automation = uuid::Uuid::new_v4().to_string();
+    let body = json!({"location":{"base":"external","path":repo.path()},"instructions":""}).to_string();
+    legacy.db.execute("INSERT INTO resources VALUES(?,?,'inferay.repository','Research repository',1,NULL,0)", params![repository, project]).unwrap();
+    legacy.db.execute("INSERT INTO resource_revisions VALUES(?,1,1,?,?,1)", params![repository, body, hash(body.as_bytes())]).unwrap();
+    let execution = json!({"kind":"agent","instructions":"Review recent changes","provider":"codex","model":null,"resourceIds":[repository],"workingDirectory":{"base":"external","path":repo.path()},"timeoutSeconds":300}).to_string();
+    legacy.db.execute("INSERT INTO automations(id,project_id,name,revision,execution,interval_seconds,overlap_policy) VALUES(?,?,'Daily research',1,?,86400,'skip')",params![automation,project,execution]).unwrap();
+    export(&mut legacy.db, root.path(), &[]).unwrap();
+    replace_definition_tables(&mut legacy.db).unwrap();
+    crate::project_index::refresh(&mut legacy.db, root.path(), &[]).unwrap();
+    let catalog = crate::project_index::catalog(&legacy.db, Some(&project)).unwrap();
+    assert!(catalog.issues.is_empty(), "{:?}", catalog.issues);
+    let migrated = &catalog.automations[0];
+    assert!(!migrated.enabled);
+    assert!(migrated.file.error.is_none());
+    let definition = migrated.file.definition.as_ref().unwrap();
+    assert_eq!(definition.id, automation);
+    let DefinitionExecution::Agent { resources, repositories, working_directory, .. } = &definition.execution else { panic!("expected agent") };
+    assert!(resources.is_empty());
+    assert_eq!(repositories, &[repository.clone()]);
+    assert!(matches!(working_directory, DefinitionDirectory::Repository { id } if id == &repository));
 }

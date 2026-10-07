@@ -1,3 +1,4 @@
+mod agent_tools_mcp;
 use inferay_presentation::appearance::normalize_background_settings;
 mod files;
 mod mcp_connections;
@@ -379,10 +380,10 @@ fn build_router_with_connection_reset(
         pid_tracker.clone(),
     )
     .expect("Could not open local projects: close other instances using this profile");
-    if let Ok(saved) = agent_state_store.lock().expect("workspace lock").read()
-        && let Err(error) = projects.migrate_repositories(&saved)
-    {
-        eprintln!("Project migration: {error}");
+    if let Ok(saved) = agent_state_store.lock().expect("workspace lock").read() {
+        if let Err(error) = projects.migrate_workspace(&saved) {
+            eprintln!("Project workspace migration: {error}");
+        }
     }
     projects.start();
     let chat_runtime = chat_runtime::ChatRuntime::new(
@@ -461,6 +462,8 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             ("/api/memory", "GET") => memory_store::http::list(&state, request).await,
             ("/api/memory/note", "GET") => memory_store::http::note(&state, request).await,
             ("/api/memory/pane", "GET") => memory_store::http::pane(&state, request).await,
+            ("/api/memory/graph", "GET") => memory_store::http::graph(&state, request).await,
+            ("/api/memory/delete", "POST") => memory_store::http::delete(&state, request).await,
             ("/api/memory/save", "POST") => memory_store::http::save(&state, request).await,
             ("/api/client-storage", "GET") => get_client_storage(&state, request).await,
             ("/api/client-storage", "POST" | "PUT") => update_client_storage(&state, request).await,
@@ -627,6 +630,15 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
                 get_file_content(&state, request).await
             }
             ("/api/upload-temp", "POST") => upload_temp_file(&state, request).await,
+            ("/api/projects/documents", "POST") => upload_project_document(&state, request).await,
+            ("/api/projects/plugin-import", "POST") => upload_plugin_library(&state, request).await,
+            ("/api/projects/documents", "GET") => {
+                let id = query_value(&request, "projectId").unwrap_or_default();
+                state.projects.documents(id).await.map(|v|json!(v)).map_err(|e|api_error(StatusCode::BAD_REQUEST,e.to_string()))
+            }
+            ("/api/projects/document", "GET") => {
+                return api_http_response(serve_project_document(&state, request).await, &request_headers);
+            }
 
             ("/api/file", "GET") => {
                 return api_http_response(
@@ -1554,6 +1566,55 @@ async fn uploaded_file(
         return Ok((name, content_type, bytes));
     }
     Err(api_error(StatusCode::BAD_REQUEST, missing))
+}
+
+async fn serve_project_document(state: &ServerState, request: Request) -> ApiResult<Response> {
+    let id = query_value(&request, "projectId").unwrap_or_default();
+    let path = query_value(&request, "path").unwrap_or_default();
+    let bytes = state.projects.document_bytes(id, path.clone()).await
+        .map_err(|e|api_error(StatusCode::BAD_REQUEST,e.to_string()))?;
+    let extension = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+    let mime = match extension.as_str() {
+        "png" => "image/png", "jpg" | "jpeg" => "image/jpeg", "gif" => "image/gif",
+        "webp" => "image/webp", "bmp" => "image/bmp", "avif" => "image/avif",
+        _ => "application/octet-stream",
+    };
+    let mut response = Response::new(axum::body::Body::from(bytes));
+    response.headers_mut().insert("content-type", mime.parse().unwrap());
+    response.headers_mut().insert("x-content-type-options", "nosniff".parse().unwrap());
+    response.headers_mut().insert("cache-control", "no-store".parse().unwrap());
+    if mime == "application/octet-stream" {
+        response.headers_mut().insert("content-disposition", "attachment".parse().unwrap());
+    }
+    Ok(response)
+}
+
+async fn upload_plugin_library(state: &ServerState, mut request: Request) -> ApiResult {
+    request.extensions_mut().insert(DefaultBodyLimit::max(inferay_core::project_files::PLUGIN_BYTE_LIMIT + 1024 * 1024));
+    let project_id = query_value(&request, "projectId").ok_or_else(|| api_error(StatusCode::BAD_REQUEST, "Project is required"))?;
+    let name = query_value(&request, "name").ok_or_else(|| api_error(StatusCode::BAD_REQUEST, "Library name is required"))?;
+    let mut multipart = Multipart::from_request(request, &()).await.map_err(|e| e.to_string())?;
+    let mut originals = std::collections::BTreeMap::new();
+    let mut total = 0usize;
+    while let Some(field) = multipart.next_field().await.map_err(|e| e.to_string())? {
+        let path = field.name().ok_or_else(|| api_error(StatusCode::BAD_REQUEST, "File path is required"))?.to_owned();
+        inferay_core::project_files::relative_path(&path)?;
+        let bytes = field.bytes().await.map_err(|e| e.to_string())?;
+        total += bytes.len();
+        if total > inferay_core::project_files::PLUGIN_BYTE_LIMIT || originals.len() >= inferay_core::project_files::PLUGIN_ENTRY_LIMIT {
+            return Err(api_error(StatusCode::BAD_REQUEST, "Library exceeds 1,000 entries or 50 MB"));
+        }
+        if originals.insert(path, bytes.to_vec()).is_some() { return Err(api_error(StatusCode::BAD_REQUEST, "Duplicate file path")); }
+    }
+    state.projects.import_library(project_id, name, originals).await.map_err(|e| api_error(StatusCode::BAD_REQUEST, e.to_string()))
+}
+
+async fn upload_project_document(state: &ServerState, request: Request) -> ApiResult {
+    let project_id = query_value(&request, "projectId")
+        .ok_or_else(|| api_error(StatusCode::BAD_REQUEST, "Project is required"))?;
+    let (name, _, bytes) = uploaded_file(request, "Choose a document").await?;
+    state.projects.import_document(project_id, name, bytes.to_vec()).await
+        .map_err(|e| api_error(StatusCode::BAD_REQUEST, e.to_string()))
 }
 
 async fn upload_temp_file(state: &ServerState, request: Request) -> ApiResult {
@@ -3251,7 +3312,7 @@ mod proposal_http_tests {
 }
 
 async fn project_command(state: &ServerState, request: Request) -> ApiResult {
-    let command: inferay_core::projects::ProjectCommand = api_body(request).await?;
+    let command: inferay_core::project_files::ProjectFileCommand = api_body(request).await?;
     state
         .projects
         .command(command, true)
