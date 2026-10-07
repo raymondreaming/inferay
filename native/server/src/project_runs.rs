@@ -263,21 +263,33 @@ pub(crate) fn history(
         }
         None => (i64::MAX, ""),
     };
+    let projection = "SELECT json_object('id',id,'projectId',project_id,'automationId',automation_id,'name',name,'status',status,'requestedAt',requested_at,'startedAt',started_at,'finishedAt',finished_at,'result',json(result),'error',error,'snapshot',json(snapshot),'directory',?2||'/projects/'||project_id||'/runs/'||id) FROM runs";
     let mut runs = rows::<ProjectRun>(
         db,
-        "SELECT json_object('id',id,'projectId',project_id,'automationId',automation_id,'name',name,'status',status,'requestedAt',requested_at,'startedAt',started_at,'finishedAt',finished_at,'result',json(result),'error',error,'snapshot',json(snapshot),'directory',?3||'/projects/'||project_id||'/runs/'||id) FROM runs WHERE project_id=?1 AND (requested_at<?2 OR (requested_at=?2 AND id<?4)) ORDER BY requested_at DESC,id DESC LIMIT 51",
-        params![project, before_time, root.to_string_lossy(), before_id],
+        &format!("{projection} WHERE project_id=?1 AND status NOT IN ('queued','running') AND (requested_at<?3 OR (requested_at=?3 AND id<?4)) ORDER BY requested_at DESC,id DESC LIMIT 51"),
+        params![project, root.to_string_lossy(), before_time, before_id],
     )?;
     let has_more_runs = runs.len() > 50;
     runs.truncate(50);
-    attach_usage(db, &mut runs)?;
-    for run in &mut runs { run.conversation_available = conversation_available(run); }
     let next_run_cursor = if has_more_runs {
         runs.last()
             .map(|run| format!("{}:{}", run.requested_at, run.id))
     } else {
         None
     };
+    // Active work is independent of the past-results cursor and cannot age off
+    // the latest page while newer runs finish.
+    if before.is_none() {
+        let mut active = rows::<ProjectRun>(
+            db,
+            &format!("{projection} WHERE project_id=?1 AND status IN ('queued','running') ORDER BY requested_at DESC,id DESC"),
+            params![project, root.to_string_lossy()],
+        )?;
+        active.append(&mut runs);
+        runs = active;
+    }
+    attach_usage(db, &mut runs)?;
+    for run in &mut runs { run.conversation_available = conversation_available(run); }
     let artifacts = rows(
         db,
         "SELECT json_object('id',id,'runId',run_id,'name',name,'path',path,'byteSize',byte_size) FROM artifacts WHERE project_id=?1 AND run_id IN (SELECT value FROM json_each(?2)) ORDER BY created_at DESC,id LIMIT 5000",

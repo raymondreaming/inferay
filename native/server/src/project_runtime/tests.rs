@@ -1123,3 +1123,29 @@ async fn real_codex_usage_is_durable_before_cancellation() {
     let count: i64 = db.query_row("SELECT count(*) FROM run_events WHERE run_id=? AND kind='provider_usage'", [&id], |row| row.get(0)).unwrap();
     assert!(count > 0, "Usage must be committed, not just held in memory");
 }
+
+#[tokio::test]
+async fn history_keeps_active_work_visible_without_changing_past_pagination() {
+    let profile = tempfile::tempdir().unwrap();
+    let (project, automation) = definition_files(profile.path(), "print('{}')");
+    let runtime = runtime(profile.path());
+    let id = approved_run(&runtime, &automation, "active-history").await;
+    let store = runtime.store.lock().unwrap();
+    store.db.execute("UPDATE runs SET status='running',requested_at=1 WHERE id=?", [&id]).unwrap();
+    for index in 0..53 {
+        store.db.execute(
+            "INSERT INTO runs (id,project_id,automation_id,name,status,requested_at,snapshot,request_key,input_hash) SELECT ?1,project_id,automation_id,name,?2,?3,snapshot,?1,input_hash FROM runs WHERE id=?4",
+            params![format!("history-{index:03}"), if index == 52 { "queued" } else { "succeeded" }, 100 + index, id],
+        ).unwrap();
+    }
+    let latest = crate::project_runs::history(&store.db, profile.path(), &project, None).unwrap();
+    assert_eq!(latest.runs.len(), 52); // Two active jobs plus fifty past results.
+    assert!(latest.runs.iter().any(|run| run.id == id));
+    assert!(latest.runs.iter().any(|run| run.status == "queued"));
+    assert!(latest.has_more_runs);
+    assert_eq!(latest.next_run_cursor.as_deref(), Some("102:history-002"));
+    let older = crate::project_runs::history(&store.db, profile.path(), &project, latest.next_run_cursor.as_deref()).unwrap();
+    assert_eq!(older.runs.iter().map(|run| run.id.as_str()).collect::<Vec<_>>(), vec!["history-001", "history-000"]);
+    assert!(!older.has_more_runs);
+    assert!(older.next_run_cursor.is_none());
+}
