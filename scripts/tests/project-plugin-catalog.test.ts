@@ -12,6 +12,7 @@ test("invalid libraries remain visible and retain their file identity for repair
 		history: {
 			runs: [],
 			artifacts: [],
+			effects: [],
 			hasMoreRuns: false,
 			nextRunCursor: null,
 		},

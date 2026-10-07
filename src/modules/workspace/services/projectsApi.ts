@@ -3,11 +3,13 @@ import type {
 	ConnectionCommand,
 	ConnectionInfo,
 	DraftPreview,
+	EffectReviewRequest,
 	PluginLibrary,
 	PluginProposalReview,
 	PluginReview,
 	PluginTextFile,
 	ProjectDocument,
+	ProjectEffectIntent,
 	ProjectFileCommand,
 	ProjectProposalRequest,
 	ProjectProposalView,
@@ -184,6 +186,15 @@ export function changeProjectConnection(command: ConnectionCommand) {
 	return postJson<{ connections: ConnectionInfo[] }>(
 		"/api/projects/connections",
 		command,
+		undefined,
+		{ server: true },
+	);
+}
+
+export function dismissEffect(request: EffectReviewRequest) {
+	return postJson<Pick<ProjectEffectIntent, "dismissedAt">>(
+		"/api/projects/effects/dismiss",
+		request,
 		undefined,
 		{ server: true },
 	);

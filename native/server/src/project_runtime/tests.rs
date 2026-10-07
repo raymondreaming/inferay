@@ -1646,9 +1646,16 @@ async fn effect_artifacts_are_durable_deduplicated_and_conflict_safe() {
             assert!(!history.artifacts.iter().any(|artifact| artifact.run_id == id));
         }
     }
+    let effect = runtime.store.lock().unwrap().history(&project,None).unwrap().effects.remove(0);
+    let mut review = inferay_core::projects::EffectReviewRequest {id:effect.id, intent_hash:"stale".into()};
+    assert!(crate::project_effects::dismiss(&runtime.store.lock().unwrap().db, &review).is_err());
+    review.intent_hash = effect.intent_hash;
+    let dismissed = crate::project_effects::dismiss(&runtime.store.lock().unwrap().db, &review).unwrap();
+    assert_eq!(crate::project_effects::dismiss(&runtime.store.lock().unwrap().db, &review).unwrap(), dismissed);
     drop(runtime);
     let reopened = self::runtime(profile.path());
     let history = reopened.store.lock().unwrap().history(&project,None).unwrap();
     assert_eq!(history.effects.len(), 1);
     assert_eq!(history.effects[0].artifact, "intent.json");
+    assert_eq!(history.effects[0].dismissed_at, Some(dismissed));
 }

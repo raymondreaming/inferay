@@ -1,3 +1,4 @@
+import type { ProjectEffectIntent } from "@contracts";
 import { Button } from "@shared/ui/Button/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For, Show } from "solid-js";
@@ -10,6 +11,7 @@ import {
 import { loadCanonicalAgentState } from "../../hooks/useWorkspaceState.tsx";
 import type { ProjectWorkspaceView } from "../../model/projectFiles.ts";
 import { loadProjects, openRunChat } from "../../services/projectsApi.ts";
+import { EffectIntentDialog } from "./EffectIntentDialog.tsx";
 import { RunFilePreview } from "./RunFilePreview.tsx";
 import { styles } from "./styles.ts";
 
@@ -17,6 +19,9 @@ export function RunHistory(props: {
 	automationId?: string;
 	selectAutomation: (id: string) => void;
 }) {
+	const [reviewing, setReviewing] = createSignal<ProjectEffectIntent | null>(
+		null,
+	);
 	const [opening, setOpening] = createSignal(false);
 	async function continueRun(id: string) {
 		if (opening()) return;
@@ -74,6 +79,27 @@ export function RunHistory(props: {
 	}
 	return (
 		<>
+			<Show when={reviewing()} keyed>
+				{(effect) => (
+					<EffectIntentDialog
+						effect={effect}
+						close={() => setReviewing(null)}
+						dismissed={async (dismissedAt) => {
+							setPage((previous) =>
+								previous
+									? {
+											...previous,
+											effects: previous.effects.map((item) =>
+												item.id === effect.id ? { ...item, dismissedAt } : item,
+											),
+										}
+									: null,
+							);
+							await refreshProjects();
+						}}
+					/>
+				)}
+			</Show>
 			<Show when={!page() && upcoming().length > 0}>
 				<section
 					aria-label="Upcoming automations"
@@ -221,15 +247,17 @@ export function RunHistory(props: {
 									<div {...stylex.attrs(styles.historyIdentity)}>
 										<strong>{effect().intent.kind}</strong>
 										<span {...stylex.attrs(styles.muted)}>
-											{effect().intent.target} · Pending review · Not sent
+											{effect().intent.target} ·{" "}
+											{effect().dismissedAt === null
+												? "Pending review"
+												: "Dismissed"}{" "}
+											· Not sent
 										</span>
 									</div>
 									<Button
 										size="sm"
 										variant="ghost"
-										onClick={() =>
-											inspect(run().directory, `output/${effect().artifact}`)
-										}
+										onClick={() => setReviewing(effect())}
 									>
 										View intent
 									</Button>

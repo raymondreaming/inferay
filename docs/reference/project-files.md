@@ -412,7 +412,13 @@ bodies in SQLite's operational `effect_intents` table, in the same transaction a
 artifact indexing. Identical retries reuse the original intent. Different contents
 under the same project/key fail the run and roll back its new artifact/intent rows.
 History shows the original run's intents as **Pending review · Not sent**.
+**View intent** reads the canonical stored payload, not the source artifact, which
+may have been edited since capture. **Dismiss intent** records a hash-bound local
+decision in `effect_dismissals`. Mismatched hashes are refused, repeated dismissal
+preserves the original timestamp, and dismissal survives restart. Dismissed intents
+remain visible as **Dismissed · Not sent** and cannot be replaced by retrying the
+same key.
 
-This is proposal capture only. Budgets, approval controls, delivery handlers,
+This supports proposal capture, viewing and dismissal. Budgets, approval controls, delivery handlers,
 receipts and crash reconciliation remain planned. No external request is made by
 capturing or viewing an intent. Never include credentials in an intent payload.

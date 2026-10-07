@@ -393,6 +393,40 @@ try {
 		(await api(`/api/projects?projectId=${fixtureProject.id}`)).effects.length,
 		1,
 	);
+	const savedEffect = (
+		await api(`/api/projects?projectId=${fixtureProject.id}`)
+	).effects[0];
+	await writeFile(
+		join(
+			profile,
+			"projects",
+			fixtureProject.id,
+			"runs",
+			savedEffect.runId,
+			"output",
+			savedEffect.artifact,
+		),
+		JSON.stringify({
+			...savedEffect.intent,
+			payload: { text: "Changed source must not replace the saved intent" },
+		}),
+	);
+	await page.getByRole("button", { name: "View intent", exact: true }).click();
+	const intentDialog = page.getByRole("dialog", {
+		name: "Review intent",
+		exact: true,
+	});
+	await intentDialog.getByText(/Review before sending/).waitFor();
+	assert.equal(
+		await intentDialog.getByText(/Changed source must not/).count(),
+		0,
+	);
+	await intentDialog
+		.getByRole("button", { name: "Dismiss intent", exact: true })
+		.click();
+	await page
+		.getByText("test-account · Dismissed · Not sent", { exact: true })
+		.waitFor();
 	await page.getByRole("button", { name: /report.md ·/ }).click();
 	await page
 		.getByText("A local project, a reusable tool, and a durable run.", {

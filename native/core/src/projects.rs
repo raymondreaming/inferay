@@ -366,6 +366,15 @@ pub struct ProjectEffectIntent {
     pub artifact: String,
     pub intent: EffectIntent,
     pub created_at: i64,
+    pub intent_hash: String,
+    pub dismissed_at: Option<i64>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EffectReviewRequest {
+    pub id: String,
+    pub intent_hash: String,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
