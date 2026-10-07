@@ -394,9 +394,12 @@ impl ChatMessageBuffer {
                         }
                         if value["type"] == "inferay.plugin-proposal" {
                             if let Ok(
-                                command @ crate::project_files::ProjectFileCommand::CreatePlugin {
+                                command @ (crate::project_files::ProjectFileCommand::CreatePlugin {
                                     ..
-                                },
+                                }
+                                | crate::project_files::ProjectFileCommand::UpdatePlugin {
+                                    ..
+                                }),
                             ) = serde_json::from_value(value["command"].clone())
                             {
                                 render.plugin_proposal = Some(command);
@@ -1018,7 +1021,10 @@ mod output_reference_tests {
     fn standalone_card_reloads_only_valid_automation_writes() {
         let id = "b39bc9f4-870f-42a9-871b-a892278bac52";
         let body = serde_json::json!({"schema":"inferay.automation/1","id":id,"name":"Briefing","trigger":{"kind":"manual"},"overlap":"skip","execution":{"kind":"agent","provider":"codex","instructions":"Review progress","skills":[],"resources":[],"repositories":[],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":300},"may":[]});
-        for (path, valid) in [(format!("automations/{id}/automation.json"), true), ("project.json".into(), false)] {
+        for (path, valid) in [
+            (format!("automations/{id}/automation.json"), true),
+            ("project.json".into(), false),
+        ] {
             let command = serde_json::json!({"type":"saveDefinition","projectId":"project-1","path":path,"content":body.to_string(),"expectedHash":null});
             let message: ChatTranscriptMessage = serde_json::from_value(serde_json::json!({
                 "id":"automation-card","role":"system",
@@ -1036,6 +1042,7 @@ mod output_reference_tests {
     fn plugin_card_reloads_only_bundle_proposals() {
         for command in [
             serde_json::json!({"type":"createPlugin","projectId":"project-1","slug":"daily","files":{"plugin.json":"{}"}}),
+            serde_json::json!({"type":"updatePlugin","projectId":"project-1","slug":"daily","expectedHash":"old","files":{"README.md":"Updated guide"},"remove":[]}),
             serde_json::json!({"type":"runAutomation","id":"automation-1","requestId":"request-1"}),
         ] {
             let message: ChatTranscriptMessage = serde_json::from_value(serde_json::json!({
@@ -1045,7 +1052,7 @@ mod output_reference_tests {
             let mut buffer = ChatMessageBuffer::default();
             buffer.replace_messages(vec![message]);
             let render = buffer.messages()[0].render.as_ref().unwrap();
-            if command["type"] == "createPlugin" {
+            if command["type"] == "createPlugin" || command["type"] == "updatePlugin" {
                 assert_eq!(
                     serde_json::to_value(&render.plugin_proposal).unwrap(),
                     command

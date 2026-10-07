@@ -46,6 +46,28 @@ pub(crate) fn apply(
         index::refresh(db, profile, skills)?;
         return Ok(json!({"id":id}));
     }
+    if let ProjectFileCommand::UpdatePlugin {
+        project_id,
+        slug,
+        expected_hash,
+        files: changes,
+        remove,
+    } = &command
+    {
+        uuid::Uuid::parse_str(project_id)?;
+        let root = profile.join("projects").join(project_id);
+        let project: ProjectDefinition = parse(
+            "project.json",
+            &files::read(&root, "project.json", MANIFEST_LIMIT)?,
+        )?;
+        if project.id != *project_id || project.archived {
+            return Err("Project is missing or archived".into());
+        }
+        let globals = skills.iter().map(|s| format!("global:{}", s.id)).collect();
+        let id = files::update_plugin(&root, slug, expected_hash, changes, remove, &globals)?;
+        index::refresh(db, profile, skills)?;
+        return Ok(json!({"id": id}));
+    }
     if let ProjectFileCommand::SaveDefinition {
         project_id,
         path,
@@ -92,7 +114,7 @@ pub(crate) fn apply(
                     })?
                 }
                 None => {
-                    let package = index::package_files(&root, prefix)?;
+                    let package = files::package_files(&root, prefix)?;
                     let source_hash = hash(&serde_json::to_vec(&package)?);
                     let entries = package
                         .into_iter()
@@ -233,7 +255,9 @@ pub(crate) fn apply(
             tx.execute("UPDATE automation_state SET enabled=0,next_due_at=NULL,inputs_changed=1,error='Repository location changed. Review before running.' WHERE automation_id IN (SELECT id FROM automations WHERE project_id=?)",[project_id])?;
             json!({"id":repository_id})
         }
-        ProjectFileCommand::SaveDefinition { .. } | ProjectFileCommand::CreatePlugin { .. } => {
+        ProjectFileCommand::SaveDefinition { .. }
+        | ProjectFileCommand::CreatePlugin { .. }
+        | ProjectFileCommand::UpdatePlugin { .. } => {
             unreachable!("definition writes handled before transaction")
         }
     };

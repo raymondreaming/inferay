@@ -54,11 +54,15 @@ export function SystemMessage(props: {
 				}}
 			</Match>
 			<Match
-				when={props.message.render?.pluginProposal?.type === "createPlugin"}
+				when={
+					props.message.render?.pluginProposal?.type === "createPlugin" ||
+					props.message.render?.pluginProposal?.type === "updatePlugin"
+				}
 			>
 				{() => {
 					const command = props.message.render?.pluginProposal;
-					return command?.type === "createPlugin" ? (
+					return command?.type === "createPlugin" ||
+						command?.type === "updatePlugin" ? (
 						<PluginProposalCard command={command} />
 					) : null;
 				}}

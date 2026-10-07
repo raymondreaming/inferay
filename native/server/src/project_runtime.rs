@@ -244,24 +244,22 @@ impl ProjectRuntime {
     }
 
     pub async fn preview_plugin(self: &Arc<Self>, command: &ProjectFileCommand) -> Result<()> {
-        let ProjectFileCommand::CreatePlugin {
-            project_id,
-            slug,
-            files,
-        } = command
-        else {
-            return Err("Expected a plugin bundle".into());
-        };
         let skills = self.prompts.lock().await.load()?;
         let store = self.store.lock().map_err(|_| "Project store lock failed")?;
-        let root = store.project_dir(project_id)?;
-        crate::project_definitions::validate_bundle(
-            &root,
-            slug,
-            files,
-            &skills.iter().map(|s| format!("global:{}", s.id)).collect(),
-        )
+        let globals = skills.iter().map(|s| format!("global:{}", s.id)).collect();
+        match command {
+            ProjectFileCommand::CreatePlugin { project_id, slug, files } => {
+                let root = store.project_dir(project_id)?;
+                crate::project_definitions::validate_bundle(&root, slug, files, &globals)
+            }
+            ProjectFileCommand::UpdatePlugin { project_id, slug, expected_hash, files, remove } => {
+                let root = store.project_dir(project_id)?;
+                crate::project_definitions::prepare_plugin_update(&root, slug, expected_hash, files, remove, &globals).map(|_| ())
+            }
+            _ => Err("Expected a plugin bundle".into()),
+        }
     }
+
     pub async fn command(self: &Arc<Self>, cmd: ProjectFileCommand, host: bool) -> Result<Value> {
         let skills = self.prompts.lock().await.load()?;
         let this = self.clone();

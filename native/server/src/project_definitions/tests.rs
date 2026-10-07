@@ -144,7 +144,7 @@ fn reusable_code_plugin_needs_no_skill_tool_or_automation() {
             fs::read_to_string(root.join("plugins/scene-kit").join(path)).unwrap(),
             *content
         );
-        let hashes = crate::project_index::package_files(&root, "plugins/scene-kit").unwrap();
+        let hashes = crate::project_definitions::package_files(&root, "plugins/scene-kit").unwrap();
         assert_eq!(
             hashes.get(&format!("plugins/scene-kit/{path}")),
             Some(&hash(content.as_bytes()))
@@ -201,4 +201,106 @@ fn raw_library_intake_preserves_binary_and_never_installs_embedded_jobs() {
         fs::read_dir(project.join("plugins")).unwrap().count(),
         before
     );
+}
+
+#[test]
+fn library_updates_preserve_assets_and_publish_only_valid_complete_packages() {
+    let (_profile, root) = fixture();
+    write(
+        &root,
+        "plugins/daily/assets/scene.blend",
+        &[0, 255, 12, 42],
+        None,
+    )
+    .unwrap();
+    write(&root, "plugins/daily/old.py", b"old code", None).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(
+            root.join("plugins/daily/old.py"),
+            fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+    }
+    let initial = package_files(&root, "plugins/daily").unwrap();
+    let expected = hash(&serde_json::to_vec(&initial).unwrap());
+    let globals = BTreeSet::new();
+    let changes = BTreeMap::from([
+        ("README.md".into(), "Use the renderer.".into()),
+        ("src/render.py".into(), "print('render')".into()),
+        ("old.py".into(), "updated code".into()),
+    ]);
+    prepare_plugin_update(&root, "daily", &expected, &changes, &[], &globals).unwrap();
+    assert_eq!(
+        package_files(&root, "plugins/daily").unwrap(),
+        initial,
+        "Preview writes nothing"
+    );
+    for (changes, remove) in [
+        (
+            BTreeMap::from([("../escape.py".into(), "bad".into())]),
+            vec![],
+        ),
+        (
+            BTreeMap::from([("plugin.json".into(), "{}".into())]),
+            vec![],
+        ),
+        (BTreeMap::new(), vec!["plugin.json".into()]),
+        (
+            BTreeMap::from([("old.py/child".into(), "bad".into())]),
+            vec![],
+        ),
+        (changes.clone(), vec!["old.py".into()]),
+    ] {
+        assert!(update_plugin(&root, "daily", &expected, &changes, &remove, &globals).is_err());
+        assert_eq!(package_files(&root, "plugins/daily").unwrap(), initial);
+    }
+    update_plugin(&root, "daily", &expected, &changes, &[], &globals).unwrap();
+    assert_eq!(
+        fs::read(root.join("plugins/daily/assets/scene.blend")).unwrap(),
+        [0, 255, 12, 42]
+    );
+    assert_eq!(
+        fs::read_to_string(root.join("plugins/daily/src/render.py")).unwrap(),
+        "print('render')"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(root.join("plugins/daily/old.py"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o755
+        );
+    }
+    let updated = package_files(&root, "plugins/daily").unwrap();
+    assert!(update_plugin(&root, "daily", &expected, &changes, &[], &globals).is_err());
+    assert_eq!(
+        package_files(&root, "plugins/daily").unwrap(),
+        updated,
+        "Stale update cannot overwrite"
+    );
+    let expected = hash(&serde_json::to_vec(&updated).unwrap());
+    update_plugin(
+        &root,
+        "daily",
+        &expected,
+        &BTreeMap::new(),
+        &["old.py".into()],
+        &globals,
+    )
+    .unwrap();
+    assert!(!root.join("plugins/daily/old.py").exists());
+    assert!(root.join("plugins/daily/assets/scene.blend").exists());
+    assert!(fs::read_dir(root.join("plugins")).unwrap().all(|entry| {
+        !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".staging-")
+    }));
 }

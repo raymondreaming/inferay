@@ -101,7 +101,7 @@ impl AgentProcessHandle {
     pub(crate) fn tool_definitions(&self) -> Value {
         let mut definitions = inferay_core::prompts::tools::tool_definitions();
         if self.projects.is_some() {
-            definitions.as_array_mut().unwrap().push(json!({"type":"function","name":"inferay_projects","description":"Inspect file-backed Inferay projects, resources, plugins and automations. Use help for the current file formats and commands. createPlugin prepares one complete bundle proposal card without saving or enabling it. Definitions are files; never edit SQLite. Approval, writes and execution require a user action. Skills are reusable instructions; automations are scheduled or manually triggered executions. Do not create a skill for an automation request unless explicitly asked.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["list","help","command"]},"projectId":{"type":"string"},"command":{"type":"object"}},"required":["action"]}}));
+            definitions.as_array_mut().unwrap().push(json!({"type":"function","name":"inferay_projects","description":"Inspect file-backed Inferay projects, resources, plugins and automations. Use help for the current file formats and commands. createPlugin and updatePlugin prepare one complete library proposal card without saving or enabling it. Read the current library hash before proposing updates. Standalone automation saveDefinition prepares an automation card. Definitions are files; never edit SQLite. Approval, writes and execution require a user action. Skills are reusable instructions; automations are scheduled or manually triggered executions. Do not create a skill for an automation request unless explicitly asked.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["list","help","command"]},"projectId":{"type":"string"},"command":{"type":"object"}},"required":["action"]}}));
         }
         if self.memory.is_some() {
             definitions.as_array_mut().unwrap().push(
@@ -125,7 +125,7 @@ impl AgentProcessHandle {
                                     Some("list") => projects.catalog(args["projectId"].as_str().map(str::to_owned),None).await.map(|v|(json!(v),None)).map_err(|e|e.to_string()),
                                     Some("help") => Ok((json!({"commands":include_str!("project_commands.json")}),None)),
                                     Some("command") => match serde_json::from_value::<inferay_core::project_files::ProjectFileCommand>(args["command"].clone()) {
-                                        Ok(command @ inferay_core::project_files::ProjectFileCommand::CreatePlugin {..}) => {
+                                        Ok(command @ (inferay_core::project_files::ProjectFileCommand::CreatePlugin {..} | inferay_core::project_files::ProjectFileCommand::UpdatePlugin {..})) => {
                                             match projects.preview_plugin(&command).await {
                                                 Ok(()) => Ok((json!({"status":"proposed","message":"One plugin bundle card is ready for review. Nothing has been saved or enabled. Do not also propose a skill unless requested."}),Some(json!({"type":"inferay.plugin-proposal","command":command})))),
                                                 Err(error) => Err(format!("Plugin proposal invalid: {error}")),

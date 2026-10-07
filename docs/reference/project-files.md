@@ -132,7 +132,7 @@ An ordinary automation is saved at `automations/<id>/automation.json`. A plugin 
 
 For standalone jobs, agents call `inferay_projects` with `saveDefinition`. The tool validates the complete definition, references and expected file hash, then returns a proposal card without writing. Accepting the card uses the same validated writer and checks the hash again. New files require `expectedHash: null`; updates require the current `sourceHash` from the catalog. Saving does not approve execution or enable a schedule.
 
-Library discovery uses `readPlugin`. Its inventory includes per-file hashes and a whole-library `sourceHash`, including binary assets. Reading or previewing never executes a plugin. Whole-library update proposals remain planned; the library editor currently saves individual text files with expected hashes.
+Library discovery uses `readPlugin`. Its inventory includes per-file hashes and a whole-library `sourceHash`, including binary assets. Reading or previewing never executes a plugin. Agents propose whole-library changes with `updatePlugin`: `projectId`, `slug`, `expectedHash` from the inventory, `files` containing complete text for additions/replacements, and `remove` listing explicit file paths. Unmentioned files retain their bytes, including binary assets. The manifest ID stays unchanged. Preview validates the complete resulting project without writing. Acceptance rechecks the whole-library hash, stages the complete candidate and atomically swaps directories on macOS and Linux; unsupported platforms refuse publication. Changes revoke execution approvals through the index refresh. The library editor also supports individual text edits with per-file hashes.
 
 ## Automation definition
 

@@ -3,7 +3,7 @@
 use crate::project_store::{Result, hash};
 use inferay_core::project_files::{self as format, *};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
@@ -771,4 +771,229 @@ pub(crate) fn import_library(
     rename_directory(stage.path(), &target)?;
     fs::File::open(parent)?.sync_all()?;
     Ok(id)
+}
+
+pub(crate) fn package_files(root: &Path, prefix: &str) -> Result<BTreeMap<String, String>> {
+    relative_path(prefix)?;
+    let mut hashes = BTreeMap::new();
+    let mut total = 0usize;
+    for (count, entry) in walkdir::WalkDir::new(root.join(prefix))
+        .follow_links(false)
+        .into_iter()
+        .enumerate()
+    {
+        let entry = entry?;
+        if count > PLUGIN_ENTRY_LIMIT {
+            return Err("Plugin exceeds 1000 entries".into());
+        }
+        if entry.file_type().is_symlink() {
+            return Err("Plugin contains a symlink".into());
+        }
+        if entry.file_type().is_dir() {
+            continue;
+        }
+        let path = entry
+            .path()
+            .strip_prefix(root)?
+            .to_str()
+            .ok_or("Plugin path is not UTF-8")?;
+        let bytes = read(root, path, PLUGIN_BYTE_LIMIT.saturating_sub(total))?;
+        total += bytes.len();
+        hashes.insert(path.into(), hash(&bytes));
+    }
+    Ok(hashes)
+}
+
+/// Build a complete candidate in memory. Unmentioned files, including binary
+/// assets, retain their exact bytes. Previewing never stages or publishes files.
+pub(crate) fn prepare_plugin_update(
+    root: &Path,
+    slug: &str,
+    expected: &str,
+    changes: &BTreeMap<String, String>,
+    remove: &[String],
+    globals: &BTreeSet<String>,
+) -> Result<BTreeMap<String, Vec<u8>>> {
+    relative_path(slug)?;
+    if slug.contains('/') || slug.starts_with('.') {
+        return Err("Use a visible plugin folder name".into());
+    }
+    if changes.is_empty() && remove.is_empty() {
+        return Err("Plugin update contains no changes".into());
+    }
+    let prefix = format!("plugins/{slug}");
+    let original = package_files(root, &prefix)?;
+    if hash(&serde_json::to_vec(&original)?) != expected {
+        return Err(
+            "Plugin changed; read its current sourceHash before proposing an update".into(),
+        );
+    }
+    let mut candidate = BTreeMap::new();
+    for (path, digest) in &original {
+        let bytes = read(root, path, PLUGIN_BYTE_LIMIT)?;
+        if hash(&bytes) != *digest {
+            return Err("Plugin changed while reading its files".into());
+        }
+        candidate.insert(
+            path.strip_prefix(&format!("{prefix}/"))
+                .ok_or("Invalid plugin path")?
+                .to_owned(),
+            bytes,
+        );
+    }
+    let old: PluginDefinition = parse(
+        "plugin.json",
+        candidate
+            .get("plugin.json")
+            .ok_or("Plugin manifest missing")?,
+    )?;
+    let mut removals = BTreeSet::new();
+    for path in remove {
+        if !removals.insert(path) || changes.contains_key(path) {
+            return Err("A file cannot be removed twice or both replaced and removed".into());
+        }
+        relative_path(path)?;
+        if candidate.remove(path).is_none() {
+            return Err(format!("{path}: removal target does not exist").into());
+        }
+    }
+    for (path, text) in changes {
+        relative_path(path)?;
+        if path.split('/').any(|part| part.starts_with('.')) || path.split('/').count() > 14 {
+            return Err("Plugin files must use visible normalized paths within 14 levels".into());
+        }
+        if text.len() > ENTRYPOINT_LIMIT {
+            return Err("Plugin text file exceeds the 1 MB editing limit".into());
+        }
+        candidate.insert(path.clone(), text.as_bytes().to_vec());
+    }
+    let next: PluginDefinition = parse(
+        "plugin.json",
+        candidate
+            .get("plugin.json")
+            .ok_or("Plugin manifest cannot be removed")?,
+    )?;
+    if next.id != old.id {
+        return Err("Updating a plugin must preserve its identity".into());
+    }
+    let mut entries = BTreeSet::new();
+    let mut total = 0usize;
+    for (path, bytes) in &candidate {
+        total = total.saturating_add(bytes.len());
+        let mut parent = String::new();
+        for part in path.split('/') {
+            if !parent.is_empty() {
+                parent.push('/');
+            }
+            parent.push_str(part);
+            entries.insert(parent.clone());
+            if parent != *path && candidate.contains_key(&parent) {
+                return Err("A plugin file cannot also be a directory".into());
+            }
+        }
+    }
+    if entries.len() > PLUGIN_ENTRY_LIMIT || total > PLUGIN_BYTE_LIMIT {
+        return Err("Plugin update exceeds package limits".into());
+    }
+    let paths: BTreeMap<_, _> = candidate
+        .iter()
+        .map(|(path, bytes)| (format!("{prefix}/{path}"), bytes.as_slice()))
+        .collect();
+    let overlay = paths
+        .iter()
+        .map(|(path, bytes)| (path.as_str(), *bytes))
+        .collect();
+    let before = scan(root, globals)?;
+    for entry in scan_candidate(root, globals, &overlay, Some(&prefix))? {
+        if let Some(error) = entry.error {
+            if entry.path.starts_with(&format!("{prefix}/"))
+                || before
+                    .iter()
+                    .find(|old| old.path == entry.path)
+                    .and_then(|old| old.error.as_ref())
+                    != Some(&error)
+            {
+                return Err(format!("{}: {error}", entry.path).into());
+            }
+        }
+    }
+    Ok(candidate)
+}
+
+/// Publish all additions, replacements and removals together. The old package
+/// occupies the hidden staging path after the swap and is cleaned up on return.
+pub(crate) fn update_plugin(
+    root: &Path,
+    slug: &str,
+    expected: &str,
+    changes: &BTreeMap<String, String>,
+    remove: &[String],
+    globals: &BTreeSet<String>,
+) -> Result<String> {
+    let candidate = prepare_plugin_update(root, slug, expected, changes, remove, globals)?;
+    let manifest: PluginDefinition = parse("plugin.json", &candidate["plugin.json"])?;
+    let prefix = format!("plugins/{slug}");
+    let target = managed_path(root, &prefix, false)?;
+    let parent = target.parent().ok_or("Plugin parent missing")?;
+    let stage = tempfile::Builder::new()
+        .prefix(".staging-")
+        .tempdir_in(parent)?;
+    let previous = package_files(root, &prefix)?;
+    for (path, bytes) in candidate {
+        write(stage.path(), &path, &bytes, None)?;
+        let original_path = format!("{prefix}/{path}");
+        if previous.contains_key(&original_path) {
+            let original = managed_path(root, &original_path, false)?;
+            fs::set_permissions(
+                stage.path().join(&path),
+                fs::metadata(original)?.permissions(),
+            )?;
+            fs::File::open(stage.path().join(&path))?.sync_all()?;
+        }
+    }
+    fs::File::open(stage.path())?.sync_all()?;
+    if hash(&serde_json::to_vec(&package_files(root, &prefix)?)?) != expected {
+        return Err("Plugin changed before publication; review the new files".into());
+    }
+    exchange_directories(stage.path(), &target)?;
+    fs::File::open(parent)?.sync_all()?;
+    Ok(manifest.id)
+}
+
+fn exchange_directories(source: &Path, target: &Path) -> Result<()> {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        let from = std::ffi::CString::new(source.as_os_str().as_encoded_bytes())?;
+        let to = std::ffi::CString::new(target.as_os_str().as_encoded_bytes())?;
+        // Both directories stay present. Readers see either complete package.
+        #[cfg(target_os = "macos")]
+        let result = unsafe {
+            libc::renameatx_np(
+                libc::AT_FDCWD,
+                from.as_ptr(),
+                libc::AT_FDCWD,
+                to.as_ptr(),
+                libc::RENAME_SWAP,
+            )
+        };
+        #[cfg(target_os = "linux")]
+        let result = unsafe {
+            libc::renameat2(
+                libc::AT_FDCWD,
+                from.as_ptr(),
+                libc::AT_FDCWD,
+                to.as_ptr(),
+                libc::RENAME_EXCHANGE,
+            )
+        };
+        if result != 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = (source, target);
+        Err("Atomic plugin updates are unsupported on this platform".into())
+    }
 }

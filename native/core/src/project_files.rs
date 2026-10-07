@@ -23,6 +23,13 @@ pub enum ProjectFileCommand {
         slug: String,
         files: BTreeMap<String, String>,
     },
+    UpdatePlugin {
+        project_id: String,
+        slug: String,
+        expected_hash: String,
+        files: BTreeMap<String, String>,
+        remove: Vec<String>,
+    },
     SaveDefinition {
         project_id: String,
         path: String,

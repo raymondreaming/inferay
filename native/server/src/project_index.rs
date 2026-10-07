@@ -271,7 +271,7 @@ pub(crate) fn execution_inputs(
         return Err("Project identity changed or was archived".into());
     }
     let prefix = path.split('/').take(2).collect::<Vec<_>>().join("/");
-    let package = package_files(&root, &prefix)?;
+    let package = files::package_files(&root, &prefix)?;
     for entry in scanned
         .iter()
         .filter(|entry| entry.path.starts_with(&format!("{prefix}/")))
@@ -374,7 +374,7 @@ pub(crate) fn execution_inputs(
             return Err(format!("Execution input changed while reading: {path}").into());
         }
     }
-    if package_files(&root, &prefix)? != package {
+    if files::package_files(&root, &prefix)? != package {
         return Err("Plugin files changed while capturing execution inputs".into());
     }
     let mut snapshot = json!({"projectId":project,"automation":definition,"files":inputs,"globalSkills":selected_skills,"repositoryPaths":repositories,"projectInstructions":project_definition.instructions,"resources":resource_context,"skills":skill_context});
@@ -487,7 +487,7 @@ pub(crate) fn plugin_inputs(
     if project_definition.id != project || project_definition.archived {
         return Err("Project changed or archived".into());
     }
-    let package = package_files(&root, prefix)?;
+    let package = files::package_files(&root, prefix)?;
     let mut contents = BTreeMap::<String, Option<String>>::new();
     for (path, expected) in &package {
         let bytes = files::read(&root, path, PLUGIN_BYTE_LIMIT)?;
@@ -527,7 +527,7 @@ pub(crate) fn plugin_inputs(
             }
         }
     }
-    if package_files(&root, prefix)? != package
+    if files::package_files(&root, prefix)? != package
         || files::read(&root, "project.json", MANIFEST_LIMIT)? != project_bytes
     {
         return Err("Plugin or project changed during review".into());
@@ -593,37 +593,6 @@ pub(crate) fn review_plugin(
         automations,
         files,
     })
-}
-
-pub(crate) fn package_files(root: &Path, prefix: &str) -> Result<BTreeMap<String, String>> {
-    relative_path(prefix)?;
-    let mut hashes = BTreeMap::new();
-    let mut total = 0usize;
-    for (count, entry) in walkdir::WalkDir::new(root.join(prefix))
-        .follow_links(false)
-        .into_iter()
-        .enumerate()
-    {
-        let entry = entry?;
-        if count > PLUGIN_ENTRY_LIMIT {
-            return Err("Plugin exceeds 1000 entries".into());
-        }
-        if entry.file_type().is_symlink() {
-            return Err("Plugin contains a symlink".into());
-        }
-        if entry.file_type().is_dir() {
-            continue;
-        }
-        let path = entry
-            .path()
-            .strip_prefix(root)?
-            .to_str()
-            .ok_or("Plugin path is not UTF-8")?;
-        let bytes = files::read(root, path, PLUGIN_BYTE_LIMIT.saturating_sub(total))?;
-        total += bytes.len();
-        hashes.insert(path.into(), hash(&bytes));
-    }
-    Ok(hashes)
 }
 
 /// Refresh from disk as one index transaction. Malformed/missing definitions

@@ -342,3 +342,34 @@ async fn standalone_automation_proposal_is_read_only_and_conflict_checked() {
     assert!(runtime.command(command, true).await.is_err(), "Approval click must recheck the hash");
     assert!(std::fs::read_to_string(root.join(path)).unwrap().contains("Outside edit"));
 }
+
+#[tokio::test]
+async fn library_update_proposal_requires_user_save_and_revokes_approval() {
+    let profile = tempfile::tempdir().unwrap();
+    let (project, _) = definition_files(profile.path(), "print('{}')");
+    let runtime = runtime(profile.path());
+    let root = profile.path().join("projects").join(&project);
+    let manifest: Value = serde_json::from_slice(&std::fs::read(root.join("plugins/report/plugin.json")).unwrap()).unwrap();
+    let id = manifest["id"].as_str().unwrap().to_owned();
+    let review = runtime.command(ProjectFileCommand::ReviewPlugin { id: id.clone() }, false).await.unwrap();
+    runtime.command(ProjectFileCommand::ApprovePlugin {
+        id: id.clone(), expected_inputs_hash: review["inputsHash"].as_str().unwrap().into(), enable: true,
+    }, true).await.unwrap();
+    let library = runtime.command(ProjectFileCommand::ReadPlugin { id: id.clone(), path: None }, false).await.unwrap();
+    let command = ProjectFileCommand::UpdatePlugin {
+        project_id: project.clone(), slug: "report".into(),
+        expected_hash: library["sourceHash"].as_str().unwrap().into(),
+        files: [("README.md".into(), "Reusable reporting tools.".into())].into_iter().collect(),
+        remove: vec![],
+    };
+    runtime.preview_plugin(&command).await.unwrap();
+    assert!(!root.join("plugins/report/README.md").exists());
+    assert!(runtime.command(command.clone(), false).await.is_err());
+    let result = runtime.command(command.clone(), true).await.unwrap();
+    assert_eq!(result["id"], id);
+    let catalog = runtime.catalog(Some(project), None).await.unwrap();
+    assert!(catalog.catalog.plugins[0].approved_hash.is_none());
+    assert!(!catalog.catalog.automations[0].enabled);
+    assert!(runtime.preview_plugin(&command).await.is_err());
+    assert!(runtime.command(command, true).await.is_err());
+}
