@@ -118,11 +118,26 @@ Front matter fields: `id` (UUID), `name`, `description` (up to 8,000 bytes), opt
 |---|---|
 | `program` | a program name resolved on this Mac's `PATH` (`python3`, `bun`, `blender`). Absolute paths are refused so the definition stays portable. |
 | `entrypoint` | relative path inside the tool's folder |
-| `args` | up to 64, each up to 8,000 bytes |
+| `interface` | `json_stdin` (default) or `cli` |
+| `args` | up to 64, each up to 8,000 bytes; CLI placeholders occupy a whole argument |
 | `timeoutSeconds` | 1–3,600 |
 | `inputSchema`, `outputSchema` | the supported JSON Schema subset below |
 
-Execution contract: the tool receives its input as JSON on stdin and writes JSON to stdout; diagnostics go to stderr. Environment: `INFERAY_PROJECT_DIR`, `INFERAY_RUN_ID`, `INFERAY_RUN_OUTPUT` (write artifacts here).
+The default `json_stdin` interface runs `program entrypoint ...args`: input is JSON on stdin, output is JSON on stdout, and diagnostics go to stderr.
+
+For an existing script, use `interface: "cli"`. Its `args` must contain exactly one `{entrypoint}` argument; place it after any interpreter flags. Each `{input.field}` argument reads a top-level input string, number or boolean. Missing, null or structured values fail preflight. Fields use letters, digits, underscores or hyphens. Values are passed as individual arguments, never split, re-expanded or interpolated through a shell. Stdin is closed. Exit zero returns `{ "stdout": "…", "stderr": "…", "exitCode": 0 }`, checked against `outputSchema`; nonzero exit fails the run. Both streams are retained under the run's logs, including on failure, with the existing 1 MiB limit per stream.
+
+```json
+{ "schema": "inferay.tool/1", "id": "7a41…", "name": "copy-check",
+  "interface": "cli", "program": "python3", "entrypoint": "copy_check.py",
+  "args": ["{entrypoint}", "--caption", "{input.caption}"], "timeoutSeconds": 300,
+  "inputSchema": { "type": "object", "properties": { "caption": { "type": "string" } }, "required": ["caption"] },
+  "outputSchema": { "type": "object" } }
+```
+
+For Blender, arguments can be `["--background", "--python", "{entrypoint}", "--", "{input.scene}"]`. This interface does not sandbox script behavior; permission enforcement remains planned.
+
+Environment: `INFERAY_PROJECT_DIR`, `INFERAY_RUN_ID`, `INFERAY_RUN_OUTPUT` (write artifacts here).
 
 **JSON Schema subset.** Offline only: `type`, `properties`, `required`, `items`, `enum`, boolean `additionalProperties`, and numeric, length and count bounds. Other keywords are refused; remote references are never fetched.
 
@@ -199,14 +214,14 @@ Kept in `projects.sqlite3`, not copied with a folder:
 
 Run states: `queued`, `running`, `succeeded`, `failed`, `waiting_input`, `cancelled`, `interrupted`, `skipped`. A restart marks unfinished runs `interrupted` (or `cancelled` if a stop was requested), never `succeeded`. Up to 4 chat and background operations run at once, at most 2 of them background runs.
 
-## Planned extensions
+## Extension status
 
-Designed in [ADR 0002](../adr/0002-automation-kernel.md); not in the code yet. Each adds fields to the formats above.
+Designed in [ADR 0002](../adr/0002-automation-kernel.md). E2 is implemented above; the remaining extensions are planned.
 
 | | Extension | Adds |
 |---|---|---|
 | E1 | Packs | tool entrypoints inside a linked repository (`{base: "repository", id, path}`), pinned by commit and file hash |
-| E2 | CLI tools | `interface: "cli"` with an argument template and pass/fail on exit code, for existing scripts that do not speak JSON |
+| E2 | CLI tools | Implemented: `interface: "cli"`, `{entrypoint}` / `{input.field}` arguments, durable streams and failure on nonzero exit |
 | E3 | Requirements | `requires` on plugins and tools (`blender>=5.0`, `ffmpeg`, Python modules), checked before a run |
 | E4 | Connections | `connections` declared by plugins and tools; secrets held in the Keychain and injected only into declaring tools |
 | E5 | Effects | `effect:<kind>` permissions, `effects` with budgets on automations, `effectHandlers` on plugins |

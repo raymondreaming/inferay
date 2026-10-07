@@ -89,7 +89,8 @@ It also needs one real Codex run and one real Claude run in the native app. Thes
 
 ## M3. Safe to leave running
 
-- **CLI tools (E2) and tool grants (E7).** Existing scripts run as tools, with an argument template and pass/fail taken from the exit code. Agent automations name the tools they may call.
+- **CLI tools (E2): implemented.** Existing scripts run with literal argument templates, explicit entrypoint placement, closed stdin and pass/fail from the exit code. Successful output includes stdout/stderr; failed runs retain both logs. Disposable-profile tests exercise success and failure.
+- **Tool grants (E7): planned.** Agent automations name the tools they may call.
 - **Permission enforcement.** `may` maps to each provider's own controls instead of full access:
   - Codex: read-only or workspace-write sandbox, and its network setting.
   - Claude: permission mode and allowed tools.

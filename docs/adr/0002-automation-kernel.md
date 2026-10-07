@@ -16,7 +16,7 @@ Inferay's core is a small kernel that owns seven concepts. Everything domain-spe
 |---|---|---|---|
 | 1 | **Definitions** | Files are the source of truth for projects, resources, plugins, skills, tools and automations; the kernel validates them and keeps a rebuildable index. | formats built; storage switch in progress |
 | 2 | **References** | Projects, repositories, packs and resources are addressed by stable IDs; local paths are local state; external inputs are pinned by commit or hash. | IDs built; pinning planned (E1) |
-| 3 | **Callables** | One abstraction for everything a run can invoke: agent providers, JSON tools, CLI tools, MCP tools. Granted per run, enforced in one place. | JSON tools and agents built; CLI, MCP, per-run grants planned (E2, E6, E7) |
+| 3 | **Callables** | One abstraction for everything a run can invoke: agent providers, JSON tools, CLI tools, MCP tools. Granted per run, enforced in one place. | JSON tools, CLI tools and agents built; MCP and per-run grants planned (E6, E7) |
 | 4 | **Runs** | Triggers and events lead to admission, bounded execution and evidence (state, events, logs, artifacts). | built (manual, interval, calendar) |
 | 5 | **Authority** | Permissions (`may`), approvals by input hash, machine requirements, connections holding secrets. | approvals and the permission ceiling built; enforcement on agent runs (providers run with full access today), requirements and connections planned (E3, E4) |
 | 6 | **Effects** | The only route for consequences outside the machine: intent, budget check, review, outbox record before sending, handler, receipt, reconcile. | planned (E5) |

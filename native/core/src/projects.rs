@@ -39,9 +39,94 @@ impl Default for ProjectPath {
         Self::Project { path: ".".into() }
     }
 }
+/// Invocation protocol for reusable local scripts. Neither mode invokes a shell.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolInterface {
+    #[default]
+    JsonStdin,
+    Cli,
+}
+impl ToolInterface {
+    pub fn validate_arguments(self, args: &[String]) -> Result<(), String> {
+        if args.len() > 64 {
+            return Err("Tool supports at most 64 arguments".into());
+        }
+        if self == Self::Cli
+            && args
+                .iter()
+                .filter(|arg| arg.as_str() == "{entrypoint}")
+                .count()
+                != 1
+        {
+            return Err("CLI args must include exactly one {entrypoint} argument".into());
+        }
+        for arg in args {
+            if self == Self::Cli && arg.contains("{entrypoint}") && arg != "{entrypoint}" {
+                return Err("{entrypoint} must occupy an entire CLI argument".into());
+            }
+            bounded_text(arg, 8000, false)?;
+            if self == Self::Cli && arg.contains("{input.") {
+                Self::input_key(arg)?;
+            }
+        }
+        Ok(())
+    }
+    fn input_key(arg: &str) -> Result<&str, String> {
+        let key = arg
+            .strip_prefix("{input.")
+            .and_then(|v| v.strip_suffix('}'))
+            .filter(|key| {
+                !key.is_empty()
+                    && key
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            });
+        key.ok_or_else(|| {
+            "CLI input placeholders must occupy an entire argument: {input.field}".into()
+        })
+    }
+    pub fn arguments(
+        self,
+        args: &[String],
+        input: &Value,
+        entrypoint: &str,
+    ) -> Result<Vec<String>, String> {
+        self.validate_arguments(args)?;
+        if self == Self::JsonStdin {
+            return Ok(std::iter::once(entrypoint.to_owned())
+                .chain(args.iter().cloned())
+                .collect());
+        }
+        args.iter()
+            .map(|arg| {
+                if arg == "{entrypoint}" {
+                    return Ok(entrypoint.to_owned());
+                }
+                if !arg.contains("{input.") {
+                    return Ok(arg.clone());
+                }
+                let key = Self::input_key(arg)?;
+                let value = match input.get(key) {
+                    Some(Value::String(value)) => value.clone(),
+                    Some(value @ (Value::Number(_) | Value::Bool(_))) => value.to_string(),
+                    _ => {
+                        return Err(format!(
+                            "CLI input {key} must be a string, number or boolean"
+                        ));
+                    }
+                };
+                bounded_text(&value, 8000, false)?;
+                Ok(value)
+            })
+            .collect()
+    }
+}
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct LocalTool {
+    #[serde(default)]
+    pub interface: ToolInterface,
     pub program: String,
     pub entrypoint: ProjectPath,
     #[serde(default)]

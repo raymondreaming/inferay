@@ -202,6 +202,8 @@ pub struct PluginDefinition {
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ToolDefinition {
+    #[serde(default)]
+    pub interface: crate::projects::ToolInterface,
     pub schema: String,
     pub id: String,
     pub name: String,
@@ -406,12 +408,10 @@ impl Definition for ToolDefinition {
         // The executable is resolved locally; host-specific absolute paths are not portable.
         relative_path(&self.program)?;
         relative_path(&self.entrypoint)?;
-        if !(1..=3600).contains(&self.timeout_seconds) || self.args.len() > 64 {
-            return Err("invalid tool timeout or argument count".into());
+        if !(1..=3600).contains(&self.timeout_seconds) {
+            return Err("invalid tool timeout".into());
         }
-        for arg in &self.args {
-            bounded_text(arg, 8000, false)?;
-        }
+        self.interface.validate_arguments(&self.args)?;
         validate_schema_definition(&self.input_schema, 0)?;
         validate_schema_definition(&self.output_schema, 0)
     }

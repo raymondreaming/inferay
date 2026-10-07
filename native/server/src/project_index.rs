@@ -444,9 +444,12 @@ pub(crate) fn execution_inputs(
                 json!(inputs.get(&path).ok_or("Tool entrypoint hash is missing")?);
             snapshot["entrypoint"] = json!(root.join(&path));
             snapshot["tool"] = serde_json::to_value(LocalTool {
+                interface: tool.interface,
                 program: tool.program.clone(),
-                entrypoint: ProjectPath::Project { path },
-                arguments: tool.args.clone(),
+                entrypoint: ProjectPath::Project { path: path.clone() },
+                arguments: tool.interface.arguments(
+                    &tool.args, input, &root.join(&path).to_string_lossy(),
+                )?,
                 working_directory: ProjectPath::Project { path: directory },
                 timeout_seconds: tool.timeout_seconds,
                 input_schema: tool.input_schema.clone(),

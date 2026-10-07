@@ -46,6 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         inferay_core::memory::MemoryNoteInput,
         inferay_core::projects::LegacyAutomationProposal,
         inferay_core::projects::LocalTool,
+        inferay_core::projects::ToolInterface,
         inferay_presentation::documents::DocumentView,
         inferay_presentation::dock_session::DockRequest,
         inferay_presentation::dock::DockLayout,

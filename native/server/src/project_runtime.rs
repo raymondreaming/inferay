@@ -428,13 +428,16 @@ impl ProjectRuntime {
                 let cwd = resolve_path(&root, &tool.working_directory)?;
                 let mut command = tokio::process::Command::new(&tool.program);
                 command
-                    .arg(&file)
                     .args(&tool.arguments)
                     .current_dir(cwd)
                     .env("INFERAY_PROJECT_DIR", &root)
                     .env("INFERAY_RUN_OUTPUT", dir.join("output"))
                     .env("INFERAY_RUN_ID", id)
-                    .stdin(std::process::Stdio::piped())
+                    .stdin(if tool.interface == ToolInterface::JsonStdin {
+                        std::process::Stdio::piped()
+                    } else {
+                        std::process::Stdio::null()
+                    })
                     .stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::piped())
                     .kill_on_drop(true);
@@ -445,12 +448,16 @@ impl ProjectRuntime {
                 if let Some(pid) = pid {
                     self.tracker.track_pid(pid);
                 }
-                let mut stdin = child.stdin.take().ok_or("No process stdin")?;
-                let data = serde_json::to_vec(&input)?;
-                let write = tokio::spawn(async move {
-                    stdin.write_all(&data).await?;
-                    stdin.shutdown().await
-                });
+                let write = if tool.interface == ToolInterface::JsonStdin {
+                    let mut stdin = child.stdin.take().ok_or("No process stdin")?;
+                    let data = serde_json::to_vec(&input)?;
+                    Some(tokio::spawn(async move {
+                        stdin.write_all(&data).await?;
+                        stdin.shutdown().await
+                    }))
+                } else {
+                    None
+                };
                 let stdout = child.stdout.take().ok_or("No stdout")?;
                 let stderr = child.stderr.take().ok_or("No stderr")?;
                 let mut out = tokio::spawn(async move {
@@ -475,7 +482,9 @@ impl ProjectRuntime {
                 let status = loop {
                     tokio::select! {result=child.wait()=>{match result {Ok(status)=>break Some(status),Err(_)=>{failure=Some("Could not wait for tool process");break None;}}},_=tokio::time::sleep(Duration::from_millis(100))=>{if self.stopped(id)||tokio::time::Instant::now()>=deadline{failure=Some(if self.stopped(id){"Cancelled"}else{"Tool timed out"});if let Some(pid)=pid{agent_runner::tree_kill(pid);}let _=child.kill().await;let _=child.wait().await;break None;}}}
                 };
-                write.abort();
+                if let Some(write) = write {
+                    write.abort();
+                }
                 if let Some(pid) = pid {
                     #[cfg(unix)]
                     {
@@ -506,7 +515,11 @@ impl ProjectRuntime {
                 }
                 if !status.is_some_and(|s| s.success()) {
                     return Err(format!(
-                        "Tool failed: {}",
+                        "Tool failed (exit {}): {}",
+                        status
+                            .and_then(|status| status.code())
+                            .map(|code| code.to_string())
+                            .unwrap_or_else(|| "signal".into()),
                         String::from_utf8_lossy(&errors)
                             .chars()
                             .take(2000)
@@ -514,8 +527,15 @@ impl ProjectRuntime {
                     )
                     .into());
                 }
-                let result: Value = serde_json::from_slice(&output)
-                    .map_err(|e| format!("Tool must return JSON on stdout: {e}"))?;
+                let result: Value = match tool.interface {
+                    ToolInterface::JsonStdin => serde_json::from_slice(&output)
+                        .map_err(|e| format!("Tool must return JSON on stdout: {e}"))?,
+                    ToolInterface::Cli => json!({
+                        "stdout": String::from_utf8_lossy(&output),
+                        "stderr": String::from_utf8_lossy(&errors),
+                        "exitCode": 0,
+                    }),
+                };
                 validate_json(&tool.output_schema, &result)?;
                 Ok(result)
             }

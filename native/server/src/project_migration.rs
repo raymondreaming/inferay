@@ -386,6 +386,7 @@ fn tool(
         &prefix,
     )?;
     let value = ToolDefinition {
+        interface: old.interface,
         schema: "inferay.tool/1".into(),
         id: id.into(),
         name,

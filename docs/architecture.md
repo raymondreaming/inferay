@@ -67,8 +67,8 @@ Bundled skills ship in the app (`data/prompts.json`). Global custom skills live 
 
 - The scheduler (`ProjectRuntime::start`, `project_runtime.rs`) ticks every second: it queues up to 8 due automations, then starts queued runs.
 - Admission: 4 operations at once shared with interactive chats, at most 2 of them background runs. One running run per automation.
-- Before a run, `capture_snapshot` (`project_store.rs`) records the execution, revision, project instructions, tool definition and entrypoint hash, selected resources and skills. Enabling an automation stores that snapshot's hash in `automation_approvals`.
-- Tool runs receive JSON on stdin and `INFERAY_PROJECT_DIR`, `INFERAY_RUN_ID`, `INFERAY_RUN_OUTPUT`. Agent runs launch Codex or Claude with the selected skills (without `inferay_projects`) and log to `logs/agent.jsonl`. A finished agent run can be opened as a chat (`project_chat.rs`).
+- Before a run, `execution_inputs` (`project_index.rs`) captures the current definition, project instructions, selected resources and skills, tool invocation and package file hashes. Approval stores that snapshot’s hash in `automation_state.approved_hash`; queue admission and execution recheck the current snapshot.
+- Tool runs use JSON stdin/stdout by default, or the `cli` interface with literal argument templates, closed stdin and success determined by exit status. Both receive `INFERAY_PROJECT_DIR`, `INFERAY_RUN_ID`, `INFERAY_RUN_OUTPUT`; stdout and stderr are retained in run logs. Agent runs launch Codex or Claude with the selected skills (without `inferay_projects`) and log to `logs/agent.jsonl`. A finished agent run can be opened as a chat (`project_chat.rs`).
 - Definition files and the move away from SQLite-owned definitions: [reference/project-files.md](reference/project-files.md) and [roadmap.md](roadmap.md).
 
 ## Environment variables

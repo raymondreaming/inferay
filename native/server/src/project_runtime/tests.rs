@@ -515,3 +515,54 @@ async fn chat_library_acceptance_approval_run_and_outside_edit_share_one_owner()
         "Reopening the accepted card never restores old files"
     );
 }
+
+#[tokio::test]
+async fn cli_tools_use_literal_arguments_and_exit_status_with_durable_logs() {
+    for fail in [false, true] {
+        let profile = tempfile::tempdir().unwrap();
+        let script = if fail {
+            "import sys\nprint('partial output')\nprint('quality gate failed', file=sys.stderr)\nsys.exit(7)"
+        } else {
+            "import sys\nassert sys.stdin.read() == ''\nprint('|'.join(sys.argv[1:]))"
+        };
+        let (project, automation) = definition_files(profile.path(), script);
+        let root = profile.path().join("projects").join(&project);
+        let tool_path = root.join("plugins/report/tools/report/tool.json");
+        let mut tool: Value = serde_json::from_slice(&std::fs::read(&tool_path).unwrap()).unwrap();
+        tool["interface"] = json!("cli");
+        tool["args"] = json!(["{entrypoint}", "--title", "{input.title}", "{input.count}"]);
+        std::fs::write(&tool_path, tool.to_string()).unwrap();
+        let automation_path = root.join("plugins/report/automations/report.json");
+        let mut definition: Value =
+            serde_json::from_slice(&std::fs::read(&automation_path).unwrap()).unwrap();
+        definition["execution"]["input"] =
+            json!({"title":"two words; $(touch unwanted)","count":3});
+        std::fs::write(&automation_path, definition.to_string()).unwrap();
+        let runtime = runtime(profile.path());
+        let id = approved_run(&runtime, &automation, "cli").await;
+        runtime.tick().await.unwrap();
+        let run = completed(&runtime, &project, &id).await;
+        assert!(!root.join("plugins/report/tools/report/unwanted").exists());
+        let logs = Path::new(&run.directory).join("logs");
+        if fail {
+            assert_eq!(run.status, "failed");
+            assert!(
+                run.error
+                    .as_deref()
+                    .unwrap()
+                    .contains("quality gate failed")
+            );
+            assert!(run.result.is_none());
+            assert_eq!(
+                std::fs::read_to_string(logs.join("stdout.txt")).unwrap(),
+                "partial output\n"
+            );
+        } else {
+            assert_eq!(run.status, "succeeded", "{:?}", run.error);
+            let result = run.result.unwrap();
+            assert_eq!(result["exitCode"], 0);
+            assert_eq!(result["stdout"], "--title|two words; $(touch unwanted)|3\n");
+            assert_eq!(result["stderr"], "");
+        }
+    }
+}
