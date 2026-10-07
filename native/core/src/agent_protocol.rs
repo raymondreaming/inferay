@@ -85,7 +85,10 @@ impl ClaudeProtocolState {
         // so the inner type decides whether this is chat content. Matching the
         // wrapper's type dropped every content_block_delta, which is why
         // assistant text appeared all at once instead of streaming in.
-        if matches!(
+        let tool_result = data["type"] == "user"
+            && data.pointer("/message/content").and_then(Value::as_array)
+                .is_some_and(|blocks| blocks.iter().any(|block| block["type"] == "tool_result"));
+        if tool_result || matches!(
             data["type"].as_str(),
             Some(
                 "assistant"
@@ -181,6 +184,21 @@ impl CodexProtocolState {
                     context.emissions.push(ProtocolEmission::FileChange(paths));
                 }
                 self.active_patch_paths.clear();
+            }
+            ("rawResponseItem/completed", "custom_tool_call_output" | "function_call_output") => {
+                context.emissions.push(ProtocolEmission::Chat(json!({
+                    "type":"user", "message":{"content":[{
+                        "type":"tool_result", "tool_use_id":item["call_id"], "content":item["output"]
+                    }]}
+                })));
+            }
+            ("item/completed", "functionCallOutput") => {
+                // Code-mode tool output can arrive independently of commandExecution items.
+                context.emissions.push(ProtocolEmission::Chat(json!({
+                    "type":"user", "message":{"content":[{
+                        "type":"tool_result", "tool_use_id":item["id"], "content":item["output"]
+                    }]}
+                })));
             }
             ("item/completed", "agentMessage") => {
                 let text = extract_text(item);

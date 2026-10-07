@@ -24,6 +24,69 @@ impl AutomationSandbox {
             network: may.contains(&Permission::Network),
         }
     }
+    pub(crate) fn claude(&self, arguments: &mut Vec<String>, output: &Path) -> Result<(), String> {
+        // Permission patterns are glob syntax. Reject paths that would widen a literal grant.
+        let output = output.to_string_lossy().into_owned();
+        let roots = self.roots.iter().chain(std::iter::once(&output));
+        let mut allow = vec![
+            "Bash".to_owned(),
+            "Read".into(),
+            "Glob".into(),
+            "Grep".into(),
+            "mcp__inferay__*".into(),
+        ];
+        for root in roots {
+            if root.contains(['*', '?', '[', ']', '(', ')', '\n', '\r']) {
+                return Err(
+                    "Automation path contains unsupported permission-pattern characters".into(),
+                );
+            }
+            allow.push(format!("Edit(/{root}/**)"));
+        }
+        if self.network {
+            allow.extend(["WebFetch".into(), "WebSearch".into()]);
+        }
+        let mut settings_index = None;
+        for (index, argument) in arguments.iter().enumerate() {
+            if argument == "--settings" {
+                settings_index = Some(index + 1);
+            }
+        }
+        let index = settings_index.ok_or("Missing Claude settings argument")?;
+        let mut settings: Value =
+            serde_json::from_str(arguments.get(index).ok_or("Missing Claude settings")?)
+                .map_err(|e| format!("Invalid Claude settings: {e}"))?;
+        settings["disableAllHooks"] = json!(true);
+        settings["permissions"] = json!({"allow":allow,"deny":if self.network {vec![]} else {vec!["WebFetch","WebSearch"]}});
+        settings["sandbox"] = json!({
+            "enabled":true,"failIfUnavailable":true,"autoAllowBashIfSandboxed":true,
+            "allowUnsandboxedCommands":false,"excludedCommands":[],
+            "filesystem":{"allowWrite":self.roots},
+            "network":{"allowedDomains":if self.network {vec!["*"]} else {vec![]},"strictAllowlist":true,"allowLocalBinding":false}
+        });
+        arguments[index] = settings.to_string();
+        arguments.retain(|arg| arg != "--dangerously-skip-permissions");
+        arguments.extend([
+            "--restricted".into(),
+            "--permission-mode".into(),
+            "dontAsk".into(),
+            "--permission-prompts".into(),
+            "none".into(),
+            "--setting-sources".into(),
+            "".into(),
+            "--tools".into(),
+            if self.network {
+                "Bash,Read,Glob,Grep,Edit,Write,WebFetch,WebSearch"
+            } else {
+                "Bash,Read,Glob,Grep,Edit,Write"
+            }
+            .into(),
+        ]);
+        for root in &self.roots {
+            arguments.extend(["--add-dir".into(), root.clone()]);
+        }
+        Ok(())
+    }
     pub(crate) fn mode(&self) -> &'static str {
         if self.roots.is_empty() {
             "read-only"
@@ -41,6 +104,7 @@ impl AutomationSandbox {
     /// Applied after user configuration translation so ambient permissions cannot widen this run.
     pub(crate) fn thread(&self, params: &mut Value, config: &Value) {
         params["sandbox"] = json!(self.mode());
+        params["experimentalRawEvents"] = json!(true);
         params["approvalPolicy"] = json!("never");
         params["config"]["sandbox_mode"] = json!(self.mode());
         if let Some(overrides) = params["config"].as_object_mut() {
@@ -53,12 +117,8 @@ impl AutomationSandbox {
         // Automation MCP capabilities are supplied through the run's explicit dynamic tools.
         if let Some(servers) = config["mcp_servers"].as_object() {
             let disabled: serde_json::Map<String, Value> = servers
-                .iter()
-                .map(|(name, value)| {
-                    let mut value = value.clone();
-                    value["enabled"] = json!(false);
-                    (name.clone(), value)
-                })
+                .keys()
+                .map(|name| (name.clone(), json!({"enabled":false})))
                 .collect();
             params["config"]["mcp_servers"] = json!(disabled);
         }
@@ -68,6 +128,40 @@ impl AutomationSandbox {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn claude_automation_requires_sandbox_without_ambient_permission_bypass() {
+        let policy = AutomationSandbox::new(&BTreeSet::new(), &json!({}), Path::new("/project"));
+        let mut args = vec![
+            "claude".into(),
+            "--dangerously-skip-permissions".into(),
+            "--settings".into(),
+            "{}".into(),
+        ];
+        policy.claude(&mut args, Path::new("/run/output")).unwrap();
+        assert!(
+            !args
+                .iter()
+                .any(|arg| arg == "--dangerously-skip-permissions")
+        );
+        assert!(
+            args.windows(2)
+                .any(|pair| pair == ["--permission-prompts", "none"])
+        );
+        let settings: Value = serde_json::from_str(
+            &args[args.iter().position(|arg| arg == "--settings").unwrap() + 1],
+        )
+        .unwrap();
+        assert_eq!(settings["sandbox"]["failIfUnavailable"], true);
+        assert_eq!(settings["sandbox"]["allowUnsandboxedCommands"], false);
+        assert_eq!(settings["sandbox"]["network"]["allowedDomains"], json!([]));
+        assert_eq!(settings["disableAllHooks"], true);
+        assert!(
+            policy
+                .claude(&mut args, Path::new("/run/unsafe*/output"))
+                .is_err()
+        );
+    }
+
     #[test]
     fn codex_automation_limits_override_ambient_access() {
         let policy = AutomationSandbox::new(
@@ -82,7 +176,7 @@ mod tests {
         let mut thread = json!({"sandbox":"danger-full-access","config":{"mcp_servers.ambient.enabled":true},"approvalPolicy":"on-request"});
         policy.thread(
             &mut thread,
-            &json!({"mcp_servers":{"ambient":{"command":"unsafe","enabled":true}}}),
+            &json!({"mcp_servers":{"ambient":{"command":"unsafe","enabled":true,"tool_timeout_sec":null}}}),
         );
         assert_eq!(thread["sandbox"], "read-only");
         assert!(
@@ -90,7 +184,10 @@ mod tests {
                 .get("mcp_servers.ambient.enabled")
                 .is_none()
         );
-        assert_eq!(thread["config"]["mcp_servers"]["ambient"]["enabled"], false);
+        assert_eq!(
+            thread["config"]["mcp_servers"]["ambient"],
+            json!({"enabled":false})
+        );
         assert_eq!(thread["config"]["web_search"], "disabled");
         let policy = AutomationSandbox::new(
             &BTreeSet::from([Permission::WriteRepositories]),

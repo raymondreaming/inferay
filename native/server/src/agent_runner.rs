@@ -340,6 +340,16 @@ pub async fn run_claude(
             bridge.config.path().to_string_lossy().into_owned(),
         ]);
     }
+    if let Some(policy) = &handle.sandbox {
+        if let Err(error) = policy.claude(&mut arguments, run.cwd) {
+            emit_error(context, error);
+            flush_emissions(context, emissions);
+            return String::new();
+        }
+        if !arguments.iter().any(|arg| arg == "--strict-mcp-config") {
+            arguments.push("--strict-mcp-config".into());
+        }
+    }
     let spawn = spawn_direct(&arguments, run.cwd, run.env);
     let mut child = match spawn {
         Ok(child) => child,

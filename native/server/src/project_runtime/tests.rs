@@ -609,3 +609,67 @@ async fn agent_tool_grants_execute_only_approved_library_inputs() {
     assert!(task.await.unwrap().is_err(), "Closing the agent must stop its helper");
     assert!(scope.call(request).await.unwrap_err().to_string().contains("closed"));
 }
+
+/// Opt-in native provider gate; uses an isolated profile and harmless write probes.
+#[tokio::test]
+#[ignore = "launches a real provider and consumes account usage"]
+async fn real_claude_automation_uses_sandbox_and_records_a_run() {
+    real_provider_sandbox("claude", Some("haiku")).await;
+}
+
+#[tokio::test]
+#[ignore = "launches a real provider and consumes account usage"]
+async fn real_codex_automation_uses_sandbox_and_records_a_run() {
+    real_provider_sandbox("codex", None).await;
+}
+
+async fn real_provider_sandbox(provider: &str, model: Option<&str>) {
+    let profile = tempfile::tempdir().unwrap();
+    let (project, automation) = definition_files(profile.path(), "print('{}')");
+    let root = profile.path().join("projects").join(&project).canonicalize().unwrap();
+    let path = root.join("plugins/report/automations/report.json");
+    let mut definition: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let outside = profile.path().canonicalize().unwrap().join("outside-probe.txt");
+    definition["execution"] = json!({
+        "kind":"agent","provider":provider,"model":model,"instructions":format!(
+            "This is an authorized sandbox verification in a disposable project. Use your shell execution tool to run both probes: first write the literal text inside-ok into ./inside-probe.txt in your current directory. Then attempt to write outside-ok into {}. The second write should fail; do not bypass the sandbox or retry another way. Report both command outcomes. You must actually run the commands, not just describe them.", outside.display()),
+        "tools":[],"skills":[],"resources":[],"repositories":[],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":90
+    });
+    if provider == "codex" {
+        definition["may"] = json!(["write_project_files"]);
+        let plugin_path = root.join("plugins/report/plugin.json");
+        let mut plugin: Value = serde_json::from_slice(&std::fs::read(&plugin_path).unwrap()).unwrap();
+        plugin["may"] = json!(["write_project_files"]);
+        std::fs::write(plugin_path, plugin.to_string()).unwrap();
+    }
+    std::fs::write(path, definition.to_string()).unwrap();
+    let runtime = runtime(profile.path());
+    let run = approved_run(&runtime, &automation, "real-provider-gate").await;
+    runtime.tick().await.unwrap();
+    let done = tokio::time::timeout(Duration::from_secs(110), async {
+        loop {
+            let catalog = runtime.catalog(Some(project.clone()), None).await.unwrap();
+            let run = catalog.history.runs.into_iter().find(|candidate| candidate.id == run).unwrap();
+            if !["queued", "running"].contains(&run.status.as_str()) { break run; }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }).await.unwrap();
+    let dir = root.join("runs").join(&run);
+    let log = std::fs::read_to_string(dir.join("logs/agent.jsonl")).unwrap_or_default();
+    assert_eq!(done.status, "succeeded", "{:?}\n{}", done.error, log);
+    assert_eq!(std::fs::read_to_string(dir.join("output/inside-probe.txt")).unwrap().trim(), "inside-ok", "{}", log);
+    assert!(!outside.exists(), "Provider wrote outside its approved boundary");
+    let refused = log.lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()).any(|event| {
+        event["type"] == "user" && event.pointer("/message/content").and_then(Value::as_array).is_some_and(|blocks| blocks.iter().any(|block| {
+            let content = block["content"].to_string().to_ascii_lowercase();
+            block["type"] == "tool_result" && (content.contains("operation not permitted") || content.contains("permission denied"))
+        }))
+    });
+    if provider == "claude" { assert!(refused, "Missing tool-result evidence of refused shell write: {}", log); }
+    else {
+        let output: String = log.lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()).filter(|event| event.pointer("/delta/type").and_then(Value::as_str) == Some("input_json_delta")).filter_map(|event| event.pointer("/delta/partial_json").and_then(Value::as_str).map(str::to_owned)).collect();
+        let output = output.to_ascii_lowercase();
+        assert!(refused || output.contains("operation not permitted") || output.contains("permission denied"), "Missing refused command output: {}", log);
+    }
+    assert!(dir.join("output/response.md").is_file());
+}

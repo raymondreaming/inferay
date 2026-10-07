@@ -85,15 +85,15 @@ Development continues directly on `main`. The formats and validators exist; this
 
 A disposable-profile runtime check covers accepting a chat library, refusing unapproved execution with a recorded failure, approving the bundle, executing its tool into an artifact, and disabling it after an outside edit while keeping run history. This checks the native path; the browser checks above remain required.
 
-It also needs one real Codex run and one real Claude run in the native app. These changes are developed and committed directly on `main`; the provider runs remain release gates.
+Real Codex and Claude runs now pass disposable native-runtime filesystem probes, including recorded successful runs and outside-write refusal. Native app interaction checks remain. These changes are developed and committed directly on `main`; the remaining interaction and permission checks remain release gates.
 
 ## M3. Safe to leave running
 
 - **CLI tools (E2): implemented.** Existing scripts run with literal argument templates, explicit entrypoint placement, closed stdin and pass/fail from the exit code. Successful output includes stdout/stderr; failed runs retain both logs. Disposable-profile tests exercise success and failure.
 - **Tool grants (E7): implemented in the shared provider tool path.** Agent automations select library tools by plugin and tool ID. Calls recheck the approved library contents, execute through the normal tool runner, and retain inputs, events, logs and artifacts with the parent run. Native integration checks exercise the path; real Codex and Claude automation runs remain release gates. Grants restrict `inferay_tools`; provider shell permissions still require the enforcement below.
 - **Permission enforcement.** `may` maps to each provider's own controls instead of full access:
-  - Codex: request mapping implemented for read-only or workspace-write roots, network access, disabled escalation, and removal of ambient MCP tools. Real-provider sandbox verification remains outstanding.
-  - Claude: permission mode and allowed tools.
+  - Codex: request mapping implemented for read-only or workspace-write roots, network access, disabled escalation, and removal of ambient MCP tools. A real native-runtime automation verifies an allowed project write and a refused outside write. Network and privileged Git checks remain outstanding.
+  - Claude: restricted mode, explicit tool permissions, required sandbox, no unsandboxed retry, and isolated settings are implemented. A real native-runtime automation writes its output and receives a tool-result refusal for an outside write. Network and privileged Git cases need further checks.
   - `push` and `open_pr` are only possible when declared.
 - **Requirements (E3).** Plugins and tools declare required programs and modules (`blender>=5.0`, `ffmpeg`, `python3:numpy`). A missing one blocks the run up front with a clear message.
 - **Conformance suite.** The proof definitions (`~/Developer/inferay-proofs`) move into the repository as test fixtures, and every kernel change runs against them.
@@ -139,7 +139,7 @@ Build an automation for a domain nobody designed for (for example a weekly finan
 
 ## Known gaps
 
-- Permission enforcement is partial: Codex requests scoped filesystem/network limits; Claude and local tools still have full access. Push/PR/commit isolation and real-provider sandbox checks remain open in M3.
+- Permission enforcement is partial: Codex requests scoped filesystem/network limits; Claude requests restricted tool access and a required Bash sandbox; local tools still have full access. Push/PR/commit isolation, read/network enforcement checks and local-tool sandboxing remain open in M3.
 - `check:architecture` has a "Solid reactivity regression" step that runs nothing.
 - There is no CI; checks run locally and through lint-staged.
 - The README describes a source-available license, but the repository has no `LICENSE` file.

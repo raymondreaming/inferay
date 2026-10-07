@@ -541,7 +541,7 @@ impl ProjectRuntime {
                                     developer_instructions: invocation
                                         .developer_instructions
                                         .as_deref(),
-                                    cwd: &cwd,
+                                    cwd: &invocation.cwd,
                                     model: model.as_deref(),
                                     session_id: None,
                                     env: &env,

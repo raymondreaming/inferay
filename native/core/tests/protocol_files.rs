@@ -61,3 +61,24 @@ fn protocol_snapshot_requests_stay_inside_supplied_roots() {
             .is_empty()
     );
 }
+
+#[test]
+fn claude_retains_tool_results_without_echoing_user_prompts() {
+    let mut state = inferay_core::agent_protocol::ClaudeProtocolState::default();
+    let mut context = AgentProtocolContext::new("/run");
+    state.handle_event(&mut context, &json!({"type":"user","message":{"content":[{"type":"text","text":"Original prompt"}]}}));
+    assert!(context.take_emissions().is_empty());
+    let result = json!({"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"probe","is_error":true,"content":"operation not permitted"}]}});
+    state.handle_event(&mut context, &result);
+    assert_eq!(context.take_emissions(), vec![ProtocolEmission::Chat(result)]);
+}
+
+#[test]
+fn codex_code_mode_results_survive_without_command_items() {
+    let mut state = CodexProtocolState::default();
+    let mut context = AgentProtocolContext::new("/run");
+    state.handle_notification(&mut context, "rawResponseItem/completed", &json!({"item":{"type":"custom_tool_call_output","call_id":"probe","output":"operation not permitted"}}), &ProtocolFiles::default());
+    let emissions = context.take_emissions();
+    assert!(emissions.iter().any(|event| matches!(event, ProtocolEmission::Chat(value)
+        if value.pointer("/message/content/0/content") == Some(&json!("operation not permitted")))));
+}
