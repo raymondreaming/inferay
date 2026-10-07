@@ -1,6 +1,6 @@
 mod prepared_diff;
 pub use prepared_diff::{
-    PreparedEditDiff, SequentialEdit, prepare_conflict_lines, prepare_edit_diff,
+    prepare_conflict_lines, prepare_edit_diff, PreparedEditDiff, SequentialEdit,
 };
 mod git_exec;
 mod worktree_renames;
@@ -11,8 +11,8 @@ mod path_access;
 mod pull_tests;
 
 use git_exec::{run_git, run_git_timed};
+use inferay_core::path_security::{is_safe_relative_path, AllowedPaths};
 use inferay_core::url_encode;
-use inferay_core::path_security::{AllowedPaths, is_safe_relative_path};
 use path_access::resolve_real_allowed_local_path;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -3445,18 +3445,14 @@ mod graph_layout_tests {
                 assert!(row.rails.iter().any(|rail| rail.column == 0 && rail.dashed));
             }
             assert!(snapshot.rows[1].rails.iter().all(|rail| rail.dashed));
-            assert!(
-                snapshot.rows[2]
-                    .rails
-                    .iter()
-                    .any(|rail| rail.column == 1 && rail.dashed && rail.ends_at_node)
-            );
-            assert!(
-                snapshot.rows[3]
-                    .rails
-                    .iter()
-                    .any(|rail| rail.column == 1 && !rail.dashed)
-            );
+            assert!(snapshot.rows[2]
+                .rails
+                .iter()
+                .any(|rail| rail.column == 1 && rail.dashed && rail.ends_at_node));
+            assert!(snapshot.rows[3]
+                .rails
+                .iter()
+                .any(|rail| rail.column == 1 && !rail.dashed));
             assert!(commits[4].refs.iter().any(|reference| reference.is_head));
         }
     }
@@ -3571,7 +3567,10 @@ mod checkout_tests {
             );
         };
         let identify = |directory: &std::path::Path| {
-            run(directory, &["config", "user.email", "fixture@example.invalid"]);
+            run(
+                directory,
+                &["config", "user.email", "fixture@example.invalid"],
+            );
             run(directory, &["config", "user.name", "Fixture"]);
             run(directory, &["config", "commit.gpgsign", "false"]);
         };
@@ -3725,28 +3724,22 @@ mod file_mode_tests {
                 build_hunk_diff_from_versions(String::new(), "", content, true, false, None);
             assert!(added.is_new && added.old_lines.is_empty());
             assert_eq!(added.new_lines.len(), content_lines(content).len());
-            assert!(
-                added
-                    .new_lines
-                    .iter()
-                    .all(|line| line.line_type == GitDiffLineType::Add)
-            );
+            assert!(added
+                .new_lines
+                .iter()
+                .all(|line| line.line_type == GitDiffLineType::Add));
             let deleted =
                 build_hunk_diff_from_versions(String::new(), content, "", false, true, None);
             assert_eq!(deleted.old_lines.len(), added.new_lines.len());
             assert_eq!(deleted.old_lines.len(), deleted.new_lines.len());
-            assert!(
-                deleted
-                    .old_lines
-                    .iter()
-                    .all(|line| line.line_type == GitDiffLineType::Remove)
-            );
-            assert!(
-                deleted
-                    .new_lines
-                    .iter()
-                    .all(|line| line.line_type == GitDiffLineType::Spacer && line.number.is_none())
-            );
+            assert!(deleted
+                .old_lines
+                .iter()
+                .all(|line| line.line_type == GitDiffLineType::Remove));
+            assert!(deleted
+                .new_lines
+                .iter()
+                .all(|line| line.line_type == GitDiffLineType::Spacer && line.number.is_none()));
         }
     }
 }
