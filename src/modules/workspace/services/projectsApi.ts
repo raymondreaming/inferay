@@ -27,6 +27,7 @@ export function changeProject(command: ProjectFileCommand) {
 		path?: string;
 		sourceHash?: string;
 		inputsHash?: string;
+		approved?: boolean;
 	}>("/api/projects/command", command, undefined, { server: true });
 }
 

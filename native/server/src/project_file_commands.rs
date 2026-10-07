@@ -177,7 +177,13 @@ pub(crate) fn apply(
         }
         ProjectFileCommand::ReviewAutomation { id } => {
             let inputs = index::execution_inputs(&tx, profile, &id, skills)?;
-            json!({"id":id,"inputsHash":hash(&serde_json::to_vec(&inputs)?),"inputs":inputs})
+            let fingerprint = hash(&serde_json::to_vec(&inputs)?);
+            let approved: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM automation_state WHERE automation_id=? AND approved_hash=? AND inputs_changed=0)",
+                params![id, fingerprint],
+                |row| row.get(0),
+            )?;
+            json!({"id":id,"inputsHash":fingerprint,"inputs":inputs,"approved":approved})
         }
         ProjectFileCommand::ApproveAutomation {
             id,

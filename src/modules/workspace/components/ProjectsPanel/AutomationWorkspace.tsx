@@ -71,6 +71,17 @@ export function AutomationWorkspace() {
 			});
 			if (!review.inputsHash)
 				throw new Error("Review did not return an input hash");
+			if (run && review.approved) {
+				if (
+					await act({
+						type: "runAutomation",
+						id: automation.id,
+						requestId: crypto.randomUUID(),
+					})
+				)
+					setScreen("history");
+				return;
+			}
 			setApproval({ automation, hash: review.inputsHash, run });
 		} catch {
 			/* Shared mutation error is displayed. */

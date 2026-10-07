@@ -525,9 +525,7 @@ try {
 		.click();
 	await page.getByRole("button", { name: /Chat-created report/ }).click();
 	await page.getByRole("button", { name: "Run now", exact: true }).click();
-	await page
-		.getByRole("button", { name: "Approve & run", exact: true })
-		.click();
+
 	await page
 		.getByText("succeeded", { exact: true })
 		.waitFor({ timeout: 15000 });
@@ -568,6 +566,26 @@ try {
 		changedCatalog.plugins.find((plugin) => plugin.file.id === proposalPluginId)
 			.approvedHash,
 		null,
+	);
+	await page.getByRole("button", { name: /Chat-created report/ }).click();
+	await page.getByRole("button", { name: "Run now", exact: true }).click();
+	const changedReview = page.getByRole("dialog", {
+		name: "Run automation",
+		exact: true,
+	});
+	await changedReview
+		.getByRole("button", { name: "Approve & run", exact: true })
+		.waitFor();
+	await page.keyboard.press("Escape");
+	await changedReview.waitFor({ state: "hidden" });
+	const afterRefusedRun = await api(
+		`/api/projects?projectId=${cardProject.id}`,
+	);
+	assert.equal(
+		afterRefusedRun.runs.filter((run) => run.automationId === chatReportId)
+			.length,
+		1,
+		"Changed inputs must not launch another run without approval",
 	);
 	await writeFile(
 		join(
