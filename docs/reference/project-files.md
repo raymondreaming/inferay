@@ -2,21 +2,28 @@
 
 Exact formats for the files that define a project. The types and validators are `native/core/src/project_files.rs` (tests: `native/core/tests/project_files.rs`); renderer types are exported through `@contracts`. This page describes that code. For what each concept means, read [concepts.md](../concepts.md).
 
-**Status.** The formats and validators are implemented. The server still stores definitions in `projects.sqlite3`; switching it to read and write these files is in progress ([roadmap](../roadmap.md)). Sections marked *planned* are not in the code.
+**Status.** The formats and validators are implemented. The server reads and writes definitions as files; `projects.sqlite3` stores a rebuildable index and local execution state ([roadmap](../roadmap.md)). Sections marked *planned* are not in the code.
 
 ## Layout
 
 ```
 <profile>/projects/<project-id>/
   project.json
-  resources/<type>/<slug>.json
-  files/                                managed documents (no schema)
+  memory/<type>/<slug>.json
+  memory/documents/                     original documents and images
+  automations/<id>/automation.json       ordinary project jobs
+  automations/<id>/skills/               private job support when needed
   plugins/<slug>/
     plugin.json
+    README.md
+    source/                             originals from raw folder intake
+    src/, assets/                       reusable implementations and assets
     skills/<name>.md
     tools/<name>/tool.json + entrypoint
     automations/<name>.json
 ```
+
+Plugins are deliberately created libraries. An ordinary automation does not require a plugin manifest. Raw folder imports preserve original bytes under `source/`; imported definitions there are not installed as jobs or tools.
 
 `<profile>` is `~/Library/Application Support/Inferay` unless `INFERAY_USER_DATA_DIR` is set.
 
@@ -52,7 +59,7 @@ Exact formats for the files that define a project. The types and validators are 
 
 The local checkout path for a repository ID is local state, not part of this file.
 
-## resources/&lt;type&gt;/&lt;slug&gt;.json
+## memory/&lt;type&gt;/&lt;slug&gt;.json
 
 ```json
 { "schema": "inferay.resource/1", "id": "b310…", "type": "brand.genome", "typeVersion": 1,
