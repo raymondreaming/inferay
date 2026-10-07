@@ -29,66 +29,68 @@ export function MemoryNode(props: {
 	onHover: (id: string | null) => void;
 	onPick: (id: string) => void;
 }) {
-	const d = () => props.dot;
 	return (
 		<g
 			data-memory-node
 			{...stylex.attrs(styles.node)}
-			transform={`translate(${d().x} ${d().y})`}
-			onPointerEnter={() => props.onHover(d().node.id)}
+			transform={`translate(${props.dot.x} ${props.dot.y})`}
+			onPointerEnter={() => props.onHover(props.dot.node.id)}
 			onPointerLeave={() => props.onHover(null)}
 			onPointerDown={(event) => {
 				event.stopPropagation();
-				props.onPick(d().node.id);
+				props.onPick(props.dot.node.id);
 			}}
 		>
 			<title>{props.tooltip}</title>
 			<rect
-				x={-d().w / 2 - 8}
-				y={-d().r - 8}
-				width={d().w + 16}
-				height={d().r * 2 + 16}
+				x={-props.dot.w / 2 - 8}
+				y={-props.dot.r - 8}
+				width={props.dot.w + 16}
+				height={props.dot.r * 2 + 16}
 				fill="transparent"
 			/>
-			<Show when={d().node.kind === "image"}>
-				<clipPath id={`memory-clip-${d().index}`}>
+			<Show when={props.dot.node.kind === "image"}>
+				<clipPath id={`memory-clip-${props.dot.index}`}>
 					<rect
-						x={-d().w / 2}
-						y={-d().r}
-						width={d().w}
-						height={d().r * 2}
+						x={-props.dot.w / 2}
+						y={-props.dot.r}
+						width={props.dot.w}
+						height={props.dot.r * 2}
 						rx={5}
 					/>
 				</clipPath>
 				<image
-					href={projectDocumentUrl(props.projectId, d().node.path)}
-					x={-d().w / 2}
-					y={-d().r}
-					width={d().w}
-					height={d().r * 2}
+					href={projectDocumentUrl(props.projectId, props.dot.node.path)}
+					x={-props.dot.w / 2}
+					y={-props.dot.r}
+					width={props.dot.w}
+					height={props.dot.r * 2}
 					preserveAspectRatio="xMidYMid slice"
-					clip-path={`url(#memory-clip-${d().index})`}
+					clip-path={`url(#memory-clip-${props.dot.index})`}
 				/>
 				<rect
-					x={-d().w / 2}
-					y={-d().r}
-					width={d().w}
-					height={d().r * 2}
+					x={-props.dot.w / 2}
+					y={-props.dot.r}
+					width={props.dot.w}
+					height={props.dot.r * 2}
 					rx={5}
-					{...stylex.attrs(styles.frame, d().active && styles.frameActive)}
+					{...stylex.attrs(
+						styles.frame,
+						props.dot.active && styles.frameActive,
+					)}
 				/>
 			</Show>
-			<Show when={d().node.kind !== "image"}>
+			<Show when={props.dot.node.kind !== "image"}>
 				<rect
-					x={-d().w / 2}
-					y={-d().r}
-					width={d().w}
-					height={d().r * 2}
-					rx={d().node.kind === "source" ? d().r : 6}
+					x={-props.dot.w / 2}
+					y={-props.dot.r}
+					width={props.dot.w}
+					height={props.dot.r * 2}
+					rx={props.dot.node.kind === "source" ? props.dot.r : 6}
 					{...stylex.attrs(
 						styles.tile,
-						d().active && styles.tileActive,
-						d().node.superseded && styles.tileStale,
+						props.dot.active && styles.tileActive,
+						props.dot.node.superseded && styles.tileStale,
 					)}
 				/>
 				<svg
@@ -102,28 +104,31 @@ export function MemoryNode(props: {
 					stroke-width="1.8"
 					stroke-linecap="round"
 					stroke-linejoin="round"
-					{...stylex.attrs(styles.icon, d().active && styles.iconActive)}
+					{...stylex.attrs(styles.icon, props.dot.active && styles.iconActive)}
 				>
-					<path d={memoryIconPath(d().node)} />
+					<path d={memoryIconPath(props.dot.node)} />
 				</svg>
 			</Show>
-			{d().chosen ? (
+			{props.dot.chosen ? (
 				<rect
-					x={-d().w / 2 - 4}
-					y={-d().r - 4}
-					width={d().w + 8}
-					height={d().r * 2 + 8}
-					rx={d().node.kind === "source" ? d().r + 4 : 9}
+					x={-props.dot.w / 2 - 4}
+					y={-props.dot.r - 4}
+					width={props.dot.w + 8}
+					height={props.dot.r * 2 + 8}
+					rx={props.dot.node.kind === "source" ? props.dot.r + 4 : 9}
 					{...stylex.attrs(styles.ring)}
 				/>
 			) : null}
 			{props.showLabel ? (
 				<text
 					x={0}
-					y={d().r + 15 / props.zoom}
+					y={props.dot.r + 15 / props.zoom}
 					text-anchor="middle"
 					font-size={String(11.5 / props.zoom)}
-					{...stylex.attrs(styles.label, d().active && styles.labelActive)}
+					{...stylex.attrs(
+						styles.label,
+						props.dot.active && styles.labelActive,
+					)}
 				>
 					{props.label}
 				</text>
