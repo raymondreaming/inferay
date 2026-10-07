@@ -1,4 +1,5 @@
 //! Durable effect proposals captured with run artifacts. No delivery authority is implied.
+pub(crate) mod outbox;
 use crate::project_store::{Result, hash, now};
 use inferay_core::projects::EffectIntent;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -13,13 +14,15 @@ pub(crate) fn create_schema(db: &Connection) -> Result<()> {
         CREATE TABLE IF NOT EXISTS effect_dismissals(
             effect_id TEXT PRIMARY KEY REFERENCES effect_intents(id),
             intent_hash TEXT NOT NULL, dismissed_at INTEGER NOT NULL);")?;
-    Ok(())
+    outbox::create_schema(db)
 }
 
 pub(crate) fn dismiss(db: &Connection, request: &inferay_core::projects::EffectReviewRequest) -> Result<i64> {
+    let queued: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM effect_outbox WHERE effect_id=?)", [&request.id], |r| r.get(0))?;
+    if queued { return Err("Queued effects must be cancelled through delivery controls".into()); }
     let digest: String = db.query_row("SELECT intent_hash FROM effect_intents WHERE id=?", [&request.id], |row| row.get(0))?;
     if digest != request.intent_hash { return Err("Effect contents do not match the reviewed intent".into()); }
-    db.execute("INSERT INTO effect_dismissals(effect_id,intent_hash,dismissed_at) VALUES(?1,?2,?3) ON CONFLICT(effect_id) DO NOTHING",
+    db.execute("INSERT INTO effect_dismissals(effect_id,intent_hash,dismissed_at) SELECT ?1,?2,?3 WHERE NOT EXISTS(SELECT 1 FROM effect_outbox WHERE effect_id=?1) ON CONFLICT(effect_id) DO NOTHING",
         params![request.id,request.intent_hash,now()])?;
     Ok(db.query_row("SELECT dismissed_at FROM effect_dismissals WHERE effect_id=?", [&request.id], |row| row.get(0))?)
 }
@@ -64,6 +67,7 @@ pub(crate) fn inbox(db: &Connection, project: &str, automation: Option<&str>, be
         "SELECT json_object('id',e.id,'runId',e.run_id,'artifact',e.artifact,'intent',json(e.intent),'createdAt',e.created_at,'intentHash',e.intent_hash,'dismissedAt',NULL)
          FROM effect_intents e WHERE e.project_id=?1
          AND NOT EXISTS(SELECT 1 FROM effect_dismissals d WHERE d.effect_id=e.id)
+         AND NOT EXISTS(SELECT 1 FROM effect_outbox o WHERE o.effect_id=e.id)
          AND (?2 IS NULL OR EXISTS(SELECT 1 FROM runs r WHERE r.id=e.run_id AND r.automation_id=?2))
          AND (?3 IS NULL OR e.created_at<?3 OR (e.created_at=?3 AND e.id<?4))
          ORDER BY e.created_at DESC,e.id DESC LIMIT 51",

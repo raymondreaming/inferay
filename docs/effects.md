@@ -19,7 +19,16 @@ restarts. Dismissed proposals remain in their source run's history.
 
 See [project files](reference/project-files.md#effect-intent-artifacts) for the
 current artifact contract. Capture, inspection and dismissal do not execute a
-handler. No delivery approval, budget, outbox worker or receipt is implemented.
+handler. Delivery approval controls, handler binding and the outbox worker remain
+unimplemented.
+
+Native outbox storage primitives retain reviewed scope revisions, a queued delivery
+identity, count reservations and receipts. Admission uses an immediate transaction;
+uncertain attempts retain capacity past the rolling window. Startup changes
+in-flight records to uncertain without resending. Storage tests exercise competing
+SQLite connections and an independent local destination that commits before
+losing its reply. These primitives are not yet connected to delivery controls or
+handler execution; the full local conformance gate below remains incomplete.
 
 ## Planned delivery contract
 

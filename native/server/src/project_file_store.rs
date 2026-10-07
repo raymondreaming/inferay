@@ -157,6 +157,7 @@ impl FileProjectStore {
         }
         project_index::create_schema(&db)?;
         crate::project_effects::create_schema(&db)?;
+        crate::project_effects::outbox::recover(&db)?;
         project_migration::memory_directories(&db, &root)?;
         project_migration::standalone::migrate(&db, &root)?;
         project_index::refresh(&mut db, &root, skills)?;
