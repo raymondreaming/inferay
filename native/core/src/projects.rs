@@ -39,13 +39,14 @@ impl Default for ProjectPath {
         Self::Project { path: ".".into() }
     }
 }
-/// Invocation protocol for reusable local scripts. Neither mode invokes a shell.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
+/// Invocation protocol for reusable local programs. No mode invokes a shell.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum ToolInterface {
     #[default]
     JsonStdin,
     Cli,
+    Mcp { tool: String },
 }
 /// Resolved literals stay literal, including strings supplied by a tool caller.
 /// Runtime paths are represented separately until the run directory exists.
@@ -77,11 +78,19 @@ impl ToolArgument {
     }
 }
 impl ToolInterface {
-    pub fn validate_arguments(self, args: &[String]) -> Result<(), String> {
+    pub fn validate_arguments(&self, args: &[String]) -> Result<(), String> {
+        if let Self::Mcp { tool } = self {
+            if tool.is_empty()
+                || tool.len() > 128
+                || !tool.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(&byte))
+            {
+                return Err("MCP tool name must contain 1–128 letters, digits, underscores, dots or hyphens".into());
+            }
+        }
         if args.len() > 64 {
             return Err("Tool supports at most 64 arguments".into());
         }
-        if self == Self::Cli
+        if self == &Self::Cli
             && args
                 .iter()
                 .filter(|arg| arg.as_str() == "{entrypoint}")
@@ -91,14 +100,14 @@ impl ToolInterface {
             return Err("CLI args must include exactly one {entrypoint} argument".into());
         }
         for arg in args {
-            if self == Self::Cli && arg.contains("{entrypoint}") && arg != "{entrypoint}" {
+            if self == &Self::Cli && arg.contains("{entrypoint}") && arg != "{entrypoint}" {
                 return Err("{entrypoint} must occupy an entire CLI argument".into());
             }
-            if self == Self::Cli && arg.contains("{output}") {
+            if self == &Self::Cli && arg.contains("{output}") {
                 Self::output_path(arg)?;
             }
             bounded_text(arg, 8000, false)?;
-            if self == Self::Cli && arg.contains("{input.") {
+            if self == &Self::Cli && arg.contains("{input.") {
                 Self::input_key(arg)?;
             }
         }
@@ -132,13 +141,13 @@ impl ToolInterface {
         })
     }
     pub fn arguments(
-        self,
+        &self,
         args: &[String],
         input: &Value,
         entrypoint: &str,
     ) -> Result<Vec<ToolArgument>, String> {
         self.validate_arguments(args)?;
-        if self == Self::JsonStdin {
+        if !matches!(self, Self::Cli) {
             return Ok(std::iter::once(entrypoint.to_owned())
                 .chain(args.iter().cloned())
                 .map(ToolArgument::Literal)

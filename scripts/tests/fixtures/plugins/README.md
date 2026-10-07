@@ -85,6 +85,20 @@ The preview is 108 × 144 with two samples. Checker success and render success a
 execution evidence; they do not prove brand quality or that copy describes the
 image accurately. Sustained daily operation and production quality remain open.
 
+## Local MCP library tools
+
+The [stdio MCP fixture](stdio-mcp/README.md) exercises the production tool runner
+and agent grants without an external service or model request:
+
+```sh
+cargo test -p inferay-server mcp_library_tools --lib
+cargo test -p inferay-server mcp_agent_grant --lib
+```
+
+It covers approved calls, failure evidence, process cleanup, refused outside
+writes, output bounds and invalidation after library edits. Remote authenticated
+connections remain planned.
+
 ## Planned fixtures
 
 `planned/hatch-content`, `planned/hatch-design`, and `planned/hatch-posting` retain

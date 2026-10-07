@@ -495,7 +495,7 @@ pub(crate) fn execution_inputs(
             snapshot["entrypointHash"] = json!(entrypoint_hash);
             snapshot["entrypoint"] = json!(path);
             snapshot["tool"] = serde_json::to_value(LocalTool {
-                interface: tool.interface,
+                interface: tool.interface.clone(),
                 program: tool.program.clone(),
                 entrypoint,
                 arguments: tool.interface.arguments(

@@ -215,7 +215,7 @@ impl ToolScope {
                 validate_json(&definition.input_schema, &input)?;
                 let entrypoint = resolve_path(&self.root, &captured.entrypoint)?;
                 let tool = LocalTool {
-                    interface: definition.interface,
+                    interface: definition.interface.clone(),
                     program: definition.program.clone(),
                     entrypoint: captured.entrypoint.clone(),
                     arguments: definition.interface.arguments(

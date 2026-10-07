@@ -131,3 +131,39 @@ fn cli_output_path_is_bound_at_execution_without_reexpanding_input() {
         );
     }
 }
+
+#[test]
+fn mcp_tool_names_are_validated_and_server_arguments_stay_literal() {
+    let interface: ToolInterface =
+        serde_json::from_value(json!({"mcp":{"tool":"report.build-v1"}})).unwrap();
+    assert_eq!(
+        serde_json::to_value(&interface).unwrap(),
+        json!({"mcp":{"tool":"report.build-v1"}})
+    );
+    assert_eq!(
+        interface
+            .arguments(
+                &["{input.title}".into()],
+                &json!({"title":"ignored"}),
+                "server.py"
+            )
+            .unwrap()
+            .iter()
+            .map(|arg| arg.resolve("/output"))
+            .collect::<Vec<_>>(),
+        vec!["server.py", "{input.title}"]
+    );
+    for name in ["", "with spaces", "report/run", &"x".repeat(129)] {
+        assert!(
+            ToolInterface::Mcp { tool: name.into() }
+                .validate_arguments(&[])
+                .is_err()
+        );
+    }
+    assert!(
+        serde_json::from_value::<ToolInterface>(
+            json!({"mcp":{"tool":"report", "server":"ambient"}})
+        )
+        .is_err()
+    );
+}

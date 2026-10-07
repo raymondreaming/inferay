@@ -1339,3 +1339,164 @@ async fn history_keeps_active_work_visible_without_changing_past_pagination() {
     assert!(!older.has_more_runs);
     assert!(older.next_run_cursor.is_none());
 }
+
+#[tokio::test]
+async fn mcp_library_tools_use_approved_processes_and_retain_protocol_failures() {
+    let script = include_str!("../../../../scripts/tests/fixtures/plugins/stdio-mcp/server.py");
+    for mode in ["success", "missing", "error", "slow", "overflow", "invalid-schema", "collision"] {
+        let profile = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("unapproved.txt");
+        let (project, automation) = definition_files(profile.path(), script);
+        let root = profile.path().join("projects").join(&project);
+        let path = root.join("plugins/report/tools/report/tool.json");
+        let mut definition: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        definition["interface"] = json!({"mcp":{"tool":"report"}});
+        definition["args"] = json!([mode]);
+        definition["timeoutSeconds"] = json!(if mode == "slow" { 1 } else { 5 });
+        std::fs::write(&path, definition.to_string()).unwrap();
+        let path = root.join("plugins/report/automations/report.json");
+        let mut definition: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        definition["execution"]["input"] = json!({"text":"Reviewed report", "outside":target});
+        std::fs::write(path, definition.to_string()).unwrap();
+        let runtime = runtime(profile.path());
+        let id = approved_run(&runtime, &automation, mode).await;
+        runtime.tick().await.unwrap();
+        let run = completed(&runtime, &project, &id).await;
+        let logs = Path::new(&run.directory).join("logs");
+        let output = Path::new(&run.directory).join("output");
+        let stdout = std::fs::read(logs.join("stdout.txt")).unwrap();
+        assert!(stdout.len() <= 1_048_577);
+        assert!(
+            !target.exists(),
+            "MCP servers must use the native permission boundary"
+        );
+        if mode == "success" {
+            assert_eq!(run.status, "succeeded", "{:?}", run.error);
+            let result = run.result.unwrap();
+            assert_eq!(
+                result["response"]["structuredContent"]["title"],
+                "Reviewed report"
+            );
+            assert!(
+                result["artifacts"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!("report.md"))
+            );
+            assert!(output.join("mcp-response.json").is_file());
+        } else {
+            assert_eq!(run.status, "failed");
+            let expected = match mode {
+                "missing" => "did not provide the declared tool",
+                "error" => "MCP tool reported failure",
+                "slow" => "MCP tool timed out",
+                "invalid-schema" => "inputSchema must describe an object",
+                "collision" => "File exists",
+                _ => "MCP stdout exceeded",
+            };
+            assert!(
+                run.error.as_deref().unwrap().contains(expected),
+                "{mode}: {:?}",
+                run.error
+            );
+            if matches!(mode, "missing" | "overflow" | "invalid-schema") {
+                assert!(!output.join("called.txt").exists());
+            }
+            if mode == "error" {
+                assert!(String::from_utf8_lossy(&stdout).contains("Fix the missing title"));
+                assert!(
+                    std::fs::read_to_string(logs.join("stderr.txt"))
+                        .unwrap()
+                        .contains("quality check failed")
+                );
+            }
+        }
+        if mode == "collision" {
+            assert_eq!(std::fs::read_to_string(output.join("mcp-response.json")).unwrap(), "server-owned output");
+        }
+        let pid = std::fs::read_to_string(output.join("server-pid.txt")).unwrap();
+        assert!(
+            !std::process::Command::new("/bin/kill")
+                .args(["-0", pid.trim()])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .unwrap()
+                .success(),
+            "MCP server must be stopped after every outcome"
+        );
+    }
+}
+
+#[tokio::test]
+async fn mcp_agent_grant_records_outputs_and_revokes_after_library_edit() {
+    let profile = tempfile::tempdir().unwrap();
+    let (project, automation) = definition_files(
+        profile.path(),
+        include_str!("../../../../scripts/tests/fixtures/plugins/stdio-mcp/server.py"),
+    );
+    let root = profile
+        .path()
+        .join("projects")
+        .join(&project)
+        .canonicalize()
+        .unwrap();
+    let read = |path: &str| -> Value {
+        serde_json::from_slice(&std::fs::read(root.join(path)).unwrap()).unwrap()
+    };
+    let plugin = read("plugins/report/plugin.json")["id"].clone();
+    let mut tool = read("plugins/report/tools/report/tool.json");
+    tool["interface"] = json!({"mcp":{"tool":"report"}});
+    std::fs::write(
+        root.join("plugins/report/tools/report/tool.json"),
+        tool.to_string(),
+    )
+    .unwrap();
+    let mut definition = read("plugins/report/automations/report.json");
+    definition["execution"] = json!({"kind":"agent","provider":"codex","instructions":"Use the report tool","tools":[{"pluginId":plugin,"toolId":tool["id"],"required":true}],"skills":[],"resources":[],"repositories":[],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":30});
+    std::fs::write(
+        root.join("plugins/report/automations/report.json"),
+        definition.to_string(),
+    )
+    .unwrap();
+    let runtime = runtime(profile.path());
+    let run = approved_run(&runtime, &automation, "mcp-grant").await;
+    let snapshot = {
+        let mut store = runtime.store.lock().unwrap();
+        crate::project_runs::claim_next(&mut store.db, profile.path(), &[])
+            .unwrap()
+            .unwrap()
+            .2
+    };
+    let scope = crate::project_tools::ToolScope::new(
+        runtime.clone(),
+        &run,
+        root.clone(),
+        root.join("runs").join(&run),
+        snapshot,
+    )
+    .unwrap();
+    assert!(scope.verify_required().is_err());
+    let request = json!({"action":"call","pluginId":plugin,"toolId":tool["id"],"input":{"text":"Agent MCP report"}});
+    let result = scope.call(request.clone()).await.unwrap();
+    assert_eq!(
+        result["response"]["structuredContent"]["title"],
+        "Agent MCP report"
+    );
+    scope.verify_required().unwrap();
+    let artifacts = scope.artifacts().unwrap();
+    let report = artifacts
+        .iter()
+        .find(|path| path.ends_with("report.md"))
+        .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(root.join("runs").join(&run).join("output").join(report)).unwrap(),
+        "Agent MCP report"
+    );
+    std::fs::write(root.join("plugins/report/tools/report/run.py"), "changed").unwrap();
+    assert!(
+        scope.call(request).await.is_err(),
+        "An edited MCP implementation must require fresh review"
+    );
+    scope.close().await;
+}

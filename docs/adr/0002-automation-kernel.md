@@ -16,7 +16,7 @@ Inferay's core is a small kernel that owns seven concepts. Everything domain-spe
 |---|---|---|---|
 | 1 | **Definitions** | Files are the source of truth for projects, resources, plugins, skills, tools and automations; the kernel validates them and keeps a rebuildable index. | file storage and rebuildable index implemented; migration/release gates tracked in the roadmap |
 | 2 | **References** | Projects, repositories, packs and resources are addressed by stable IDs; local paths are local state; external inputs are pinned by commit or hash. | stable IDs and repository packs pinned by commit and entrypoint hash implemented |
-| 3 | **Callables** | One abstraction for everything a run can invoke: agent providers, JSON tools, CLI tools, MCP tools. Granted per run, enforced in one place. | JSON tools, CLI tools, agents and per-run tool grants implemented; plugin MCP declarations planned (E6) |
+| 3 | **Callables** | One abstraction for everything a run can invoke: agent providers, JSON tools, CLI tools, MCP tools. Granted per run, enforced in one place. | JSON, CLI and local stdio MCP tools, agents and per-run tool grants implemented; authenticated remote MCP connections planned (E6) |
 | 4 | **Runs** | Triggers and events lead to admission, bounded execution and evidence (state, events, logs, artifacts). | built (manual, interval, calendar) |
 | 5 | **Authority** | Permissions (`may`), approvals by input hash, machine requirements, connections holding secrets. | approvals, permission ceilings, machine requirements and partial provider/tool sandbox enforcement implemented; privileged Git enforcement and secret connections remain open |
 | 6 | **Effects** | The only route for consequences outside the machine: intent, budget check, review, outbox record before sending, handler, receipt, reconcile. | planned (E5) |
@@ -113,3 +113,13 @@ When a repository already defines its process (for example Point's AutoBuild gui
 7. Observations.
 
 Last, a surprise-domain test: build an automation for a domain nobody designed for, entirely from chat. It must need no kernel change.
+
+### Local MCP uses the callable contract
+
+A local MCP server is an invocation interface on an ordinary plugin tool. Its
+program, entrypoint, companion files, input/output schemas and permissions are
+reviewed with the library. The MCP tool name selects one callable; discovery does
+not grant the rest of the server. Claude and Codex reach it through the same
+per-run tool grants, keeping lifecycle, cancellation, sandboxing and evidence in
+the native tool runner. Remote authenticated servers will require connections;
+they do not inherit a user's ambient provider configuration.

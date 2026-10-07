@@ -1,4 +1,5 @@
 //! Shared process execution for direct tools and granted agent tool calls.
+mod mcp;
 use super::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::io::AsyncReadExt;
@@ -99,7 +100,7 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
         .env("INFERAY_PROJECT_DIR", &root)
         .env("INFERAY_RUN_OUTPUT", output_dir.clone())
         .env("INFERAY_RUN_ID", id)
-        .stdin(if tool.interface == ToolInterface::JsonStdin {
+        .stdin(if tool.interface != ToolInterface::Cli {
             std::process::Stdio::piped()
         } else {
             std::process::Stdio::null()
@@ -119,6 +120,30 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
         tracker: &runtime.tracker,
         exited: false,
     };
+    if let ToolInterface::Mcp { tool: name } = &tool.interface {
+        let response = mcp::execute(
+            runtime,
+            &mut child,
+            &mut process,
+            mcp::Call {
+                id,
+                active,
+                name,
+                input: &input,
+                logs: &logs,
+                timeout: Duration::from_secs(tool.timeout_seconds),
+            },
+        ).await?;
+        // Refuse collisions and symlinks instead of overwriting server-produced output.
+        let response_file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(output_dir.join("mcp-response.json"))?;
+        serde_json::to_writer_pretty(response_file, &response)?;
+        let result = json!({"response":response,"artifacts":collect_outputs(&output_dir)?});
+        validate_json(&tool.output_schema, &result)?;
+        return Ok(result);
+    }
     let write = if tool.interface == ToolInterface::JsonStdin {
         let mut stdin = child.stdin.take().ok_or("No process stdin")?;
         let data = serde_json::to_vec(&input)?;
@@ -204,6 +229,7 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
     let mut result: Value = match tool.interface {
         ToolInterface::JsonStdin => serde_json::from_slice(&output)
             .map_err(|e| format!("Tool must return JSON on stdout: {e}"))?,
+        ToolInterface::Mcp { .. } => unreachable!("MCP handled by the protocol runner"),
         ToolInterface::Cli => json!({
             "stdout": String::from_utf8_lossy(&output),
             "stderr": String::from_utf8_lossy(&errors),

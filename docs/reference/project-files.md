@@ -152,12 +152,35 @@ selected references remain visible for repair or removal.
 |---|---|
 | `program` | a program name resolved on this Mac's `PATH` (`python3`, `bun`, `blender`). Absolute paths are refused so the definition stays portable. |
 | `entrypoint` | relative path inside the tool's folder |
-| `interface` | `json_stdin` (default) or `cli` |
+| `interface` | `json_stdin` (default), `cli`, or `{ "mcp": { "tool": "name" } } |
 | `args` | up to 64, each up to 8,000 bytes; CLI placeholders occupy a whole argument |
 | `timeoutSeconds` | 1–3,600 |
 | `inputSchema`, `outputSchema` | the supported JSON Schema subset below |
 
 The default `json_stdin` interface runs `program entrypoint ...args`: input is JSON on stdin, output is JSON on stdout, and diagnostics go to stderr.
+
+For a local stdio MCP server, use `interface: { "mcp": { "tool": "report" } }`.
+Inferay launches `program entrypoint ...args` inside the same approved process boundary.
+Arguments stay literal. The named tool is discovered through `tools/list`, then called
+with the validated input. Server names are not looked up in personal provider settings.
+Both providers call it through their existing `inferay_tools` grants; an automation can
+also invoke it directly like any other local tool.
+
+MCP results have the shape `{ "response": <MCP result>, "artifacts": [<relative paths>] }`;
+`outputSchema` validates that wrapper. The complete response is saved as
+`mcp-response.json` in the run output; that filename is reserved and collisions fail.
+Text, image and structured content remain in the MCP response. Output files use the
+ordinary artifact collector. Protocol messages and diagnostics are retained in the
+run logs, including tool errors. A server error, missing tool, timeout, invalid
+response or output limit fails the call. Each stream is limited to 1 MiB, discovery
+to 32 pages, and the exchange to 1,000 incoming messages. The tool timeout includes
+initialization and discovery. Cancellation stops the server process group.
+
+Supported negotiated versions are `2024-11-05`, `2025-03-26` and `2025-06-18`.
+Inferay grants no sampling, elicitation or filesystem-root capabilities to the
+server. Local MCP processes receive the ordinary private tool environment and
+permissions; importing their files does not launch them. Remote authenticated MCP
+connections remain planned.
 
 For an existing script, use `interface: "cli"`. Its `args` must contain exactly one `{entrypoint}` argument; place it after any interpreter flags. Each `{input.field}` argument reads a top-level input string, number or boolean. Missing, null or structured values fail preflight. Fields use letters, digits, underscores or hyphens. Values are passed as individual arguments, never split, re-expanded or interpolated through a shell. Stdin is closed. Exit zero returns `{ "stdout": "…", "stderr": "…", "exitCode": 0 }`, checked against `outputSchema`; nonzero exit fails the run. Both streams are retained under the run's logs, including on failure, with the existing 1 MiB limit per stream.
 
@@ -218,7 +241,7 @@ Both direct tools and agent tool grants use this resolver. Source stays in the
 checkout; per-run inputs retain an entrypoint copy for execution evidence. Outputs
 belong in `INFERAY_RUN_OUTPUT`, and the normal tool sandbox still applies.
 
-For Blender, arguments can be `["--background", "--python", "{entrypoint}", "--", "{input.scene}"]`. Both tool interfaces use the same required macOS process sandbox. Tools receive PATH, HOME and locale variables plus Inferay’s explicit run variables and private temporary directory; arbitrary ambient environment variables are omitted. Machine requirements are checked before execution; additional platform adapters remain planned.
+For Blender, arguments can be `["--background", "--python", "{entrypoint}", "--", "{input.scene}"]`. All tool interfaces use the same required macOS process sandbox. Tools receive PATH, HOME and locale variables plus Inferay’s explicit run variables and private temporary directory; arbitrary ambient environment variables are omitted. Machine requirements are checked before execution; additional platform adapters remain planned.
 
 Environment: `INFERAY_PROJECT_DIR`, `INFERAY_RUN_ID`, `INFERAY_RUN_OUTPUT` (write artifacts here).
 
@@ -326,7 +349,7 @@ Designed in [ADR 0002](../adr/0002-automation-kernel.md). E2 is implemented abov
 | E3 | Requirements | `requires` on plugins and tools (`blender>=5.0`, `ffmpeg`, Python modules), checked before a run |
 | E4 | Connections | `connections` declared by plugins and tools; secrets held in the Keychain and injected only into declaring tools |
 | E5 | Effects | `effect:<kind>` permissions, `effects` with budgets on automations, `effectHandlers` on plugins |
-| E6 | MCP | `mcp` server declarations on plugins |
+| E6 | MCP | Local stdio servers use the existing tool definition and per-run grants; remote authenticated connections remain planned |
 | E7 | Agent tools | `tools` on agent executions: which tools an agent run may call |
 
 ## Plugin proposal review
