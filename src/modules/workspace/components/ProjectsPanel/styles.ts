@@ -68,8 +68,14 @@ export const styles = stylex.create({
 		cursor: "pointer",
 	},
 
-	automationMain: { padding: 0, gap: 0, overflow: "hidden" },
+	automationMain: {
+		paddingBlock: 0,
+		paddingInline: 0,
+		gap: 0,
+		overflow: "hidden",
+	},
 	automationSearch: {
+		flexShrink: 0,
 		display: "flex",
 		alignItems: "center",
 		gap: 8,
@@ -197,7 +203,8 @@ export const styles = stylex.create({
 		borderRightWidth: 1,
 		borderRightStyle: "solid",
 		borderRightColor: color.borderSubtle,
-		overflowY: "auto",
+		minHeight: 0,
+		overflow: "hidden",
 	},
 	automationListItem: {
 		display: "flex",

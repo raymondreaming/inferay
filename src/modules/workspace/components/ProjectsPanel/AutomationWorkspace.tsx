@@ -14,7 +14,7 @@ import { Modal } from "@shared/ui/Modal/index.tsx";
 import { Switch } from "@shared/ui/Switch/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createSignal, For, Show } from "solid-js";
-import { color } from "../../../../design-system/styles.stylex.ts";
+import { color, font } from "../../../../design-system/styles.stylex.ts";
 import { projects, saveProjectCommand } from "../../hooks/useProjects.tsx";
 import { automationScheduleLabel } from "../../model/automationSchedule.ts";
 import { automationStarters as starters } from "../../model/automationStarters.ts";
@@ -23,12 +23,27 @@ import { RunHistory } from "./RunHistory.tsx";
 import { styles } from "./styles.ts";
 
 const listStyles = stylex.create({
+	scrollList: {
+		flex: 1,
+		minHeight: 0,
+		overflowY: "auto",
+		display: "flex",
+		flexDirection: "column",
+		gap: 12,
+	},
 	history: {
-		marginInline: 8,
-		paddingInline: 10,
-		paddingBlock: 8,
+		borderWidth: 0,
+		backgroundColor: "transparent",
+		color: color.textMuted,
+		fontSize: font.size_3,
+		fontWeight: 400,
+		textAlign: "left",
+		cursor: "pointer",
 		alignSelf: "flex-start",
-		borderRadius: 8,
+		marginInline: 18,
+		marginBottom: 16,
+		flexShrink: 0,
+		padding: 0,
 	},
 	row: {
 		display: "flex",
@@ -119,93 +134,96 @@ export function AutomationWorkspace() {
 						<IconPlus size={16} />
 					</IconButton>
 				</div>
+				<div {...stylex.attrs(listStyles.scrollList)}>
+					{automations()
+						.filter((a) =>
+							a.name.toLowerCase().includes(search().toLowerCase()),
+						)
+						.map((a) => (
+							<div
+								{...stylex.attrs(
+									listStyles.row,
+									screen() === "detail" &&
+										current()?.id === a.id &&
+										styles.selectedTab,
+								)}
+							>
+								<button
+									type="button"
+									aria-pressed={ariaValue(
+										screen() === "detail" && current()?.id === a.id,
+									)}
+									onClick={() => {
+										setSelected(a.id);
+										setScreen("detail");
+									}}
+									{...stylex.attrs(listStyles.button)}
+								>
+									<span {...stylex.attrs(listStyles.meta)}>
+										{automationScheduleLabel(a)}
+									</span>
+									<strong {...stylex.attrs(listStyles.name)}>{a.name}</strong>
+									{(() => {
+										const execution = a.execution;
+										if (execution.kind !== "agent")
+											return (
+												<span {...stylex.attrs(listStyles.meta)}>
+													Local tool
+												</span>
+											);
+										const provider = getAgentDefinition(
+											execution.provider === "claude" ? "claude" : "codex",
+										);
+										const modelId = execution.model || provider.defaultModel;
+										const model = provider.models.find((m) => m.id === modelId);
+										return (
+											<span {...stylex.attrs(listStyles.meta)}>
+												{execution.workingDirectory.base === "external" ? (
+													<IconGitBranch size={12} />
+												) : (
+													<IconFolder size={12} />
+												)}
+												{execution.workingDirectory.base === "external"
+													? execution.workingDirectory.path
+															.split("/")
+															.filter(Boolean)
+															.at(-1)
+													: "Project-wide"}
+												<AgentIcon kind={provider.kind} size={12} />
+												{model?.shortLabel ?? model?.label ?? modelId}
+											</span>
+										);
+									})()}
+								</button>
+								<Switch
+									label={`Enable ${a.name}`}
+									checked={a.enabled}
+									disabled={projects.busy() || !a.intervalSeconds}
+									onChange={(enabled) =>
+										void act({
+											type: "enableAutomation",
+											id: a.id,
+											expectedRevision: a.revision,
+											enabled,
+										})
+									}
+								/>
+							</div>
+						))}
+					{!automations().length ? (
+						<p {...stylex.attrs(styles.muted)}>
+							Your automations will appear here.
+						</p>
+					) : null}
+				</div>
 				<button
 					type="button"
+					aria-pressed={ariaValue(screen() === "history")}
 					onClick={() => setScreen("history")}
-					{...stylex.attrs(
-						styles.tab,
-						listStyles.history,
-						screen() === "history" && styles.selectedTab,
-					)}
+					{...stylex.attrs(listStyles.history)}
 				>
 					History
 				</button>
-				{automations()
-					.filter((a) => a.name.toLowerCase().includes(search().toLowerCase()))
-					.map((a) => (
-						<div
-							{...stylex.attrs(
-								listStyles.row,
-								screen() === "detail" &&
-									current()?.id === a.id &&
-									styles.selectedTab,
-							)}
-						>
-							<button
-								type="button"
-								aria-pressed={ariaValue(
-									screen() === "detail" && current()?.id === a.id,
-								)}
-								onClick={() => {
-									setSelected(a.id);
-									setScreen("detail");
-								}}
-								{...stylex.attrs(listStyles.button)}
-							>
-								<span {...stylex.attrs(listStyles.meta)}>
-									{automationScheduleLabel(a)}
-								</span>
-								<strong {...stylex.attrs(listStyles.name)}>{a.name}</strong>
-								{(() => {
-									const execution = a.execution;
-									if (execution.kind !== "agent")
-										return (
-											<span {...stylex.attrs(listStyles.meta)}>Local tool</span>
-										);
-									const provider = getAgentDefinition(
-										execution.provider === "claude" ? "claude" : "codex",
-									);
-									const modelId = execution.model || provider.defaultModel;
-									const model = provider.models.find((m) => m.id === modelId);
-									return (
-										<span {...stylex.attrs(listStyles.meta)}>
-											{execution.workingDirectory.base === "external" ? (
-												<IconGitBranch size={12} />
-											) : (
-												<IconFolder size={12} />
-											)}
-											{execution.workingDirectory.base === "external"
-												? execution.workingDirectory.path
-														.split("/")
-														.filter(Boolean)
-														.at(-1)
-												: "Project-wide"}
-											<AgentIcon kind={provider.kind} size={12} />
-											{model?.shortLabel ?? model?.label ?? modelId}
-										</span>
-									);
-								})()}
-							</button>
-							<Switch
-								label={`Enable ${a.name}`}
-								checked={a.enabled}
-								disabled={projects.busy() || !a.intervalSeconds}
-								onChange={(enabled) =>
-									void act({
-										type: "enableAutomation",
-										id: a.id,
-										expectedRevision: a.revision,
-										enabled,
-									})
-								}
-							/>
-						</div>
-					))}
-				{!automations().length ? (
-					<p {...stylex.attrs(styles.muted)}>
-						Your automations will appear here.
-					</p>
-				) : null}
 			</aside>
 			<div {...stylex.attrs(styles.automationContent)}>
 				{projects.error() && screen() !== "edit" ? (

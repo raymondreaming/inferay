@@ -160,11 +160,7 @@ export function RepositoryWorkspaceBar() {
 			{creatingProject() ? (
 				<ProjectEditor close={() => setCreatingProject(false)} />
 			) : null}
-			<div
-				role="tablist"
-				aria-label="Projects"
-				class={`${APP_REGION_NO_DRAG_CLASS} ${stylex.attrs(styles.tabs).class ?? ""}`}
-			>
+			<div role="tablist" aria-label="Projects" {...stylex.attrs(styles.tabs)}>
 				{projects
 					.list()
 					.filter((p) => !p.archived)
