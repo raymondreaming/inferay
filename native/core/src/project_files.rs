@@ -681,6 +681,7 @@ pub fn document_category(name: &str) -> &'static str {
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct AutomationReview {
+    pub connections: Vec<crate::connections::ConnectionAccess>,
     pub id: String,
     pub inputs_hash: String,
     pub inputs: Value,
@@ -691,6 +692,7 @@ pub struct AutomationReview {
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginReview {
+    pub connections: Vec<crate::connections::ConnectionAccess>,
     pub git_write_paths: Vec<String>,
     pub id: String,
     pub name: String,

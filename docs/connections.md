@@ -59,7 +59,8 @@ unresolved references require a new local selection.
 Only tools selected by the automation contribute connections. Input capture
 reads selected metadata under the connection-store lock and includes the alias,
 ID, display name, project ID and revision in the approval hash. It never captures
-credential values. Replacement changes the revision. The existing approval check
+credential values. Automation and plugin review dialogs list each requested
+connection by name, tool and alias. Replacement changes the revision. The existing approval check
 then refuses execution and turns the schedule off. Deleting a referenced
 connection also refuses capture. Tools without references do not access Keychain
 while capturing inputs.

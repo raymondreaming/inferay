@@ -1,5 +1,5 @@
 import { AgentIcon } from "@agents/components/AgentIcon/index.tsx";
-import type { ProjectFileCommand } from "@contracts";
+import type { ConnectionAccess, ProjectFileCommand } from "@contracts";
 import { ariaValue } from "@shared/lib/dom.tsx";
 import { getAgentDefinition } from "@shared/lib/native.tsx";
 import { Button } from "@shared/ui/Button/index.tsx";
@@ -22,6 +22,7 @@ import {
 	type ProjectAutomation,
 } from "../../model/projectFiles.ts";
 import { AutomationEditor } from "./AutomationEditor.tsx";
+import { ConnectionReview } from "./ConnectionReview.tsx";
 import { GitWriteAccess } from "./GitWriteAccess.tsx";
 import { RunHistory } from "./RunHistory.tsx";
 import { automationListStyles as listStyles, styles } from "./styles.ts";
@@ -56,6 +57,7 @@ export function AutomationWorkspace() {
 		hash: string;
 		run: boolean;
 		gitWritePaths: string[];
+		connections: ConnectionAccess[];
 	} | null>(null);
 	async function enable(
 		automation: ProjectAutomation,
@@ -89,6 +91,7 @@ export function AutomationWorkspace() {
 				hash: review.inputsHash,
 				run,
 				gitWritePaths: review.gitWritePaths ?? [],
+				connections: review.connections ?? [],
 			});
 		} catch {
 			/* Shared mutation error is displayed. */
@@ -366,6 +369,7 @@ export function AutomationWorkspace() {
 								approved for this automation.
 							</p>
 							<GitWriteAccess paths={review.gitWritePaths} />
+							<ConnectionReview connections={review.connections} />
 							<Button
 								onClick={async () => {
 									const approved = await act({

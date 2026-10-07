@@ -514,6 +514,7 @@ pub(crate) fn execution_inputs(
     };
     let mut requirements = BTreeSet::new();
     let mut connections = BTreeMap::new();
+    let mut connection_tool_names = BTreeMap::new();
     let mut selected_tools: BTreeSet<String> = granted_tools.values()
         .map(|grant| format!("{}/tool.json", grant.directory)).collect();
     if let DefinitionExecution::Tool { tool, .. } = &definition.execution {
@@ -527,12 +528,13 @@ pub(crate) fn execution_inputs(
             }
             Some(DefinitionFile::Tool(tool)) if selected_tools.contains(&entry.path) => {
                 requirements.extend(tool.requires.iter().cloned());
-                if !tool.connections.is_empty() { connections.insert(tool.id.clone(), tool.connections.clone()); }
+                if !tool.connections.is_empty() { connections.insert(tool.id.clone(), tool.connections.clone()); connection_tool_names.insert(tool.id.clone(), tool.name.clone()); }
             }
             _ => {},
         }
     }
     if !connections.is_empty() {
+        snapshot["connectionToolNames"] = json!(connection_tool_names);
         snapshot["connections"] = serde_json::to_value(crate::connections::Store::open(profile)?.capture(&project, &connections)?)?;
     }
     let project_path = root.to_string_lossy().into_owned();
@@ -689,7 +691,14 @@ pub(crate) fn review_plugin(
         .flat_map(|automations| automations.values())
         .flat_map(|snapshot| snapshot["gitWritePaths"].as_array().into_iter().flatten())
         .filter_map(Value::as_str).map(str::to_owned).collect::<BTreeSet<_>>();
+    let mut connection_access = BTreeMap::new();
+    for snapshot in inputs["automations"].as_object().into_iter().flat_map(|items| items.values()) {
+        for access in inferay_core::connections::ConnectionAccess::from_snapshot(snapshot)? {
+            connection_access.insert((access.tool_id.clone(), access.alias.clone(), access.connection.revision.clone()), access);
+        }
+    }
     Ok(PluginReview {
+        connections: connection_access.into_values().collect(),
         git_write_paths: git_write_paths.into_iter().collect(),
         id: id.into(),
         name: manifest.name,

@@ -828,6 +828,61 @@ try {
 			const saved = (await api(endpoint)).connections[0];
 			assert.equal(saved.name, "Fixture API");
 			assert.ok(!JSON.stringify(await api(endpoint)).includes(testSecret));
+			await page.keyboard.press("Escape");
+			const libraryRoot = join(
+				profile,
+				"projects",
+				cardProject.id,
+				"plugins/briefing-kit",
+			);
+			const toolPath = join(libraryRoot, "tools/report/tool.json");
+			const toolSource = await readFile(toolPath, "utf8");
+			try {
+				await writeFile(
+					join(libraryRoot, "plugin.json"),
+					proposal.files["plugin.json"],
+				);
+				await writeFile(
+					toolPath,
+					JSON.stringify({
+						...JSON.parse(toolSource),
+						connections: { SERVICE: saved.id },
+					}),
+				);
+				await page.reload();
+				await navigation
+					.getByRole("button", { name: "Automations", exact: true })
+					.click();
+				await page.getByRole("button", { name: /Chat-created report/ }).click();
+				await page
+					.getByRole("button", { name: "Run now", exact: true })
+					.click();
+				const review = page.getByRole("dialog", {
+					name: "Run automation",
+					exact: true,
+				});
+				const access = review.getByRole("region", {
+					name: "Requested connections",
+				});
+				await access.getByText("Fixture API", { exact: true }).waitFor();
+				assert.ok((await access.innerText()).includes("SERVICE"));
+				assert.ok(
+					(await access.innerText()).includes(JSON.parse(toolSource).name),
+				);
+				assert.ok(!(await review.innerText()).includes(testSecret));
+				await page.screenshot({ path: join(output, "connection-review.png") });
+				await page.keyboard.press("Escape");
+			} finally {
+				await writeFile(toolPath, toolSource);
+				await writeFile(join(libraryRoot, "plugin.json"), "{broken manifest");
+			}
+			await page.reload();
+			await navigation
+				.getByRole("button", { name: "Plugins", exact: true })
+				.click();
+			await page
+				.getByRole("button", { name: "Connections", exact: true })
+				.click();
 			await dialog
 				.getByRole("button", { name: "Replace key", exact: true })
 				.click();

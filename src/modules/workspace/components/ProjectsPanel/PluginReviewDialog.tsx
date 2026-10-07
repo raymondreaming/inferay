@@ -7,6 +7,7 @@ import * as stylex from "@stylexjs/stylex";
 import { createSignal, For } from "solid-js";
 import { saveProjectCommand } from "../../hooks/useProjects.tsx";
 import { automationScheduleLabel } from "../../model/automationSchedule.ts";
+import { ConnectionReview } from "./ConnectionReview.tsx";
 import { DefinitionChanges } from "./DefinitionChanges.tsx";
 import { GitWriteAccess } from "./GitWriteAccess.tsx";
 import { styles } from "./styles.ts";
@@ -62,6 +63,7 @@ export function PluginReviewDialog(props: {
 					)}
 				</For>
 				<GitWriteAccess paths={props.review.gitWritePaths ?? []} />
+				<ConnectionReview connections={props.review.connections ?? []} />
 				<DefinitionChanges
 					files={props.review.files}
 					beforeLabel="Previously approved"

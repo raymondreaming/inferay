@@ -184,6 +184,7 @@ pub(crate) fn apply(
                 |row| row.get(0),
             )?;
             serde_json::to_value(AutomationReview {
+                connections: inferay_core::connections::ConnectionAccess::from_snapshot(&inputs)?,
                 id, inputs_hash: fingerprint, approved,
                 git_write_paths: serde_json::from_value(inputs.get("gitWritePaths").cloned().unwrap_or_else(|| json!([])))?,
                 inputs,
