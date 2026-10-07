@@ -28,7 +28,8 @@
 		"check:native": "cargo check -p inferay-desktop",
 		"check:rust-host": "cargo check -p inferay-desktop",
 		"build:presentation": "bash scripts/build-presentation.sh",
-		"sync:file-icons": "bash scripts/sync-file-icons.sh"
+		"sync:file-icons": "bash scripts/sync-file-icons.sh",
+		"verify:projects": "cargo build -p inferay-server --bin inferay-dev-server && node scripts/verify-projects.mjs"
 	},
 	"lint-staged": {
 		"*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}": [
@@ -53,6 +54,7 @@
 		"husky": "^9.1.7",
 		"lint-staged": "^16.4.0",
 		"oxlint": "1.82.0",
+		"playwright": "1.63.0",
 		"typescript": "^7.0.2"
 	},
 	"dependencies": {
