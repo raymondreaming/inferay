@@ -673,3 +673,62 @@ async fn real_provider_sandbox(provider: &str, model: Option<&str>) {
     }
     assert!(dir.join("output/response.md").is_file());
 }
+
+#[tokio::test]
+#[ignore = "launches a real provider and consumes account usage"]
+async fn real_claude_calls_granted_library_tool() {
+    real_provider_library_tool("claude", Some("haiku")).await;
+}
+
+#[tokio::test]
+#[ignore = "launches a real provider and consumes account usage"]
+async fn real_codex_calls_granted_library_tool() {
+    real_provider_library_tool("codex", None).await;
+}
+
+async fn real_provider_library_tool(provider: &str, model: Option<&str>) {
+    let profile = tempfile::tempdir().unwrap();
+    let (project, automation) = definition_files(profile.path(),
+        "import json,sys,os\nfrom pathlib import Path\nx=json.load(sys.stdin)\n(Path(os.environ['INFERAY_RUN_OUTPUT'])/'report.md').write_text(x['text'])\nprint(json.dumps({'artifacts':['report.md']}))");
+    let root = profile.path().join("projects").join(&project).canonicalize().unwrap();
+    let read = |path: &str| -> Value { serde_json::from_slice(&std::fs::read(root.join(path)).unwrap()).unwrap() };
+    let plugin = read("plugins/report/plugin.json")["id"].clone();
+    let tool = read("plugins/report/tools/report/tool.json")["id"].clone();
+    let path = root.join("plugins/report/automations/report.json");
+    let mut definition = read("plugins/report/automations/report.json");
+    let marker = format!("verified-library-call-{}", uuid::Uuid::new_v4());
+    definition["execution"] = json!({
+        "kind":"agent","provider":provider,"model":model,
+        "instructions":format!("Use the inferay_tools capability to list the granted tools, then call the Report tool with input {{\"text\":\"{marker}\"}}. Use the actual tool, not a shell command or a description. Do not create any files yourself. Once the call succeeds, report its result briefly."),
+        "tools":[{"pluginId":plugin,"toolId":tool}],"skills":[],"resources":[],"repositories":[],
+        "workingDirectory":{"base":"project","path":"."},"timeoutSeconds":90
+    });
+    std::fs::write(path, definition.to_string()).unwrap();
+    let runtime = runtime(profile.path());
+    let id = approved_run(&runtime, &automation, "real-library-tool").await;
+    runtime.tick().await.unwrap();
+    let run = tokio::time::timeout(Duration::from_secs(110), async {
+        loop {
+            let catalog = runtime.catalog(Some(project.clone()), None).await.unwrap();
+            let run = catalog.history.runs.into_iter().find(|run| run.id == id).unwrap();
+            if !["queued", "running"].contains(&run.status.as_str()) { break run; }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }).await.unwrap();
+    let dir = root.join("runs").join(&id);
+    let log = std::fs::read_to_string(dir.join("logs/agent.jsonl")).unwrap_or_default();
+    assert_eq!(run.status, "succeeded", "{:?}\n{}", run.error, log);
+    let output = dir.join("output/tools");
+    let calls: Vec<_> = std::fs::read_dir(&output).expect(&log).map(|entry| entry.unwrap().path()).collect();
+    assert_eq!(calls.len(), 1, "Expected exactly one real library execution: {log}");
+    assert_eq!(std::fs::read_to_string(calls[0].join("report.md")).unwrap(), marker);
+    let call = calls[0].file_name().unwrap();
+    let input: Value = serde_json::from_slice(&std::fs::read(dir.join("inputs/tools").join(call).join("input.json")).unwrap()).unwrap();
+    assert_eq!(input["text"], marker);
+    assert!(dir.join("logs/tools").join(call).join("stdout.txt").is_file());
+    assert!(dir.join("output/response.md").is_file());
+    let catalog = runtime.catalog(Some(project.clone()), None).await.unwrap();
+    let artifacts: Vec<_> = catalog.history.artifacts.iter().filter(|artifact| artifact.run_id == id).collect();
+    assert!(artifacts.iter().any(|artifact| artifact.path.ends_with("report.md")), "Tool output missing from run history");
+    assert!(artifacts.iter().any(|artifact| artifact.path.ends_with("response.md")), "Agent response missing from run history");
+}
