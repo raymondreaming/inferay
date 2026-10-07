@@ -2,13 +2,15 @@ import type { SkillProposal, SkillProposalView } from "@contracts";
 import { surfaceStyles } from "@design-system/styles.stylex.ts";
 import { useQueryResource } from "@shared/hooks/useQueryResource.tsx";
 import { ariaValue, openSkills } from "@shared/lib/dom.tsx";
+import { Button } from "@shared/ui/Button/index.tsx";
+import { CardInstructions } from "@shared/ui/ChatActionCard/index.tsx";
+import { cardStyles as styles } from "@shared/ui/ChatActionCard/styles.ts";
 import {
 	decideSkillProposal,
 	previewSkillProposal,
 } from "@skills/services/skillsApi.ts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal } from "solid-js";
-import { styles } from "./styles.ts";
 
 export { SkillReadCard } from "./SkillReadCard.tsx";
 
@@ -77,42 +79,44 @@ export function SkillProposalCard(_props: {
 			aria-label={ariaValue(`Skill proposal: ${_props.proposal.name}`)}
 			{...stylex.attrs(surfaceStyles.panel, styles.card)}
 		>
-			<div {...stylex.attrs(styles.heading)}>
-				<strong>{view()?.title ?? "Skill proposal"}</strong>
-				<code>/{_props.proposal.command}</code>
+			<div {...stylex.attrs(styles.header)}>
+				<div {...stylex.attrs(styles.heading)}>
+					<div {...stylex.attrs(styles.title)}>{_props.proposal.name}</div>
+					<p {...stylex.attrs(styles.status)}>
+						{view()?.title ?? "Global skill proposal"} · /
+						{_props.proposal.command}
+					</p>
+				</div>
 			</div>
-			<p {...stylex.attrs(styles.reason)}>{_props.proposal.reason}</p>
-			<p>
-				{_props.proposal.name} — {_props.proposal.description}
-			</p>
+			<div {...stylex.attrs(styles.metadata)}>
+				{_props.proposal.description}
+			</div>
+			<CardInstructions
+				text={_props.proposal.promptTemplate}
+				label="Proposed instructions"
+			/>
 			{view()?.currentInstructions != null && (
-				<details>
-					<summary>Current instructions</summary>
-					<pre {...stylex.attrs(styles.instructions)}>
-						{view()?.currentInstructions}
-					</pre>
-				</details>
+				<CardInstructions
+					text={view()!.currentInstructions!}
+					label="Current instructions"
+				/>
 			)}
-			<details open={!view()?.decided}>
-				<summary>Proposed instructions</summary>
-				<pre {...stylex.attrs(styles.instructions)}>
-					{_props.proposal.promptTemplate}
-				</pre>
-			</details>
+
 			{view()?.blockedReason && <p role="alert">{view()?.blockedReason}</p>}
 			{(error() || resource.error) && (
 				<p role="alert">{error() || resource.error}</p>
 			)}
-			<div role="status" {...stylex.attrs(styles.reason)}>
+			<div role="status" {...stylex.attrs(styles.feedback)}>
 				{saving()
 					? "Saving decision…"
 					: (view()?.status ?? "Loading proposal…")}
 			</div>
 
-			<div {...stylex.attrs(styles.actions)}>
+			<div {...stylex.attrs(styles.footer)}>
 				{!view()?.decided && (
 					<>
-						<button
+						<Button
+							size="sm"
 							type="button"
 							disabled={
 								saving() ||
@@ -121,22 +125,24 @@ export function SkillProposalCard(_props: {
 								!!view()?.blockedReason
 							}
 							onClick={() => void decide("approve")}
-							{...stylex.attrs(styles.button, styles.approve)}
+							variant="primary"
 						>
 							{saving() ? "Saving…" : "Approve & save"}
-						</button>
-						<button
+						</Button>
+						<Button
+							size="sm"
 							type="button"
 							disabled={saving() || _props.streaming || loading()}
 							onClick={() => void decide("reject")}
-							{...stylex.attrs(styles.button)}
+							variant="ghost"
 						>
 							Decline
-						</button>
+						</Button>
 					</>
 				)}
 				{view()?.savedSkillId && (
-					<button
+					<Button
+						size="sm"
 						type="button"
 						onClick={() => {
 							const skillId = view()?.savedSkillId;
@@ -146,10 +152,10 @@ export function SkillProposalCard(_props: {
 									skillId,
 								});
 						}}
-						{...stylex.attrs(styles.button)}
+						variant="ghost"
 					>
 						Edit skill
-					</button>
+					</Button>
 				)}
 			</div>
 		</section>

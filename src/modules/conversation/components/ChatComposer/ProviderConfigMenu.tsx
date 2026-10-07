@@ -4,15 +4,15 @@ import { IconCheck } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { For } from "solid-js";
 import { styles } from "./styles.ts";
-import type { useChatComposerState } from "./useChatComposerState.tsx";
+import type { useAgentConfiguration } from "./useAgentConfiguration.tsx";
 
 export function ProviderConfigMenu(
 	_props: Pick<
-		ReturnType<typeof useChatComposerState>,
+		ReturnType<typeof useAgentConfiguration>,
 		"agentConfigMenuRef" | "setActiveConfig" | "agentConfigButtonRef"
 	> & {
 		activeControl: NonNullable<
-			ReturnType<typeof useChatComposerState>["activeControl"]
+			ReturnType<typeof useAgentConfiguration>["activeControl"]
 		>;
 	},
 ) {

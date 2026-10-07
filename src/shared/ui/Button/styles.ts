@@ -46,20 +46,15 @@ export const styles = stylex.create({
 	},
 	primary: {
 		backgroundColor: {
-			default: color.accent,
-			":hover": color.accentHover,
+			default: color.controlActive,
+			":hover": color.controlHover,
 		},
-		backgroundImage: {
-			default:
-				"linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.05) 45%, rgba(0, 0, 0, 0.16))",
-			":hover":
-				"linear-gradient(180deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.08) 45%, rgba(0, 0, 0, 0.18))",
-		},
-		boxShadow: {
-			default: shadow.controlDepth,
-			":hover": shadow.controlDepthHover,
-		},
-		color: color.accentForeground,
+		backgroundImage: "none",
+		borderColor: color.borderStrong,
+		borderStyle: "solid",
+		borderWidth: 1,
+		boxShadow: shadow.none,
+		color: color.textMain,
 	},
 	secondary: {
 		backgroundColor: {

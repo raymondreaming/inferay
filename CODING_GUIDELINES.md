@@ -63,6 +63,10 @@ Core `path_security.rs` normalizes paths against a caller-supplied working direc
 
 `native/core/clippy.toml` and its Cargo lint settings prohibit filesystem, process, network, environment, and terminal access throughout the core crate, including aliases and `Path` methods. Native boundary checks run this compiler-backed gate for every module; there is no migrated-file allowlist. Core tests use supplied facts, while platform integration tests belong to the owning adapter crate.
 
+## Shared UI controls
+
+Use the existing `src/shared/ui` components for product controls: `DropdownButton`, `TextInput`, `Button`, `IconButton`, and `SettingsSurface` rows and sections. Selection menus use `DropdownButton`, including inside dialogs; do not introduce native `<select>` menus or page-specific dropdown implementations. Extend the shared owner when a capability is missing. Keep feature styles focused on layout and domain-specific surfaces, and remove superseded control styles. Reuse design-system tokens for color, typography, spacing, and surfaces.
+
 ## Floating surfaces
 
 Use `surfaceStyles.overlay` from the design system on the visible container of dialogs, modals, menus, and popovers. It owns the background, border, shadow, and `effect.floatingSurfaceBlur`; local styles own layout and radius. The root appearance mode sets `--inferay-overlay-blur` (56px in glass mode, none otherwise). Do not override those surface properties in individual dialogs or introduce modal-specific blur tokens. Use `shared/ui/Modal` for full-window dialogs such as Settings and Skills; it owns the native dialog lifecycle, focus restoration, backdrop dismissal, close control, and glass surface. Callers supply layout, content, and guarded dismissal. Backdrops only dim the workspace. Never put a filtered or translucent-opacity ancestor around a glass surface: it creates a backdrop root that prevents the surface from blurring the underlying workspace. Use an alpha background color for dimming instead.

@@ -5,23 +5,42 @@
 		"correctness": "error"
 	},
 	"rules": {
-		"eslint/eqeqeq": ["error", "always", { "null": "ignore" }],
+		"eslint/eqeqeq": [
+			"error",
+			"always",
+			{
+				"null": "ignore"
+			}
+		],
 		"eslint/no-var": "error",
 		"eslint/prefer-const": "error",
 		"eslint/no-eval": "error",
 		"eslint/no-useless-catch": "error",
 		"eslint/no-useless-rename": "error",
-		"eslint/no-empty": ["error", { "allowEmptyCatch": true }],
+		"eslint/no-empty": [
+			"error",
+			{
+				"allowEmptyCatch": true
+			}
+		],
 		"typescript/no-extra-non-null-assertion": "error",
 		"typescript/no-non-null-asserted-optional-chain": "error",
 		"typescript/no-unnecessary-type-constraint": "error",
 		"jsx-a11y/prefer-tag-over-role": "off",
 		"jsx-a11y/no-static-element-interactions": "off",
 		"jsx-a11y/click-events-have-key-events": "off",
-		"eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
+		"eslint/no-unused-vars": [
+			"error",
+			{
+				"argsIgnorePattern": "^_"
+			}
+		],
 		"eslint/no-unused-expressions": [
 			"error",
-			{ "allowShortCircuit": true, "allowTernary": true }
+			{
+				"allowShortCircuit": true,
+				"allowTernary": true
+			}
 		]
 	},
 	"ignorePatterns": [
@@ -33,5 +52,12 @@
 		"public/file-icons/**",
 		"site/**",
 		"docs/**"
-	]
+	],
+	"settings": {
+		"jsx-a11y": {
+			"components": {
+				"TextInput": "input"
+			}
+		}
+	}
 }

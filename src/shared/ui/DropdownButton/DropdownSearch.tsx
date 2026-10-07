@@ -7,6 +7,7 @@ export function DropdownSearch(_props: {
 		current: HTMLInputElement | null;
 	};
 	search: string;
+	placeholder?: string;
 	setSearch: (value: string) => void;
 	setOpen: (value: boolean) => void;
 }) {
@@ -21,7 +22,7 @@ export function DropdownSearch(_props: {
 				fullWidth
 				value={_props.search}
 				onInput={setInputValue.bind(null, _props.setSearch)}
-				placeholder="Search…"
+				placeholder={_props.placeholder ?? "Search…"}
 				class={stylex.attrs(styles.searchInput).class}
 				onKeyDown={(e: KeyboardEvent) => {
 					if (e.key === "Escape") {

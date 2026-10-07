@@ -10,6 +10,15 @@ import {
 } from "../../../design-system/styles.stylex.ts";
 import type { CSSProperties } from "../../lib/dom.tsx";
 export const styles = stylex.create({
+	buttonGhost: {
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.controlHover,
+		},
+		borderColor: color.transparent,
+		borderRadius: radius.md,
+	},
+
 	button: {
 		alignItems: "center",
 		borderRadius: radius.lg,
@@ -80,6 +89,8 @@ export const styles = stylex.create({
 		borderRadius: radius.lg,
 		overflow: "hidden",
 		position: "fixed",
+		margin: 0,
+		inset: "auto",
 		userSelect: "none",
 		zIndex: layer.dropdownPopover,
 	},

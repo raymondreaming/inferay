@@ -5,18 +5,17 @@ import { IconChevronDown } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { For, Show } from "solid-js";
 import { styles } from "./styles.ts";
-import type { useChatComposerState } from "./useChatComposerState.tsx";
+import type { useAgentConfiguration } from "./useAgentConfiguration.tsx";
 
 export function ComposerControls(
 	_props: Pick<
-		ReturnType<typeof useChatComposerState>,
+		ReturnType<typeof useAgentConfiguration>,
 		| "agentConfigControlsRef"
 		| "configControls"
 		| "activeConfig"
 		| "agentConfigButtonRef"
 		| "setActiveConfig"
-		| "workspaceControl"
-	>,
+	> & { workspaceControl?: import("solid-js").Element },
 ) {
 	return (
 		<div {...stylex.attrs(styles.pickerRow)}>

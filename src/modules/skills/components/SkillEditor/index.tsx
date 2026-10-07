@@ -63,6 +63,10 @@ export function SkillEditor(props: {
 				)}
 			</div>
 			<div {...stylex.attrs(styles.body)}>
+				<p>
+					Global skill · Available in every project. Changes apply wherever this
+					skill is used.
+				</p>
 				<div {...stylex.attrs(styles.identity)}>
 					{props.view.editing ? (
 						<input

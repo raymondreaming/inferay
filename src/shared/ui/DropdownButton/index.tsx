@@ -62,6 +62,11 @@ function useDropdownPosition(
 
 export function DropdownButton(props: {
 	value: string | null;
+	customOption?: (text: string) => DropdownOption | null;
+	searchPlaceholder?: string;
+	variant?: "default" | "ghost";
+	disabled?: boolean;
+	label?: string;
 	options: readonly DropdownOption[];
 	onChange: (id: string) => void;
 	placeholder?: string;
@@ -116,15 +121,20 @@ export function DropdownButton(props: {
 			if (!menuRef.current?.contains(event.target as Node)) setOpen(false);
 		};
 		const handleDocumentKeyDown = (event: KeyboardEvent) => {
-			if (event.key === "Escape") setOpen(false);
+			if (event.key === "Escape") {
+				event.preventDefault();
+				event.stopPropagation();
+				setOpen(false);
+				trigger()?.focus();
+			}
 		};
 		document.addEventListener("mousedown", handleDocumentPointerDown);
 		window.addEventListener("scroll", handleWindowScroll, true);
-		document.addEventListener("keydown", handleDocumentKeyDown);
+		document.addEventListener("keydown", handleDocumentKeyDown, true);
 		return () => {
 			document.removeEventListener("mousedown", handleDocumentPointerDown);
 			window.removeEventListener("scroll", handleWindowScroll, true);
-			document.removeEventListener("keydown", handleDocumentKeyDown);
+			document.removeEventListener("keydown", handleDocumentKeyDown, true);
 		};
 	});
 
@@ -146,6 +156,7 @@ export function DropdownButton(props: {
 				? styles.fullWidth
 				: null,
 			open() ? styles.buttonOpen : styles.buttonClosed,
+			props.variant === "ghost" && styles.buttonGhost,
 		),
 	);
 	const showSearch = createMemo(() => props.options.length > 5);
@@ -161,17 +172,22 @@ export function DropdownButton(props: {
 		const _searchValue = search();
 		if (!_searchValue) return props.options;
 		const needle = _searchValue.toLowerCase();
-		return props.options.filter(
+		const matches = props.options.filter(
 			(o) =>
 				o.label.toLowerCase().includes(needle) ||
 				o.detail?.toLowerCase().includes(needle) ||
 				o.status?.toLowerCase().includes(needle),
 		);
+		const custom = props.customOption?.(_searchValue);
+		return custom
+			? [custom, ...matches.filter((o) => o.id !== custom.id)]
+			: matches;
 	});
 	const SearchBox = () => (
 		<Show when={showSearch()}>
 			<DropdownSearch
 				searchRef={searchRef}
+				placeholder={props.searchPlaceholder}
 				search={search()}
 				setSearch={setSearch}
 				setOpen={setOpen}
@@ -193,6 +209,9 @@ export function DropdownButton(props: {
 	const Trigger = () => (
 		<button
 			type="button"
+			disabled={props.disabled === true}
+			aria-label={props.label}
+			aria-expanded={open() ? "true" : "false"}
 			ref={setTrigger}
 			onClick={toggle}
 			{...buttonProps()}
@@ -213,7 +232,13 @@ export function DropdownButton(props: {
 	const onTop = createMemo(() => pos().placement === "top");
 	const Menu = () => (
 		<div
-			ref={(element) => (menuRef.current = element)}
+			popover="manual"
+			ref={(element) => {
+				menuRef.current = element;
+				queueMicrotask(() => {
+					if (element.isConnected) element.showPopover();
+				});
+			}}
 			class={`${stylex.attrs(surfaceStyles.overlay, styles.menu).class ?? ""}`}
 			style={domStyle(
 				inlineStyles.getDropdownButtonMenuStyle(
@@ -247,7 +272,7 @@ export function DropdownButton(props: {
 		<>
 			<Trigger />
 			<Show when={open()}>
-				<Portal mount={document.body}>
+				<Portal mount={trigger()?.closest("dialog") ?? document.body}>
 					<Menu />
 				</Portal>
 			</Show>
