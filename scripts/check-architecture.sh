@@ -37,8 +37,6 @@ bunx tsc --noEmit
 echo "==> Solid principles audit"
 bun scripts/check-solid-principles.ts
 
-echo "==> Solid reactivity regression"
-
 echo
 echo "==> Native Rust format"
 cargo fmt --all -- --check

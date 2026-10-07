@@ -56,8 +56,10 @@ export function AuthorAvatar(_props: {
 							rememberLoadedAuthorAvatar(_props.email, url);
 						}}
 						onError={() => setFailedUrl(_props.githubAvatar ?? null)}
-						class={stylex.attrs(styles.avatarImage).class}
-						style={{ opacity: loadedUrl() === _props.githubAvatar ? 1 : 0 }}
+						{...stylex.attrs(
+							styles.avatarImage,
+							loadedUrl() !== _props.githubAvatar && styles.avatarImageLoading,
+						)}
 					/>
 				)}
 			{_props.stash && (

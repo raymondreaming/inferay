@@ -23,10 +23,15 @@ import type {
 	ProjectAutomation,
 	ProjectResource,
 } from "../../model/projectFiles.ts";
-import { AutomationSkills } from "./AutomationSkills.tsx";
+import { AutomationContext } from "./AutomationContext.tsx";
 import { AutomationTools } from "./AutomationTools.tsx";
 import { AutomationTrigger } from "./AutomationTrigger.tsx";
 import { styles } from "./styles.ts";
+
+function RepositoryIcon() {
+	return <IconGitBranch size={14} />;
+}
+
 export function AutomationEditor(props: {
 	persistent?: boolean;
 	onRun?: () => void;
@@ -338,7 +343,7 @@ export function AutomationEditor(props: {
 							).map((repo) => ({
 								id: repo.id,
 								label: repo.name,
-								iconComponent: () => <IconGitBranch size={14} />,
+								iconComponent: RepositoryIcon,
 							})),
 						]}
 						onChange={(id) => setCwd(id === "project" ? "" : id)}
@@ -469,33 +474,10 @@ export function AutomationEditor(props: {
 							aria-label="Agent settings"
 							{...stylex.attrs(styles.automationSettings)}
 						>
-							<fieldset {...stylex.attrs(styles.form)}>
-								<legend>Project context</legend>
-								{props.resources
-									.filter((r) => !r.archived)
-									.map((r) => (
-										<label {...stylex.attrs(styles.row)}>
-											<input
-												type="checkbox"
-												checked={context()
-													.split(",")
-													.map((v) => v.trim())
-													.includes(r.id)}
-												onChange={(e) => {
-													const ids = context()
-														.split(",")
-														.map((v) => v.trim())
-														.filter(Boolean)
-														.filter((id) => id !== r.id);
-													if (e.currentTarget.checked) ids.push(r.id);
-													setContext(ids.join(", "));
-												}}
-											/>
-											{r.name} · {r.type}
-										</label>
-									))}
-							</fieldset>
-							<AutomationSkills
+							<AutomationContext
+								resources={props.resources}
+								context={context()}
+								onContextChange={setContext}
 								projectId={props.projectId}
 								ownerPath={pluginPath}
 								value={skills()}
@@ -506,14 +488,6 @@ export function AutomationEditor(props: {
 								value={grants()}
 								onChange={setGrants}
 							/>
-							<label>
-								External working directory (blank uses project)
-								<input
-									value={cwd()}
-									onInput={(e) => setCwd(e.currentTarget.value)}
-									{...stylex.attrs(styles.input)}
-								/>
-							</label>{" "}
 						</section>
 					) : null}
 				</>

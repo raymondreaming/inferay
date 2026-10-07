@@ -2,10 +2,15 @@ import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
 import { queryClient } from "@shared/lib/dom.tsx";
 import { skillsQuery } from "@skills/services/skillsApi.ts";
 import * as stylex from "@stylexjs/stylex";
+import { For } from "solid-js";
 import { projects } from "../../hooks/useProjects.tsx";
+import type { ProjectResource } from "../../model/projectFiles.ts";
 import { styles } from "./styles.ts";
 
-export function AutomationSkills(props: {
+export function AutomationContext(props: {
+	resources: ProjectResource[];
+	context: string;
+	onContextChange: (value: string) => void;
 	projectId: string;
 	ownerPath: string;
 	value: string;
@@ -63,24 +68,58 @@ export function AutomationSkills(props: {
 		];
 	};
 	return (
-		<fieldset {...stylex.attrs(styles.form)}>
-			<legend>Skills</legend>
-			{library.error && <p role="status">Global skills could not be loaded.</p>}
-			{options().map((skill) => (
-				<label {...stylex.attrs(styles.row)}>
-					<input
-						type="checkbox"
-						checked={selected().includes(skill.id)}
-						onChange={(event) => {
-							const next = selected().filter((id) => id !== skill.id);
-							if (event.currentTarget.checked) next.push(skill.id);
-							props.onChange(next.join(", "));
-						}}
-					/>
-					{skill.label}{" "}
-					<span {...stylex.attrs(styles.muted)}>{skill.source}</span>
-				</label>
-			))}
-		</fieldset>
+		<>
+			<fieldset {...stylex.attrs(styles.form)}>
+				<legend>Project context</legend>
+				<For
+					each={props.resources.filter((item) => !item.archived)}
+					keyed={(item) => item.id}
+				>
+					{(item) => (
+						<label {...stylex.attrs(styles.row)}>
+							<input
+								type="checkbox"
+								checked={props.context
+									.split(",")
+									.map((id) => id.trim())
+									.includes(item().id)}
+								onChange={(event) => {
+									const ids = props.context
+										.split(",")
+										.map((id) => id.trim())
+										.filter((id) => id && id !== item().id);
+									if (event.currentTarget.checked) ids.push(item().id);
+									props.onContextChange(ids.join(", "));
+								}}
+							/>
+							{item().name} · {item().type}
+						</label>
+					)}
+				</For>
+			</fieldset>
+			<fieldset {...stylex.attrs(styles.form)}>
+				<legend>Skills</legend>
+				{library.error && (
+					<p role="status">Global skills could not be loaded.</p>
+				)}
+				<For each={options()} keyed={(skill) => skill.id}>
+					{(skill) => (
+						<label {...stylex.attrs(styles.row)}>
+							<input
+								type="checkbox"
+								checked={selected().includes(skill().id)}
+								onChange={(event) => {
+									const next = selected().filter((id) => id !== skill().id);
+									if (event.currentTarget.checked) next.push(skill().id);
+									props.onChange(next.join(", "));
+								}}
+							/>
+							{skill().label}{" "}
+							<span {...stylex.attrs(styles.muted)}>{skill().source}</span>
+						</label>
+					)}
+				</For>
+			</fieldset>
+		</>
 	);
 }

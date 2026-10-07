@@ -139,9 +139,10 @@ Build an automation for a domain nobody designed for (for example a weekly finan
 
 ## Known gaps
 
+- The Solid principles audit still finds reactive collections rendered with `.map` in several project pages and the workspace bar. Automation context/tool controls use keyed collections; the remaining views need the same ownership review.
+
 
 - Permission enforcement is partial: Codex requests scoped filesystem/network limits; Claude requests restricted tool access and a required Bash sandbox; macOS local tools enforce approved write roots and network access through an OS sandbox, including subprocesses. Other platforms refuse local tools. Push/PR/commit isolation, read isolation, provider network checks and additional platform adapters remain open in M3.
-- `check:architecture` has a "Solid reactivity regression" step that runs nothing.
 - There is no CI; checks run locally and through lint-staged.
 - The README describes a source-available license, but the repository has no `LICENSE` file.
 

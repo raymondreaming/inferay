@@ -528,6 +528,7 @@ export const styles = stylex.create({
 		backgroundColor: "transparent",
 		overflow: "visible",
 	},
+	avatarImageLoading: { opacity: 0 },
 	avatarImage: {
 		position: "absolute",
 		inset: 0,

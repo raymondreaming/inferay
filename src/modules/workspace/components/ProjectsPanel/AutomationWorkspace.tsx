@@ -14,7 +14,6 @@ import { Modal } from "@shared/ui/Modal/index.tsx";
 import { Switch } from "@shared/ui/Switch/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createSignal, For, Show } from "solid-js";
-import { color, font } from "../../../../design-system/styles.stylex.ts";
 import { projects, saveProjectCommand } from "../../hooks/useProjects.tsx";
 import { automationScheduleLabel } from "../../model/automationSchedule.ts";
 import { automationStarters as starters } from "../../model/automationStarters.ts";
@@ -24,65 +23,8 @@ import {
 } from "../../model/projectFiles.ts";
 import { AutomationEditor } from "./AutomationEditor.tsx";
 import { RunHistory } from "./RunHistory.tsx";
-import { styles } from "./styles.ts";
+import { automationListStyles as listStyles, styles } from "./styles.ts";
 
-const listStyles = stylex.create({
-	scrollList: {
-		flex: 1,
-		minHeight: 0,
-		overflowY: "auto",
-		display: "flex",
-		flexDirection: "column",
-		gap: 12,
-	},
-	history: {
-		borderWidth: 0,
-		backgroundColor: "transparent",
-		color: color.textMuted,
-		fontSize: font.size_3,
-		fontWeight: 400,
-		textAlign: "left",
-		cursor: "pointer",
-		alignSelf: "flex-start",
-		marginInline: 18,
-		marginBottom: 16,
-		flexShrink: 0,
-		padding: 0,
-	},
-	row: {
-		display: "flex",
-		alignItems: "flex-start",
-		gap: 8,
-		padding: 10,
-		borderRadius: 8,
-		marginInline: 8,
-	},
-	button: {
-		flex: 1,
-		minWidth: 0,
-		display: "flex",
-		flexDirection: "column",
-		alignItems: "stretch",
-		gap: 5,
-		padding: 0,
-		border: 0,
-		backgroundColor: "transparent",
-		color: color.textMain,
-		textAlign: "left",
-		cursor: "pointer",
-	},
-	meta: {
-		display: "flex",
-		alignItems: "center",
-		gap: 5,
-		fontSize: 11,
-		color: color.textMuted,
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
-	},
-	name: { fontSize: 13, fontWeight: 600 },
-});
 export function AutomationWorkspace() {
 	const [removing, setRemoving] = createSignal<ProjectAutomation | null>(null);
 	const [removeError, setRemoveError] = createSignal("");
