@@ -139,7 +139,6 @@ Build an automation for a domain nobody designed for (for example a weekly finan
 
 ## Known gaps
 
-- The parallel server suite has intermittently failed the proposal-reopen test with a profile-lock error. The isolated test and full serial suite pass; lock lifetime under concurrent subprocess tests needs investigation.
 
 - Permission enforcement is partial: Codex requests scoped filesystem/network limits; Claude requests restricted tool access and a required Bash sandbox; macOS local tools enforce approved write roots and network access through an OS sandbox, including subprocesses. Other platforms refuse local tools. Push/PR/commit isolation, read isolation, provider network checks and additional platform adapters remain open in M3.
 - `check:architecture` has a "Solid reactivity regression" step that runs nothing.

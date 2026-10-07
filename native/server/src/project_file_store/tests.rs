@@ -256,3 +256,19 @@ fn studio_library_fixture_has_separate_disabled_workflow_and_required_tools() {
     assert_ne!(before, after, "An edit to the shared library skill must change approval inputs");
 
 }
+
+#[test]
+fn profile_lease_releases_when_an_inherited_descriptor_remains_open() {
+    let profile = tempfile::tempdir().unwrap();
+    let store = FileProjectStore::open(profile.path(), &[]).unwrap();
+    // A fork temporarily shares the open file description before exec closes it.
+    // A duplicate models that lifetime without forking the test process.
+    let inherited = store._lease.0.try_clone().unwrap();
+    assert!(FileProjectStore::open(profile.path(), &[]).is_err());
+    drop(store);
+    let reopened = FileProjectStore::open(profile.path(), &[]).unwrap();
+    drop(inherited);
+    assert!(FileProjectStore::open(profile.path(), &[]).is_err());
+    drop(reopened);
+    FileProjectStore::open(profile.path(), &[]).unwrap();
+}

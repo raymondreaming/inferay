@@ -17,7 +17,17 @@ use std::{
 pub(crate) struct FileProjectStore {
     pub db: Connection,
     pub root: PathBuf,
-    _lease: File,
+    _lease: ProfileLease,
+}
+
+// Kept after the database field so SQLite closes before the profile unlocks.
+// Closing the descriptor alone can leave a flock held by a concurrent fork.
+struct ProfileLease(File);
+
+impl Drop for ProfileLease {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
 }
 
 impl FileProjectStore {
@@ -138,6 +148,7 @@ impl FileProjectStore {
         lease
             .try_lock()
             .map_err(|_| "This Inferay profile is already open in another process")?;
+        let lease = ProfileLease(lease);
         let mut db = crate::project_store::open_database(&root)?;
         let version: i64 = db.pragma_query_value(None, "user_version", |r| r.get(0))?;
         if version < 3 {
