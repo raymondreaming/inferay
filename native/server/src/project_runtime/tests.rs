@@ -698,6 +698,12 @@ print("NETWORK_PROBE", json.dumps(result))
         assert!(refused || output.contains("operation not permitted") || output.contains("permission denied"), "Missing refused command output: {}", log);
     }
     assert!(dir.join("output/response.md").is_file());
+    let store = runtime.store.lock().unwrap();
+    let usage: String = store.db.query_row("SELECT payload FROM run_events WHERE run_id=? AND kind='provider_usage' ORDER BY sequence DESC LIMIT 1", [&run], |row| row.get(0)).expect("Real provider must report usage");
+    let usage: Value = serde_json::from_str(&usage).unwrap();
+    assert_eq!(usage["provider"], provider);
+    let input = if provider == "codex" { usage.pointer("/usage/total/inputTokens") } else { usage.pointer("/usage/input_tokens") };
+    assert!(input.and_then(Value::as_u64).is_some(), "Missing reported token totals: {usage}");
 }
 
 #[tokio::test]

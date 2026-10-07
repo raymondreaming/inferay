@@ -487,6 +487,7 @@ impl ProjectRuntime {
                     let mut file = tokio::fs::File::create(log).await?;
                     let mut size = 0;
                     let mut failed = false;
+                    let mut usage = None;
                     while let Some(emission) = receiver.recv().await {
                         let data = match emission {
                             ProtocolEmission::Chat(value) => {
@@ -511,13 +512,18 @@ impl ProjectRuntime {
                             ProtocolEmission::Session(id) => json!({"providerSessionId":id}),
                             _ => continue,
                         };
+                        if data["type"] == "inferay.usage" {
+                            usage = Some(data.clone());
+                        } else if data["type"] == "result" && data["usage"].is_object() {
+                            usage = Some(json!({"provider":"claude","usage":data["usage"],"modelUsage":data["modelUsage"],"reportedCostUsd":data["total_cost_usd"]}));
+                        }
                         let line = format!("{data}\n");
                         if size + line.len() <= 1_048_576 {
                             file.write_all(line.as_bytes()).await?;
                             size += line.len();
                         }
                     }
-                    Ok::<_, std::io::Error>(failed)
+                    Ok::<_, std::io::Error>((failed, usage))
                 });
                 let result = {
                     let run = async {
@@ -566,7 +572,13 @@ impl ProjectRuntime {
                 };
                 tools.close().await;
                 drop(sender);
-                let provider_failed = drain.await??;
+                let (provider_failed, usage) = drain.await??;
+                if let Some(usage) = usage {
+                    // Retain the final reported totals even if the transcript reached
+                    // its size cap or the provider failed after consuming tokens.
+                    let store = self.store.lock().map_err(|_| "Project store lock failed")?;
+                    event(&store.db, id, "provider_usage", &usage)?;
+                }
                 let reads = memory.reads.lock().map(|r| r.clone()).unwrap_or_default();
                 if !reads.is_empty()
                     && let Ok(store) = self.store.lock()

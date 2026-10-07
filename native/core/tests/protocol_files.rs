@@ -82,3 +82,18 @@ fn codex_code_mode_results_survive_without_command_items() {
     assert!(emissions.iter().any(|event| matches!(event, ProtocolEmission::Chat(value)
         if value.pointer("/message/content/0/content") == Some(&json!("operation not permitted")))));
 }
+
+#[test]
+fn codex_usage_notifications_preserve_cumulative_snapshots() {
+    let mut state = CodexProtocolState::default();
+    let mut context = AgentProtocolContext::new("/fixture");
+    for input in [10, 30] {
+        let usage = serde_json::json!({"total":{"inputTokens":input,"outputTokens":4,"cachedInputTokens":2,"reasoningOutputTokens":1,"totalTokens":input+4},"last":{"inputTokens":10,"outputTokens":2}});
+        state.handle_notification(&mut context, "thread/tokenUsage/updated", &serde_json::json!({"threadId":"thread","turnId":"turn","tokenUsage":usage}), &ProtocolFiles::default());
+        let emissions = context.take_emissions();
+        assert_eq!(emissions.len(), 1);
+        let ProtocolEmission::Chat(event) = &emissions[0] else { panic!("Missing usage emission"); };
+        assert_eq!(event["type"], "inferay.usage");
+        assert_eq!(event["usage"], usage);
+    }
+}

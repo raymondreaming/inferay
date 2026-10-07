@@ -134,6 +134,19 @@ impl CodexProtocolState {
         let item_type = string_field(item, "type");
 
         match (method, item_type) {
+            ("thread/tokenUsage/updated", _) => {
+                // These are cumulative thread totals. Consumers replace the previous
+                // snapshot rather than adding successive notifications together.
+                if params["tokenUsage"].is_object() {
+                    context.emissions.push(ProtocolEmission::Chat(json!({
+                        "type": "inferay.usage",
+                        "provider": "codex",
+                        "threadId": params["threadId"],
+                        "turnId": params["turnId"],
+                        "usage": params["tokenUsage"],
+                    })));
+                }
+            }
             ("turn/started", _) => {
                 self.emit_status(context, "thinking", true);
             }

@@ -88,6 +88,8 @@ A disposable-profile runtime check covers accepting a chat library, refusing una
 
 Real Codex and Claude runs now pass disposable native-runtime filesystem probes, including recorded successful runs and outside-write refusal. Native app interaction checks remain. These changes are developed and committed directly on `main`; the remaining interaction and permission checks remain release gates.
 
+Agent runs retain the last provider-reported usage snapshot in `run_events` as `provider_usage`, independently of the bounded transcript. Codex cumulative notifications replace earlier snapshots; Claude result usage includes reported cost when supplied. Real Codex and Claude runtime gates verify retained token counts. History presentation, pricing for providers without reported cost, and usage availability after interruption remain unfinished.
+
 Run History previews retained PNG, JPEG, WebP, GIF, BMP, ICO and SVG images through the existing bounded local-image endpoint. Reports and logs use cancellable text previews. Video, structured table and post-draft viewers remain planned; native-app visual verification is still required.
 
 ## M3. Safe to leave running
