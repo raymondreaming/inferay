@@ -83,7 +83,10 @@ impl Store {
                 secret,
             } => {
                 let name = name.trim();
-                if name.is_empty() || name.chars().count() > 100 || name.chars().any(char::is_control) {
+                if name.is_empty()
+                    || name.chars().count() > 100
+                    || name.chars().any(char::is_control)
+                {
                     return Err(
                         "Connection name must contain 1–100 characters without control characters"
                             .into(),
@@ -289,6 +292,51 @@ mod tests {
             })
             .unwrap()
             .unwrap();
+        // Native tools must not bypass future per-connection grants by querying
+        // the credential service directly, even with network/project writes.
+        let work = tempfile::tempdir().unwrap();
+        let output = work.path().join("output");
+        let scratch = work.path().join("scratch");
+        std::fs::create_dir(&output).unwrap();
+        std::fs::create_dir(&scratch).unwrap();
+        let permissions = std::collections::BTreeSet::from([
+            inferay_core::project_files::Permission::Network,
+            inferay_core::project_files::Permission::WriteProjectFiles,
+        ]);
+        let policy = crate::automation_sandbox::AutomationSandbox::new(
+            &permissions,
+            &serde_json::json!({}),
+            work.path(),
+        );
+        let args = vec![
+            "find-generic-password".into(),
+            "-s".into(),
+            store.service.clone(),
+            "-a".into(),
+            "project-credentials".into(),
+            "-w".into(),
+        ];
+        let mut command = policy
+            .tool_command("/usr/bin/security", &args, &output, &scratch)
+            .unwrap();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let result = runtime.block_on(async {
+            tokio::time::timeout(
+                std::time::Duration::from_secs(10),
+                command.kill_on_drop(true).output(),
+            )
+            .await
+            .expect("sandboxed Keychain lookup timed out")
+            .unwrap()
+        });
+        assert!(
+            !result.status.success(),
+            "tool obtained ambient Keychain access"
+        );
+        assert!(!String::from_utf8_lossy(&result.stdout).contains(&secret));
+        assert!(!String::from_utf8_lossy(&result.stderr).contains(&secret));
+        // The credential still exists: refusal was not caused by deleting it.
+        assert!(read_keychain(&store.service).unwrap().is_some());
         let visible = serde_json::to_string(&store.list(&project).unwrap()).unwrap();
         assert!(!visible.contains(&secret));
         assert_eq!(store.list("another-project").unwrap().len(), 0);

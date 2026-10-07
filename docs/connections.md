@@ -61,6 +61,11 @@ cargo test -p inferay-server keychain_connections --lib -- --ignored
 ```
 
 It checks persistence, project/profile isolation, stale-write refusal, rotation,
-removal and the absence of credential files. The browser verifier has an opt-in
+removal and the absence of credential files. It also launches `/usr/bin/security`
+through the native automation sandbox with network and project-write grants,
+checks that the test credential cannot be retrieved, and confirms that Inferay
+can still read its Keychain entry. This covers that direct lookup path; it is not
+a claim about every possible credential-exfiltration technique. The browser verifier has an opt-in
 `INFERAY_VERIFY_CONNECTIONS=1` mode for adding, replacing and removing a test key
-through the dialog. Both gates pass; the browser check uses an isolated renderer checkout while the separately owned Memory graph build is unfinished. Both checks clean up their test credentials.
+through the dialog. Both gates pass and clean up their test credentials. The integrated renderer now
+builds and passes the project browser checks.
