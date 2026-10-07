@@ -9,7 +9,7 @@ use inferay_core::{
 };
 use rusqlite::{Connection, params};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     io::Read,
     path::Path,
     process::{Command, Stdio},
@@ -69,6 +69,44 @@ fn git(root: &Path, args: &[&str]) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
+// Directory aliases are useful in existing kits. Every resolved target must still
+// be represented by the pinned tree; Git metadata and outside paths are not code.
+fn validate_links(repository: &Path) -> Result<()> {
+    let tree = git(repository, &["ls-tree", "-r", "-z", "HEAD"])?;
+    let mut tracked = BTreeSet::new();
+    let mut links = Vec::new();
+    for record in tree.split(|c| *c == 0).filter(|r| !r.is_empty()) {
+        let record = std::str::from_utf8(record)?;
+        let (header, path) = record
+            .split_once('\t')
+            .ok_or("Invalid repository tree record")?;
+        if header.starts_with("160000 ") {
+            return Err("Repository packs cannot contain submodules".into());
+        }
+        tracked.insert(Path::new(path));
+        if header.starts_with("120000 ") {
+            links.push(path);
+        }
+    }
+    for link in links {
+        let target = repository
+            .join(link)
+            .canonicalize()
+            .map_err(|_| format!("Tool pack link has a missing or cyclic target: {link}"))?;
+        let relative = target
+            .strip_prefix(repository)
+            .map_err(|_| format!("Tool pack link escapes the checkout: {link}"))?;
+        if relative.as_os_str().is_empty()
+            || !tracked
+                .iter()
+                .any(|path| *path == relative || path.starts_with(relative))
+        {
+            return Err(format!("Tool pack link must target tracked content: {link}").into());
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn resolve(
     db: &Connection,
     root: &Path,
@@ -121,13 +159,6 @@ pub(crate) fn resolve(
             "Tool pack cannot use sparse, unmerged or assume-unchanged index entries".into(),
         );
     }
-    let tree = git(&repository, &["ls-tree", "-r", "HEAD"])?;
-    if tree
-        .split(|c| *c == b'\n')
-        .any(|line| line.starts_with(b"160000 ") || line.starts_with(b"120000 "))
-    {
-        return Err("Repository packs cannot contain submodules or tracked symlinks".into());
-    }
     if !git(
         &repository,
         &[
@@ -145,6 +176,7 @@ pub(crate) fn resolve(
                 .into(),
         );
     }
+    validate_links(&repository)?;
     let bytes = files::read(&repository, &tool.entrypoint, ENTRYPOINT_LIMIT)?;
     let digest = hash(&bytes);
     if digest != pack.sha256.to_ascii_lowercase() {
@@ -183,6 +215,51 @@ pub(crate) fn resolve(
 mod tests {
     use super::*;
     use serde_json::json;
+    #[cfg(unix)]
+    #[test]
+    fn pack_links_allow_tracked_aliases_and_refuse_escapes_metadata_and_cycles() {
+        use std::os::unix::fs::symlink;
+        let checkout = tempfile::tempdir().unwrap();
+        let root = checkout.path().canonicalize().unwrap();
+        std::fs::create_dir(root.join("kit")).unwrap();
+        std::fs::write(root.join("kit/run.py"), "print('ok')").unwrap();
+        symlink("kit", root.join("Studio")).unwrap();
+        git(&root, &["init", "-q"]).unwrap();
+        git(&root, &["add", "."]).unwrap();
+        git(
+            &root,
+            &[
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "-c",
+                "commit.gpgSign=false",
+                "commit",
+                "-qm",
+                "kit",
+            ],
+        )
+        .unwrap();
+        validate_links(&root).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        for target in [
+            outside.path(),
+            Path::new(".git/config"),
+            Path::new("missing"),
+            Path::new("Studio"),
+            Path::new("."),
+        ] {
+            std::fs::remove_file(root.join("Studio")).unwrap();
+            symlink(target, root.join("Studio")).unwrap();
+            assert!(
+                validate_links(&root).is_err(),
+                "Accepted {}",
+                target.display()
+            );
+        }
+    }
+
     #[test]
     fn pack_resolution_checks_checkout_binding_revision_and_bytes() {
         let checkout = tempfile::tempdir().unwrap();

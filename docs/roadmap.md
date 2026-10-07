@@ -105,7 +105,7 @@ Real Codex and Claude runs now pass disposable native-runtime filesystem probes,
 
 ## M4. Builds on other people's work
 
-- **Packs (E1): implemented for clean Git checkouts.** Tools resolve entrypoints in linked repositories pinned by full commit ID and SHA-256. Direct tools and agent grants use the same resolver; changed, untracked or ignored files, hidden index entries, submodules and tracked symlinks are refused. Native checks cover bindings, pins, in-place execution and refusal after an outside edit. The real Blender lane remains a milestone gate.
+- **Packs (E1): implemented for clean Git checkouts.** Tools resolve entrypoints in linked repositories pinned by full commit ID and SHA-256. Direct tools and agent grants use the same resolver; changed, untracked or ignored files, hidden index entries and submodules are refused. Tracked aliases must resolve to tracked content inside the checkout. Native checks cover bindings, pins, in-place execution and refusal after an outside edit. An opt-in native-runtime check runs Origin’s actual caption checker from a disposable linked checkout: accepted copy succeeds, rejected copy fails with retained findings, and the source stays clean. Rendering and the daily Blender lane remain milestone gates.
 - **MCP declarations (E6).** A plugin names the MCP servers it needs; a missing server blocks the run.
 
 **Done when**

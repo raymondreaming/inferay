@@ -800,3 +800,73 @@ async fn repository_tool_executes_in_place_and_dirty_checkout_revokes_approval()
     assert_eq!(refused.status,"failed");
     assert!(refused.error.as_deref().unwrap().contains("clean checkout"));
 }
+
+/// Opt-in real kit check. Only a disposable clone/profile is changed.
+#[tokio::test]
+#[ignore = "Requires INFERAY_ORIGIN_KIT_REPOSITORY pointing to a local Origin checkout"]
+async fn real_origin_copy_gate_runs_as_a_repository_tool() {
+    let source = std::env::var("INFERAY_ORIGIN_KIT_REPOSITORY").expect("Set INFERAY_ORIGIN_KIT_REPOSITORY");
+    let checkout = tempfile::tempdir().unwrap();
+    let clone = std::process::Command::new("git")
+        .args(["-c", "core.hooksPath=/dev/null", "clone", "--local", "--no-hardlinks", "--quiet", "--"])
+        .arg(&source).arg(checkout.path()).output().unwrap();
+    assert!(clone.status.success(), "{}", String::from_utf8_lossy(&clone.stderr));
+    let revision = std::process::Command::new("git").arg("-C").arg(checkout.path())
+        .args(["rev-parse", "HEAD"]).output().unwrap();
+    assert!(revision.status.success());
+    let revision = String::from_utf8(revision.stdout).unwrap().trim().to_owned();
+    let entrypoint = "Plugins/design-blender/content/scripts/copy_check.py";
+    let bytes = std::fs::read(checkout.path().join(entrypoint)).unwrap();
+    eprintln!("Origin copy gate: commit {revision}, SHA-256 {}", project_store::hash(&bytes));
+    for (key, text, passes) in [
+        ("pass", "The Blender scene contains 3 objects. Each mesh uses the same blue material.", true),
+        ("fail", "Unlock game-changing innovation and revolutionize your workflow!", false),
+    ] {
+        let profile = tempfile::tempdir().unwrap();
+        let (project, automation) = definition_files(profile.path(), "unused");
+        let root = profile.path().join("projects").join(&project);
+        let repository = uuid::Uuid::new_v4().to_string();
+        let path = root.join("project.json");
+        let mut definition: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        definition["repositories"] = json!([{"id":repository,"name":"Origin kit"}]);
+        std::fs::write(&path, definition.to_string()).unwrap();
+        let path = root.join("plugins/report/tools/report/tool.json");
+        let mut tool: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        tool["name"] = json!("Caption quality gate");
+        tool["interface"] = json!("cli");
+        tool["entrypoint"] = json!(entrypoint);
+        tool["requires"] = json!(["python3"]);
+        tool["args"] = json!(["-B", "{entrypoint}", "--text", "{input.text}", "--platform", "instagram", "--cta-allowed", "no", "--json"]);
+        tool["pack"] = json!({"repositoryId":repository,"commit":revision,"sha256":project_store::hash(&bytes)});
+        std::fs::write(path, tool.to_string()).unwrap();
+        std::fs::remove_file(root.join("plugins/report/tools/report/run.py")).unwrap();
+        let path = root.join("plugins/report/automations/report.json");
+        let mut definition: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        definition["execution"]["input"] = json!({"text":text});
+        std::fs::write(path, definition.to_string()).unwrap();
+        let runtime = runtime(profile.path());
+        runtime.command(ProjectFileCommand::LinkRepository {
+            project_id: project.clone(), repository_id: repository,
+            expected_project_hash: project_store::hash(&std::fs::read(root.join("project.json")).unwrap()),
+            path: checkout.path().display().to_string(),
+        }, true).await.unwrap();
+        let id = approved_run(&runtime, &automation, key).await;
+        runtime.tick().await.unwrap();
+        let run = completed(&runtime, &project, &id).await;
+        let stdout = std::fs::read_to_string(Path::new(&run.directory).join("logs/stdout.txt")).unwrap();
+        assert_eq!(run.status, if passes {"succeeded"} else {"failed"}, "{:?}\n{stdout}", run.error);
+        let report: Value = serde_json::from_str(&stdout).unwrap();
+        assert_eq!(report["ok"], passes);
+        if passes {
+            assert_eq!(run.result.unwrap()["exitCode"], 0);
+        } else {
+            assert!(report["findings"].as_array().unwrap().iter().any(|finding| finding["level"] == "fail"));
+            assert!(run.result.is_none());
+        }
+        assert!(!root.join("plugins/report/tools/report/copy_check.py").exists());
+    }
+    let status = std::process::Command::new("git").arg("-C").arg(checkout.path())
+        .args(["status", "--porcelain", "--untracked-files=all", "--ignored=matching"]).output().unwrap();
+    assert!(status.status.success());
+    assert!(status.stdout.is_empty(), "The quality gate changed its source checkout");
+}

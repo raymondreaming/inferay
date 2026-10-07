@@ -170,8 +170,11 @@ the tool's own folder.
 
 Approval capture and run admission require HEAD to match the pin, a clean checkout
 (including no untracked or ignored files), and entrypoint bytes matching both the
-SHA-256 and the committed blob. Sparse/assume-unchanged index entries, submodules
-and tracked symlinks are refused. Use a dedicated clean checkout for a kit that has
+SHA-256 and the committed blob. Sparse/assume-unchanged index entries and submodules
+are refused. Tracked symlinks may resolve to tracked content inside the same
+checkout; outside paths, Git metadata, missing targets and cycles are refused.
+Entrypoints themselves must use their real path, without symlink components.
+Use a dedicated clean checkout for a kit that has
 local caches or build outputs. Checks do not fetch, checkout, reset or alter Git
 configuration. A mismatch prevents execution and invalidates the affected approval.
 Both direct tools and agent tool grants use this resolver. Source stays in the

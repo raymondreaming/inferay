@@ -25,6 +25,24 @@ execution, and rejects unknown fields, excess permissions and absolute working
 directories. It never starts a provider, enables a schedule or touches Point's
 real checkout. Passing this check does not prove the week-long unattended run.
 
+## Real Origin quality gate
+
+The opt-in check uses a local Origin checkout as the source for a disposable clone.
+It creates a temporary Inferay profile, pins the actual `copy_check.py` by commit
+and SHA-256, links the clone, reviews the inputs, and runs both passing and failing
+captions through the native CLI tool runtime. Failed quality checks remain failed
+runs with the checker’s JSON findings retained in stdout. It verifies the source
+checkout stays clean. No provider, posting, or schedule is started.
+
+```sh
+INFERAY_ORIGIN_KIT_REPOSITORY=/path/to/Origin \
+  cargo test -p inferay-server real_origin_copy_gate --lib -- --ignored --nocapture
+```
+
+The test prints the tested commit and entrypoint hash. It requires a trusted local
+kit and Python 3. It exercises the real quality checker, not the render pipeline;
+the Blender artifact and daily-lane gates remain open.
+
 ## Planned fixtures
 
 `planned/hatch-content`, `planned/hatch-design`, and `planned/hatch-posting` retain
