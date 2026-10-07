@@ -1066,3 +1066,27 @@ async fn real_scheduled_studio_uses_library_skill_and_required_tools() {
     runtime.command(ProjectFileCommand::ReviewAutomation { id:automation.into() }, true).await.unwrap();
     eprintln!("Scheduled studio run: {}\n{}", run.id, std::fs::read_to_string(Path::new(&run.directory).join("output/response.md")).unwrap());
 }
+
+#[tokio::test]
+async fn history_projects_latest_reported_usage_without_guessing_missing_counts() {
+    let profile = tempfile::tempdir().unwrap();
+    let (project, automation) = definition_files(profile.path(), "print('{}')");
+    let runtime = runtime(profile.path());
+    let id = approved_run(&runtime, &automation, "usage-history").await;
+    assert!(runtime.run_for_chat(&id).unwrap().usage.is_none());
+    {
+        let store = runtime.store.lock().unwrap();
+        store.db.execute("UPDATE runs SET status='failed',error='fixture interruption' WHERE id=?", [&id]).unwrap();
+        for input in [10, 30] {
+            event(&store.db, &id, "provider_usage", &json!({"provider":"codex","usage":{"total":{"inputTokens":input,"outputTokens":4,"cachedInputTokens":2}}})).unwrap();
+        }
+    }
+    let history = runtime.catalog(Some(project), None).await.unwrap().history;
+    let run = history.runs.iter().find(|run| run.id == id).unwrap();
+    assert_eq!(run.status, "failed");
+    let usage = run.usage.as_ref().unwrap();
+    assert_eq!(usage.input_tokens, Some(30));
+    assert_eq!(usage.output_tokens, Some(4));
+    assert_eq!(usage.reported_cost_usd, None);
+    assert_eq!(runtime.run_for_chat(&id).unwrap().usage.as_ref(), Some(usage));
+}

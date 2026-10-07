@@ -86,6 +86,7 @@ impl ProjectRuntime {
             params![id, store.root.to_string_lossy()],
         )?;
         let mut run = runs.pop().ok_or("Run not found")?;
+        crate::project_runs::attach_usage(&store.db, std::slice::from_mut(&mut run))?;
         run.conversation_available = crate::project_runs::conversation_available(&run);
         Ok(run)
     }

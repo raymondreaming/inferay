@@ -82,6 +82,40 @@ export function RunHistory(props: { automationId?: string } = {}) {
 						<span {...stylex.attrs(styles.muted)}>
 							{new Date(run().requestedAt).toLocaleString()}
 						</span>
+						<Show when={run().usage}>
+							{(usage) => (
+								<div
+									aria-label="Provider usage"
+									{...stylex.attrs(styles.row, styles.muted)}
+								>
+									<span>
+										{usage().inputTokens === null
+											? "Input unknown"
+											: `${usage().inputTokens?.toLocaleString()} input tokens`}
+									</span>
+									<span>
+										{usage().outputTokens === null
+											? "Output unknown"
+											: `${usage().outputTokens?.toLocaleString()} output tokens`}
+									</span>
+									{usage().cachedInputTokens !== null && (
+										<span>
+											{usage().cachedInputTokens?.toLocaleString()} cached input
+										</span>
+									)}
+									{usage().reportedCostUsd !== null && (
+										<span>
+											{new Intl.NumberFormat(undefined, {
+												style: "currency",
+												currency: "USD",
+												maximumFractionDigits: 4,
+											}).format(usage().reportedCostUsd!)}{" "}
+											reported cost
+										</span>
+									)}
+								</div>
+							)}
+						</Show>
 						{run().error ? <p role="alert">{run().error}</p> : null}
 						{typeof (run().result as { message?: unknown } | null)?.message ===
 						"string" ? (

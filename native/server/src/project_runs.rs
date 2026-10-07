@@ -270,6 +270,7 @@ pub(crate) fn history(
     )?;
     let has_more_runs = runs.len() > 50;
     runs.truncate(50);
+    attach_usage(db, &mut runs)?;
     for run in &mut runs { run.conversation_available = conversation_available(run); }
     let next_run_cursor = if has_more_runs {
         runs.last()
@@ -336,4 +337,18 @@ mod conversation_tests {
         run.snapshot = json!({"automation":{}});
         assert!(!conversation_available(&run));
     }
+}
+
+/// One bounded query for the displayed page, retaining unknown usage on older runs.
+pub(crate) fn attach_usage(db: &Connection, runs: &mut [inferay_core::projects::ProjectRun]) -> Result<()> {
+    let ids = serde_json::to_string(&runs.iter().map(|run| &run.id).collect::<Vec<_>>())?;
+    let mut statement = db.prepare("SELECT e.run_id,e.payload FROM run_events e WHERE e.kind='provider_usage' AND e.run_id IN (SELECT value FROM json_each(?)) AND e.sequence=(SELECT max(latest.sequence) FROM run_events latest WHERE latest.run_id=e.run_id AND latest.kind='provider_usage')")?;
+    let rows = statement.query_map([ids], |row| Ok((row.get::<_,String>(0)?, row.get::<_,String>(1)?)))?;
+    for row in rows {
+        let (id, payload) = row?;
+        if let Some(run) = runs.iter_mut().find(|run| run.id == id) {
+            run.usage = serde_json::from_str::<Value>(&payload).ok().and_then(|event| inferay_core::projects::RunUsage::from_provider(&event));
+        }
+    }
+    Ok(())
 }

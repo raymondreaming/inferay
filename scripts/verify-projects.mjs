@@ -671,7 +671,7 @@ try {
 		"python3",
 		[
 			"-c",
-			"import sqlite3,sys,json; db=sqlite3.connect(sys.argv[1]); db.execute(\"INSERT INTO runs(id,project_id,automation_id,name,request_key,status,snapshot,input_hash,requested_at,result) VALUES(?,?,?,?,?,'succeeded',?,'fixture',1,?)\",(sys.argv[2],sys.argv[3],sys.argv[4],'Research result','fixture-run',sys.argv[5],json.dumps({'message':'Found three actionable improvements.'}))); db.commit()",
+			"import sqlite3,sys,json; db=sqlite3.connect(sys.argv[1]); db.execute(\"INSERT INTO runs(id,project_id,automation_id,name,request_key,status,snapshot,input_hash,requested_at,result) VALUES(?,?,?,?,?,'succeeded',?,'fixture',1,?)\",(sys.argv[2],sys.argv[3],sys.argv[4],'Research result','fixture-run',sys.argv[5],json.dumps({'message':'Found three actionable improvements.'}))); db.execute(\"INSERT INTO run_events(run_id,sequence,kind,payload,created_at) VALUES(?,1,'provider_usage',?,1)\", (sys.argv[2],json.dumps({'provider':'claude','usage':{'input_tokens':100,'output_tokens':20,'cache_read_input_tokens':50},'reportedCostUsd':0.0123}))); db.commit()",
 			join(profile, "projects.sqlite3"),
 			runId,
 			cardProject.id,
@@ -685,6 +685,21 @@ try {
 		{ stdio: "inherit" },
 	);
 	assert.equal((await once(seedRun, "exit"))[0], 0);
+	// Display fixture: provider reporting is covered by real native runtime gates.
+	await navigation
+		.getByRole("button", { name: "Automations", exact: true })
+		.click();
+	await page.getByRole("button", { name: /Chat briefing/ }).click();
+	await page
+		.getByRole("button", { name: "History", exact: true })
+		.last()
+		.click();
+	const usageRow = page.getByLabel("Provider usage");
+	await usageRow.getByText("150 input tokens", { exact: true }).waitFor();
+	await usageRow.getByText("20 output tokens", { exact: true }).waitFor();
+	await usageRow.getByText("50 cached input", { exact: true }).waitFor();
+	await usageRow.getByText(/0.0123.*reported cost/).waitFor();
+	await page.screenshot({ path: join(output, "run-usage.png") });
 	const imported = await api("/api/projects/run-chat", { id: runId });
 	const reopened = await api("/api/projects/run-chat", { id: runId });
 	assert.equal(

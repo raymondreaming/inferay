@@ -242,9 +242,46 @@ pub struct ProjectAutomation {
     pub overlap_policy: String,
     pub archived: bool,
 }
+/// Provider-reported consumption. Absent values are unknown, never estimated.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RunUsage {
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
+    pub cached_input_tokens: Option<u64>,
+    pub reported_cost_usd: Option<f64>,
+}
+impl RunUsage {
+    pub fn from_provider(event: &Value) -> Option<Self> {
+        let usage = &event["usage"];
+        let (input_tokens, output_tokens, cached_input_tokens, cost) = match event["provider"].as_str()? {
+            "codex" => (
+                usage.pointer("/total/inputTokens").and_then(Value::as_u64),
+                usage.pointer("/total/outputTokens").and_then(Value::as_u64),
+                usage.pointer("/total/cachedInputTokens").and_then(Value::as_u64),
+                None,
+            ),
+            "claude" => (
+                // Claude reports uncached input separately from cache reads/writes.
+                usage["input_tokens"].as_u64().and_then(|input| {
+                    input.checked_add(usage.get("cache_read_input_tokens").map_or(Some(0), Value::as_u64)?)?
+                        .checked_add(usage.get("cache_creation_input_tokens").map_or(Some(0), Value::as_u64)?)
+                }),
+                usage["output_tokens"].as_u64(),
+                usage["cache_read_input_tokens"].as_u64(),
+                event["reportedCostUsd"].as_f64().filter(|value| value.is_finite() && *value >= 0.0),
+            ),
+            _ => return None,
+        };
+        if input_tokens.is_none() && output_tokens.is_none() && cost.is_none() { return None; }
+        Some(Self { input_tokens, output_tokens, cached_input_tokens, reported_cost_usd: cost })
+    }
+}
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectRun {
+    #[serde(default)]
+    pub usage: Option<RunUsage>,
     /// A finished agent run has a nonempty retained transcript available to open.
     #[serde(default)]
     pub conversation_available: bool,
