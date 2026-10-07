@@ -1,6 +1,6 @@
 import { Button } from "@shared/ui/Button/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { createSignal, For } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import {
 	projects,
 	saveProjectCommand,
@@ -8,11 +8,8 @@ import {
 } from "../../hooks/useProjects.tsx";
 import { loadCanonicalAgentState } from "../../hooks/useWorkspaceState.tsx";
 import type { ProjectWorkspaceView } from "../../model/projectFiles.ts";
-import {
-	loadProjects,
-	openRunChat,
-	readProjectFile,
-} from "../../services/projectsApi.ts";
+import { loadProjects, openRunChat } from "../../services/projectsApi.ts";
+import { RunFilePreview } from "./RunFilePreview.tsx";
 import { styles } from "./styles.ts";
 
 export function RunHistory(props: { automationId?: string } = {}) {
@@ -32,19 +29,13 @@ export function RunHistory(props: { automationId?: string } = {}) {
 	}
 	const [page, setPage] = createSignal<ProjectWorkspaceView | null>(null);
 	const [preview, setPreview] = createSignal<{
-		name: string;
-		content: string;
+		directory: string;
+		path: string;
 	} | null>(null);
 	const [error, setError] = createSignal("");
 	const catalog = () => page() ?? projects.catalog();
-	async function inspect(directory: string, path: string) {
-		setError("");
-		try {
-			const file = await readProjectFile(directory, path);
-			setPreview({ name: path, content: file.content });
-		} catch (e) {
-			setError(String(e));
-		}
+	function inspect(directory: string, path: string) {
+		setPreview({ directory, path });
 	}
 	async function older() {
 		try {
@@ -64,17 +55,9 @@ export function RunHistory(props: { automationId?: string } = {}) {
 				Recent automation runs, captured inputs, and generated files.
 			</p>
 			{error() ? <p role="alert">{error()}</p> : null}
-			{preview() ? (
-				<section {...stylex.attrs(styles.card)}>
-					<div {...stylex.attrs(styles.row)}>
-						<strong>{preview()!.name}</strong>
-						<Button size="sm" onClick={() => setPreview(null)}>
-							Close preview
-						</Button>
-					</div>
-					<pre {...stylex.attrs(styles.pre)}>{preview()!.content}</pre>
-				</section>
-			) : null}
+			<Show when={preview()} keyed>
+				{(file) => <RunFilePreview {...file} close={() => setPreview(null)} />}
+			</Show>
 			{!catalog()?.runs.length ? (
 				<div {...stylex.attrs(styles.card)}>
 					<strong>Your first run starts here</strong>

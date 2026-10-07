@@ -3110,6 +3110,13 @@ mod file_http_tests {
                 .header("x-inferay-auth", &auth)
                 .header("sec-fetch-site", "same-origin")
         };
+        let artifact = root.join("state/projects/studio/runs/render/output/beauty.png");
+        std::fs::create_dir_all(artifact.parent().unwrap()).unwrap();
+        std::fs::write(&artifact, &original).unwrap();
+        let artifact_response = get(&artifact, false).send().await.unwrap();
+        assert_eq!(artifact_response.status(), StatusCode::OK);
+        assert_eq!(artifact_response.headers()["content-type"], "image/png");
+        assert_eq!(artifact_response.bytes().await.unwrap().as_ref(), original.as_slice());
         let response = get(&path, true).send().await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         let etag = response.headers()["etag"].clone();

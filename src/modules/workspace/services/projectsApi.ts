@@ -30,12 +30,20 @@ export function changeProject(command: ProjectFileCommand) {
 	}>("/api/projects/command", command, undefined, { server: true });
 }
 
-export function readProjectFile(directory: string, path: string) {
+export function readProjectFile(
+	directory: string,
+	path: string,
+	signal?: AbortSignal,
+) {
 	return fetchJson<{ content: string; hash: string }>(
 		`/api/files/content?${new URLSearchParams({ cwd: directory, path })}`,
-		undefined,
+		{ signal },
 		{ server: true },
 	);
+}
+
+export function projectImageUrl(directory: string, path: string) {
+	return `/api/file?${new URLSearchParams({ path: `${directory}/${path}` })}`;
 }
 
 export function openRunChat(id: string) {

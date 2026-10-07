@@ -5,6 +5,14 @@ import {
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
+	runPreviewImage: {
+		display: "block",
+		maxWidth: "100%",
+		maxHeight: "65vh",
+		objectFit: "contain",
+		alignSelf: "center",
+		borderRadius: radius.md,
+	},
 	pluginRun: {
 		display: "flex",
 		flexDirection: "column",

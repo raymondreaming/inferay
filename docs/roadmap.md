@@ -87,6 +87,8 @@ A disposable-profile runtime check covers accepting a chat library, refusing una
 
 Real Codex and Claude runs now pass disposable native-runtime filesystem probes, including recorded successful runs and outside-write refusal. Native app interaction checks remain. These changes are developed and committed directly on `main`; the remaining interaction and permission checks remain release gates.
 
+Run History previews retained PNG, JPEG, WebP, GIF, BMP, ICO and SVG images through the existing bounded local-image endpoint. Reports and logs use cancellable text previews. Video, structured table and post-draft viewers remain planned; native-app visual verification is still required.
+
 ## M3. Safe to leave running
 
 - **CLI tools (E2): implemented.** Existing scripts run with literal argument templates, explicit entrypoint placement, closed stdin and pass/fail from the exit code. Successful output includes stdout/stderr; `{output}` arguments bind to the run directory and produced files are indexed as artifacts. Failed runs retain both logs. Disposable-profile tests exercise success and failure.
@@ -139,7 +141,7 @@ Build an automation for a domain nobody designed for (for example a weekly finan
 
 ## Known gaps
 
-- The Solid principles audit still finds three reactive collections rendered with `.map` in the Memory file browser (`ResourceFiles.tsx`), which is owned by the concurrent Memory work. Automation, plugin, history and project-navigation lists use stable identities.
+- The Solid principles audit still finds three reactive collections rendered with `.map` in the plugin library page (still named `ResourceFiles.tsx`). Automation, plugin, history and project-navigation lists use stable identities.
 
 
 - Permission enforcement is partial: Codex requests scoped filesystem/network limits; Claude requests restricted tool access and a required Bash sandbox; macOS local tools enforce approved write roots and network access through an OS sandbox, including subprocesses. Other platforms refuse local tools. Push/PR/commit isolation, read isolation, provider network checks and additional platform adapters remain open in M3.
