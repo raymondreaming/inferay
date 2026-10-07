@@ -41,9 +41,9 @@ export function PluginLibraryDialog(props: {
 			});
 			setSelected(file.path);
 			setEditing(null);
-			setSaved(true);
 			await library.refetch();
 			await content.refetch();
+			setSaved(true);
 		} catch (error) {
 			setError(String(error));
 		} finally {
