@@ -12,9 +12,21 @@ Status: **notes work** (`native/core/src/memory.rs`, `native/server/src/memory_s
 | Codex `inferay_memory` tool (search, read, save in chats; no save in automations) | works |
 | Claude: memory guide and best matches in the prompt; searches the folder with `rg` and writes notes as files | works (no tool yet) |
 | Runs record the notes they read (`memory_read` run event) | works |
-| Title and tags sheet before saving, Memory button on your own messages, graph view, files and records on the Memory page, global memory, meaning-based search | planned |
+| Library view: drop zone, card grid with previews, side panel, files with companion notes, PDF text extraction, duplicate detection, records as cards, live updates; Resources and Files pages removed | planned (M2) |
+| Title and tags sheet before saving, Memory button on your own messages, image and video descriptions, graph view, global memory, meaning-based search | planned |
 
 ## What it is
+
+**Memory is the project's one library page.** It replaces the Resources and Files pages (and Tools moves into each plugin), leaving four project pages: Memory, Plugins, Automations, Repositories.
+
+- ⬇️ **Drop anything anywhere on the page**: text, Markdown, PDFs, images, video, links. It is saved at once and appears as a card.
+- 🗂️ **One continuous view** of everything saved, newest first, with filters for kind (Notes, Files, Images, Records) and tags, and one search across all of it.
+- 🔎 **A side panel** opens any card: the note, a preview of the file, extracted PDF text, a record's fields, where it came from, and what links to it.
+- 🔄 **Live**: saves from chats, agents and kept run outputs appear without refreshing.
+- 📝 **Every file gets a companion note** (title, tags, description, link to the original) so agents find files through the same `memory.search` / `memory.read` tool. PDFs also have their text extracted into the index; images and video are searchable by title and tags until you ask for a description.
+- ♻️ **Duplicates** are detected by file hash; dropping the same file twice points to the existing one.
+- 🧬 **Records stay deliberate**: a dropped JSON file never silently becomes a genome that automations depend on; records are added through their editor or an explicit "use as …" action.
+
 
 The project page currently called Resources becomes **Memory**. It holds three kinds of entries:
 
