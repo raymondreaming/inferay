@@ -6,12 +6,13 @@ Status words on this page: **works** (runs in the current build), **defined** (f
 
 ## The one-paragraph model
 
-A **project** groups everything for one effort: a codebase, a brand, a business. It can link **repositories** without copying them and hold **resources** (structured facts such as a brand genome). Reusable capability lives in **plugins**: each plugin is a persistent workspace containing reusable code, helper modules, documentation, templates and assets. It can also contain **skills** (instructions an agent reads), **tools** (programs with declared entry points), and **automations** (when to do something and with what); none of those three is required. An automation produces a **run**; a run leaves **artifacts** and an event log. Inferay's core decides what may run, holds approvals and secrets, and is the only part that will ever carry out consequential actions (**effects**). Plugins declare; the core acts.
+A **project** groups everything for one effort: a codebase, a brand, a business. It can link **repositories** without copying them and keep notes, documents and structured records (such as a brand genome) in **Memory**. Reusable capability lives in **plugins**: each plugin is a persistent workspace containing reusable code, helper modules, documentation, templates and assets. It can also contain **skills** (instructions an agent reads), **tools** (programs with declared entry points), and **automations** (when to do something and with what); none of those three is required. An automation produces a **run**; a run leaves **artifacts** and an event log. Inferay's core decides what may run, holds approvals and secrets, and is the only part that will ever carry out consequential actions (**effects**). Plugins declare; the core acts.
 
 ```
 Project ─┬─ Repositories (linked, never copied)
-         ├─ Resources (brand, mind, genome, …)
-         ├─ Files (managed documents)
+         ├─ Memory ─┬─ Notes
+         │          ├─ Documents and images
+         │          └─ Records (brand, Mind, genome, …)
          └─ Plugins ─┬─ Skills       what to do and how
                      ├─ Tools        programs to call
                      └─ Automations  when, with which skills/tools, under which permissions
@@ -27,7 +28,7 @@ Project ─┬─ Repositories (linked, never copied)
 | **Chat** | A conversation with Claude or Codex in a pane, optionally attached to a project or repository. Where you work day to day and where plugins get authored. | chat runtime | works |
 | **Project** | Durable identity for one effort, independent of any folder: name, instructions, linked repositories. Has a managed folder for its definitions and files. | project store | works; file-owned definition **defined** |
 | **Repository** | A folder you work in (usually Git). Linked to a project by ID; the path on this Mac is local state, so the same project can point at different checkouts on different Macs. Inferay never copies it. | project + local path table | works; ID references **defined** |
-| **Resource** | A typed, structured fact the project keeps: `brand.brand`, `brand.mind`, `brand.genome`, or a type a plugin adds. Agents get a resource only when an automation or chat explicitly selects it. | project | works; file-owned **defined** |
+| **Record** | A typed, structured fact stored in Memory: `brand.brand`, `brand.mind`, `brand.genome`, or a type a plugin adds. Agents get a resource only when an automation or chat explicitly selects it. | project | works; file-owned **defined** |
 | **Skill** | Markdown instructions with a name and description: how to do something. Global skills live in the Skills library (bundled with the app, plus your own); project skills live inside a plugin. A skill holds judgment, never secrets or schedules. | Skills library / plugin | works (global); in-plugin **defined** |
 | **Tool** | A program Inferay runs with a declared input and output schema, a timeout and captured logs. Holds rules and measurements: a check that must pass or fail is a tool, not a skill. | plugin | works; in-plugin **defined** |
 | **Automation** | A saved job: a trigger (manual, interval, or calendar time in a timezone), an execution (an agent with chosen skills, resources and repositories, or a single tool), an overlap policy, and the permissions it needs (`may`). | plugin | works; file-owned **defined** |
@@ -68,7 +69,7 @@ Inferay/
   projects/<project-id>/       definitions and managed files for one project
     project.json
     memory/<type>/<slug>.json
-    files/
+    memory/documents/
     plugins/<slug>/            plugin.json, skills/, tools/, automations/
     runs/<run-id>/             inputs/, logs/, output/  (run evidence)
   projects.sqlite3             local state and the rebuildable definition index
