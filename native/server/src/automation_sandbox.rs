@@ -10,6 +10,7 @@ pub(crate) struct AutomationSandbox {
     gpu: bool,
     commit: bool,
     repositories: Vec<String>,
+    git_writes: BTreeSet<std::path::PathBuf>,
 }
 impl AutomationSandbox {
     pub(crate) fn new(may: &BTreeSet<Permission>, repositories: &Value, project: &Path) -> Self {
@@ -23,6 +24,7 @@ impl AutomationSandbox {
             roots.insert(project.to_string_lossy().into_owned());
         }
         Self {
+            git_writes: BTreeSet::new(),
             roots: roots.into_iter().collect(),
             network: may.contains(&Permission::Network),
             gpu: may.contains(&Permission::Gpu),
@@ -38,6 +40,38 @@ impl AutomationSandbox {
                 })
                 .unwrap_or_default(),
         }
+    }
+    pub(crate) fn git_write_paths(&self) -> Result<BTreeSet<std::path::PathBuf>, String> {
+        if self.commit {
+            let paths = git_metadata_directories(self.roots.iter())?;
+            for path in &paths {
+                if !path.join("HEAD").is_file()
+                    || !(path.join("objects").is_dir() || path.join("commondir").is_file())
+                {
+                    return Err("Git write target is not a Git metadata directory".into());
+                }
+            }
+            Ok(paths)
+        } else {
+            Ok(BTreeSet::new())
+        }
+    }
+    pub(crate) fn with_reviewed_git_paths(mut self, reviewed: &Value) -> Result<Self, String> {
+        let approved: BTreeSet<std::path::PathBuf> =
+            serde_json::from_value(if reviewed.is_null() {
+                json!([])
+            } else {
+                reviewed.clone()
+            })
+            .map_err(|error| format!("Invalid reviewed Git paths: {error}"))?;
+        let current = self.git_write_paths()?;
+        if current != approved {
+            return Err(
+                "Git write locations changed since approval; review the automation again".into(),
+            );
+        }
+        self.git_writes = approved;
+        Ok(self)
     }
     pub(crate) fn claude(&self, arguments: &mut Vec<String>) -> Result<(), String> {
         let index = arguments
@@ -90,12 +124,16 @@ impl AutomationSandbox {
             .roots
             .iter()
             .map(Path::new)
+            .chain(self.git_writes.iter().map(|path| path.as_path()))
             .chain([output, scratch])
             .enumerate()
         {
             let canonical = root
                 .canonicalize()
                 .map_err(|error| format!("Sandbox write directory is unavailable: {error}"))?;
+            if self.git_writes.contains(root) && canonical != root {
+                return Err("Reviewed Git write location changed before execution".into());
+            }
             writable_roots.push(canonical.clone());
             let name = format!("WRITE_{index}");
             command
@@ -381,6 +419,161 @@ pub(crate) fn git_metadata_directories<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn external_git_metadata_needs_reviewed_paths_and_commit_permission() {
+        for worktree in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let project = temp.path().join("project");
+            let repo = temp.path().join("repo");
+            let mut metadata = temp.path().join("metadata");
+            let output = temp.path().join("output");
+            let scratch = temp.path().join("scratch");
+            for path in [&project, &repo, &output, &scratch] {
+                std::fs::create_dir(path).unwrap();
+            }
+            if worktree {
+                assert!(
+                    std::process::Command::new("/usr/bin/git")
+                        .arg("init")
+                        .arg(&metadata)
+                        .output()
+                        .unwrap()
+                        .status
+                        .success()
+                );
+                assert!(
+                    std::process::Command::new("/usr/bin/git")
+                        .arg("-C")
+                        .arg(&metadata)
+                        .args([
+                            "-c",
+                            "user.name=Fixture",
+                            "-c",
+                            "user.email=fixture@example.invalid",
+                            "-c",
+                            "commit.gpgSign=false",
+                            "-c",
+                            "core.hooksPath=/dev/null",
+                            "commit",
+                            "--allow-empty",
+                            "-m",
+                            "fixture"
+                        ])
+                        .output()
+                        .unwrap()
+                        .status
+                        .success()
+                );
+                assert!(
+                    std::process::Command::new("/usr/bin/git")
+                        .arg("-C")
+                        .arg(&metadata)
+                        .args(["worktree", "add"])
+                        .arg(&repo)
+                        .output()
+                        .unwrap()
+                        .status
+                        .success()
+                );
+                metadata = metadata.join(".git");
+            } else {
+                assert!(
+                    std::process::Command::new("/usr/bin/git")
+                        .args(["init", "--separate-git-dir"])
+                        .arg(&metadata)
+                        .arg(&repo)
+                        .output()
+                        .unwrap()
+                        .status
+                        .success()
+                );
+            }
+            std::fs::write(repo.join("file.txt"), "content").unwrap();
+            let may = BTreeSet::from([Permission::WriteRepositories, Permission::Commit]);
+            let repositories = json!({"repo":repo});
+            let paths = AutomationSandbox::new(&may, &repositories, &project)
+                .git_write_paths()
+                .unwrap();
+            assert!(paths.contains(&metadata.canonicalize().unwrap()));
+            assert_eq!(paths.len(), if worktree { 2 } else { 1 });
+            assert!(
+                AutomationSandbox::new(
+                    &BTreeSet::from([Permission::Commit]),
+                    &repositories,
+                    &project
+                )
+                .with_reviewed_git_paths(&json!(paths))
+                .is_err()
+            );
+            assert!(
+                AutomationSandbox::new(&may, &repositories, &project)
+                    .with_reviewed_git_paths(&json!([project]))
+                    .is_err()
+            );
+            let script = r#"import errno, pathlib, subprocess, sys
+repo, outside, approved = sys.argv[1:]
+def git(*args):
+    return subprocess.run(['/usr/bin/git', '-C', repo, '-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgSign=false', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', *args], capture_output=True)
+staged = git('add', 'file.txt')
+assert (staged.returncode == 0) == (approved == 'yes'), staged.stderr
+if approved == 'yes':
+    committed = git('commit', '-m', 'approved external metadata')
+    assert committed.returncode == 0, committed.stderr
+try: pathlib.Path(outside).write_text('must not widen parent access')
+except OSError as error: assert error.errno in (errno.EPERM, errno.EACCES), repr(error)
+else: raise AssertionError('unapproved parent became writable')
+"#;
+            for approved in [false, true] {
+                let policy = AutomationSandbox::new(&may, &repositories, &project);
+                let policy = if approved {
+                    policy.with_reviewed_git_paths(&json!(paths)).unwrap()
+                } else {
+                    policy
+                };
+                let args = vec![
+                    "-c".into(),
+                    script.into(),
+                    repo.display().to_string(),
+                    temp.path().join("unapproved.txt").display().to_string(),
+                    if approved { "yes" } else { "no" }.into(),
+                ];
+                let result = policy
+                    .tool_command("/usr/bin/python3", &args, &output, &scratch)
+                    .unwrap()
+                    .env_clear()
+                    .env("PATH", "/usr/bin:/bin")
+                    .env("HOME", &scratch)
+                    .output()
+                    .await
+                    .unwrap();
+                assert!(
+                    result.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&result.stderr)
+                );
+            }
+            // Approval of one binding cannot follow a replaced pointer.
+            let other = temp.path().join("other-metadata");
+            std::fs::create_dir(&other).unwrap();
+            let reviewed = AutomationSandbox::new(&may, &repositories, &project)
+                .with_reviewed_git_paths(&json!(paths))
+                .unwrap();
+            std::fs::rename(&metadata, temp.path().join("original-metadata")).unwrap();
+            std::os::unix::fs::symlink(&other, &metadata).unwrap();
+            let error = reviewed
+                .tool_command("/usr/bin/true", &[], &output, &scratch)
+                .unwrap_err();
+            assert!(error.contains("changed before execution"), "{error}");
+            std::fs::write(repo.join(".git"), format!("gitdir: {}", other.display())).unwrap();
+            assert!(
+                AutomationSandbox::new(&may, &repositories, &project)
+                    .with_reviewed_git_paths(&json!(paths))
+                    .is_err()
+            );
+        }
+    }
+
     #[cfg(target_os = "macos")]
     #[tokio::test]
     async fn local_tools_and_children_obey_write_and_network_grants() {

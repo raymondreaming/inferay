@@ -793,12 +793,26 @@ fn changed_git_metadata_binding_invalidates_automation_approval() {
     for directory in [&first, &second, &common] {
         fs::create_dir(directory).unwrap();
     }
+    for directory in [&first, &second, &common] {
+        fs::write(directory.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        fs::create_dir(directory.join("objects")).unwrap();
+    }
     fs::write(first.join("commondir"), "../git-common\n").unwrap();
     fs::write(root.join(".git"), format!("gitdir: {}\n", first.display())).unwrap();
+    for path in ["plugins/daily/plugin.json", "plugins/daily/automations/daily.json"] {
+        let path = root.join(path);
+        let mut definition: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        definition["may"] = json!(["write_project_files", "commit"]);
+        fs::write(path, definition.to_string()).unwrap();
+    }
     let mut db = Connection::open_in_memory().unwrap();
     create_schema(&db).unwrap();
     refresh(&mut db, profile.path(), &[]).unwrap();
     let before = execution_inputs(&db, profile.path(), &automation, &[]).unwrap();
+    assert_eq!(before["gitWritePaths"], before["gitMetadataPaths"]);
+    let plugin: Value = serde_json::from_slice(&fs::read(root.join("plugins/daily/plugin.json")).unwrap()).unwrap();
+    let review = review_plugin(&db, profile.path(), plugin["id"].as_str().unwrap(), &[]).unwrap();
+    assert_eq!(json!(review.git_write_paths), before["gitWritePaths"]);
     let paths: BTreeSet<std::path::PathBuf> =
         serde_json::from_value(before["gitMetadataPaths"].clone()).unwrap();
     assert_eq!(

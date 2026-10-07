@@ -183,7 +183,11 @@ pub(crate) fn apply(
                 params![id, fingerprint],
                 |row| row.get(0),
             )?;
-            json!({"id":id,"inputsHash":fingerprint,"inputs":inputs,"approved":approved})
+            serde_json::to_value(AutomationReview {
+                id, inputs_hash: fingerprint, approved,
+                git_write_paths: serde_json::from_value(inputs.get("gitWritePaths").cloned().unwrap_or_else(|| json!([])))?,
+                inputs,
+            })?
         }
         ProjectFileCommand::ApproveAutomation {
             id,

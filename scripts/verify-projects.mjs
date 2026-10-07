@@ -20,7 +20,10 @@ const profile = await realpath(
 );
 const repository = join(profile, "projects", "fixture-repository");
 await mkdir(repository, { recursive: true });
-const git = spawn("git", ["init", repository], { stdio: "ignore" });
+const metadata = join(profile, "external-git-metadata");
+const git = spawn("git", ["init", "--separate-git-dir", metadata, repository], {
+	stdio: "ignore",
+});
 assert.equal((await once(git, "exit"))[0], 0);
 await writeFile(join(repository, "README.md"), "# Preview fixture\n");
 for (const args of [
@@ -922,8 +925,69 @@ try {
 		expectedProjectHash: declaredBrand.file.sourceHash,
 		path: repository,
 	});
+	const gitReviewId = randomUUID();
+	await api("/api/projects/command", {
+		type: "saveDefinition",
+		projectId: brand.id,
+		path: `automations/${gitReviewId}/automation.json`,
+		expectedHash: null,
+		content: JSON.stringify({
+			schema: "inferay.automation/1",
+			id: gitReviewId,
+			name: "Git metadata review",
+			trigger: { kind: "interval", seconds: 86400 },
+			overlap: "skip",
+			may: ["write_repositories", "commit"],
+			execution: {
+				kind: "agent",
+				provider: "codex",
+				instructions: "Review fixture only",
+				skills: [],
+				resources: [],
+				repositories: [repositoryId],
+				workingDirectory: { base: "repository", id: repositoryId },
+				timeoutSeconds: 30,
+			},
+		}),
+	});
+	const gitReview = await api("/api/projects/command", {
+		type: "reviewAutomation",
+		id: gitReviewId,
+	});
+	assert.deepEqual(gitReview.gitWritePaths, [await realpath(metadata)]);
 	await page.reload();
 	await page.getByRole("tab", { name: "Brand Lab", exact: true }).click();
+	await page.getByRole("button", { name: "Automations", exact: true }).click();
+	await page
+		.getByRole("switch", { name: "Enable Git metadata review", exact: true })
+		.click();
+	const gitApproval = page.getByRole("dialog", {
+		name: "Enable automation",
+		exact: true,
+	});
+	await gitApproval
+		.getByRole("region", { name: "Git metadata write access", exact: true })
+		.getByText(await realpath(metadata), { exact: true })
+		.waitFor();
+	await page.screenshot({ path: join(output, "git-metadata-approval.png") });
+	await page.keyboard.press("Escape");
+	await gitApproval.waitFor({ state: "hidden" });
+	assert.equal(
+		(await api(`/api/projects?projectId=${brand.id}`)).automations.find(
+			(a) => a.id === gitReviewId,
+		).enabled,
+		false,
+	);
+	const conversationLabel = await page
+		.getByRole("button", { name: /^Delete / })
+		.first()
+		.getAttribute("aria-label");
+	await page
+		.getByRole("button", {
+			name: conversationLabel.slice("Delete ".length),
+			exact: true,
+		})
+		.click();
 	const repositoryButton = page.getByRole("button", {
 		name: "Open repository fixture-repository",
 		exact: true,

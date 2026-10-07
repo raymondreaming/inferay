@@ -86,7 +86,8 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
         &definition.may,
         &snapshot["repositoryPaths"],
         root,
-    );
+    )
+    .with_reviewed_git_paths(&snapshot["gitWritePaths"])?;
     let arguments: Vec<_> = tool
         .arguments
         .iter()

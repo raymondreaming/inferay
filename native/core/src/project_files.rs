@@ -670,7 +670,18 @@ pub fn document_category(name: &str) -> &'static str {
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
+pub struct AutomationReview {
+    pub id: String,
+    pub inputs_hash: String,
+    pub inputs: Value,
+    pub approved: bool,
+    pub git_write_paths: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
 pub struct PluginReview {
+    pub git_write_paths: Vec<String>,
     pub id: String,
     pub name: String,
     pub inputs_hash: String,

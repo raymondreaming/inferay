@@ -22,6 +22,7 @@ import {
 	type ProjectAutomation,
 } from "../../model/projectFiles.ts";
 import { AutomationEditor } from "./AutomationEditor.tsx";
+import { GitWriteAccess } from "./GitWriteAccess.tsx";
 import { RunHistory } from "./RunHistory.tsx";
 import { automationListStyles as listStyles, styles } from "./styles.ts";
 
@@ -54,6 +55,7 @@ export function AutomationWorkspace() {
 		automation: ProjectAutomation;
 		hash: string;
 		run: boolean;
+		gitWritePaths: string[];
 	} | null>(null);
 	async function enable(
 		automation: ProjectAutomation,
@@ -82,7 +84,12 @@ export function AutomationWorkspace() {
 					setScreen("history");
 				return;
 			}
-			setApproval({ automation, hash: review.inputsHash, run });
+			setApproval({
+				automation,
+				hash: review.inputsHash,
+				run,
+				gitWritePaths: review.gitWritePaths ?? [],
+			});
 		} catch {
 			/* Shared mutation error is displayed. */
 		}
@@ -347,40 +354,44 @@ export function AutomationWorkspace() {
 					<Modal
 						label={review.run ? "Run automation" : "Enable automation"}
 						onClose={() => setApproval(null)}
+						class={stylex.attrs(styles.dialog).class}
 					>
-						<h3>
-							{review.run ? "Run" : "Enable"} {review.automation.name}?
-						</h3>
-						<p>{automationScheduleLabel(review.automation)}</p>
-						<p>
-							The current plugin files, selected resources, and skills will be
-							approved for this automation.
-						</p>
-						<Button
-							onClick={async () => {
-								const approved = await act({
-									type: "approveAutomation",
-									id: review.automation.id,
-									expectedInputsHash: review.hash,
-									enable: review.run ? review.automation.enabled : true,
-								});
-								if (!approved) return;
-								if (review.run) {
-									if (
-										!(await act({
-											type: "runAutomation",
-											id: review.automation.id,
-											requestId: crypto.randomUUID(),
-										}))
-									)
-										return;
-									setScreen("history");
-								}
-								setApproval(null);
-							}}
-						>
-							{review.run ? "Approve & run" : "Approve & enable"}
-						</Button>
+						<div {...stylex.attrs(styles.form)}>
+							<h3>
+								{review.run ? "Run" : "Enable"} {review.automation.name}?
+							</h3>
+							<p>{automationScheduleLabel(review.automation)}</p>
+							<p>
+								The current plugin files, selected resources, and skills will be
+								approved for this automation.
+							</p>
+							<GitWriteAccess paths={review.gitWritePaths} />
+							<Button
+								onClick={async () => {
+									const approved = await act({
+										type: "approveAutomation",
+										id: review.automation.id,
+										expectedInputsHash: review.hash,
+										enable: review.run ? review.automation.enabled : true,
+									});
+									if (!approved) return;
+									if (review.run) {
+										if (
+											!(await act({
+												type: "runAutomation",
+												id: review.automation.id,
+												requestId: crypto.randomUUID(),
+											}))
+										)
+											return;
+										setScreen("history");
+									}
+									setApproval(null);
+								}}
+							>
+								{review.run ? "Approve & run" : "Approve & enable"}
+							</Button>
+						</div>
 					</Modal>
 				)}
 			</Show>

@@ -537,6 +537,12 @@ pub(crate) fn execution_inputs(
     if !git_metadata.is_empty() {
         snapshot["gitMetadataPaths"] = serde_json::to_value(git_metadata)?;
     }
+    let git_writes = crate::automation_sandbox::AutomationSandbox::new(
+        &definition.may, &json!(repositories), &root,
+    ).git_write_paths()?;
+    if !git_writes.is_empty() {
+        snapshot["gitWritePaths"] = serde_json::to_value(git_writes)?;
+    }
     snapshot["repositoryPaths"] = json!(repositories);
     snapshot["requirements"] = json!(requirements);
     snapshot["execution"] = serde_json::to_value(execution)?;
@@ -674,7 +680,12 @@ pub(crate) fn review_plugin(
         .flat_map(|v| v.values())
         .map(|v| serde_json::from_value(v["automation"].clone()))
         .collect::<std::result::Result<_, _>>()?;
+    let git_write_paths = inputs["automations"].as_object().into_iter()
+        .flat_map(|automations| automations.values())
+        .flat_map(|snapshot| snapshot["gitWritePaths"].as_array().into_iter().flatten())
+        .filter_map(Value::as_str).map(str::to_owned).collect::<BTreeSet<_>>();
     Ok(PluginReview {
+        git_write_paths: git_write_paths.into_iter().collect(),
         id: id.into(),
         name: manifest.name,
         inputs_hash: hash(&serde_json::to_vec(&inputs)?),

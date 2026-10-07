@@ -8,6 +8,7 @@ import { createSignal, For } from "solid-js";
 import { saveProjectCommand } from "../../hooks/useProjects.tsx";
 import { automationScheduleLabel } from "../../model/automationSchedule.ts";
 import { DefinitionChanges } from "./DefinitionChanges.tsx";
+import { GitWriteAccess } from "./GitWriteAccess.tsx";
 import { styles } from "./styles.ts";
 
 export function PluginReviewDialog(props: {
@@ -60,6 +61,7 @@ export function PluginReviewDialog(props: {
 						</div>
 					)}
 				</For>
+				<GitWriteAccess paths={props.review.gitWritePaths ?? []} />
 				<DefinitionChanges
 					files={props.review.files}
 					beforeLabel="Previously approved"

@@ -1,4 +1,5 @@
 import type {
+	AutomationReview,
 	PluginLibrary,
 	PluginProposalReview,
 	PluginReview,
@@ -23,13 +24,13 @@ export async function loadProjects(projectId = "", before?: string) {
 	);
 }
 export function changeProject(command: ProjectFileCommand) {
-	return postJson<{
-		id?: string;
-		path?: string;
-		sourceHash?: string;
-		inputsHash?: string;
-		approved?: boolean;
-	}>("/api/projects/command", command, undefined, { server: true });
+	return postJson<
+		Partial<AutomationReview> & {
+			id?: string;
+			path?: string;
+			sourceHash?: string;
+		}
+	>("/api/projects/command", command, undefined, { server: true });
 }
 
 export function readProjectFile(
