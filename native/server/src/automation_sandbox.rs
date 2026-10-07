@@ -71,12 +71,51 @@ impl AutomationSandbox {
         let mut settings: Value =
             serde_json::from_str(arguments.get(index).ok_or("Missing Claude settings")?)
                 .map_err(|e| format!("Invalid Claude settings: {e}"))?;
+        let mut deny = if self.network {
+            Vec::<String>::new()
+        } else {
+            vec!["WebFetch".into(), "WebSearch".into()]
+        };
+        let mut denied_writes = BTreeSet::new();
+        if !self.commit {
+            let roots = self
+                .repositories
+                .iter()
+                .chain(self.roots.iter())
+                .chain(std::iter::once(&output));
+            denied_writes = protected_git_directories(roots.clone())?;
+            #[cfg(target_os = "macos")]
+            if !denied_writes.is_empty() {
+                let writable = self
+                    .roots
+                    .iter()
+                    .chain(std::iter::once(&output))
+                    .map(|root| {
+                        Path::new(root).canonicalize().map_err(|error| {
+                            format!("Sandbox write directory is unavailable: {error}")
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                denied_writes.extend(git_metadata_aliases(&denied_writes, &writable)?);
+            }
+            denied_writes.extend(roots.map(|root| Path::new(root).join(".git")));
+            for path in &denied_writes {
+                let path = path.to_string_lossy();
+                if path.contains(['*', '?', '[', ']', '(', ')', '\n', '\r']) {
+                    return Err(
+                        "Git metadata path contains unsupported permission-pattern characters"
+                            .into(),
+                    );
+                }
+                deny.extend([format!("Edit(/{path})"), format!("Edit(/{path}/**)")]);
+            }
+        }
         settings["disableAllHooks"] = json!(true);
-        settings["permissions"] = json!({"allow":allow,"deny":if self.network {vec![]} else {vec!["WebFetch","WebSearch"]}});
+        settings["permissions"] = json!({"allow":allow,"deny":deny});
         settings["sandbox"] = json!({
             "enabled":true,"failIfUnavailable":true,"autoAllowBashIfSandboxed":true,
             "allowUnsandboxedCommands":false,"excludedCommands":[],
-            "filesystem":{"allowWrite":self.roots},
+            "filesystem":{"allowWrite":self.roots,"denyWrite":denied_writes},
             "network":{"allowedDomains":if self.network {vec!["*"]} else {vec![]},"strictAllowlist":true,"allowLocalBinding":false}
         });
         arguments[index] = settings.to_string();
@@ -332,8 +371,7 @@ fn git_metadata_aliases(
 }
 
 /// Resolve worktree and separate-git-dir pointers without invoking repository
-/// hooks or inheriting Git configuration. Invalid metadata blocks the tool.
-#[cfg(target_os = "macos")]
+/// hooks or inheriting Git configuration. Invalid metadata blocks execution.
 fn protected_git_directories<'a>(
     roots: impl Iterator<Item = &'a String>,
 ) -> Result<BTreeSet<std::path::PathBuf>, String> {
@@ -661,6 +699,16 @@ print('verified')
         assert_eq!(settings["sandbox"]["allowUnsandboxedCommands"], false);
         assert_eq!(settings["sandbox"]["network"]["allowedDomains"], json!([]));
         assert_eq!(settings["disableAllHooks"], true);
+        assert_eq!(
+            settings["sandbox"]["filesystem"]["denyWrite"],
+            json!(["/run/output/.git"])
+        );
+        assert!(
+            settings["permissions"]["deny"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("Edit(//run/output/.git/**)"))
+        );
         assert!(
             policy
                 .claude(&mut args, Path::new("/run/unsafe*/output"))

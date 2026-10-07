@@ -715,6 +715,82 @@ print("NETWORK_PROBE", json.dumps(result))
 
 #[tokio::test]
 #[ignore = "launches a real provider and consumes account usage"]
+async fn real_claude_honors_git_commit_permission() {
+    real_provider_git_permission("claude", Some("haiku"), false).await;
+    real_provider_git_permission("claude", Some("haiku"), true).await;
+}
+
+#[tokio::test]
+#[ignore = "launches a real provider and consumes account usage"]
+async fn real_codex_refuses_git_mutation_without_commit() {
+    real_provider_git_permission("codex", None, false).await;
+}
+
+async fn real_provider_git_permission(provider: &str, model: Option<&str>, commit: bool) {
+    let profile = tempfile::tempdir().unwrap();
+    let (project, automation) = definition_files(profile.path(), "print('{}')");
+    let root = profile.path().join("projects").join(&project).canonicalize().unwrap();
+    let result = std::process::Command::new("git").args(["init", "-q"]).arg(&root).output().unwrap();
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+    let probe = root.join("plugins/report/git_probe.py");
+    std::fs::write(&probe, r#"import json, os, subprocess, sys
+from pathlib import Path
+repo = Path(sys.argv[1])
+(repo / 'working-file.txt').write_text('ordinary edit allowed')
+env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+env['GIT_CONFIG_NOSYSTEM'] = '1'
+env['GIT_CONFIG_GLOBAL'] = '/dev/null'
+result = {}
+for name, args in [('stage', ['add', 'working-file.txt']), ('commit', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgSign=false', '-c', 'core.hooksPath=/dev/null', 'commit', '--allow-empty', '-qm', 'permission probe'])]:
+    done = subprocess.run(['git', '-C', str(repo), *args], capture_output=True, text=True, env=env, timeout=10)
+    result[name] = {'code': done.returncode, 'stderr': done.stderr}
+(repo / 'git-probe.json').write_text(json.dumps(result))
+print(json.dumps(result))
+"#).unwrap();
+    let path = root.join("plugins/report/automations/report.json");
+    let mut definition: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let may = if commit { json!(["write_project_files", "commit"]) } else { json!(["write_project_files"]) };
+    definition["may"] = may.clone();
+    definition["execution"] = json!({
+        "kind":"agent", "provider":provider, "model":model,
+        "instructions":format!("Run python3 {} {} exactly once using your shell tool. This is an authorized permission probe in a disposable project. It edits one working file and attempts Git staging and an empty commit, recording actual command results as git-probe.json in the project root. Run the script unchanged, do not fabricate results or retry denied operations. Report the results briefly.", probe.display(), root.display()),
+        "tools":[],"skills":[],"resources":[],"repositories":[],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":90
+    });
+    std::fs::write(path, definition.to_string()).unwrap();
+    let path = root.join("plugins/report/plugin.json");
+    let mut plugin: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    plugin["may"] = may;
+    std::fs::write(path, plugin.to_string()).unwrap();
+    let runtime = runtime(profile.path());
+    let id = approved_run(&runtime, &automation, "git-permission-gate").await;
+    runtime.tick().await.unwrap();
+    let done = tokio::time::timeout(Duration::from_secs(110), async {
+        loop {
+            let run = runtime.catalog(Some(project.clone()), None).await.unwrap().history.runs.into_iter().find(|run| run.id == id).unwrap();
+            if !["queued", "running"].contains(&run.status.as_str()) { break run; }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }).await.unwrap();
+    let dir = root.join("runs").join(&id);
+    let log = std::fs::read_to_string(dir.join("logs/agent.jsonl")).unwrap_or_default();
+    assert_eq!(done.status, "succeeded", "{:?}\n{log}", done.error);
+    assert_eq!(std::fs::read_to_string(root.join("working-file.txt")).unwrap(), "ordinary edit allowed");
+    let result: Value = serde_json::from_slice(&std::fs::read(root.join("git-probe.json")).unwrap_or_else(|error| panic!("Provider must execute the Git probe: {error}\n{log}"))).unwrap();
+    for operation in ["stage", "commit"] {
+        if commit {
+            assert_eq!(result[operation]["code"], 0, "Approved Git mutation failed: {result}\n{log}");
+            continue;
+        }
+        assert_ne!(result[operation]["code"], 0, "Unapproved Git mutation: {result}\n{log}");
+        let error = result[operation]["stderr"].as_str().unwrap().to_ascii_lowercase();
+        assert!(error.contains("operation not permitted") || error.contains("permission denied"), "Git failed without permission evidence: {result}\n{log}");
+    }
+    assert_eq!(root.join(".git/index").exists(), commit, "Unexpected Git index state");
+    assert_eq!(std::process::Command::new("git").arg("-C").arg(&root).args(["rev-parse", "--verify", "HEAD"]).output().unwrap().status.success(), commit, "Unexpected commit state");
+}
+
+#[tokio::test]
+#[ignore = "launches a real provider and consumes account usage"]
 async fn real_claude_calls_granted_library_tool() {
     real_provider_library_tool("claude", Some("haiku")).await;
 }
