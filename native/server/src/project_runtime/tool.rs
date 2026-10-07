@@ -10,6 +10,7 @@ pub(crate) struct Invocation<'a> {
     pub call: Option<&'a str>,
     pub tool: LocalTool,
     pub input: Value,
+    pub snapshot: &'a Value,
     pub entrypoint_hash: &'a str,
     pub active: Option<&'a AtomicBool>,
 }
@@ -21,6 +22,7 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
         call,
         tool,
         input,
+        snapshot,
         entrypoint_hash,
         active,
     } = invocation;
@@ -28,7 +30,8 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
     let inputs = dir.join("inputs").join(&subdir);
     let logs = dir.join("logs").join(&subdir);
     let output_dir = dir.join("output").join(&subdir);
-    for path in [&inputs, &logs, &output_dir] {
+    let scratch = dir.join("tmp").join(&subdir);
+    for path in [&inputs, &logs, &output_dir, &scratch] {
         std::fs::create_dir_all(path)?;
         if !path.canonicalize()?.starts_with(root) {
             return Err("Tool directory escapes project".into());
@@ -44,10 +47,26 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
     }
     std::fs::write(inputs.join("entrypoint"), &bytes)?;
     let cwd = resolve_path(&root, &tool.working_directory)?;
-    let mut command = tokio::process::Command::new(&tool.program);
+    let definition: inferay_core::project_files::AutomationDefinition =
+        serde_json::from_value(snapshot["automation"].clone())?;
+    let policy = crate::automation_sandbox::AutomationSandbox::new(
+        &definition.may,
+        &snapshot["repositoryPaths"],
+        root,
+    );
+    let mut command = policy.tool_command(&tool.program, &tool.arguments, &output_dir, &scratch)?;
     command
-        .args(&tool.arguments)
         .current_dir(cwd)
+        .env_clear()
+        .envs(std::env::vars_os().filter(|(key, _)| {
+            matches!(
+                key.to_str(),
+                Some("PATH" | "HOME" | "LANG" | "LC_ALL" | "LC_CTYPE")
+            )
+        }))
+        .env("TMPDIR", &scratch)
+        .env("TMP", &scratch)
+        .env("TEMP", &scratch)
         .env("INFERAY_PROJECT_DIR", &root)
         .env("INFERAY_RUN_OUTPUT", output_dir.clone())
         .env("INFERAY_RUN_ID", id)

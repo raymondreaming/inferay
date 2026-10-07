@@ -89,7 +89,7 @@ Other type IDs are accepted as relative names; their schemas come from plugins (
 
 ### Permissions
 
-`read_repositories`, `write_repositories`, `commit`, `push`, `open_pr`, `network`, `write_project_files`. Any other value is refused. An automation's `may` must fit within its plugin's `may`; that ceiling is checked. Codex automation requests map write permissions to captured repository/project roots and `network` to shell network access and web search; escalation is disabled. Claude automations use restricted mode and require a Bash sandbox, with explicit file/tool allowances and no unsandboxed retry. A real Claude runtime check verifies an outside write is refused. Local tool processes still have full access, and individual commit/push/PR permissions are not enforced. Real Claude and Codex native-runtime checks cover allowed output writes and refused outside writes; network, read isolation, and privileged Git checks remain outstanding. Treat `may` as a reviewed declaration with partial enforcement, not a complete guarantee (see [architecture.md](../architecture.md#provider-runner)).
+`read_repositories`, `write_repositories`, `commit`, `push`, `open_pr`, `network`, `write_project_files`. Any other value is refused. An automation's `may` must fit within its plugin's `may`; that ceiling is checked. Codex automation requests map write permissions to captured repository/project roots and `network` to shell network access and web search; escalation is disabled. Claude automations use restricted mode and require a Bash sandbox, with explicit file/tool allowances and no unsandboxed retry. A real Claude runtime check verifies an outside write is refused. Local tools on macOS require an OS sandbox covering subprocesses: output and private temporary files are writable, declared write permissions add repository/project roots, and `network` enables sockets. Other platforms refuse execution. Reads remain unrestricted; individual commit/push/PR permissions are not enforced. Real Claude and Codex native-runtime checks cover allowed output writes and refused outside writes; network, read isolation, and privileged Git checks remain outstanding. Treat `may` as a reviewed declaration with partial enforcement, not a complete guarantee (see [architecture.md](../architecture.md#provider-runner)).
 
 ## skills/&lt;name&gt;.md
 
@@ -135,7 +135,7 @@ For an existing script, use `interface: "cli"`. Its `args` must contain exactly 
   "outputSchema": { "type": "object" } }
 ```
 
-For Blender, arguments can be `["--background", "--python", "{entrypoint}", "--", "{input.scene}"]`. This interface does not sandbox script behavior; permission enforcement remains planned.
+For Blender, arguments can be `["--background", "--python", "{entrypoint}", "--", "{input.scene}"]`. Both tool interfaces use the same required macOS process sandbox. Tools receive PATH, HOME and locale variables plus Inferay’s explicit run variables and private temporary directory; arbitrary ambient environment variables are omitted. Machine requirements and additional platform adapters remain planned.
 
 Environment: `INFERAY_PROJECT_DIR`, `INFERAY_RUN_ID`, `INFERAY_RUN_OUTPUT` (write artifacts here).
 

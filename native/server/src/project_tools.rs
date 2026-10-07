@@ -205,6 +205,7 @@ impl ToolScope {
                 call: Some(&call),
                 tool,
                 input,
+                snapshot: &self.snapshot,
                 entrypoint_hash: &captured.entrypoint_hash,
                 active: Some(&self.active),
             },

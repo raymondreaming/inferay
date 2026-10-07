@@ -139,7 +139,7 @@ Build an automation for a domain nobody designed for (for example a weekly finan
 
 ## Known gaps
 
-- Permission enforcement is partial: Codex requests scoped filesystem/network limits; Claude requests restricted tool access and a required Bash sandbox; local tools still have full access. Push/PR/commit isolation, read/network enforcement checks and local-tool sandboxing remain open in M3.
+- Permission enforcement is partial: Codex requests scoped filesystem/network limits; Claude requests restricted tool access and a required Bash sandbox; macOS local tools enforce approved write roots and network access through an OS sandbox, including subprocesses. Other platforms refuse local tools. Push/PR/commit isolation, read isolation, provider network checks and additional platform adapters remain open in M3.
 - `check:architecture` has a "Solid reactivity regression" step that runs nothing.
 - There is no CI; checks run locally and through lint-staged.
 - The README describes a source-available license, but the repository has no `LICENSE` file.

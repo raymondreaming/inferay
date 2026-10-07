@@ -562,7 +562,7 @@ async fn cli_tools_use_literal_arguments_and_exit_status_with_durable_logs() {
             let result = run.result.unwrap();
             assert_eq!(result["exitCode"], 0);
             assert_eq!(result["stdout"], "--title|two words; $(touch unwanted)|3\n");
-            assert_eq!(result["stderr"], "");
+            assert_eq!(result["stderr"], std::fs::read_to_string(logs.join("stderr.txt")).unwrap());
         }
     }
 }

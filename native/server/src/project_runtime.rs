@@ -418,7 +418,7 @@ impl ProjectRuntime {
             ProjectExecution::Tool { tool_id: _, input } => {
                 let tool: LocalTool = serde_json::from_value(snapshot["tool"].clone())?;
                 tool::execute(self, tool::Invocation {
-                    id, root: &root, dir: &dir, call: None, tool, input,
+                    id, root: &root, dir: &dir, call: None, tool, input, snapshot,
                     entrypoint_hash: snapshot["entrypointHash"].as_str().ok_or("Missing entrypoint hash")?, active: None,
                 }).await
             }

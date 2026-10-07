@@ -87,6 +87,57 @@ impl AutomationSandbox {
         }
         Ok(())
     }
+    /// Local tools and their children share an OS boundary; never silently run unsandboxed.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn tool_command(
+        &self,
+        program: &str,
+        args: &[String],
+        output: &Path,
+        scratch: &Path,
+    ) -> Result<tokio::process::Command, String> {
+        let mut command = tokio::process::Command::new("/usr/bin/sandbox-exec");
+        let mut profile = String::from(
+            "(version 1)\n(deny default)\n(allow file-read*)\n(allow process-exec process-fork sysctl-read)\n(allow signal (target same-sandbox))\n(allow process-info* (target same-sandbox))\n(allow file-write-data (literal \"/dev/null\"))\n",
+        );
+        for (index, root) in self
+            .roots
+            .iter()
+            .map(Path::new)
+            .chain([output, scratch])
+            .enumerate()
+        {
+            let canonical = root
+                .canonicalize()
+                .map_err(|error| format!("Sandbox write directory is unavailable: {error}"))?;
+            let name = format!("WRITE_{index}");
+            command
+                .arg("-D")
+                .arg(format!("{name}={}", canonical.display()));
+            profile.push_str(&format!(
+                "(allow file-write* (subpath (param \"{name}\")))\n"
+            ));
+        }
+        if self.network {
+            profile.push_str("(allow network*)\n(allow mach-lookup (global-name \"com.apple.system.opendirectoryd.libinfo\") (global-name \"com.apple.SystemConfiguration.configd\"))\n");
+        }
+        command.args(["-p", &profile, "--", program]).args(args);
+        Ok(command)
+    }
+    #[cfg(not(target_os = "macos"))]
+    pub(crate) fn tool_command(
+        &self,
+        _program: &str,
+        _args: &[String],
+        _output: &Path,
+        _scratch: &Path,
+    ) -> Result<tokio::process::Command, String> {
+        Err(
+            "Local tool sandboxing is not available on this platform; the tool was not started"
+                .into(),
+        )
+    }
+
     pub(crate) fn mode(&self) -> &'static str {
         if self.roots.is_empty() {
             "read-only"
@@ -128,6 +179,72 @@ impl AutomationSandbox {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn local_tools_and_children_obey_write_and_network_grants() {
+        let temp = tempfile::tempdir().unwrap();
+        let output = temp.path().join("output");
+        let scratch = temp.path().join("scratch");
+        let project = temp.path().join("project");
+        for dir in [&output, &scratch, &project] {
+            std::fs::create_dir(dir).unwrap();
+        }
+        let script = r#"import errno, pathlib, socket, subprocess, sys
+out, project, outside, writable, network = sys.argv[1:]
+pathlib.Path(out, 'ok').write_text('ok')
+def attempt(path, allowed):
+    try: pathlib.Path(path).write_text('probe')
+    except OSError as e:
+        assert not allowed and e.errno in (errno.EPERM, errno.EACCES), repr(e)
+    else: assert allowed, 'unexpected write: ' + path
+attempt(str(pathlib.Path(project, 'probe')), writable == 'yes')
+attempt(outside, False)
+child = subprocess.run(['/bin/sh', '-c', 'echo escape > "$1"', 'probe', outside], capture_output=True)
+assert child.returncode != 0
+assert not pathlib.Path(outside).exists()
+try:
+    sock = socket.socket()
+    sock.connect(('127.0.0.1', 9))
+except OSError as e:
+    if network == 'yes': assert e.errno == errno.ECONNREFUSED, repr(e)
+    else: assert e.errno in (errno.EPERM, errno.EACCES), repr(e)
+else: assert network == 'yes'
+print('verified')
+"#;
+        for granted in [false, true] {
+            let may = if granted {
+                BTreeSet::from([Permission::WriteProjectFiles, Permission::Network])
+            } else {
+                BTreeSet::new()
+            };
+            let policy = AutomationSandbox::new(&may, &json!({}), &project);
+            let flag = if granted { "yes" } else { "no" };
+            let args = vec![
+                "-c".into(),
+                script.into(),
+                output.display().to_string(),
+                project.display().to_string(),
+                temp.path().join("outside").display().to_string(),
+                flag.into(),
+                flag.into(),
+            ];
+            let result = policy
+                .tool_command("/usr/bin/python3", &args, &output, &scratch)
+                .unwrap()
+                .env_clear()
+                .env("PATH", "/usr/bin:/bin")
+                .output()
+                .await
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            assert_eq!(String::from_utf8_lossy(&result.stdout).trim(), "verified");
+        }
+    }
+
     #[test]
     fn claude_automation_requires_sandbox_without_ambient_permission_bypass() {
         let policy = AutomationSandbox::new(&BTreeSet::new(), &json!({}), Path::new("/project"));
