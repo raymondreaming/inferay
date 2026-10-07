@@ -6,7 +6,7 @@ Status words on this page: **works** (runs in the current build), **defined** (f
 
 ## The one-paragraph model
 
-A **project** groups everything for one effort: a codebase, a brand, a business. It can link **repositories** without copying them and hold **resources** (structured facts such as a brand genome). Reusable capability lives in **plugins**: each plugin is one folder containing **skills** (instructions an agent reads), **tools** (programs with a declared input), and **automations** (when to do something and with what). An automation produces a **run**; a run leaves **artifacts** and an event log. Inferay's core decides what may run, holds approvals and secrets, and is the only part that will ever carry out consequential actions (**effects**). Plugins declare; the core acts.
+A **project** groups everything for one effort: a codebase, a brand, a business. It can link **repositories** without copying them and hold **resources** (structured facts such as a brand genome). Reusable capability lives in **plugins**: each plugin is a persistent workspace containing reusable code, helper modules, documentation, templates and assets. It can also contain **skills** (instructions an agent reads), **tools** (programs with declared entry points), and **automations** (when to do something and with what); none of those three is required. An automation produces a **run**; a run leaves **artifacts** and an event log. Inferay's core decides what may run, holds approvals and secrets, and is the only part that will ever carry out consequential actions (**effects**). Plugins declare; the core acts.
 
 ```
 Project ─┬─ Repositories (linked, never copied)
@@ -31,7 +31,7 @@ Project ─┬─ Repositories (linked, never copied)
 | **Skill** | Markdown instructions with a name and description: how to do something. Global skills live in the Skills library (bundled with the app, plus your own); project skills live inside a plugin. A skill holds judgment, never secrets or schedules. | Skills library / plugin | works (global); in-plugin **defined** |
 | **Tool** | A program Inferay runs with a declared input and output schema, a timeout and captured logs. Holds rules and measurements: a check that must pass or fail is a tool, not a skill. | plugin | works; in-plugin **defined** |
 | **Automation** | A saved job: a trigger (manual, interval, or calendar time in a timezone), an execution (an agent with chosen skills, resources and repositories, or a single tool), an overlap policy, and the permissions it needs (`may`). | plugin | works; file-owned **defined** |
-| **Plugin** | One folder holding the skills, tools and automations for one capability, plus a manifest with the most it may do. The unit you approve, share (by copying the folder) and see in the Plugins view. | project | installed copies work; chat-authored plugin folders **defined** |
+| **Plugin** | A persistent folder of reusable code and supporting files for a capability, plus a descriptive manifest and declared permissions. Skills, tools and automations are optional. The unit you approve, share (by copying the folder) and see in the Plugins view. | project | installed copies work; chat-authored plugin folders **defined** |
 | **Run** | One execution of an automation: captured inputs, state (`queued`, `running`, `succeeded`, `failed`, `waiting_input`, `cancelled`, `interrupted`, `skipped`), events, logs, artifacts. A crash or restart never turns into success. | run store | works |
 | **Artifact** | A file a run declares as output (a report, a render, a JSON result), with its size and hash. | run | works |
 | **Approval** | Your local decision that an automation may run on its schedule, stored as a hash of every input it reads. Any change to those inputs turns the schedule off until you enable it again. | local state | works (snapshot hash); file-input hashing **defined** |
@@ -67,7 +67,7 @@ Inferay's profile is `~/Library/Application Support/Inferay/` (`INFERAY_USER_DAT
 Inferay/
   projects/<project-id>/       definitions and managed files for one project
     project.json
-    resources/<type>/<slug>.json
+    memory/<type>/<slug>.json
     files/
     plugins/<slug>/            plugin.json, skills/, tools/, automations/
     runs/<run-id>/             inputs/, logs/, output/  (run evidence)
