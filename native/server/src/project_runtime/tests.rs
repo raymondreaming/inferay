@@ -618,6 +618,51 @@ async fn agent_tool_grants_execute_only_approved_library_inputs() {
     assert!(scope.call(request).await.unwrap_err().to_string().contains("closed"));
 }
 
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn dropping_tool_execution_kills_its_process_group() {
+    let profile = tempfile::tempdir().unwrap();
+    let script = r#"import os, subprocess, sys, time
+from pathlib import Path
+child = "import os, signal, sys, time; from pathlib import Path; signal.signal(signal.SIGTERM, signal.SIG_IGN); Path(sys.argv[1]).write_text(str(os.getpid())); time.sleep(60)"
+subprocess.Popen([sys.executable, '-c', child, str(Path(os.environ['INFERAY_RUN_OUTPUT']) / 'child.pid')])
+time.sleep(60)
+"#;
+    let (project, automation) = definition_files(profile.path(), script);
+    let runtime = runtime(profile.path());
+    let id = approved_run(&runtime, &automation, "drop-execution").await;
+    let snapshot = {
+        let mut store = runtime.store.lock().unwrap();
+        crate::project_runs::claim_next(&mut store.db, profile.path(), &[]).unwrap().unwrap().2
+    };
+    let marker = profile.path().join("projects").join(&project).join("runs").join(&id).join("output/child.pid");
+    let running = runtime.clone();
+    let task = tokio::spawn(async move { running.execute(&id, &project, &snapshot).await });
+    let pid: u32 = tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            if let Ok(text) = std::fs::read_to_string(&marker)
+                && let Ok(pid) = text.parse() { break pid; }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }).await.unwrap();
+    let alive = || {
+        let state = std::process::Command::new("ps").args(["-p", &pid.to_string(), "-o", "stat="]).output().unwrap();
+        let text = String::from_utf8_lossy(&state.stdout);
+        !text.trim().is_empty() && !text.trim().starts_with('Z')
+    };
+    assert!(alive(), "The helper must be running before cancellation");
+    task.abort();
+    assert!(task.await.unwrap_err().is_cancelled());
+    let stopped = tokio::time::timeout(Duration::from_secs(3), async {
+        while alive() { tokio::time::sleep(Duration::from_millis(25)).await; }
+    }).await.is_ok();
+    // A failing regression must not leave its disposable helper running.
+    if !stopped {
+        let _ = std::process::Command::new("/bin/kill").args(["-KILL", &pid.to_string()]).status();
+    }
+    assert!(stopped, "Dropping execution left a SIGTERM-resistant helper running");
+}
+
 /// Opt-in native provider gate; uses an isolated profile and harmless write probes.
 #[tokio::test]
 #[ignore = "launches a real provider and consumes account usage"]

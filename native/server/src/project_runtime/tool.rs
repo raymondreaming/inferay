@@ -14,6 +14,39 @@ pub(crate) struct Invocation<'a> {
     pub entrypoint_hash: &'a str,
     pub active: Option<&'a AtomicBool>,
 }
+
+/// Own process cleanup even when the execution future is dropped mid-await.
+struct ToolProcess<'a> {
+    pid: Option<u32>,
+    tracker: &'a RuntimePidTracker,
+    exited: bool,
+}
+impl ToolProcess<'_> {
+    fn stop(&mut self) {
+        if let Some(pid) = self.pid.take() {
+            if !self.exited {
+                agent_runner::tree_kill(pid);
+            }
+            #[cfg(unix)]
+            {
+                // The tool starts a private process group. Kill helpers even
+                // after its leader exits or when they ignore SIGTERM.
+                let _ = std::process::Command::new("/bin/kill")
+                    .args(["-KILL", "--", &format!("-{pid}")])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status();
+            }
+            self.tracker.untrack_pid(pid);
+        }
+    }
+}
+impl Drop for ToolProcess<'_> {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>) -> Result<Value> {
     let Invocation {
         id,
@@ -90,6 +123,11 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
     if let Some(pid) = pid {
         runtime.tracker.track_pid(pid);
     }
+    let mut process = ToolProcess {
+        pid,
+        tracker: &runtime.tracker,
+        exited: false,
+    };
     let write = if tool.interface == ToolInterface::JsonStdin {
         let mut stdin = child.stdin.take().ok_or("No process stdin")?;
         let data = serde_json::to_vec(&input)?;
@@ -123,14 +161,14 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
     let status = loop {
         tokio::select! {
             result = child.wait() => match result {
-                Ok(status) => break Some(status),
+                Ok(status) => { process.exited = true; break Some(status); },
                 Err(_) => { failure = Some("Could not wait for tool process"); break None; }
             },
             _ = tokio::time::sleep(Duration::from_millis(100)) => {
                 let cancelled = runtime.stopped(id) || active.is_some_and(|flag| !flag.load(Ordering::Acquire));
                 if cancelled || tokio::time::Instant::now() >= deadline {
                     failure = Some(if cancelled { "Cancelled" } else { "Tool timed out" });
-                    if let Some(pid) = pid { agent_runner::tree_kill(pid); }
+                    process.stop();
                     let _ = child.kill().await;
                     let _ = child.wait().await;
                     break None;
@@ -141,17 +179,7 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
     if let Some(write) = write {
         write.abort();
     }
-    if let Some(pid) = pid {
-        #[cfg(unix)]
-        {
-            let _ = std::process::Command::new("/bin/kill")
-                .args(["-KILL", "--", &format!("-{pid}")])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status();
-        }
-        runtime.tracker.untrack_pid(pid);
-    }
+    drop(process);
     let output = tokio::time::timeout(Duration::from_secs(2), &mut out).await;
     let errors = tokio::time::timeout(Duration::from_secs(2), &mut err).await;
     if output.is_err() || errors.is_err() {
