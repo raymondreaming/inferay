@@ -368,6 +368,9 @@ impl AutomationSandbox {
         }
         params["config"]["sandbox_workspace_write"] = json!({"writable_roots":[],"network_access":false,"exclude_slash_tmp":true,"exclude_tmpdir_env_var":true});
         params["config"]["web_search"] = json!("disabled");
+        // Instructions are supplied from the approved run snapshot. Repository
+        // documents remain available through the scoped native reader.
+        params["config"]["project_doc_max_bytes"] = json!(0);
         // Ambient optional executors must not add authority outside the run's tools.
         for feature in [
             "shell_tool",

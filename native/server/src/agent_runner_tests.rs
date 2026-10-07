@@ -286,6 +286,8 @@ async fn installed_codex_refuses_native_mutation_paths_in_automation_policy() {
     let work = root.path().join("work");
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&work).unwrap();
+    std::fs::write(work.join("AGENTS.md"), "INFERAY_UNAPPROVED_CODEX_PROJECT_CONTEXT_41931").unwrap();
+    std::fs::write(home.join("AGENTS.md"), "INFERAY_UNAPPROVED_CODEX_PERSONAL_CONTEXT_41931").unwrap();
     let requests = Arc::new(Mutex::new(Vec::<Value>::new()));
     async fn respond(
         State(requests): State<Arc<Mutex<Vec<Value>>>>,
@@ -362,7 +364,7 @@ supports_websockets = false
         images: vec![],
         model: Some("gpt-5.4".into()),
         reasoning_level: None,
-        developer_instructions: None,
+        developer_instructions: Some("INFERAY_APPROVED_CONTEXT_41931".into()),
         session_id: None,
         mcp_servers: None,
     };
@@ -406,6 +408,10 @@ supports_websockets = false
         "Native apply_patch bypassed automation policy"
     );
     let requests = requests.lock().unwrap();
+    let transcript = serde_json::to_string(&*requests).unwrap();
+    assert!(transcript.contains("INFERAY_APPROVED_CONTEXT_41931"), "Explicit run instructions must still reach the provider");
+    assert!(!transcript.contains("INFERAY_UNAPPROVED_CODEX_PROJECT_CONTEXT_41931"), "Unapproved project instructions entered the provider context");
+    eprintln!("Codex personal instructions remain in context: {}", transcript.contains("INFERAY_UNAPPROVED_CODEX_PERSONAL_CONTEXT_41931"));
     let output = requests
         .iter()
         .flat_map(|request| request["input"].as_array().into_iter().flatten())
@@ -451,7 +457,9 @@ async fn installed_claude_refuses_native_file_and_shell_tools_in_automation_poli
     let work = root.path().join("work");
     let home = root.path().join("claude-home");
     std::fs::create_dir_all(&work).unwrap();
+    std::fs::write(work.join("CLAUDE.md"), "INFERAY_UNAPPROVED_CLAUDE_PROJECT_CONTEXT_41931").unwrap();
     std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(home.join("CLAUDE.md"), "INFERAY_UNAPPROVED_CLAUDE_PERSONAL_CONTEXT_41931").unwrap();
     std::fs::write(work.join("edit.txt"), "original").unwrap();
     std::fs::write(root.path().join("private.txt"), "INFERAY_PRIVATE_READ_SENTINEL_31907").unwrap();
     let requests = Arc::new(Mutex::new(Vec::<Value>::new()));
@@ -547,7 +555,7 @@ async fn installed_claude_refuses_native_file_and_shell_tools_in_automation_poli
             ClaudeRun {
                 binary: &binary,
                 prompt: "Execute the supplied tool probe.",
-                developer_instructions: None,
+                developer_instructions: Some("INFERAY_APPROVED_CONTEXT_41931"),
                 cwd: &work,
                 model: Some("haiku"),
                 session_id: None,
@@ -580,6 +588,10 @@ async fn installed_claude_refuses_native_file_and_shell_tools_in_automation_poli
         "original"
     );
     let requests = requests.lock().unwrap();
+    let transcript = serde_json::to_string(&*requests).unwrap();
+    assert!(transcript.contains("INFERAY_APPROVED_CONTEXT_41931"), "Explicit run instructions must still reach the provider");
+    assert!(!transcript.contains("INFERAY_UNAPPROVED_CLAUDE_PROJECT_CONTEXT_41931"), "Unapproved project instructions entered the provider context");
+    assert!(!transcript.contains("INFERAY_UNAPPROVED_CLAUDE_PERSONAL_CONTEXT_41931"), "Unapproved personal instructions entered the provider context");
     assert!(!serde_json::to_string(&*requests).unwrap().contains("INFERAY_PRIVATE_READ_SENTINEL_31907"));
     for name in ["Bash", "Write", "Edit", "Read", "Glob", "Grep"] {
         let id = format!("native-{name}");
