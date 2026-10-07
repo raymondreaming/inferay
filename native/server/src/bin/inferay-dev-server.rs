@@ -8,11 +8,15 @@ async fn main() {
         .unwrap_or_else(|_| "127.0.0.1:4317".to_owned())
         .parse()
         .expect("invalid Inferay development backend address");
-    let app_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(|path| path.parent())
-        .expect("Inferay server must live under native/server")
-        .to_path_buf();
+    let app_root = std::env::var_os("INFERAY_DEV_APP_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .and_then(|path| path.parent())
+                .expect("Inferay server must live under native/server")
+                .to_path_buf()
+        });
     let mut config = ServerConfig::new(listen_addr, app_root);
     config.live_reload = true;
 

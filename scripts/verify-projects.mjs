@@ -59,6 +59,7 @@ const server = spawn("target/debug/inferay-dev-server", [], {
 	env: {
 		...process.env,
 		INFERAY_USER_DATA_DIR: profile,
+		INFERAY_DEV_APP_ROOT: process.cwd(),
 		INFERAY_DEV_BACKEND_ADDR: "127.0.0.1:0",
 	},
 	stdio: ["ignore", "pipe", "pipe"],
@@ -272,7 +273,7 @@ try {
 			inputSchema: { type: "object" },
 			outputSchema: { type: "object" },
 		}),
-		"tools/report/run.py": `import os,json,base64\nfrom pathlib import Path\nout=Path(os.environ['INFERAY_RUN_OUTPUT'])\n(out/'report.txt').write_text('A local project, a reusable tool, and a durable run.')\n(out/'preview.webm').write_bytes(base64.b64decode('${videoFixture}'))\n(out/'metrics.csv').write_bytes(base64.b64decode('${tableFixture}'))\n(out/'rows.json').write_text(json.dumps([{'name':'Research','count':7},{'name':'Build','count':0}]))\nprint(json.dumps({'artifacts':['report.txt','preview.webm','metrics.csv','rows.json']}))\n`,
+		"tools/report/run.py": `import os,json,base64\nfrom pathlib import Path\nout=Path(os.environ['INFERAY_RUN_OUTPUT'])\n(out/'report.md').write_text('# Run report\\n\\nA local project, a reusable tool, and a durable run.\\n\\n**Verified output**')\n(out/'preview.webm').write_bytes(base64.b64decode('${videoFixture}'))\n(out/'metrics.csv').write_bytes(base64.b64decode('${tableFixture}'))\n(out/'rows.json').write_text(json.dumps([{'name':'Research','count':7},{'name':'Build','count':0}]))\nprint(json.dumps({'artifacts':['report.md','preview.webm','metrics.csv','rows.json']}))\n`,
 		"automations/report.json": JSON.stringify({
 			schema: "inferay.automation/1",
 			id: reportAutomationId,
@@ -375,12 +376,35 @@ try {
 	await page
 		.getByText("succeeded", { exact: true })
 		.waitFor({ timeout: 15000 });
-	await page.getByRole("button", { name: /report.txt ·/ }).click();
+	await page.getByRole("button", { name: /report.md ·/ }).click();
 	await page
 		.getByText("A local project, a reusable tool, and a durable run.", {
 			exact: false,
 		})
 		.last()
+		.waitFor();
+	const reportPreview = page.getByRole("region", {
+		name: "Run output preview",
+	});
+	await reportPreview
+		.locator("strong")
+		.filter({ hasText: "Verified output" })
+		.waitFor();
+	assert.equal(await reportPreview.locator("pre").count(), 0);
+	await reportPreview
+		.getByRole("button", { name: "View source", exact: true })
+		.click();
+	assert.ok(
+		(await reportPreview.locator("pre").textContent()).includes(
+			"**Verified output**",
+		),
+	);
+	await reportPreview
+		.getByRole("button", { name: "View report", exact: true })
+		.click();
+	await reportPreview
+		.locator("strong")
+		.filter({ hasText: "Verified output" })
 		.waitFor();
 	await page.screenshot({ path: join(output, "runs.png") });
 	await page.getByRole("button", { name: /preview.webm ·/ }).click();
@@ -666,7 +690,7 @@ try {
 	await page
 		.getByText("succeeded", { exact: true })
 		.waitFor({ timeout: 15000 });
-	await page.getByRole("button", { name: /report.txt ·/ }).click();
+	await page.getByRole("button", { name: /report.md ·/ }).click();
 	await page
 		.getByRole("region", { name: "Run output preview" })
 		.getByText("A local project, a reusable tool, and a durable run.", {
@@ -1271,7 +1295,7 @@ try {
 	await page.screenshot({ path: join(output, "compact-overview.png") });
 	assert.deepEqual(errors, []);
 	console.log(
-		"PASS: project tabs and creation, repository membership, sidebar Git totals, standalone graph without new chats, conversation grid and first-pane deletion, automation and artifact flow with video playback/seeking and structured tables, chat plugin approval/revocation, manifest repair and unsaved-edit protection.",
+		"PASS: project tabs and creation, repository membership, sidebar Git totals, standalone graph without new chats, conversation grid and first-pane deletion, automation and artifact flow with formatted reports, source toggling, video playback/seeking and structured tables, chat plugin approval/revocation, manifest repair and unsaved-edit protection.",
 	);
 } catch (e) {
 	console.log("BODY:", (await page.locator("body").innerText()).slice(0, 5000));

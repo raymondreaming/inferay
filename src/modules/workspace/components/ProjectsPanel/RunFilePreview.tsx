@@ -1,3 +1,4 @@
+import { Markdown } from "@conversation/components/ChatRichContent/Markdown.tsx";
 import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
 import { queryClient } from "@shared/lib/dom.tsx";
 import { Button } from "@shared/ui/Button/index.tsx";
@@ -16,6 +17,7 @@ export function RunFilePreview(props: {
 	close: () => void;
 }) {
 	const image = () => /\.(png|jpe?g|webp|gif|ico|bmp|svg)$/i.test(props.path);
+	const markdown = () => /\.(md|markdown)$/i.test(props.path);
 	const video = () => /\.(mp4|m4v|webm|mov|ogv)$/i.test(props.path);
 	const [mediaError, setMediaError] = createSignal(false);
 	const [loaded, setLoaded] = createSignal(false);
@@ -33,13 +35,17 @@ export function RunFilePreview(props: {
 		<section aria-label="Run output preview" {...stylex.attrs(styles.card)}>
 			<div {...stylex.attrs(styles.row)}>
 				<strong>{props.path}</strong>
-				<Show when={file.data?.table}>
+				<Show when={file.data && (file.data.table || markdown())}>
 					<Button
 						size="sm"
 						variant="ghost"
 						onClick={() => setSource(!source())}
 					>
-						{source() ? "View table" : "View source"}
+						{source()
+							? markdown()
+								? "View report"
+								: "View table"
+							: "View source"}
 					</Button>
 				</Show>
 				<Button size="sm" variant="ghost" onClick={props.close}>
@@ -90,9 +96,12 @@ export function RunFilePreview(props: {
 					<Show
 						when={!source() && file.data?.table}
 						fallback={
-							file.data && (
+							file.data &&
+							(markdown() && !source() ? (
+								<Markdown text={file.data.content} />
+							) : (
 								<pre {...stylex.attrs(styles.pre)}>{file.data.content}</pre>
-							)
+							))
 						}
 					>
 						{(table) => (
