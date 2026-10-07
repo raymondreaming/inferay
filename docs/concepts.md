@@ -31,7 +31,7 @@ Project ─┬─ Repositories (linked, never copied)
 | **Record** | A typed, structured fact stored in Memory: `brand.brand`, `brand.mind`, `brand.genome`, or a type a plugin adds. Agents get a resource only when an automation or chat explicitly selects it. | project | works; file-owned **defined** |
 | **Skill** | Markdown instructions with a name and description: how to do something. Global skills live in the Skills library (bundled with the app, plus your own); project skills live inside a plugin. A skill holds judgment, never secrets or schedules. | Skills library / plugin | works (global); in-plugin **defined** |
 | **Tool** | A program Inferay runs with a declared input and output schema, a timeout and captured logs. Holds rules and measurements: a check that must pass or fail is a tool, not a skill. | plugin | works; in-plugin **defined** |
-| **Automation** | A saved job: a trigger (manual, interval, or calendar time in a timezone), an execution (an agent with chosen skills, resources and repositories, or a single tool), an overlap policy, and the permissions it needs (`may`). | plugin | works; file-owned **defined** |
+| **Automation** | A saved job: a trigger (manual, interval, or calendar time in a timezone), an execution (an agent with chosen skills, resources and repositories, or a single tool), an overlap policy, and the permissions it needs (`may`). | project; optionally supplied by a plugin | works; standalone file layout in progress |
 | **Plugin** | A persistent folder of reusable code and supporting files for a capability, plus a descriptive manifest and declared permissions. Skills, tools and automations are optional. The unit you approve, share (by copying the folder) and see in the Plugins view. | project | installed copies work; chat-authored plugin folders **defined** |
 | **Run** | One execution of an automation: captured inputs, state (`queued`, `running`, `succeeded`, `failed`, `waiting_input`, `cancelled`, `interrupted`, `skipped`), events, logs, artifacts. A crash or restart never turns into success. | run store | works |
 | **Artifact** | A file a run declares as output (a report, a render, a JSON result), with its size and hash. | run | works |
@@ -46,7 +46,7 @@ Project ─┬─ Repositories (linked, never copied)
 
 **Skill vs tool.** A skill is text an agent reads and interprets ("how to make today's hero post"). A tool is a program Inferay executes with checked input ("run the caption check; exit 1 means fail"). If two people should get the same answer every time, it is a tool.
 
-**Skill vs automation.** A skill says *how*; an automation says *when* and *with what*. Asking for a daily job creates an automation (and, if needed, a skill inside the same plugin), not a stand-alone global skill.
+**Skill vs automation.** A skill says *how*; an automation says *when* and *with what*. Asking for a daily job creates an automation. It can reuse an existing global skill or plugin; creating a job does not create a plugin automatically.
 
 **Tool vs automation.** A tool is a building block; an automation is a scheduled or manual job that uses an agent or a tool. A tool can be used by many automations.
 
@@ -54,11 +54,25 @@ Project ─┬─ Repositories (linked, never copied)
 
 **Plugin vs pack.** A plugin is yours: small, inspectable definitions. A pack is a body of code you link and use (often someone else's). Fork a pack to make it yours; your plugins keep pointing at it by repository ID.
 
-**Resource vs file.** A resource is a typed fact with a schema that automations select explicitly. A file under the project's `files/` is a document with no schema.
+**Record vs document.** Both belong in Memory. A record is a typed fact with a schema; a document or image is an original file under `memory/documents/`.
 
 **Definition vs state.** Definitions (project, resources, plugins, skills, tools, automations) are files you can read, copy and put under Git if you want. State (approvals, enabled schedules, next due times, runs, events, artifacts, which folder a repository ID means on this Mac) stays in Inferay's local database and is never shared by copying a folder. Pulling or copying someone's plugin never enables anything.
 
 **Run vs effect.** A run does work inside the project and its linked repositories. Its `may` permissions are declared and reviewed, but agent runs currently execute with the provider's full access, so they are not yet enforced; see [architecture.md](architecture.md#provider-runner). An effect leaves the machine with consequences. Runs never perform effects directly; the core does, within a budget you approved.
+
+## Plugins are local libraries
+
+A plugin is deliberately created or imported reusable work. It can contain many Python files for Blender, browser automation for Point Marketing, a browser-based image workflow, Figma helpers, social API code, templates or assets. These are examples of plugin content, not new categories built into Inferay's core.
+
+Each library uses the same discovery and execution conventions: a manifest gives its name and purpose; a README explains usage; skills teach agents when and how to use it; declared tools provide named entrypoints, inputs, outputs, timeouts and run results. Implementations can use different languages. CLI adapters, machine requirements and plugin MCP declarations are still planned; the common contract must describe their actual support rather than imply every imported script is executable already.
+
+**Ownership.** Workflow and automation definitions live in Inferay's project folder, alongside its plugins and Memory. They are not installed into linked repositories. Global skills remain in the global Skills library; library-specific skills travel with the plugin. A linked repository may contain its own process guide or implementation, which Inferay can reference without taking ownership of it. Repository-backed tool execution with commit pinning is planned.
+
+**Automations are independent.** An existing daily research or weekly briefing job belongs in Automations. It does not become a plugin merely because it has a schedule. Several jobs can reuse one meaningful library; a library can have no jobs at all. Plugins should start empty for a project that has never created or imported one. The migration-generated one-plugin-per-automation wrappers are being removed while preserving job IDs and history.
+
+**Folder intake — planned.** Drop a folder of existing work into Plugins and preserve its original files, including binary assets, as a draft library. Then ask chat to inspect it, explain what it does, organize reusable pieces, document requirements, and propose skills and tool entrypoints. Review the proposed changes before approving execution. Importing does not execute scripts, install dependencies, enable schedules or post anything. The current importer still requires a manifest and UTF-8 files; raw-folder and binary intake are not complete.
+
+**Presentation.** A plugin card leads with its name and purpose, then summarizes the code, skills, tools and assets it contains. Linked jobs appear as uses of the library. Filenames belong in the contents view. Memory holds knowledge and reference material; Plugins holds reusable implementations and instructions for using them.
 
 ## Where things live
 
@@ -70,17 +84,18 @@ Inferay/
     project.json
     memory/<type>/<slug>.json
     memory/documents/
-    plugins/<slug>/            plugin.json, skills/, tools/, automations/
+    plugins/<slug>/            plugin.json, README.md, src/, assets/, optional skills/ and tools/
+    automations/<id>/          automation.json and any private supporting files
     runs/<run-id>/             inputs/, logs/, output/  (run evidence)
   projects.sqlite3             local state and the rebuildable definition index
   chat.sqlite3, chat-*/        conversations
 ```
 
-The layout under `projects/<id>/` is the target of the storage switch in progress; today definitions are still stored in `projects.sqlite3` (see the status column above).
+Definitions live in the project folder; SQLite indexes them and stores local run, approval and schedule state. Separating migrated automation folders from generated plugin wrappers is in progress.
 
 ## Worked examples
 
-**Daily repository job** (works today as a SQLite-owned automation). A project linking the Point-Marketing repository has an automation: calendar 08:00 America/Chicago, agent execution with the repository as working directory and a skill that says "follow `agents/POINT-AUTOBUILD-GUIDE.md`, choose one app, run its checks, commit on a branch, never deploy". The process stays defined in the repository; Inferay schedules it, holds the approval and keeps the record.
+**Daily repository job.** A project linking the Point-Marketing repository has an automation: calendar 08:00 America/Chicago, agent execution with the repository as working directory and a skill that says "follow `agents/POINT-AUTOBUILD-GUIDE.md`, choose one app, run its checks, commit on a branch, never deploy". The process stays defined in the repository; Inferay schedules it, holds the approval and keeps the record.
 
 **Brand content lane** (needs E1–E3, E7). A Hatching Point project links a forked Blender kit as a repository. Its `hatch-content` plugin has a `lane-hero` skill that names the kit's modules, tools whose entrypoints are the kit's render and check scripts, and an automation at 09:00 New York. The kit's code is never copied; the approval pins its commit.
 

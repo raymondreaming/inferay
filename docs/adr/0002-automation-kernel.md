@@ -33,6 +33,12 @@ Plugins contribute through these extension points only: skills, callables (tools
 5. Every run is bounded in time, concurrency and size, and records honest failure states. An interrupted run is never reported as a success.
 6. The kernel contains no domain vocabulary. Words like post, render, blender or app appear only in plugins (an effect kind is an opaque string to the kernel).
 
+### Local library ownership
+
+Plugins are intentionally created reusable libraries, not mandatory containers for every automation. Workflow definitions belong to Inferay projects, outside linked repositories. A project can have automations and no plugins; code, assets and usage skills can form a plugin with no automation. Related jobs may reuse one library.
+
+All domains use the same manifest, discovery and callable contracts. Importing raw files is draft intake, not approval or execution. The UI presents purpose and capabilities first and files as drilldown. Global skills stay global; plugin-specific skills travel with their library. See [Plugins are local libraries](../concepts.md#plugins-are-local-libraries) for the authoring and ownership model, including what is still planned.
+
 ### Composition without a workflow engine
 
 Multi-stage work (render, check, review, publish later) is built from small automations, effects with a `notBefore` time, and triggers on events (run finished, effect delivered, observation arrived, file added). The kernel does not model workflow graphs.
