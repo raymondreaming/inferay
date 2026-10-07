@@ -257,15 +257,46 @@ impl AutomationSandbox {
             "workspace-write"
         }
     }
-    pub(crate) fn turn(&self) -> Value {
-        if self.roots.is_empty() {
+    fn codex_write_roots(&self) -> Result<Vec<String>, String> {
+        let mut roots = self.roots.clone();
+        if self.commit {
+            // Codex protects Git metadata under workspace roots by default.
+            // Explicit metadata grants must remain within approved write roots:
+            // a changed .git pointer must not authorize an unrelated directory.
+            let metadata = protected_git_directories(self.roots.iter())?;
+            if !metadata.is_empty() {
+                let writable = self
+                    .roots
+                    .iter()
+                    .map(|root| {
+                        Path::new(root).canonicalize().map_err(|error| {
+                            format!("Sandbox write directory is unavailable: {error}")
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                for path in metadata {
+                    if !writable.iter().any(|root| path.starts_with(root)) {
+                        return Err("Git metadata is outside approved writable roots; authorize its location before running a committing automation".into());
+                    }
+                    roots.push(path.to_string_lossy().into_owned());
+                }
+            }
+            roots.sort();
+            roots.dedup();
+        }
+        Ok(roots)
+    }
+    pub(crate) fn turn(&self) -> Result<Value, String> {
+        let roots = self.codex_write_roots()?;
+        Ok(if roots.is_empty() {
             json!({"type":"readOnly","networkAccess":self.network})
         } else {
-            json!({"type":"workspaceWrite","writableRoots":self.roots,"networkAccess":self.network,"excludeSlashTmp":true,"excludeTmpdirEnvVar":true})
-        }
+            json!({"type":"workspaceWrite","writableRoots":roots,"networkAccess":self.network,"excludeSlashTmp":true,"excludeTmpdirEnvVar":true})
+        })
     }
     /// Applied after user configuration translation so ambient permissions cannot widen this run.
-    pub(crate) fn thread(&self, params: &mut Value, config: &Value) {
+    pub(crate) fn thread(&self, params: &mut Value, config: &Value) -> Result<(), String> {
+        let roots = self.codex_write_roots()?;
         params["sandbox"] = json!(self.mode());
         params["experimentalRawEvents"] = json!(true);
         params["approvalPolicy"] = json!("never");
@@ -273,7 +304,7 @@ impl AutomationSandbox {
         if let Some(overrides) = params["config"].as_object_mut() {
             overrides.retain(|key, _| !key.starts_with("mcp_servers."));
         }
-        params["config"]["sandbox_workspace_write"] = json!({"writable_roots":self.roots,"network_access":self.network,"exclude_slash_tmp":true,"exclude_tmpdir_env_var":true});
+        params["config"]["sandbox_workspace_write"] = json!({"writable_roots":roots,"network_access":self.network,"exclude_slash_tmp":true,"exclude_tmpdir_env_var":true});
         if !self.network {
             params["config"]["web_search"] = json!("disabled");
         }
@@ -285,6 +316,7 @@ impl AutomationSandbox {
                 .collect();
             params["config"]["mcp_servers"] = json!(disabled);
         }
+        Ok(())
     }
 }
 
@@ -717,6 +749,61 @@ print('verified')
     }
 
     #[test]
+    fn codex_commit_grant_adds_only_resolved_git_metadata() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let checkout = root.join("checkout");
+        let metadata = checkout.join("admin/worktree");
+        let common = checkout.join("admin/common");
+        for path in [&checkout, &metadata, &common] {
+            std::fs::create_dir_all(path).unwrap();
+        }
+        std::fs::write(checkout.join(".git"), "gitdir: admin/worktree\n").unwrap();
+        std::fs::write(metadata.join("commondir"), "../common\n").unwrap();
+        let bindings = json!({"repo": checkout});
+        let mut may = BTreeSet::from([Permission::WriteRepositories]);
+        let policy = AutomationSandbox::new(&may, &bindings, &root);
+        assert_eq!(policy.turn().unwrap()["writableRoots"], json!([checkout]));
+
+        may.insert(Permission::Commit);
+        let policy = AutomationSandbox::new(&may, &bindings, &root);
+        let expected = json!([checkout, common, metadata]);
+        let turn = policy.turn().unwrap();
+        assert_eq!(turn["writableRoots"], expected);
+        assert_eq!(turn["networkAccess"], false);
+        let mut thread = json!({"config":{}});
+        policy.thread(&mut thread, &json!({})).unwrap();
+        assert_eq!(
+            thread["config"]["sandbox_workspace_write"]["writable_roots"],
+            expected
+        );
+
+        let policy =
+            AutomationSandbox::new(&BTreeSet::from([Permission::Commit]), &bindings, &root);
+        assert_eq!(
+            policy.turn().unwrap(),
+            json!({"type":"readOnly","networkAccess":false})
+        );
+
+        // Even a syntactically valid pointer cannot widen the write boundary.
+        std::fs::create_dir(root.join("outside")).unwrap();
+        std::fs::write(checkout.join(".git"), "gitdir: ../outside\n").unwrap();
+        let policy = AutomationSandbox::new(&may, &bindings, &root);
+        assert!(
+            policy
+                .turn()
+                .unwrap_err()
+                .contains("outside approved writable roots")
+        );
+        assert!(policy.thread(&mut thread, &json!({})).is_err());
+
+        std::fs::write(checkout.join(".git"), "invalid pointer\n").unwrap();
+        let policy = AutomationSandbox::new(&may, &bindings, &root);
+        assert!(policy.turn().is_err());
+        assert!(policy.thread(&mut thread, &json!({})).is_err());
+    }
+
+    #[test]
     fn codex_automation_limits_override_ambient_access() {
         let policy = AutomationSandbox::new(
             &BTreeSet::new(),
@@ -724,14 +811,14 @@ print('verified')
             Path::new("/work/project"),
         );
         assert_eq!(
-            policy.turn(),
+            policy.turn().unwrap(),
             json!({"type":"readOnly","networkAccess":false})
         );
         let mut thread = json!({"sandbox":"danger-full-access","config":{"mcp_servers.ambient.enabled":true},"approvalPolicy":"on-request"});
         policy.thread(
             &mut thread,
             &json!({"mcp_servers":{"ambient":{"command":"unsafe","enabled":true,"tool_timeout_sec":null}}}),
-        );
+        ).unwrap();
         assert_eq!(thread["sandbox"], "read-only");
         assert!(
             thread["config"]
@@ -748,8 +835,11 @@ print('verified')
             &json!({"repo":"/work/repo"}),
             Path::new("/work/project"),
         );
-        assert_eq!(policy.turn()["writableRoots"], json!(["/work/repo"]));
-        assert_eq!(policy.turn()["networkAccess"], false);
-        assert_eq!(policy.turn()["excludeSlashTmp"], true);
+        assert_eq!(
+            policy.turn().unwrap()["writableRoots"],
+            json!(["/work/repo"])
+        );
+        assert_eq!(policy.turn().unwrap()["networkAccess"], false);
+        assert_eq!(policy.turn().unwrap()["excludeSlashTmp"], true);
     }
 }

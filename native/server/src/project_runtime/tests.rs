@@ -722,8 +722,9 @@ async fn real_claude_honors_git_commit_permission() {
 
 #[tokio::test]
 #[ignore = "launches a real provider and consumes account usage"]
-async fn real_codex_refuses_git_mutation_without_commit() {
+async fn real_codex_honors_git_commit_permission() {
     real_provider_git_permission("codex", None, false).await;
+    real_provider_git_permission("codex", None, true).await;
 }
 
 async fn real_provider_git_permission(provider: &str, model: Option<&str>, commit: bool) {

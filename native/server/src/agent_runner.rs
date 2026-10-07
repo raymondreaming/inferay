@@ -530,12 +530,12 @@ pub async fn run_codex(
             .await?;
         let mut start_params = codex_thread_params(run.invocation);
         configure_codex_session(&mut start_params, &config["config"], run.env);
-        if let Some(policy) = &handle.sandbox { policy.thread(&mut start_params, &config["config"]); }
+        if let Some(policy) = &handle.sandbox { policy.thread(&mut start_params, &config["config"])?; }
         start_params["dynamicTools"] = handle.tool_definitions();
         let thread_response = if let Some(thread_id) = &run.invocation.session_id {
             let mut params = codex_thread_params(run.invocation);
             configure_codex_session(&mut params, &config["config"], run.env);
-            if let Some(policy) = &handle.sandbox { policy.thread(&mut params, &config["config"]); }
+            if let Some(policy) = &handle.sandbox { policy.thread(&mut params, &config["config"])?; }
             params["threadId"] = json!(thread_id);
             rpc.request(
                 "thread/resume",
@@ -585,7 +585,7 @@ pub async fn run_codex(
             }
         }
         let mut turn_params = codex_turn_params(&thread_id, run.prompt, run.invocation);
-        if let Some(policy) = &handle.sandbox { turn_params["sandboxPolicy"] = policy.turn(); }
+        if let Some(policy) = &handle.sandbox { turn_params["sandboxPolicy"] = policy.turn()?; }
         let turn_response = rpc
             .request(
                 "turn/start",
