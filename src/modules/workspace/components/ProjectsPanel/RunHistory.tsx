@@ -1,6 +1,6 @@
 import { Button } from "@shared/ui/Button/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import {
 	projects,
 	saveProjectCommand,
@@ -12,7 +12,10 @@ import { loadProjects, openRunChat } from "../../services/projectsApi.ts";
 import { RunFilePreview } from "./RunFilePreview.tsx";
 import { styles } from "./styles.ts";
 
-export function RunHistory(props: { automationId?: string } = {}) {
+export function RunHistory(props: {
+	automationId?: string;
+	selectAutomation: (id: string) => void;
+}) {
 	const [opening, setOpening] = createSignal(false);
 	async function continueRun(id: string) {
 		setOpening(true);
@@ -34,6 +37,23 @@ export function RunHistory(props: { automationId?: string } = {}) {
 	} | null>(null);
 	const [error, setError] = createSignal("");
 	const catalog = () => page() ?? projects.catalog();
+	const upcoming = createMemo(() =>
+		(projects.catalog()?.automations ?? [])
+			.filter(
+				(automation) =>
+					automation.enabled &&
+					!automation.archived &&
+					automation.nextDueAt !== null &&
+					(!props.automationId || automation.id === props.automationId),
+			)
+			.sort((a, b) => a.nextDueAt! - b.nextDueAt!),
+	);
+	const runs = createMemo(() =>
+		(catalog()?.runs ?? []).filter(
+			(run) => !props.automationId || run.automationId === props.automationId,
+		),
+	);
+
 	function inspect(directory: string, path: string) {
 		setPreview({ directory, path });
 	}
@@ -51,14 +71,44 @@ export function RunHistory(props: { automationId?: string } = {}) {
 	}
 	return (
 		<>
-			<p {...stylex.attrs(styles.muted)}>
-				Recent automation runs, captured inputs, and generated files.
-			</p>
+			<Show when={!page() && upcoming().length > 0}>
+				<section
+					aria-label="Upcoming automations"
+					{...stylex.attrs(styles.card)}
+				>
+					<strong>Upcoming</strong>
+					<p {...stylex.attrs(styles.muted)}>
+						Local times · Runs while Inferay is open
+					</p>
+					<For each={upcoming()} keyed={(automation) => automation.id}>
+						{(automation) => (
+							<div {...stylex.attrs(styles.row)}>
+								<Button
+									size="sm"
+									variant="ghost"
+									onClick={() => props.selectAutomation(automation().id)}
+								>
+									{automation().name}
+								</Button>
+								<time
+									datetime={new Date(automation().nextDueAt!).toISOString()}
+									{...stylex.attrs(styles.muted)}
+								>
+									{new Date(automation().nextDueAt!).toLocaleString(undefined, {
+										dateStyle: "medium",
+										timeStyle: "short",
+									})}
+								</time>
+							</div>
+						)}
+					</For>
+				</section>
+			</Show>
 			{error() ? <p role="alert">{error()}</p> : null}
 			<Show when={preview()} keyed>
 				{(file) => <RunFilePreview {...file} close={() => setPreview(null)} />}
 			</Show>
-			{!catalog()?.runs.length ? (
+			{!runs().length ? (
 				<div {...stylex.attrs(styles.card)}>
 					<strong>Your first run starts here</strong>
 					<p>
@@ -66,13 +116,7 @@ export function RunHistory(props: { automationId?: string } = {}) {
 					</p>
 				</div>
 			) : null}
-			<For
-				each={catalog()?.runs.filter(
-					(run) =>
-						!props.automationId || run.automationId === props.automationId,
-				)}
-				keyed={(item) => item.id}
-			>
+			<For each={runs()} keyed={(item) => item.id}>
 				{(run) => (
 					<article {...stylex.attrs(styles.card)}>
 						<div {...stylex.attrs(styles.row)}>

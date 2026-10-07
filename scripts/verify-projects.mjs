@@ -523,6 +523,30 @@ try {
 	await navigation
 		.getByRole("button", { name: "Automations", exact: true })
 		.click();
+	await page
+		.getByRole("button", { name: "History", exact: true })
+		.first()
+		.click();
+	const upcoming = page.getByRole("region", {
+		name: "Upcoming automations",
+		exact: true,
+	});
+	await upcoming
+		.getByRole("button", { name: "Chat briefing", exact: true })
+		.waitFor();
+	assert.equal(
+		await upcoming.locator("time").getAttribute("datetime"),
+		new Date(
+			approvedCatalog.automations.find(
+				(automation) => automation.id === proposalAutomationId,
+			).nextDueAt,
+		).toISOString(),
+	);
+	await page.screenshot({ path: join(output, "upcoming-automations.png") });
+	await upcoming
+		.getByRole("button", { name: "Chat briefing", exact: true })
+		.click();
+	await page.getByRole("textbox", { name: "Name", exact: true }).waitFor();
 	await page.getByRole("button", { name: /Chat-created report/ }).click();
 	await page.getByRole("button", { name: "Run now", exact: true }).click();
 
@@ -700,6 +724,19 @@ try {
 	await usageRow.getByText("50 cached input", { exact: true }).waitFor();
 	await usageRow.getByText(/0.0123.*reported cost/).waitFor();
 	await page.screenshot({ path: join(output, "run-usage.png") });
+	await page
+		.getByRole("button", { name: "History", exact: true })
+		.first()
+		.click();
+	await page
+		.getByRole("article")
+		.filter({ hasText: "Autosaved weekly report" })
+		.waitFor();
+	await page
+		.getByRole("article")
+		.filter({ hasText: "Research result" })
+		.waitFor();
+
 	const imported = await api("/api/projects/run-chat", { id: runId });
 	const reopened = await api("/api/projects/run-chat", { id: runId });
 	assert.equal(

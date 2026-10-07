@@ -227,7 +227,10 @@ export function AutomationWorkspace() {
 				<button
 					type="button"
 					aria-pressed={ariaValue(screen() === "history")}
-					onClick={() => setScreen("history")}
+					onClick={() => {
+						setSelected(null);
+						setScreen("history");
+					}}
 					{...stylex.attrs(listStyles.history)}
 				>
 					History
@@ -262,7 +265,13 @@ export function AutomationWorkspace() {
 							</Button>
 							<strong>History</strong>
 						</div>
-						<RunHistory automationId={selected() ?? undefined} />
+						<RunHistory
+							automationId={selected() ?? undefined}
+							selectAutomation={(id) => {
+								setSelected(id);
+								setScreen("detail");
+							}}
+						/>
 					</>
 				) : screen() === "starters" || !current() ? (
 					<>
