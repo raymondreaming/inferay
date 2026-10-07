@@ -66,7 +66,7 @@ Development continues directly on `main`. The formats and validators exist; this
 
 **Chat builds plugins.**
 - Agents inspect libraries with `readPlugin` and propose new reusable libraries with `createPlugin`. Standalone automation requests use `saveDefinition` at `automations/<id>/automation.json`, producing their own proposal card. Both paths validate before displaying and save only through a user action. Existing libraries support `updatePlugin` proposals with a current library hash, text replacements and explicit removals; unmentioned binary assets are preserved and the accepted bundle is published atomically on macOS and Linux.
-- A library proposal appears as one card with durable Save and Decline decisions. Review changes compares current and proposed text, added and removed files, binary file hashes, and declared permissions before saving. Execution approval uses the same comparison surface against the previously approved files. Editing a proposal before acceptance remains planned.
+- A library proposal appears as one card with durable Save and Decline decisions. Review changes compares current and proposed text, added and removed files, binary file hashes, and declared permissions before saving. Execution approval uses the same comparison surface against the previously approved files. The Edit proposal action adjusts text files, additions and removals, then validates and returns to comparison before saving. The original card identity stays fixed; durable save receipts retain the exact accepted edits for recovery.
 - Agent guidance distinguishes libraries from jobs, requests calendar triggers, repository IDs and declared permissions, and reuses existing global skills.
 - Claude gets the same `inferay_projects` commands Codex has.
 

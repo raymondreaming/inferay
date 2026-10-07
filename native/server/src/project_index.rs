@@ -202,6 +202,10 @@ pub(crate) fn create_schema(db: &Connection) -> Result<()> {
         CREATE TABLE IF NOT EXISTS plugin_state(plugin_id TEXT PRIMARY KEY,approved_hash TEXT,approved_at INTEGER);
         CREATE TABLE IF NOT EXISTS repository_paths(project_id TEXT NOT NULL,repository_id TEXT NOT NULL,path TEXT NOT NULL,PRIMARY KEY(project_id,repository_id));
         CREATE TABLE IF NOT EXISTS definition_errors(project_id TEXT NOT NULL,source_path TEXT NOT NULL,error TEXT NOT NULL,PRIMARY KEY(project_id,source_path));")?;
+    let has_edit: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('project_proposals') WHERE name='accepted_command')", [], |r|r.get(0))?;
+    if !has_edit {
+        db.execute_batch("ALTER TABLE project_proposals ADD COLUMN accepted_command TEXT CHECK(accepted_command IS NULL OR json_valid(accepted_command))")?;
+    }
     let has_snapshot: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('plugin_state') WHERE name='approved_inputs')", [], |r|r.get(0))?;
     if !has_snapshot {
         db.execute_batch("ALTER TABLE plugin_state ADD COLUMN approved_inputs TEXT CHECK(approved_inputs IS NULL OR json_valid(approved_inputs))")?;

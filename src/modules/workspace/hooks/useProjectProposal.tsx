@@ -9,7 +9,7 @@ import { projectProposal } from "../services/projectsApi.ts";
 import { refreshProjects } from "./useProjects.tsx";
 
 export function useProjectProposal(
-	input: () => Omit<ProjectProposalRequest, "decision">,
+	input: () => Omit<ProjectProposalRequest, "decision" | "editedCommand">,
 ) {
 	const request = createMemo(input);
 	const resource = useQueryResource<ProjectProposalView | null>(
@@ -25,12 +25,19 @@ export function useProjectProposal(
 	const [busy, setBusy] = createSignal(false);
 	const [error, setError] = createSignal("");
 	const loading = () => !resource.loaded || resource.loading;
-	const decide = async (decision: ProjectProposalDecision) => {
+	const decide = async (
+		decision: ProjectProposalDecision,
+		editedCommand?: ProjectProposalRequest["editedCommand"],
+	) => {
 		if (busy() || loading() || resource.data?.status !== "pending") return;
 		setBusy(true);
 		setError("");
 		try {
-			const view = await projectProposal({ ...request(), decision });
+			const view = await projectProposal({
+				...request(),
+				decision,
+				editedCommand,
+			});
 			resource.setData(view);
 			if (view.status === "saved") {
 				try {

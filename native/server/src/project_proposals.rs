@@ -9,6 +9,7 @@ use crate::{
 use inferay_core::{project_files::*, prompts::Prompt};
 use rusqlite::{OptionalExtension, params};
 use std::collections::BTreeMap;
+mod edits;
 pub(crate) mod review;
 
 pub(crate) fn resolve(
@@ -46,12 +47,20 @@ pub(crate) fn resolve(
     };
     uuid::Uuid::parse_str(project_id)?;
     let command_hash = hash(&serde_json::to_vec(&request.command)?);
-    let receipt: Option<(String, String, Option<String>, Option<String>)> = store.db.query_row(
-        "SELECT command_hash,state,output_hash,entity_id FROM project_proposals WHERE message_id=?",
+    if request.edited_command.is_some() && request.decision != Some(ProjectProposalDecision::Save) {
+        return Err("Edited contents are only accepted with a save decision".into());
+    }
+    let mut effective = request
+        .edited_command
+        .clone()
+        .unwrap_or_else(|| request.command.clone());
+    edits::validate(&request.command, &effective)?;
+    let receipt: Option<(String, String, Option<String>, Option<String>, Option<String>)> = store.db.query_row(
+        "SELECT command_hash,state,output_hash,entity_id,accepted_command FROM project_proposals WHERE message_id=?",
         [&request.message_id],
-        |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?)),
+        |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?)),
     ).optional()?;
-    if let Some((previous_hash, state, output_hash, entity_id)) = receipt {
+    if let Some((previous_hash, state, output_hash, entity_id, accepted_command)) = receipt {
         if previous_hash != command_hash {
             return Err(
                 "This proposal message already refers to different contents; prepare a new card"
@@ -72,6 +81,16 @@ pub(crate) fn resolve(
                 });
             }
             "applying" => {
+                if let Some(accepted) = accepted_command {
+                    let stored: ProjectFileCommand = serde_json::from_str(&accepted)?;
+                    if request.edited_command.is_some()
+                        && serde_json::to_value(&stored)? != serde_json::to_value(&effective)?
+                    {
+                        return Err("A save is already pending for different edits; retry its recorded contents first".into());
+                    }
+                    effective = stored;
+                    edits::validate(&request.command, &effective)?;
+                }
                 let root = store.project_dir(project_id)?;
                 let path = files::managed_path(&root, &target, false)?;
                 if path.try_exists()? {
@@ -120,7 +139,7 @@ pub(crate) fn resolve(
         .iter()
         .map(|skill| format!("global:{}", skill.id))
         .collect();
-    let (output_hash, entity_id) = match &request.command {
+    let (output_hash, entity_id) = match &effective {
         ProjectFileCommand::CreatePlugin {
             slug,
             files: bundle,
@@ -182,12 +201,12 @@ pub(crate) fn resolve(
     // The mutex and profile lease serialize application writers. The durable
     // intent survives a crash between publishing files and recording completion.
     store.db.execute(
-        "INSERT INTO project_proposals(message_id,command_hash,project_id,state,output_hash,entity_id)
-         VALUES(?,?,?,'applying',?,?)
-         ON CONFLICT(message_id) DO UPDATE SET state='applying',output_hash=excluded.output_hash,entity_id=excluded.entity_id",
-        params![request.message_id, command_hash, project_id, output_hash, entity_id],
+        "INSERT INTO project_proposals(message_id,command_hash,project_id,state,output_hash,entity_id,accepted_command)
+         VALUES(?,?,?,'applying',?,?,?)
+         ON CONFLICT(message_id) DO UPDATE SET state='applying',output_hash=excluded.output_hash,entity_id=excluded.entity_id,accepted_command=excluded.accepted_command",
+        params![request.message_id, command_hash, project_id, output_hash, entity_id, serde_json::to_string(&effective)?],
     )?;
-    project_file_commands::apply(&mut store.db, &store.root, request.command, true, skills)?;
+    project_file_commands::apply(&mut store.db, &store.root, effective, true, skills)?;
     store.db.execute(
         "UPDATE project_proposals SET state='saved' WHERE message_id=?",
         [&request.message_id],

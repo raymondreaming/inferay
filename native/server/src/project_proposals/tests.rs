@@ -13,6 +13,7 @@ fn fixture() -> (tempfile::TempDir, String, FileProjectStore) {
 }
 fn proposal(project: &str, message: &str) -> ProjectProposalRequest {
     ProjectProposalRequest {
+        edited_command: None,
         message_id: message.into(),
         command: ProjectFileCommand::CreatePlugin {
             project_id: project.into(), slug: "render-kit".into(),
@@ -130,6 +131,7 @@ fn stale_identical_automation_is_not_recorded_as_a_successful_save() {
     };
     store.command(command.clone(), true, &[]).unwrap();
     let request = ProjectProposalRequest {
+        edited_command: None,
         message_id: "chat:stale".into(),
         command,
         decision: Some(ProjectProposalDecision::Save),
@@ -225,4 +227,108 @@ fn library_comparison_is_read_only_and_rejects_stale_inputs() {
     );
     std::fs::write(package.join("keep.txt"), "Outside edit").unwrap();
     assert!(review::plugin(&root, &command, &globals).is_err());
+}
+
+#[test]
+fn edited_library_save_keeps_card_identity_and_recovers_exact_contents() {
+    let (profile, project, mut store) = fixture();
+    let original = proposal(&project, "chat:edited");
+    let mut edited = original.command.clone();
+    if let ProjectFileCommand::CreatePlugin { files, .. } = &mut edited {
+        files.insert("README.md".into(), "Instructions edited by the user".into());
+        files.insert("notes.txt".into(), "Added during review".into());
+    }
+    let mut request = original.clone();
+    request.decision = Some(ProjectProposalDecision::Save);
+    request.edited_command = Some(edited.clone());
+    assert_eq!(
+        resolve(&mut store, request.clone(), &[]).unwrap().status,
+        ProjectProposalStatus::Saved
+    );
+    let package = store
+        .project_dir(&project)
+        .unwrap()
+        .join("plugins/render-kit");
+    assert_eq!(
+        std::fs::read_to_string(package.join("README.md")).unwrap(),
+        "Instructions edited by the user"
+    );
+    // A persisted intent must carry the edited payload even if publication has
+    // not happened and the original chat card is all the renderer reloaded.
+    store
+        .db
+        .execute(
+            "UPDATE project_proposals SET state='applying' WHERE message_id=?",
+            [&request.message_id],
+        )
+        .unwrap();
+    std::fs::remove_dir_all(&package).unwrap();
+    drop(store);
+    let mut store = FileProjectStore::open(profile.path(), &[]).unwrap();
+    let mut conflicting = request.clone();
+    if let Some(ProjectFileCommand::CreatePlugin { files, .. }) = &mut conflicting.edited_command {
+        files.insert("README.md".into(), "A different edit".into());
+    }
+    assert!(resolve(&mut store, conflicting, &[]).is_err());
+    request.edited_command = None;
+    assert_eq!(
+        resolve(&mut store, request, &[]).unwrap().status,
+        ProjectProposalStatus::Saved
+    );
+    assert_eq!(
+        std::fs::read_to_string(package.join("notes.txt")).unwrap(),
+        "Added during review"
+    );
+    assert_eq!(
+        std::fs::read_to_string(package.join("README.md")).unwrap(),
+        "Instructions edited by the user"
+    );
+    assert_eq!(
+        resolve(&mut store, original, &[]).unwrap().status,
+        ProjectProposalStatus::Saved
+    );
+}
+
+#[test]
+fn proposal_edits_cannot_redirect_or_weaken_a_save() {
+    let (_profile, project, mut store) = fixture();
+    let original = proposal(&project, "chat:edit-scope");
+    let mut redirected = original.clone();
+    redirected.decision = Some(ProjectProposalDecision::Save);
+    let mut edited = original.command.clone();
+    if let ProjectFileCommand::CreatePlugin { slug, .. } = &mut edited {
+        *slug = "another-library".into();
+    }
+    redirected.edited_command = Some(edited);
+    assert!(resolve(&mut store, redirected, &[]).is_err());
+    let mut changed_id = original.clone();
+    changed_id.decision = Some(ProjectProposalDecision::Save);
+    let mut edited = original.command.clone();
+    if let ProjectFileCommand::CreatePlugin { files, .. } = &mut edited {
+        let mut manifest: serde_json::Value = serde_json::from_str(&files["plugin.json"]).unwrap();
+        manifest["id"] = json!(uuid::Uuid::new_v4().to_string());
+        files.insert("plugin.json".into(), manifest.to_string());
+    }
+    changed_id.edited_command = Some(edited);
+    assert!(resolve(&mut store, changed_id, &[]).is_err());
+    let update = ProjectFileCommand::UpdatePlugin {
+        project_id: project,
+        slug: "render-kit".into(),
+        expected_hash: "original-hash".into(),
+        files: BTreeMap::new(),
+        remove: vec![],
+    };
+    let mut weaker = update.clone();
+    if let ProjectFileCommand::UpdatePlugin { expected_hash, .. } = &mut weaker {
+        *expected_hash = "new-hash".into();
+    }
+    assert!(edits::validate(&update, &weaker).is_err());
+    assert_eq!(
+        store
+            .db
+            .query_row("SELECT count(*) FROM project_proposals", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
 }

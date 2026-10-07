@@ -21,6 +21,7 @@ import {
 	reviewProjectPlugin,
 } from "../../services/projectsApi.ts";
 import { DefinitionChanges } from "./DefinitionChanges.tsx";
+import { PluginProposalEditor } from "./PluginProposalEditor.tsx";
 import { PluginReviewDialog } from "./PluginReviewDialog.tsx";
 import { styles } from "./styles.ts";
 
@@ -37,6 +38,9 @@ export function PluginProposalCard(props: {
 		messageId: props.messageId,
 		command: props.command,
 	}));
+	const [draft, setDraft] = createSignal<Bundle | null>(null);
+	const [editing, setEditing] = createSignal(false);
+	const candidate = () => draft() ?? props.command;
 	const createdId = () => proposal.view()?.entityId;
 
 	const [review, setReview] = createSignal<PluginReview | null>(null);
@@ -53,7 +57,9 @@ export function PluginProposalCard(props: {
 				plugin.file.sourcePath === `plugins/${props.command.slug}/plugin.json`,
 		);
 	const manifest = createMemo(() => {
-		const content = props.command.files["plugin.json"];
+		if (proposal.view()?.status === "saved" && existing()?.file.definition)
+			return existing()?.file.definition;
+		const content = candidate().files["plugin.json"];
 		if (!content) return existing()?.file.definition;
 		try {
 			return JSON.parse(content) as PluginDefinition;
@@ -83,12 +89,14 @@ export function PluginProposalCard(props: {
 		!!catalog.error ||
 		(props.command.type === "updatePlugin" &&
 			(library.isPending || !!library.error));
-	const removals = () =>
-		props.command.type === "updatePlugin" ? props.command.remove : [];
+	const removals = () => {
+		const value = candidate();
+		return value.type === "updatePlugin" ? value.remove : [];
+	};
 	const dismissed = () => proposal.view()?.status === "declined";
 	const [busy, setBusy] = createSignal(false);
 	const [error, setError] = createSignal("");
-	const files = () => Object.entries(props.command.files);
+	const files = () => Object.entries(candidate().files);
 	const [comparison, setComparison] = createSignal<PluginProposalReview | null>(
 		null,
 	);
@@ -97,7 +105,7 @@ export function PluginProposalCard(props: {
 		setComparing(true);
 		setError("");
 		try {
-			setComparison(await reviewPluginProposal(props.command));
+			setComparison(await reviewPluginProposal(candidate()));
 		} catch (error) {
 			setError(String(error));
 		} finally {
@@ -108,7 +116,7 @@ export function PluginProposalCard(props: {
 		setBusy(true);
 		setError("");
 		try {
-			const result = await proposal.decide("save");
+			const result = await proposal.decide("save", draft() ?? undefined);
 			if (result?.status !== "saved" || !result.entityId) return;
 			setComparison(null);
 			props.onResult?.(
@@ -167,6 +175,27 @@ export function PluginProposalCard(props: {
 					{comparing() ? "Preparing comparison…" : "Review changes"}
 				</Button>
 			)}
+			{!saved() && !dismissed() && (
+				<Button
+					size="sm"
+					variant="ghost"
+					disabled={busy() || comparing() || unavailable() || changed()}
+					onClick={() => setEditing(true)}
+				>
+					Edit proposal
+				</Button>
+			)}
+			<Show when={editing()}>
+				<PluginProposalEditor
+					command={candidate()}
+					close={() => setEditing(false)}
+					reviewed={(command, value) => {
+						setDraft(command);
+						setEditing(false);
+						setComparison(value);
+					}}
+				/>
+			</Show>
 			<Show when={comparison()} keyed>
 				{(value) => (
 					<Modal
@@ -177,6 +206,9 @@ export function PluginProposalCard(props: {
 					>
 						<div {...stylex.attrs(styles.formFields)}>
 							<h3>{value.name}</h3>
+							{draft() && (
+								<p {...stylex.attrs(styles.muted)}>Includes your edits</p>
+							)}
 							<div {...stylex.attrs(styles.row)}>
 								<span>
 									Current permissions:{" "}

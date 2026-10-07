@@ -658,6 +658,10 @@ pub struct PluginTextFile {
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProjectProposalRequest {
+    /// Host-reviewed replacement; the original command remains the card identity.
+    #[serde(default)]
+    #[ts(optional)]
+    pub edited_command: Option<ProjectFileCommand>,
     pub message_id: String,
     pub command: ProjectFileCommand,
     pub decision: Option<ProjectProposalDecision>,
