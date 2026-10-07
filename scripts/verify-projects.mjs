@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	realpath,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
@@ -233,6 +240,11 @@ try {
 	);
 	const reportAutomationId = randomUUID();
 	const reportPluginId = randomUUID();
+	const videoFixture = (
+		await readFile(
+			new URL("./tests/fixtures/media/preview.webm", import.meta.url),
+		)
+	).toString("base64");
 	const reportFiles = {
 		"plugin.json": JSON.stringify({
 			schema: "inferay.plugin/1",
@@ -254,8 +266,7 @@ try {
 			inputSchema: { type: "object" },
 			outputSchema: { type: "object" },
 		}),
-		"tools/report/run.py":
-			"import os,json\nfrom pathlib import Path\np=Path(os.environ['INFERAY_RUN_OUTPUT'])/'report.txt'\np.write_text('A local project, a reusable tool, and a durable run.')\nprint(json.dumps({'artifacts':['report.txt']}))\n",
+		"tools/report/run.py": `import os,json,base64\nfrom pathlib import Path\nout=Path(os.environ['INFERAY_RUN_OUTPUT'])\n(out/'report.txt').write_text('A local project, a reusable tool, and a durable run.')\n(out/'preview.webm').write_bytes(base64.b64decode('${videoFixture}'))\nprint(json.dumps({'artifacts':['report.txt','preview.webm']}))\n`,
 		"automations/report.json": JSON.stringify({
 			schema: "inferay.automation/1",
 			id: reportAutomationId,
@@ -366,6 +377,37 @@ try {
 		.last()
 		.waitFor();
 	await page.screenshot({ path: join(output, "runs.png") });
+	await page.getByRole("button", { name: /preview.webm ·/ }).click();
+	const video = page.locator("video");
+	await video.waitFor();
+	await page.waitForFunction(() => {
+		const element = document.querySelector("video");
+		return element && element.readyState >= 1 && element.duration > 0;
+	});
+	await video.evaluate(async (element) => {
+		element.muted = true;
+		await element.play();
+	});
+	await page.waitForFunction(
+		() => document.querySelector("video")?.currentTime > 0.1,
+	);
+	await video.evaluate((element) => {
+		element.pause();
+		element.currentTime = 1;
+	});
+	await page.waitForFunction(() => {
+		const element = document.querySelector("video");
+		return (
+			element && !element.seeking && Math.abs(element.currentTime - 1) < 0.1
+		);
+	});
+	assert.equal(await video.evaluate((element) => element.videoWidth), 160);
+	await page.screenshot({ path: join(output, "run-video.png") });
+	await page
+		.getByRole("button", { name: "Close preview", exact: true })
+		.click();
+	assert.equal(await video.count(), 0);
+
 	// Memory import/graph verification remains a separate gate. These retired
 	// brand forms have no corresponding page in the current interface.
 	await navigation.getByRole("button", { name: "Memory", exact: true }).click();
@@ -1097,7 +1139,7 @@ try {
 	await page.screenshot({ path: join(output, "compact-overview.png") });
 	assert.deepEqual(errors, []);
 	console.log(
-		"PASS: project tabs and creation, repository membership, sidebar Git totals, standalone graph without new chats, conversation grid and first-pane deletion, automation and artifact flow, chat plugin approval/revocation, manifest repair and unsaved-edit protection.",
+		"PASS: project tabs and creation, repository membership, sidebar Git totals, standalone graph without new chats, conversation grid and first-pane deletion, automation and artifact flow with video playback/seeking, chat plugin approval/revocation, manifest repair and unsaved-edit protection.",
 	);
 } catch (e) {
 	console.log("BODY:", (await page.locator("body").innerText()).slice(0, 5000));

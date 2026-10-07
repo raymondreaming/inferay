@@ -5,6 +5,10 @@ import {
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
+	runPreviewVideo: {
+		width: "100%",
+		maxWidth: 720,
+	},
 	runPreviewImage: {
 		display: "block",
 		maxWidth: "100%",

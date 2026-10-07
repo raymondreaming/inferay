@@ -1,6 +1,7 @@
 mod agent_tools_mcp;
 use inferay_presentation::appearance::normalize_background_settings;
 mod files;
+mod local_video;
 mod mcp_connections;
 mod mcp_icons;
 use files::{image_content_type, is_image_extension};
@@ -647,6 +648,9 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
                 return api_http_response(serve_project_document(&state, request).await, &request_headers);
             }
 
+            ("/api/video", "GET" | "HEAD") => {
+                return api_http_response(local_video::serve(&state, request).await, &request_headers);
+            }
             ("/api/file", "GET") => {
                 return api_http_response(
                     serve_local_image(&state, request).await,
@@ -1636,7 +1640,7 @@ async fn serve_local_image(state: &ServerState, request: Request) -> ApiResult<R
     let Some(path) = query_value(&request, "path").filter(|path| !path.is_empty()) else {
         return Err(api_error(StatusCode::BAD_REQUEST, "No path provided"));
     };
-    let Some(path) = resolve_serveable_image_path(state, &path).await else {
+    let Some(path) = resolve_serveable_local_path(state, &path).await else {
         return Err(api_error(StatusCode::FORBIDDEN, "Access denied"));
     };
     if !is_image_extension(&path.to_string_lossy()) {
@@ -1755,7 +1759,7 @@ async fn serve_git_image(state: &ServerState, request: Request) -> ApiResult<Res
     Ok(response)
 }
 
-async fn resolve_serveable_image_path(state: &ServerState, path: &str) -> Option<PathBuf> {
+async fn resolve_serveable_local_path(state: &ServerState, path: &str) -> Option<PathBuf> {
     let resolved = resolve_lexically(Path::new(path)).ok()?;
     let real = tokio::fs::canonicalize(resolved).await.ok()?;
     (state.allowed_paths.is_allowed_local_path(&real)

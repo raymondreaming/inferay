@@ -47,6 +47,10 @@ export function projectImageUrl(directory: string, path: string) {
 	return `/api/file?${new URLSearchParams({ path: `${directory}/${path}` })}`;
 }
 
+export function projectVideoUrl(directory: string, path: string) {
+	return `/api/video?${new URLSearchParams({ path: `${directory}/${path}` })}`;
+}
+
 export function openRunChat(id: string) {
 	return postJson<{ paneId: string }>(
 		"/api/projects/run-chat",

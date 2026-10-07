@@ -5,6 +5,7 @@ import * as stylex from "@stylexjs/stylex";
 import { createSignal } from "solid-js";
 import {
 	projectImageUrl,
+	projectVideoUrl,
 	readProjectFile,
 } from "../../services/projectsApi.ts";
 import { styles } from "./styles.ts";
@@ -15,12 +16,13 @@ export function RunFilePreview(props: {
 	close: () => void;
 }) {
 	const image = () => /\.(png|jpe?g|webp|gif|ico|bmp|svg)$/i.test(props.path);
-	const [imageError, setImageError] = createSignal(false);
+	const video = () => /\.(mp4|m4v|webm|mov|ogv)$/i.test(props.path);
+	const [mediaError, setMediaError] = createSignal(false);
 	const [loaded, setLoaded] = createSignal(false);
 	const file = useBackgroundQuery(
 		() => ({
 			queryKey: ["run-file", props.directory, props.path],
-			enabled: !image(),
+			enabled: !image() && !video(),
 			queryFn: ({ signal }: { signal: AbortSignal }) =>
 				readProjectFile(props.directory, props.path, signal),
 		}),
@@ -34,10 +36,29 @@ export function RunFilePreview(props: {
 					Close preview
 				</Button>
 			</div>
-			{image() ? (
+			{video() ? (
 				<>
-					{!loaded() && !imageError() && <p role="status">Loading image…</p>}
-					{imageError() && (
+					{mediaError() && (
+						<p role="alert">
+							This video could not be played. Its format may be unsupported, or
+							the file may exceed the 50 MB preview limit.
+						</p>
+					)}
+					{/* oxlint-disable-next-line jsx-a11y/media-has-caption -- Run artifacts may have no caption track; this viewer preserves the original media. */}
+					<video
+						aria-label={props.path}
+						src={projectVideoUrl(props.directory, props.path)}
+						controls
+						playsinline
+						preload="metadata"
+						onError={() => setMediaError(true)}
+						{...stylex.attrs(styles.runPreviewImage, styles.runPreviewVideo)}
+					/>
+				</>
+			) : image() ? (
+				<>
+					{!loaded() && !mediaError() && <p role="status">Loading image…</p>}
+					{mediaError() && (
 						<p role="alert">
 							This image could not be displayed. It may be missing or
 							unsupported.
@@ -47,7 +68,7 @@ export function RunFilePreview(props: {
 						src={projectImageUrl(props.directory, props.path)}
 						alt={props.path}
 						onLoad={() => setLoaded(true)}
-						onError={() => setImageError(true)}
+						onError={() => setMediaError(true)}
 						{...stylex.attrs(styles.runPreviewImage)}
 					/>
 				</>
