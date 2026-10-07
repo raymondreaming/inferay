@@ -357,3 +357,29 @@ Designed in [ADR 0002](../adr/0002-automation-kernel.md). E2 is implemented abov
 The chat card’s **Review changes** action validates the proposed package and compares it with the current library without writing files, decision receipts or approvals. It shows added, changed and removed files, before/after text where available, and current/proposed permissions. Binary and oversized files retain their content hashes but have no text preview. An update must still match its expected whole-library hash; outside changes reject the comparison and the eventual save. Saving files and approving execution remain separate actions.
 
 **Edit proposal** opens the proposed text files in a draft editor. Files can be adjusted, added or omitted; update proposals can also remove existing files or keep a proposed removal. Review validates the complete candidate before displaying the comparison. Unsaved edits remain local to the card; accepting the reviewed draft records and writes the edited command atomically through the existing package writer.
+
+## Draft artifacts
+
+Tools and agents can return a structured draft as a run artifact named
+`<name>.draft.json`. History displays its title, literal text and labeled details;
+**View source** retains access to the original JSON. This is a preview format,
+with no publication or scheduling behavior. For example:
+
+```json
+{
+  "schema": "inferay.draft/1",
+  "draft": {
+    "title": "Launch announcement",
+    "text": "A new release is ready.\n#launch",
+    "details": [{ "label": "Channel", "value": "Instagram" }]
+  }
+}
+```
+
+The format is domain-neutral: details can describe a channel, audience, subject,
+or another aspect of the draft. `details` is optional. Unknown fields and schema
+versions are rejected for preview; the source remains readable. The preview is
+limited to 1 MiB, a nonblank title of at most 512 bytes, nonblank text, and at most
+32 details with nonblank labels of at most 128 bytes and values of at most 4096
+bytes. Draft text renders literally, including HTML and Markdown punctuation.
+Ordinary JSON files keep their existing source or table views.

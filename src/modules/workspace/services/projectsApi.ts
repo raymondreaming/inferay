@@ -2,6 +2,7 @@ import type {
 	AutomationReview,
 	ConnectionCommand,
 	ConnectionInfo,
+	DraftPreview,
 	PluginLibrary,
 	PluginProposalReview,
 	PluginReview,
@@ -45,6 +46,8 @@ export function readProjectFile(
 		hash: string;
 		table: TablePreview | null;
 		tableError: string | null;
+		draft: DraftPreview | null;
+		draftError: string | null;
 	}>(
 		`/api/files/content?${new URLSearchParams({ cwd: directory, path })}`,
 		{ signal },

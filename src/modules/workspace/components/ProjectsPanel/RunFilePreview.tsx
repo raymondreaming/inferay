@@ -35,16 +35,20 @@ export function RunFilePreview(props: {
 		<section aria-label="Run output preview" {...stylex.attrs(styles.card)}>
 			<div {...stylex.attrs(styles.row)}>
 				<strong>{props.path}</strong>
-				<Show when={file.data && (file.data.table || markdown())}>
+				<Show
+					when={file.data && (file.data.table || file.data.draft || markdown())}
+				>
 					<Button
 						size="sm"
 						variant="ghost"
 						onClick={() => setSource(!source())}
 					>
 						{source()
-							? markdown()
-								? "View report"
-								: "View table"
+							? file.data?.draft
+								? "View draft"
+								: markdown()
+									? "View report"
+									: "View table"
 							: "View source"}
 					</Button>
 				</Show>
@@ -92,12 +96,32 @@ export function RunFilePreview(props: {
 				<>
 					{file.isPending && <p role="status">Loading file…</p>}
 					{file.error && <p role="alert">{String(file.error)}</p>}
+					{file.data?.draftError && <p role="status">{file.data.draftError}</p>}
 					{file.data?.tableError && <p role="status">{file.data.tableError}</p>}
 					<Show
 						when={!source() && file.data?.table}
 						fallback={
 							file.data &&
-							(markdown() && !source() ? (
+							(!source() && file.data.draft ? (
+								<article
+									aria-label="Draft preview"
+									{...stylex.attrs(styles.draftPreview)}
+								>
+									<strong>{file.data.draft.title}</strong>
+									<span {...stylex.attrs(styles.muted)}>Draft preview</span>
+									<For each={file.data.draft.details}>
+										{(detail) => (
+											<div {...stylex.attrs(styles.row)}>
+												<strong>{detail.label}</strong>
+												<span>{detail.value}</span>
+											</div>
+										)}
+									</For>
+									<p {...stylex.attrs(styles.draftText)}>
+										{file.data.draft.text}
+									</p>
+								</article>
+							) : markdown() && !source() ? (
 								<Markdown text={file.data.content} />
 							) : (
 								<pre {...stylex.attrs(styles.pre)}>{file.data.content}</pre>

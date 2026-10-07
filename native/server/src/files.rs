@@ -106,7 +106,13 @@ impl ServerState {
             Ok(table) => (table, None),
             Err(error) => (None, Some(error)),
         };
+        let (draft, draft_error) = match inferay_core::draft_preview::DraftPreview::from_content(path, &content) {
+            Ok(draft) => (draft, None),
+            Err(error) => (None, Some(error)),
+        };
         Ok(serde_json::json!({
+            "draft": draft,
+            "draftError": draft_error,
             "content": content,
             "table": table,
             "tableError": table_error,

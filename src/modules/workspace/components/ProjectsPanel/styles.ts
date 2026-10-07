@@ -619,6 +619,18 @@ export const styles = stylex.create({
 		fontSize: font.size_3,
 		overflowWrap: "anywhere",
 	},
+	draftPreview: {
+		display: "flex",
+		flexDirection: "column",
+		gap: 12,
+		width: "100%",
+	},
+	draftText: {
+		whiteSpace: "pre-wrap",
+		overflowWrap: "anywhere",
+		margin: 0,
+		lineHeight: 1.6,
+	},
 	pre: {
 		whiteSpace: "pre-wrap",
 		overflowWrap: "anywhere",

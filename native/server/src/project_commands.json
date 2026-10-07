@@ -13,6 +13,7 @@
 		"plugins/<slug>/src/",
 		"plugins/<slug>/assets/"
 	],
+	"draftArtifacts": "For a structured draft preview in run History, write an artifact ending in .draft.json: {\"schema\":\"inferay.draft/1\",\"draft\":{\"title\":\"Draft title\",\"text\":\"Literal draft text\",\"details\":[{\"label\":\"Channel\",\"value\":\"Instagram\"}]}}. Details are optional. The preview does not publish anything. Use Markdown artifacts for formatted reports.",
 	"references": "Repository references use UUIDs with local checkout bindings. Local skill references use UUIDs; global skills use global:<id>. Direct tool executions use a local tool folder name. Agent executions optionally declare tools: [{pluginId: PLUGIN_UUID, toolId: TOOL_UUID}]. These grants expose inferay_tools list/call for both providers; every referenced library is pinned by approval. Library permissions must fit within the automation permissions.",
 	"agentCommands": {
 		"reviewAutomation": {

@@ -249,6 +249,16 @@ try {
 			new URL("./tests/fixtures/media/preview.webm", import.meta.url),
 		)
 	).toString("base64");
+	const draftFixture = Buffer.from(
+		JSON.stringify({
+			schema: "inferay.draft/1",
+			draft: {
+				title: "Launch announcement",
+				text: "First line\n<script>literal draft</script>\n#launch",
+				details: [{ label: "Channel", value: "Instagram" }],
+			},
+		}),
+	).toString("base64");
 	const tableFixture = Buffer.from(
 		'Name,Count,Note\n"Research, daily",001,"First line\nSecond line"\n<script>no()</script>,0,Pending\n',
 	).toString("base64");
@@ -273,7 +283,7 @@ try {
 			inputSchema: { type: "object" },
 			outputSchema: { type: "object" },
 		}),
-		"tools/report/run.py": `import os,json,base64\nfrom pathlib import Path\nout=Path(os.environ['INFERAY_RUN_OUTPUT'])\n(out/'report.md').write_text('# Run report\\n\\nA local project, a reusable tool, and a durable run.\\n\\n**Verified output**')\n(out/'preview.webm').write_bytes(base64.b64decode('${videoFixture}'))\n(out/'metrics.csv').write_bytes(base64.b64decode('${tableFixture}'))\n(out/'rows.json').write_text(json.dumps([{'name':'Research','count':7},{'name':'Build','count':0}]))\nprint(json.dumps({'artifacts':['report.md','preview.webm','metrics.csv','rows.json']}))\n`,
+		"tools/report/run.py": `import os,json,base64\nfrom pathlib import Path\nout=Path(os.environ['INFERAY_RUN_OUTPUT'])\n(out/'report.md').write_text('# Run report\\n\\nA local project, a reusable tool, and a durable run.\\n\\n**Verified output**')\n(out/'preview.webm').write_bytes(base64.b64decode('${videoFixture}'))\n(out/'metrics.csv').write_bytes(base64.b64decode('${tableFixture}'))\n(out/'rows.json').write_text(json.dumps([{'name':'Research','count':7},{'name':'Build','count':0}]))\n(out/'launch.draft.json').write_bytes(base64.b64decode('${draftFixture}'))\nprint(json.dumps({'artifacts':['report.md','preview.webm','metrics.csv','rows.json','launch.draft.json']}))\n`,
 		"automations/report.json": JSON.stringify({
 			schema: "inferay.automation/1",
 			id: reportAutomationId,
@@ -499,6 +509,38 @@ try {
 		await jsonTable.getByRole("cell", { name: "0", exact: true }).count(),
 		1,
 	);
+	await page
+		.getByRole("button", { name: "Close preview", exact: true })
+		.click();
+
+	await page.getByRole("button", { name: /launch.draft.json ·/ }).click();
+	const draft = page.getByRole("article", {
+		name: "Draft preview",
+		exact: true,
+	});
+	await draft.waitFor();
+	assert.equal(
+		await draft.getByText("Launch announcement", { exact: true }).count(),
+		1,
+	);
+	assert.equal(await draft.getByText("Instagram", { exact: true }).count(), 1);
+	assert.equal(await draft.locator("script").count(), 0);
+	assert.ok(
+		(await draft.textContent()).includes("<script>literal draft</script>"),
+	);
+	await page.screenshot({ path: join(output, "run-draft.png") });
+	await page.getByRole("button", { name: "View source", exact: true }).click();
+	assert.equal(await draft.count(), 0);
+	assert.ok(
+		(
+			await page
+				.getByRole("region", { name: "Run output preview" })
+				.locator("pre")
+				.textContent()
+		).includes("inferay.draft/1"),
+	);
+	await page.getByRole("button", { name: "View draft", exact: true }).click();
+	await draft.waitFor();
 	await page
 		.getByRole("button", { name: "Close preview", exact: true })
 		.click();
@@ -1355,7 +1397,7 @@ try {
 	await page.screenshot({ path: join(output, "compact-overview.png") });
 	assert.deepEqual(errors, []);
 	console.log(
-		"PASS: project tabs and creation, repository membership, sidebar Git totals, standalone graph without new chats, conversation grid and first-pane deletion, automation and artifact flow with formatted reports, source toggling, video playback/seeking and structured tables, chat plugin approval/revocation, manifest repair and unsaved-edit protection.",
+		"PASS: project tabs and creation, repository membership, sidebar Git totals, standalone graph without new chats, conversation grid and first-pane deletion, automation and artifact flow with formatted reports, source toggling, video playback/seeking structured tables and draft previews, chat plugin approval/revocation, manifest repair and unsaved-edit protection.",
 	);
 } catch (e) {
 	console.log("BODY:", (await page.locator("body").innerText()).slice(0, 5000));
