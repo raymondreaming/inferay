@@ -53,7 +53,7 @@ async fn migrated_file_automation_executes_with_the_existing_runner_and_artifact
         let automation = example(&mut store, &project);
         crate::project_migration::export(&mut store.db, root.path(), &[]).unwrap();
         crate::project_migration::replace_definition_tables(&mut store.db).unwrap();
-        crate::project_index::refresh(&mut store.db, root.path(), &Default::default()).unwrap();
+        crate::project_index::refresh(&mut store.db, root.path(), &[]).unwrap();
         let inputs =
             crate::project_index::execution_inputs(&store.db, root.path(), &automation, &[])
                 .unwrap();

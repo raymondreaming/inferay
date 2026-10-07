@@ -32,7 +32,7 @@ fn rebuild_restores_definitions_disabled_without_local_database() {
     {
         let mut db = Connection::open(&path).unwrap();
         create_schema(&db).unwrap();
-        refresh(&mut db, profile.path(), &BTreeSet::new()).unwrap();
+        refresh(&mut db, profile.path(), &[]).unwrap();
         db.execute(
             "UPDATE automation_state SET enabled=1,approved_hash='approved'",
             [],
@@ -42,7 +42,7 @@ fn rebuild_restores_definitions_disabled_without_local_database() {
     fs::remove_file(&path).unwrap();
     let mut db = Connection::open(&path).unwrap();
     create_schema(&db).unwrap();
-    refresh(&mut db, profile.path(), &BTreeSet::new()).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
     let restored: (String, bool, Option<String>) = db.query_row("SELECT json_extract(a.body,'$.name'),s.enabled,s.approved_hash FROM automations a JOIN automation_state s ON s.automation_id=a.id WHERE a.id=? AND a.valid=1", [&automation], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
     assert_eq!(restored, ("Daily".into(), false, None));
 }
@@ -59,7 +59,7 @@ fn invalid_and_deleted_files_replace_index_without_erasing_history_or_approval()
         [&automation],
     )
     .unwrap();
-    refresh(&mut db, profile.path(), &BTreeSet::new()).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
     let view = catalog(&db, Some(&project)).unwrap();
     assert_eq!(view.projects.len(), 1);
     assert_eq!(
@@ -67,13 +67,13 @@ fn invalid_and_deleted_files_replace_index_without_erasing_history_or_approval()
         "Daily"
     );
     assert!(view.issues.is_empty());
-    db.execute(
-        "UPDATE automation_state SET enabled=1,next_due_at=123,approved_hash='approved'",
-        [],
-    )
-    .unwrap();
+    let digest = hash(
+        &serde_json::to_vec(&execution_inputs(&db, profile.path(), &automation, &[]).unwrap())
+            .unwrap(),
+    );
+    approve_automation(&db, profile.path(), &automation, &digest, true, &[]).unwrap();
     // Merely opening/refreshing does not change permission or scheduling state.
-    refresh(&mut db, profile.path(), &BTreeSet::new()).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
     assert!(
         db.query_row("SELECT enabled FROM automation_state", [], |r| r
             .get::<_, bool>(0))
@@ -85,7 +85,7 @@ fn invalid_and_deleted_files_replace_index_without_erasing_history_or_approval()
         .join(&project)
         .join("plugins/daily/automations/daily.json");
     fs::write(&path, "{broken").unwrap();
-    refresh(&mut db, profile.path(), &BTreeSet::new()).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
     let invalid = catalog(&db, Some(&project)).unwrap();
     assert!(invalid.automations[0].file.definition.is_none());
     assert!(invalid.automations[0].file.source_hash.is_some());
@@ -104,7 +104,7 @@ fn invalid_and_deleted_files_replace_index_without_erasing_history_or_approval()
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .unwrap();
-    assert_eq!(state, (false, None, "approved".into()));
+    assert_eq!(state, (false, None, digest));
     assert_eq!(
         db.query_row(
             "SELECT count(*) FROM automations WHERE valid=0 AND error IS NOT NULL AND body IS NULL",
@@ -115,7 +115,7 @@ fn invalid_and_deleted_files_replace_index_without_erasing_history_or_approval()
         1
     );
     fs::remove_file(&path).unwrap();
-    refresh(&mut db, profile.path(), &BTreeSet::new()).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
     assert_eq!(
         db.query_row("SELECT count(*) FROM automations", [], |r| r
             .get::<_, i64>(0))
@@ -132,7 +132,7 @@ fn invalid_and_deleted_files_replace_index_without_erasing_history_or_approval()
 
 #[test]
 fn companion_script_edit_invalidates_approved_package() {
-    let (profile, project, _) = fixture();
+    let (profile, project, automation) = fixture();
     let root = profile.path().join("projects").join(project);
     files::write(
         &root,
@@ -143,20 +143,13 @@ fn companion_script_edit_invalidates_approved_package() {
     .unwrap();
     let mut db = Connection::open_in_memory().unwrap();
     create_schema(&db).unwrap();
-    refresh(&mut db, profile.path(), &BTreeSet::new()).unwrap();
-    let fingerprint = hash(
-        json!(package_files(&root, "plugins/daily").unwrap())
-            .to_string()
-            .as_bytes(),
+    refresh(&mut db, profile.path(), &[]).unwrap();
+    let digest = hash(
+        &serde_json::to_vec(&execution_inputs(&db, profile.path(), &automation, &[]).unwrap())
+            .unwrap(),
     );
-    db.execute(
-        "INSERT INTO plugin_state(plugin_id,approved_hash) SELECT id,? FROM plugins",
-        [&fingerprint],
-    )
-    .unwrap();
-    db.execute("UPDATE automation_state SET enabled=1,next_due_at=123", [])
-        .unwrap();
-    refresh(&mut db, profile.path(), &BTreeSet::new()).unwrap();
+    approve_automation(&db, profile.path(), &automation, &digest, true, &[]).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
     assert!(
         db.query_row("SELECT enabled FROM automation_state", [], |r| r
             .get::<_, bool>(0))
@@ -167,7 +160,7 @@ fn companion_script_edit_invalidates_approved_package() {
         "print('changed')",
     )
     .unwrap();
-    refresh(&mut db, profile.path(), &BTreeSet::new()).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
     let state: (bool, bool, Option<i64>) = db
         .query_row(
             "SELECT enabled,inputs_changed,next_due_at FROM automation_state",
@@ -184,7 +177,7 @@ fn admission_reads_current_files_and_requires_repository_binding() {
     let root = profile.path().join("projects").join(&project);
     let mut db = Connection::open_in_memory().unwrap();
     create_schema(&db).unwrap();
-    refresh(&mut db, profile.path(), &BTreeSet::new()).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
     let before = execution_inputs(&db, profile.path(), &automation, &[]).unwrap();
     files::write(
         &root,
@@ -239,7 +232,7 @@ fn definition_saves_validate_before_publication_and_refuse_stale_hashes() {
     let original_hash = hash(&original);
     let mut db = Connection::open_in_memory().unwrap();
     create_schema(&db).unwrap();
-    refresh(&mut db, profile.path(), &BTreeSet::new()).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
     let mut definition: Value = serde_json::from_slice(&original).unwrap();
     definition["execution"]["skills"] = json!([uuid::Uuid::new_v4().to_string()]);
     assert!(
@@ -250,7 +243,7 @@ fn definition_saves_validate_before_publication_and_refuse_stale_hashes() {
             path,
             definition.to_string().as_bytes(),
             Some(&original_hash),
-            &BTreeSet::new()
+            &[]
         )
         .is_err()
     );
@@ -266,7 +259,7 @@ fn definition_saves_validate_before_publication_and_refuse_stale_hashes() {
         path,
         definition.to_string().as_bytes(),
         Some(&original_hash),
-        &BTreeSet::new(),
+        &[],
     )
     .unwrap();
     assert_ne!(saved, original_hash);
@@ -280,7 +273,7 @@ fn definition_saves_validate_before_publication_and_refuse_stale_hashes() {
             path,
             &original,
             Some(&original_hash),
-            &BTreeSet::new()
+            &[]
         )
         .is_err()
     );
@@ -296,7 +289,7 @@ fn approval_rejects_stale_review_and_manual_runs_cannot_bypass_input_changes() {
     let root = profile.path().join("projects").join(project);
     let mut db = Connection::open_in_memory().unwrap();
     create_schema(&db).unwrap();
-    refresh(&mut db, profile.path(), &BTreeSet::new()).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
     let reviewed = execution_inputs(&db, profile.path(), &automation, &[]).unwrap();
     let digest = hash(&serde_json::to_vec(&reviewed).unwrap());
     assert!(approved_inputs(&db, profile.path(), &automation, false, &[]).is_err());
@@ -354,7 +347,7 @@ fn captured_skill_instructions_remain_pinned_after_library_edit() {
     fs::write(path, definition.to_string()).unwrap();
     let mut db = Connection::open_in_memory().unwrap();
     create_schema(&db).unwrap();
-    refresh(&mut db, profile.path(), &BTreeSet::new()).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
     let captured = execution_inputs(&db, profile.path(), &automation, &[]).unwrap();
     assert!(
         captured["skills"][0]["instructions"]
@@ -376,4 +369,61 @@ fn captured_skill_instructions_remain_pinned_after_library_edit() {
             .unwrap()
             .contains("original research procedure")
     );
+}
+
+#[test]
+fn refresh_checks_selected_inputs_without_disabling_for_unrelated_resources() {
+    let (profile, project, automation) = fixture();
+    let root = profile.path().join("projects").join(project);
+    let path = root.join("plugins/daily/automations/daily.json");
+    let mut definition: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    definition["execution"]["skills"] = json!(["global:research"]);
+    fs::write(&path, definition.to_string()).unwrap();
+    let mut skills = vec![inferay_core::prompts::Prompt {
+        id: "research".into(),
+        name: "Research".into(),
+        description: "Review evidence".into(),
+        command: "research".into(),
+        prompt_template: "Read the original sources".into(),
+        is_built_in: false,
+        created_at: 1,
+        updated_at: 1,
+    }];
+    let mut db = Connection::open_in_memory().unwrap();
+    create_schema(&db).unwrap();
+    refresh(&mut db, profile.path(), &skills).unwrap();
+    let digest = hash(
+        &serde_json::to_vec(&execution_inputs(&db, profile.path(), &automation, &skills).unwrap())
+            .unwrap(),
+    );
+    approve_automation(&db, profile.path(), &automation, &digest, true, &skills).unwrap();
+    // Another resource is not an input to this automation.
+    let resource = json!({"schema":"inferay.resource/1","id":uuid::Uuid::new_v4().to_string(),"type":"brand.brand","typeVersion":1,"name":"Unrelated","body":{"name":"Other","description":"Other project context"}});
+    files::write(
+        &root,
+        "resources/brand.brand/other.json",
+        resource.to_string().as_bytes(),
+        None,
+    )
+    .unwrap();
+    refresh(&mut db, profile.path(), &skills).unwrap();
+    assert!(
+        db.query_row("SELECT enabled FROM automation_state", [], |r| r
+            .get::<_, bool>(0))
+            .unwrap()
+    );
+    skills[0].prompt_template = "New procedure requiring review".into();
+    refresh(&mut db, profile.path(), &skills).unwrap();
+    let state: (bool, bool, Option<i64>) = db
+        .query_row(
+            "SELECT enabled,inputs_changed,next_due_at FROM automation_state",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(state, (false, true, None));
+    // Reverting the source never silently grants approval again.
+    skills[0].prompt_template = "Read the original sources".into();
+    refresh(&mut db, profile.path(), &skills).unwrap();
+    assert!(approved_inputs(&db, profile.path(), &automation, false, &skills).is_err());
 }

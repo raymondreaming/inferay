@@ -19,10 +19,6 @@ pub(crate) fn apply(
     if !host && !matches!(&command, ProjectFileCommand::ReviewAutomation { .. }) {
         return Err("Prepare a proposal for the user to review; agent tools cannot approve or execute project changes.".into());
     }
-    let globals = skills
-        .iter()
-        .map(|skill| format!("global:{}", skill.id))
-        .collect();
     if let ProjectFileCommand::SaveDefinition {
         project_id,
         path,
@@ -37,11 +33,11 @@ pub(crate) fn apply(
             path,
             content.as_bytes(),
             expected_hash.as_deref(),
-            &globals,
+            skills,
         )?;
         return Ok(json!({"sourceHash":source_hash,"sourcePath":path}));
     }
-    index::refresh(db, profile, &globals)?;
+    index::refresh(db, profile, skills)?;
     let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let result = match command {
         ProjectFileCommand::ReviewAutomation { id } => {

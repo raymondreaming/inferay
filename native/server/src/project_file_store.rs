@@ -37,11 +37,7 @@ impl FileProjectStore {
         cwd: &Path,
         skills: &[Prompt],
     ) -> Result<Option<(String, String, PathBuf)>> {
-        project_index::refresh(
-            &mut self.db,
-            &self.root,
-            &skills.iter().map(|s| format!("global:{}", s.id)).collect(),
-        )?;
+        project_index::refresh(&mut self.db, &self.root, skills)?;
         let associated: Option<String> = self
             .db
             .query_row(
@@ -127,11 +123,7 @@ impl FileProjectStore {
             project_migration::export(&mut db, &root, skills)?;
             project_migration::replace_definition_tables(&mut db)?;
         }
-        project_index::refresh(
-            &mut db,
-            &root,
-            &skills.iter().map(|s| format!("global:{}", s.id)).collect(),
-        )?;
+        project_index::refresh(&mut db, &root, skills)?;
         // Restart recovery changes execution state, never definition files or
         // approval. Queued work is rechecked against approval when claimed.
         db.execute("UPDATE runs SET status=CASE WHEN stop_requested_at IS NULL THEN 'interrupted' ELSE 'cancelled' END,finished_at=?,error='Execution interrupted; inspect its output before retrying' WHERE status='running'",[now()])?;
@@ -147,11 +139,7 @@ impl FileProjectStore {
         project: Option<&str>,
         skills: &[Prompt],
     ) -> Result<ProjectFileCatalog> {
-        project_index::refresh(
-            &mut self.db,
-            &self.root,
-            &skills.iter().map(|s| format!("global:{}", s.id)).collect(),
-        )?;
+        project_index::refresh(&mut self.db, &self.root, skills)?;
         project_index::catalog(&self.db, project)
     }
 

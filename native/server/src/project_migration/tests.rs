@@ -28,7 +28,7 @@ fn file_scheduler_deduplicates_due_runs_and_rechecks_waiting_inputs() {
         .to_owned();
     export(&mut store.db, root.path(), &[]).unwrap();
     replace_definition_tables(&mut store.db).unwrap();
-    crate::project_index::refresh(&mut store.db, root.path(), &BTreeSet::new()).unwrap();
+    crate::project_index::refresh(&mut store.db, root.path(), &[]).unwrap();
     let inputs =
         crate::project_index::execution_inputs(&store.db, root.path(), &automation, &[]).unwrap();
     crate::project_index::approve_automation(
@@ -191,7 +191,7 @@ fn handover_removes_definition_ownership_and_preserves_runtime_relations() {
             .unwrap(),
         "interrupted"
     );
-    crate::project_index::refresh(&mut store.db, root.path(), &BTreeSet::new()).unwrap();
+    crate::project_index::refresh(&mut store.db, root.path(), &[]).unwrap();
     assert_eq!(
         store
             .db
@@ -264,7 +264,7 @@ fn handover_removes_definition_ownership_and_preserves_runtime_relations() {
     assert_eq!(persisted, ("queued".into(), run.clone(), inputs));
     // Deleting every definition must leave evidence and conversation links intact.
     fs::remove_dir_all(root.path().join("projects").join(&project)).unwrap();
-    crate::project_index::refresh(&mut store.db, root.path(), &BTreeSet::new()).unwrap();
+    crate::project_index::refresh(&mut store.db, root.path(), &[]).unwrap();
     for (table, expected) in [
         ("runs", 2),
         ("run_events", 3),

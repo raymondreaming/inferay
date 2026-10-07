@@ -84,16 +84,17 @@ pub(crate) fn save_definition(
     path: &str,
     bytes: &[u8],
     expected_hash: Option<&str>,
-    globals: &BTreeSet<String>,
+    skills: &[inferay_core::prompts::Prompt],
 ) -> Result<String> {
     uuid::Uuid::parse_str(project).map_err(|_| "Invalid project ID")?;
     let root = profile.join("projects").join(project);
     // Creating the project directory is harmless; a failed preview never creates
     // a definition, approval or runnable schedule.
     files::managed_path(profile, &format!("projects/{project}/project.json"), true)?;
-    files::validate_write(&root, path, bytes, globals)?;
+    let globals = skills.iter().map(|s| format!("global:{}", s.id)).collect();
+    files::validate_write(&root, path, bytes, &globals)?;
     let hash = files::write(&root, path, bytes, expected_hash)?;
-    refresh(db, profile, globals)?;
+    refresh(db, profile, skills)?;
     Ok(hash)
 }
 
@@ -483,8 +484,9 @@ pub(crate) fn package_files(root: &Path, prefix: &str) -> Result<BTreeMap<String
 pub(crate) fn refresh(
     db: &mut Connection,
     profile: &Path,
-    globals: &BTreeSet<String>,
+    skills: &[inferay_core::prompts::Prompt],
 ) -> Result<()> {
+    let globals = skills.iter().map(|s| format!("global:{}", s.id)).collect();
     let directory = profile.join("projects");
     fs::create_dir_all(&directory)?;
     if fs::symlink_metadata(&directory)?.file_type().is_symlink() {
@@ -510,27 +512,15 @@ pub(crate) fn refresh(
     }
     projects.sort_by(|a, b| a.0.cmp(&b.0));
     let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    // Save the old source inventory for targeted invalidation before rebuilding.
-    let mut previous = BTreeMap::<(String, String), Option<String>>::new();
     for table in TABLES {
-        let mut statement = tx.prepare(&format!(
-            "SELECT project_id,source_path,source_hash FROM {table}"
-        ))?;
-        for row in statement.query_map([], |r| Ok(((r.get(0)?, r.get(1)?), r.get(2)?)))? {
-            let (key, value) = row?;
-            previous.insert(key, value);
-        }
         tx.execute(&format!("DELETE FROM {table}"), [])?;
     }
     tx.execute("DELETE FROM definition_errors", [])?;
-    let mut current = BTreeMap::new();
-    let mut changed = BTreeSet::new();
     for (project_id, root) in projects {
-        let scanned = match files::scan(&root, globals) {
+        let scanned = match files::scan(&root, &globals) {
             Ok(scanned) => scanned,
             Err(error) => {
                 tx.execute("INSERT INTO projects(id,project_id,source_path,valid,error) VALUES(?,?,'project.json',0,?)",params![project_id,project_id,error.to_string()])?;
-                changed.insert(project_id);
                 continue;
             }
         };
@@ -545,11 +535,6 @@ pub(crate) fn refresh(
             })
             .collect();
         for entry in scanned {
-            let key = (project_id.clone(), entry.path.clone());
-            current.insert(key.clone(), entry.hash.clone());
-            if previous.get(&key) != Some(&entry.hash) || entry.error.is_some() {
-                changed.insert(project_id.clone());
-            }
             let Some(table) = table(&entry.path) else {
                 if let Some(error) = entry.error {
                     tx.execute(
@@ -605,38 +590,25 @@ pub(crate) fn refresh(
                 )?;
             }
         }
-        // Script/assets changes are not represented by definition source hashes.
-        for (prefix, plugin_id) in plugins {
-            let approved: Option<String> = tx
-                .query_row(
-                    "SELECT approved_hash FROM plugin_state WHERE plugin_id=?",
-                    [&plugin_id],
-                    |r| r.get(0),
-                )
-                .optional()?
-                .flatten();
-            if let Some(approved) = approved {
-                let fingerprint = package_files(&root, &prefix)
-                    .map(|files| hash(json!(files).to_string().as_bytes()));
-                if fingerprint.as_deref().ok() != Some(approved.as_str()) {
-                    changed.insert(project_id.clone());
-                }
-            }
+    }
+    // Approval covers execution inputs, including selected global skills and
+    // companion scripts. Index source hashes alone cannot detect those edits.
+    let approved = tx.prepare("SELECT automation_id,approved_hash FROM automation_state WHERE inputs_changed=0 AND (approved_hash IS NOT NULL OR enabled=1)")?
+        .query_map([], |r| Ok((r.get::<_,String>(0)?,r.get::<_,Option<String>>(1)?)))?
+        .collect::<std::result::Result<Vec<_>,_>>()?;
+    for (id, expected) in approved {
+        let current = execution_inputs(&tx, profile, &id, skills)
+            .and_then(|inputs| Ok(hash(&serde_json::to_vec(&inputs)?)));
+        if current.as_ref().ok() != expected.as_ref() || expected.is_none() {
+            let error = current
+                .err()
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "Execution inputs changed. Review before running.".into());
+            tx.execute("UPDATE automation_state SET enabled=0,next_due_at=NULL,inputs_changed=1,error=? WHERE automation_id=?",params![error,id])?;
         }
     }
-    for ((project, path), _) in previous {
-        if !current.contains_key(&(project.clone(), path)) {
-            changed.insert(project);
-        }
-    }
-    for project in changed {
-        tx.execute("UPDATE automation_state SET enabled=0,next_due_at=NULL,inputs_changed=1,error='Schedule off: inputs changed. Review and enable.' WHERE enabled=1 AND automation_id IN (SELECT id FROM automations WHERE project_id=?)",[project])?;
-    }
-    tx.execute("UPDATE automation_state SET enabled=0,next_due_at=NULL,inputs_changed=1,error='Automation file is missing' WHERE enabled=1 AND automation_id NOT IN (SELECT id FROM automations WHERE valid=1)",[])?;
     tx.commit()?;
     Ok(())
 }
-use rusqlite::OptionalExtension;
-
 #[cfg(test)]
 mod tests;
