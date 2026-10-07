@@ -516,6 +516,42 @@ async fn chat_library_acceptance_approval_run_and_outside_edit_share_one_owner()
     );
 }
 
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn tool_home_is_private_and_does_not_carry_configuration_between_runs() {
+    let profile = tempfile::tempdir().unwrap();
+    let script = r#"import os, json, subprocess
+from pathlib import Path
+home = Path.home()
+assert home == Path(os.environ['TMPDIR']) / 'home'
+assert not (home / '.gitconfig').exists()
+for key in ['XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME']:
+    path = Path(os.environ[key])
+    assert path.is_dir() and path.is_relative_to(home)
+    (path / 'writable').write_text('private')
+assert os.environ['GIT_CONFIG_NOSYSTEM'] == '1'
+assert os.environ['GIT_CONFIG_GLOBAL'] == '/dev/null'
+assert os.environ['GIT_TERMINAL_PROMPT'] == '0'
+(home / '.gitconfig').write_text('[inferay]\n    ambient = must-not-load\n')
+result = subprocess.run(['git', 'config', '--get', 'inferay.ambient'], capture_output=True)
+assert result.returncode == 1 and not result.stdout
+print(json.dumps({'home': str(home)}))
+"#;
+    let (project, automation) = definition_files(profile.path(), script);
+    let runtime = runtime(profile.path());
+    let mut homes = std::collections::BTreeSet::new();
+    for key in ["first-home", "second-home"] {
+        let id = approved_run(&runtime, &automation, key).await;
+        runtime.tick().await.unwrap();
+        let run = completed(&runtime, &project, &id).await;
+        assert_eq!(run.status, "succeeded", "{:?}", run.error);
+        let result = run.result.unwrap();
+        let home = PathBuf::from(result["home"].as_str().unwrap());
+        assert!(home.starts_with(Path::new(&run.directory).join("tmp")));
+        assert!(homes.insert(home), "Each run must have a distinct home");
+    }
+}
+
 #[tokio::test]
 async fn cli_tools_use_literal_arguments_and_exit_status_with_durable_logs() {
     for fail in [false, true] {

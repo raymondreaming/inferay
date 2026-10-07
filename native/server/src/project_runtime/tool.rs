@@ -93,16 +93,33 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
         .iter()
         .map(|arg| arg.resolve(&output_dir.to_string_lossy()))
         .collect();
+    // Tool subprocesses never inherit the operator's home or automatic user config.
+    // Provider credentials stay with the provider process, outside this environment.
+    let home = scratch.join("home");
+    for path in [
+        &home,
+        &home.join(".config"),
+        &home.join(".cache"),
+        &home.join(".local/share"),
+        &home.join(".local/state"),
+    ] {
+        std::fs::create_dir_all(path)?;
+    }
     let mut command = policy.tool_command(&tool.program, &arguments, &output_dir, &scratch)?;
     command
         .current_dir(cwd)
         .env_clear()
         .envs(std::env::vars_os().filter(|(key, _)| {
-            matches!(
-                key.to_str(),
-                Some("PATH" | "HOME" | "LANG" | "LC_ALL" | "LC_CTYPE")
-            )
+            matches!(key.to_str(), Some("PATH" | "LANG" | "LC_ALL" | "LC_CTYPE"))
         }))
+        .env("HOME", &home)
+        .env("XDG_CONFIG_HOME", home.join(".config"))
+        .env("XDG_CACHE_HOME", home.join(".cache"))
+        .env("XDG_DATA_HOME", home.join(".local/share"))
+        .env("XDG_STATE_HOME", home.join(".local/state"))
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_TERMINAL_PROMPT", "0")
         .env("TMPDIR", &scratch)
         .env("TMP", &scratch)
         .env("TEMP", &scratch)
