@@ -220,6 +220,29 @@ impl ProjectRuntime {
         }).await?
     }
 
+    pub async fn preview_automation(self: &Arc<Self>, command: &ProjectFileCommand) -> Result<()> {
+        inferay_core::project_files::proposed_automation(command)?;
+        let ProjectFileCommand::SaveDefinition { project_id, path, content, expected_hash } = command else {
+            unreachable!()
+        };
+        let skills = self.prompts.lock().await.load()?;
+        let store = self.store.lock().map_err(|_| "Project store lock failed")?;
+        let root = store.project_dir(project_id)?;
+        let target = crate::project_definitions::managed_path(&root, path, false)?;
+        let current = match std::fs::read(target) {
+            Ok(bytes) => Some(project_store::hash(&bytes)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error.into()),
+        };
+        if current.as_deref() != expected_hash.as_deref() {
+            return Err("Automation changed; read its current sourceHash before proposing an update".into());
+        }
+        crate::project_definitions::validate_write(
+            &root, path, content.as_bytes(),
+            &skills.iter().map(|s| format!("global:{}", s.id)).collect(),
+        )
+    }
+
     pub async fn preview_plugin(self: &Arc<Self>, command: &ProjectFileCommand) -> Result<()> {
         let ProjectFileCommand::CreatePlugin {
             project_id,

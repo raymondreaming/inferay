@@ -11,6 +11,7 @@ import {
 	SkillReadCard,
 } from "@skills/components/SkillProposalCard/index.tsx";
 import * as stylex from "@stylexjs/stylex";
+import { AutomationDefinitionCard } from "@workspace/components/ProjectsPanel/AutomationDefinitionCard.tsx";
 import { AutomationProposalCard } from "@workspace/components/ProjectsPanel/AutomationProposalCard.tsx";
 import { PluginProposalCard } from "@workspace/components/ProjectsPanel/PluginProposalCard.tsx";
 import { createMemo, Match, Switch } from "solid-js";
@@ -36,6 +37,22 @@ export function SystemMessage(props: {
 				<p {...stylex.attrs(styles.systemText)}>{props.message.content}</p>
 			}
 		>
+			<Match
+				when={
+					props.message.render?.automationDefinitionProposal?.type ===
+					"saveDefinition"
+				}
+			>
+				{() => {
+					const command = props.message.render?.automationDefinitionProposal;
+					return command?.type === "saveDefinition" ? (
+						<AutomationDefinitionCard
+							command={command}
+							onResult={props.onSendMessage}
+						/>
+					) : null;
+				}}
+			</Match>
 			<Match
 				when={props.message.render?.pluginProposal?.type === "createPlugin"}
 			>

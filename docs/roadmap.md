@@ -1,6 +1,6 @@
 # Roadmap
 
-Inferay is becoming a general automation harness on top of a daily coding-agent workspace: you describe a capability in chat, Inferay saves it as a plugin you can read and approve, and it runs on its own within limits you set. The kernel stays small and generic ([ADR 0002](adr/0002-automation-kernel.md)); every domain (brand content, app builds, design, research) is a plugin.
+Inferay is becoming a general automation harness on top of a daily coding-agent workspace: you describe work in chat, save reusable implementations as local plugin libraries, and schedule tasks as automations with explicit approval. The kernel stays small and generic ([ADR 0002](adr/0002-automation-kernel.md)); domain-specific code (brand content, app builds, design, research) lives in reusable plugins.
 
 The work is a sequence of milestones. Each one ends with something real running, and each is done only when its acceptance list passes. When a milestone ships, remove it from this page and update [concepts.md](concepts.md), [architecture.md](architecture.md) and [reference/project-files.md](reference/project-files.md) in the same change.
 
@@ -49,7 +49,7 @@ Development continues directly on `main`. The formats and validators exist; this
 1. Back up `projects.sqlite3` with SQLite's backup API.
 2. Write `project.json` for each project, and move repository locations into `repository_paths`.
 3. Write records to `memory/<type>/`, moving `files/` to `memory/documents/` and keeping every ID.
-4. Group each automation with the tools and skills it uses into a plugin folder. Where a tool or skill is shared, copy it into each plugin.
+4. Preserve each standalone automation and its private dependencies under automations/<id>/. Remove only identifiable wrappers created by the old exporter; keep deliberately created plugin libraries intact.
 5. Convert installed plugins to the new manifest.
 6. Every automation arrives disabled.
 7. Flag absolute paths found in instructions, with a suggested repository reference. Do not rewrite them.
@@ -57,16 +57,16 @@ Development continues directly on `main`. The formats and validators exist; this
 **Skill references:** automations name plugin skills by stable UUID, and global library skills by `global:<id>`. Names are display labels. `validate_references` checks the reference format and resolves it against the supplied inventory.
 
 **Done when**
-- the live profile's Rthmn automations migrate into plugins, arrive disabled and keep their run history, and a second launch changes nothing;
+- the live profile's Rthmn automations migrate into standalone packages, arrive disabled and keep their run history, and a second launch changes nothing;
 - deleting `projects.sqlite3` rebuilds every definition;
 - an edit made outside the app disables the affected schedule.
 
 ## M2. One place for each job
 
 **Chat builds plugins.**
-- Agents get file commands (`createPlugin`, `writePluginFile`, `writeResource`) that go through the M1 write path.
+- Agents inspect libraries with `readPlugin` and propose new reusable libraries with `createPlugin`. Standalone automation requests use `saveDefinition` at `automations/<id>/automation.json`, producing their own proposal card. Both paths validate before displaying and save only through a user action. Multi-file changes to existing libraries remain planned.
 - A capability built in chat appears as **one card**: skills, tools, automations, permissions and a diff since the last approval, with Approve, Edit and Decline.
-- The agent guidance in `chat_runtime.rs` and `agent_runner.rs` asks for plugins, calendar triggers, repository IDs and declared permissions.
+- Agent guidance distinguishes libraries from jobs, requests calendar triggers, repository IDs and declared permissions, and reuses existing global skills.
 - Claude gets the same `inferay_projects` commands Codex has.
 
 **Pages.**

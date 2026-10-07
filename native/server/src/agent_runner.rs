@@ -131,6 +131,12 @@ impl AgentProcessHandle {
                                                 Err(error) => Err(format!("Plugin proposal invalid: {error}")),
                                             }
                                         },
+                                        Ok(command @ inferay_core::project_files::ProjectFileCommand::SaveDefinition {..}) => {
+                                            projects.preview_automation(&command).await
+                                                .map(|()| (json!({"status":"proposed","message":"Automation proposal ready. Nothing has been saved or enabled."}),
+                                                    Some(json!({"type":"inferay.automation-definition-proposal","command":command}))))
+                                                .map_err(|error| format!("Automation proposal invalid: {error}"))
+                                        },
                                         Ok(command) => projects.command(command,false).await.map(|v|(v,None)).map_err(|e|e.to_string()),
                                         Err(error) => Err(error.to_string()),
                                     },

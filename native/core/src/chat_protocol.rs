@@ -92,6 +92,9 @@ pub struct NativeChatRender {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub automation_proposal: Option<crate::projects::LegacyAutomationProposal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub automation_definition_proposal: Option<crate::project_files::ProjectFileCommand>,
     pub plugin_proposal: Option<crate::project_files::ProjectFileCommand>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -380,6 +383,13 @@ impl ChatMessageBuffer {
                             ) = serde_json::from_value(value["command"].clone())
                             {
                                 render.automation_proposal = Some(command);
+                            }
+                        }
+                        if value["type"] == "inferay.automation-definition-proposal" {
+                            if let Ok(command) = serde_json::from_value(value["command"].clone()) {
+                                if crate::project_files::proposed_automation(&command).is_ok() {
+                                    render.automation_definition_proposal = Some(command);
+                                }
                             }
                         }
                         if value["type"] == "inferay.plugin-proposal" {
@@ -1003,6 +1013,24 @@ fn prepare_system_card(value: &Value, render: &mut NativeChatRender) {
 #[cfg(test)]
 mod output_reference_tests {
     use super::*;
+
+    #[test]
+    fn standalone_card_reloads_only_valid_automation_writes() {
+        let id = "b39bc9f4-870f-42a9-871b-a892278bac52";
+        let body = serde_json::json!({"schema":"inferay.automation/1","id":id,"name":"Briefing","trigger":{"kind":"manual"},"overlap":"skip","execution":{"kind":"agent","provider":"codex","instructions":"Review progress","skills":[],"resources":[],"repositories":[],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":300},"may":[]});
+        for (path, valid) in [(format!("automations/{id}/automation.json"), true), ("project.json".into(), false)] {
+            let command = serde_json::json!({"type":"saveDefinition","projectId":"project-1","path":path,"content":body.to_string(),"expectedHash":null});
+            let message: ChatTranscriptMessage = serde_json::from_value(serde_json::json!({
+                "id":"automation-card","role":"system",
+                "content":serde_json::json!({"type":"inferay.automation-definition-proposal","command":command}).to_string()
+            })).unwrap();
+            let mut buffer = ChatMessageBuffer::default();
+            buffer.replace_messages(vec![message]);
+            let render = buffer.messages()[0].render.as_ref().unwrap();
+            assert_eq!(render.automation_definition_proposal.is_some(), valid);
+            assert!(render.plugin_proposal.is_none());
+        }
+    }
 
     #[test]
     fn plugin_card_reloads_only_bundle_proposals() {

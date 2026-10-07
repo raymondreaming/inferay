@@ -311,3 +311,34 @@ async fn documents_preserve_binary_originals_and_refuse_overwrite_or_escape() {
             .is_err()
     );
 }
+
+#[tokio::test]
+async fn standalone_automation_proposal_is_read_only_and_conflict_checked() {
+    let profile = tempfile::tempdir().unwrap();
+    let (project, _) = definition_files(profile.path(), "print('{}')");
+    let runtime = runtime(profile.path());
+    let id = uuid::Uuid::new_v4().to_string();
+    let path = format!("automations/{id}/automation.json");
+    let root = profile.path().join("projects").join(&project);
+    let content = json!({"schema":"inferay.automation/1","id":id,"name":"Daily briefing",
+        "trigger":{"kind":"calendar","timezone":"America/Chicago","days":[1,2,3,4,5,6,7],"times":["06:00"]},
+        "overlap":"skip","execution":{"kind":"agent","provider":"codex","instructions":"Summarize recent work",
+        "skills":[],"resources":[],"repositories":[],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":300},"may":[]}).to_string();
+    let mut command = ProjectFileCommand::SaveDefinition {
+        project_id: project, path: path.clone(), content, expected_hash: None,
+    };
+    runtime.preview_automation(&command).await.unwrap();
+    assert!(!root.join(&path).exists(), "Preview must not write");
+    assert!(runtime.command(command.clone(), false).await.is_err(), "Agent cannot bypass the card");
+    let result = runtime.command(command.clone(), true).await.unwrap();
+    assert!(runtime.preview_automation(&command).await.is_err(), "Create cannot replace an existing file");
+    if let ProjectFileCommand::SaveDefinition { expected_hash, content, .. } = &mut command {
+        *expected_hash = result["sourceHash"].as_str().map(str::to_owned);
+        *content = content.replace("Daily briefing", "Updated briefing");
+    }
+    runtime.preview_automation(&command).await.unwrap();
+    std::fs::write(root.join(&path), std::fs::read_to_string(root.join(&path)).unwrap().replace("Daily briefing", "Outside edit")).unwrap();
+    assert!(runtime.preview_automation(&command).await.is_err(), "Outside edit must invalidate proposal");
+    assert!(runtime.command(command, true).await.is_err(), "Approval click must recheck the hash");
+    assert!(std::fs::read_to_string(root.join(path)).unwrap().contains("Outside edit"));
+}

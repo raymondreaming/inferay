@@ -126,7 +126,16 @@ Execution contract: the tool receives its input as JSON on stdin and writes JSON
 
 **JSON Schema subset.** Offline only: `type`, `properties`, `required`, `items`, `enum`, boolean `additionalProperties`, and numeric, length and count bounds. Other keywords are refused; remote references are never fetched.
 
-## automations/&lt;name&gt;.json
+## Automation proposals from chat
+
+An ordinary automation is saved at `automations/<id>/automation.json`. A plugin may also contain automations at `plugins/<slug>/automations/<name>.json`; a standalone job does not create a plugin.
+
+For standalone jobs, agents call `inferay_projects` with `saveDefinition`. The tool validates the complete definition, references and expected file hash, then returns a proposal card without writing. Accepting the card uses the same validated writer and checks the hash again. New files require `expectedHash: null`; updates require the current `sourceHash` from the catalog. Saving does not approve execution or enable a schedule.
+
+Library discovery uses `readPlugin`. Its inventory includes per-file hashes and a whole-library `sourceHash`, including binary assets. Reading or previewing never executes a plugin. Whole-library update proposals remain planned; the library editor currently saves individual text files with expected hashes.
+
+## Automation definition
+
 
 ```json
 {
