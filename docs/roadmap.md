@@ -2,7 +2,7 @@
 
 Inferay is becoming a general automation harness on top of a daily coding-agent workspace: you describe a capability in chat, Inferay saves it as a plugin you can read and approve, and it runs on its own within limits you set. The kernel stays small and generic ([ADR 0002](adr/0002-automation-kernel.md)); every domain (brand content, app builds, design, research) is a plugin.
 
-This page says what works, what is being built and what comes next. Remove items when they ship and update [concepts.md](concepts.md), [architecture.md](architecture.md) and [reference/project-files.md](reference/project-files.md) in the same change.
+The work is a sequence of milestones. Each one ends with something real running, and each is done only when its acceptance list passes. When a milestone ships, remove it from this page and update [concepts.md](concepts.md), [architecture.md](architecture.md) and [reference/project-files.md](reference/project-files.md) in the same change.
 
 ## What works
 
@@ -12,23 +12,22 @@ This page says what works, what is being built and what comes next. Remove items
 - Durable runs with captured inputs, events, logs, artifacts, bounded concurrency and honest interruption states; finished agent runs open as chats.
 - Portable definition formats and validators for projects, resources, plugins, skills, tools and automations.
 
-## In progress: definitions as files
+## Settled decisions
 
-Branch `projects-foundation`. Definitions move out of `projects.sqlite3` into the project folder; the database keeps local state and a rebuildable index. Formats and validators are done; the steps below connect them.
-
-### Settled decisions
-
-- Files own definitions; SQLite never holds a second editable copy. Deleting `projects.sqlite3` loses only run history, approvals and schedule state.
-- Local by design: definitions live in `<profile>/projects/<id>/`. Linked repositories are never written to by the store.
+- Files own definitions; SQLite holds local state and a rebuildable index, never a second editable copy. Deleting `projects.sqlite3` loses only run history, approvals and schedule state.
+- Local by design. Definitions live in `<profile>/projects/<id>/`; linked repositories are never written to by the store. Sharing is copying a plugin folder; Git on a project folder is optional.
 - A plugin is the unit of a capability: one folder of skills, tools and automations, approved and shared as a whole.
 - Anything written by a chat, a migration or by hand starts disabled. Enabling records a hash of every input; any change disables it again.
 - Definitions name repositories by ID and files by relative path; each Mac's checkout path is local state.
-- Git is optional for project folders.
-- The file-owned path replaces the SQLite-owned one in the same change; no dual paths.
+- The project has four pages: **Resources** (what it knows), **Plugins** (what it can do), **Automations** (what is running), **Repositories** (linked code), plus its chats. There is no separate Files or Tools page.
+- When a repository already defines its own process (for example Point's AutoBuild guide), an automation runs an agent there and follows it; Inferay schedules, authorizes and records.
+- New behavior replaces old behavior in the same change; no dual paths or compatibility shims.
 
-### 1. Storage boundary
+## M1. Definitions are files
 
-`project_store.rs` and `project_runtime.rs` read definitions from files.
+Branch `projects-foundation`. The formats and validators exist; this milestone connects them to storage.
+
+**Storage.** `project_store.rs` and `project_runtime.rs` read definitions from files.
 
 | Table | Kind | Contents |
 |---|---|---|
@@ -38,78 +37,105 @@ Branch `projects-foundation`. Definitions move out of `projects.sqlite3` into th
 | `repository_paths` | local | project, repository ID, path on this Mac |
 | `runs`, `run_events`, `artifacts`, `project_conversations`, `project_migrations` | local | unchanged |
 
-`resource_revisions` goes away; history comes from the files or Git.
+- The indexer runs on launch, project open, window focus and after every write, within the current catalog bounds. An invalid file indexes with its error; whatever depends on it is blocked.
+- Writes carry the file's expected hash (a mismatch is a visible conflict), validate, write to a temporary file, sync and rename. New plugins are staged in `plugins/.staging-<uuid>/` and renamed into place.
+- `capture_snapshot` hashes every file a run reads. Every scheduled run and Run now recomputes it; a difference disables the schedule and asks for review. An unlinked repository blocks the run with "Link this repository".
+- Row-writing commands and `resource_revisions` are removed; `project_commands.json` describes the file commands.
 
-- **Indexer.** Runs on launch, project open, window focus and after every write. Bounded (256 projects, 512 resources, 256 automations, 100 plugins). An invalid file indexes with its error, and whatever depends on it shows as blocked and cannot run.
-- **Writes.** Each write carries the file's expected hash; a mismatch is a visible conflict, never an overwrite. Files are validated, written to a temporary file, synced and renamed; new plugins are staged in `plugins/.staging-<uuid>/` and renamed into place.
-- **Admission.** `capture_snapshot` hashes every file a run reads: the automation, `plugin.json`, each skill, the tool definition and entrypoint, each resource, and project instructions. Every scheduled run and Run now recomputes it; a difference disables the schedule, records "inputs changed" and asks for review. An unlinked repository blocks the run with "Link this repository".
-- **Removals.** Row-writing commands (`SaveProject`, `SaveResource`, `SaveAutomation`, `InstallPlugin` copies) are replaced by file-writing commands, and `project_commands.json` describes the new ones.
+**Layout.** Documents move from `files/` to `resources/documents/`; typed records stay in `resources/<type>/`. Agent automations default to the project folder as their working directory.
 
-### 2. Migration
-
-One-time and idempotent, before the first index, tested only against a disposable `INFERAY_USER_DATA_DIR`:
+**Migration**, one-time and idempotent, tested only against a disposable `INFERAY_USER_DATA_DIR`:
 
 1. Back up `projects.sqlite3` with SQLite's backup API.
-2. Write `project.json` per project; move repository locations into `repository_paths`.
-3. Write resources to `resources/<type>/<slug>.json`, keeping IDs.
-4. Group each automation with the tools and skills it uses into a plugin folder, keeping IDs so run history still links.
+2. Write `project.json` for each project, and move repository locations into `repository_paths`.
+3. Write records to `resources/<type>/`, moving `files/` to `resources/documents/` and keeping every ID.
+4. Group each automation with the tools and skills it uses into a plugin folder. Where a tool or skill is shared, copy it into each plugin.
 5. Convert installed plugins to the new manifest.
 6. Every automation arrives disabled.
-7. Absolute paths found in instructions are flagged with a suggested repository reference, not rewritten.
+7. Flag absolute paths found in instructions, with a suggested repository reference. Do not rewrite them.
 
-Global custom skills stay in the Skills library for now.
+**Decide first:** automations name skills by their UUID or by a short name. Pick one and enforce it in `validate_references`.
 
-### 3. Chat writes plugins
+**Done when**
+- the live profile's Rthmn automations migrate into plugins, arrive disabled and keep their run history, and a second launch changes nothing;
+- deleting `projects.sqlite3` rebuilds every definition;
+- an edit made outside the app disables the affected schedule.
 
-- Agents get file-oriented commands (`createPlugin`, `writePluginFile`, `writeResource`, `writeProjectFile`) that go through the same write path as the UI.
-- A chat-built capability appears as one card: skills, tools, automations, permissions and a diff since the last approval, with Approve, Edit and Decline.
-- Agent guidance (`chat_runtime.rs`, `agent_runner.rs`) asks for plugins, calendar triggers for daily or weekly work, repository IDs and declared permissions.
+## M2. One place for each job
+
+**Chat builds plugins.**
+- Agents get file commands (`createPlugin`, `writePluginFile`, `writeResource`) that go through the M1 write path.
+- A capability built in chat appears as **one card**: skills, tools, automations, permissions and a diff since the last approval, with Approve, Edit and Decline.
+- The agent guidance in `chat_runtime.rs` and `agent_runner.rs` asks for plugins, calendar triggers, repository IDs and declared permissions.
 - Claude gets the same `inferay_projects` commands Codex has.
 
-### 4. Interface
+**Pages.**
+- **Resources** merges the Files page. It shows records (typed, with the existing editors) and documents (with previews), and has Open folder.
+- **Plugins** is where you build and approve. Each card shows its status (draft, enabled, changed, invalid, blocked), its skills and tools, its permissions and its last runs.
+- **Automations** is where you operate: on/off, next run, last result, and history per automation. A run artifact can be saved to Resources explicitly; nothing is saved there automatically.
+- The Tools page is removed; tools appear inside their plugin.
 
-Plugins is the main view: each card shows status (draft, enabled, changed, invalid, blocked), contents, permissions, last runs and Open folder. Tools and Automations are filtered views across plugins. Invalid files show their error; files changed on disk offer Reload.
+**Done when** `verify:projects` covers:
+- a chat-built plugin that is approved and runs;
+- an edit that disables a schedule;
+- an invalid manifest;
+- a document moved into Resources;
+- an unlinked repository.
 
-### 5. Verification and merge
+It also needs one real Codex run and one real Claude run in the native app. Then `projects-foundation` merges to `main`.
 
-`verify:projects` covers:
-- a chat-built plugin approved and run;
-- edits disabling schedules;
-- changes made outside the app;
-- invalid manifests;
-- rebuilding after deleting `projects.sqlite3`;
-- migration;
-- calendar triggers across daylight-saving changes;
-- unlinked repositories.
+## M3. Safe to leave running
 
-Then one real Codex run and one real Claude run in the native app, and the branch merges to `main`.
+- **CLI tools (E2) and tool grants (E7).** Existing scripts run as tools, with an argument template and pass/fail taken from the exit code. Agent automations name the tools they may call.
+- **Permission enforcement.** `may` maps to each provider's own controls instead of full access:
+  - Codex: read-only or workspace-write sandbox, and its network setting.
+  - Claude: permission mode and allowed tools.
+  - `push` and `open_pr` are only possible when declared.
+- **Requirements (E3).** Plugins and tools declare required programs and modules (`blender>=5.0`, `ffmpeg`, `python3:numpy`). A missing one blocks the run up front with a clear message.
+- **Conformance suite.** The proof definitions (`~/Developer/inferay-proofs`) move into the repository as test fixtures, and every kernel change runs against them.
 
-### Open decisions
+**Done when**
+- the Point daily build runs at 08:00 Chicago for a week with permissions enforced, committing on branches and never deploying;
+- a script tool fails a run on a non-zero exit;
+- an undeclared push is refused.
 
-- How automations name skills: by the skill's UUID or by a short name (the contract tests use `"daily"` while skill files require a UUID). Pick one and enforce it in one place.
-- When an automation's tool or skill is shared, migration either makes one plugin per automation with shared tools copied (default) or one plugin per shared tool.
-- Run now on a changed automation either confirms and records approval (default) or refuses until it is re-enabled.
+## M4. Builds on other people's work
 
-## Next: kernel extensions
+- **Packs (E1).** Tool entrypoints can live inside a linked repository, pinned by its commit and the file's hash. An upstream change disables the schedule until it is reviewed.
+- **MCP declarations (E6).** A plugin names the MCP servers it needs; a missing server blocks the run.
 
-Each extension lands with a reference plugin that exercises it. The definitions in `~/Developer/inferay-proofs` already express the four reference capabilities and fail only on these gaps.
+**Done when**
+- a Blender content lane from a forked kit renders daily into run artifacts, with no posting, its quality checks failing runs that do not meet the bar, and the kit's code never copied;
+- a Spline design skill produces a frame in the brand's colors and type from the genome resource.
 
-| Order | Extension | Unlocks | Reference |
-|---|---|---|---|
-| 1 | E2 CLI tools, E7 per-run tool grants | Existing scripts as tools; agents calling declared tools | Daily repository build |
-| 2 | **Permission enforcement** | `may` becomes real for agent runs: map it to provider sandbox modes (Codex read-only or workspace-write sandbox and network setting; Claude permission mode and allowed tools) instead of full access | All agent automations |
-| 3 | E1 packs, E3 requirements | Tools that live in a linked, pinned repository; clear "missing Blender" before a run | Blender content lane |
-| 4 | E6 MCP declarations | Plugins that need Spline, Figma or other MCP servers | Brand-aware design |
-| 5 | E4 connections | Secrets in the Keychain, injected only into declaring tools | Posting, app builds |
-| 6 | E5 effects, review inbox, outbox | Posting, deploys and spending within approved budgets, with no duplicates after a crash | Social posting with daily limits |
-| 7 | Events as triggers | Render then post later, react to finished runs, without a workflow engine | Lane plus timed post |
-| 8 | Observations | Analytics and build status flowing back so automations adapt | Weekly lane review |
+## M5. Acts in the world
 
-The kernel is finished when a domain nobody designed for can be built entirely from chat without a kernel change.
+- **Connections (E4).** Secrets live in the Keychain and are injected only into the tools that declare them. They never appear in a definition, a log or an agent transcript.
+- **Effects (E5).** Runs emit intents; they never call external services that have consequences.
+  - The core checks each intent against an approved budget (count, window, accounts).
+  - It records the intent in an outbox before sending, through a handler plugin.
+  - It saves the receipt and reconciles after a crash.
+  - A review inbox shows intents waiting for approval.
+
+**Done when**
+- posting to a test account works with a limit of 2 per day;
+- a force-quit between recording and sending produces no duplicate after relaunch;
+- a search of every run folder finds no key.
+
+## M6. Closes the loop
+
+- **Events as triggers:** a run finished, an effect delivered, an observation arrived, a document added. Effects carry a not-before time. Together these give "render at 09:00, post at 12:00" without a workflow engine.
+- **Observations.** Observer tools fetch facts (post analytics, build status, store numbers) on a schedule into typed records that skills read and triggers react to.
+
+**Done when** a weekly review automation reads last week's post analytics and proposes an updated lane, which arrives as a changed plugin waiting for approval.
+
+## M7. Any domain
+
+Build an automation for a domain nobody designed for (for example a weekly finance summary or an inbox digest) entirely from chat. **Done when** it needs no kernel change. If it does, the missing piece is a generic concept added to ADR 0002, never domain-specific code.
 
 ## Known gaps
 
-- Agent runs execute with full provider access; permissions are advisory until step 2 above.
+- Agent runs execute with full provider access; permissions are advisory until M3.
 - `check:architecture` has a "Solid reactivity regression" step that runs nothing.
 - `bunx tsc --noEmit` reports errors in `scripts/tests/fixtures/solid-runtime.tsx`, so it is not a clean gate.
 - There is no CI; checks run locally and through lint-staged.
@@ -117,7 +143,6 @@ The kernel is finished when a domain nobody designed for can be built entirely f
 
 ## Later
 
-- Resources as a drop canvas: originals under `resources/files/`, extracted metadata and search in a rebuildable index.
 - Global skills as files.
 - Running scheduled work while the app is closed (a background helper or a dedicated machine).
 - Sharing beyond copying folders, if a team needs it.
