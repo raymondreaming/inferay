@@ -155,6 +155,7 @@ pub enum Permission {
     Push,
     OpenPr,
     Network,
+    Gpu,
     WriteProjectFiles,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]

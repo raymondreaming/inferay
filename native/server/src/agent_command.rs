@@ -6,6 +6,59 @@ use std::sync::Mutex;
 
 use inferay_core::agent_kind::AgentKind;
 
+/// Resolve local tools on PATH while preserving virtual-environment launcher paths.
+/// macOS app bundles discover resources beside their real executable, so aliases
+/// into a bundle must be expanded before handing the path to sandbox-exec.
+pub(crate) fn resolve_local_program(program: &str, search_path: &OsStr) -> Result<PathBuf, String> {
+    let requested = Path::new(program);
+    // Relative paths are interpreted in the invocation's working directory,
+    // which is set on the command after this resolver runs.
+    if requested.is_relative() && requested.components().count() > 1 {
+        return Ok(requested.to_path_buf());
+    }
+    let candidates: Vec<PathBuf> = if requested.components().count() > 1 {
+        vec![requested.to_path_buf()]
+    } else {
+        std::env::split_paths(search_path)
+            .map(|directory| directory.join(program))
+            .collect()
+    };
+    for candidate in candidates {
+        let Ok(metadata) = candidate.metadata() else {
+            continue;
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if metadata.permissions().mode() & 0o111 == 0 {
+                continue;
+            }
+        }
+        let absolute = if candidate.is_absolute() {
+            candidate
+        } else {
+            std::env::current_dir()
+                .map_err(|e| e.to_string())?
+                .join(candidate)
+        };
+        #[cfg(target_os = "macos")]
+        {
+            let real = absolute.canonicalize().map_err(|e| e.to_string())?;
+            if real
+                .ancestors()
+                .any(|path| path.extension().is_some_and(|extension| extension == "app"))
+            {
+                return Ok(real);
+            }
+        }
+        return Ok(absolute);
+    }
+    Err(format!("Program {program} is not executable on PATH"))
+}
+
 #[derive(Debug)]
 pub struct AgentCommandResolver {
     home_directory: PathBuf,
@@ -244,4 +297,30 @@ fn mcp_controls_persist_per_provider_and_feed_agent_launches() {
             .get("linear"),
         Some(&false)
     );
+}
+
+#[cfg(all(test, target_os = "macos"))]
+#[test]
+fn local_program_resolves_app_bundles_but_preserves_interpreter_aliases() {
+    use std::os::unix::{fs::PermissionsExt, fs::symlink};
+    let root = tempfile::tempdir().unwrap();
+    let bin = root.path().join("bin");
+    let executable = root.path().join("Render.app/Contents/MacOS/Render");
+    std::fs::create_dir_all(executable.parent().unwrap()).unwrap();
+    std::fs::create_dir(&bin).unwrap();
+    std::fs::write(&executable, "#!/bin/sh\n").unwrap();
+    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+    symlink(&executable, bin.join("render")).unwrap();
+    symlink("/usr/bin/python3", bin.join("python3")).unwrap();
+    assert_eq!(
+        resolve_local_program("render", bin.as_os_str()).unwrap(),
+        executable.canonicalize().unwrap()
+    );
+    assert_eq!(
+        resolve_local_program("python3", bin.as_os_str()).unwrap(),
+        bin.join("python3")
+    );
+    assert!(resolve_local_program("missing", bin.as_os_str()).is_err());
+    std::fs::write(bin.join("not-executable"), "text").unwrap();
+    assert!(resolve_local_program("not-executable", bin.as_os_str()).is_err());
 }

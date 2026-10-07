@@ -1,6 +1,6 @@
 //! Bounded machine preflight, executed inside the same OS boundary as local tools.
 use crate::{automation_sandbox::AutomationSandbox, project_store::Result};
-use inferay_core::project_requirements::Requirement;
+use inferay_core::{project_files::Permission, project_requirements::Requirement};
 use serde_json::Value;
 use std::{collections::BTreeSet, path::Path, time::Duration};
 use tokio::io::AsyncReadExt;
@@ -15,7 +15,19 @@ pub(crate) async fn check(snapshot: &Value, project: &Path, run: &Path) -> Resul
     if !scratch.canonicalize()?.starts_with(project) {
         return Err("Requirements directory escapes project".into());
     }
-    let policy = AutomationSandbox::new(&BTreeSet::new(), &serde_json::json!({}), project);
+    let permissions: BTreeSet<Permission> = serde_json::from_value(
+        snapshot
+            .pointer("/automation/may")
+            .cloned()
+            .unwrap_or(serde_json::json!([])),
+    )?;
+    // Version probes may initialize graphics drivers, but need no network or writes
+    // outside their scratch directory, even if the run has broader permission.
+    let probe_permissions = permissions
+        .into_iter()
+        .filter(|permission| *permission == Permission::Gpu)
+        .collect();
+    let policy = AutomationSandbox::new(&probe_permissions, &serde_json::json!({}), project);
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     for value in requirements {
         if tokio::time::Instant::now() >= deadline {
@@ -27,25 +39,11 @@ pub(crate) async fn check(snapshot: &Value, project: &Path, run: &Path) -> Resul
             minimum: None,
         } = &parsed
         {
-            let found = std::env::var_os("PATH").is_some_and(|path| {
-                std::env::split_paths(&path).any(|dir| {
-                    let Ok(metadata) = std::fs::metadata(dir.join(name)) else {
-                        return false;
-                    };
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::fs::PermissionsExt;
-                        metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
-                    }
-                    #[cfg(not(unix))]
-                    {
-                        metadata.is_file()
-                    }
-                })
-            });
-            if !found {
-                return Err(format!("Requirement {value}: program is not on PATH").into());
-            }
+            crate::agent_command::resolve_local_program(
+                name,
+                &std::env::var_os("PATH").unwrap_or_default(),
+            )
+            .map_err(|error| format!("Requirement {value}: {error}"))?;
             continue;
         }
         let (program, args, minimum) = match parsed {
@@ -167,7 +165,7 @@ mod tests {
             ),
             (
                 serde_json::json!(["inferay_missing_program_90374"]),
-                Some("not on PATH"),
+                Some("not executable on PATH"),
             ),
             (
                 serde_json::json!(["python3>=999.0"]),

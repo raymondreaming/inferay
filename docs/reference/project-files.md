@@ -101,7 +101,7 @@ A run captures requirements from its owning library and selected tools, includin
 
 ### Permissions
 
-`read_repositories`, `write_repositories`, `commit`, `push`, `open_pr`, `network`, `write_project_files`. Any other value is refused. An automation's `may` must fit within its plugin's `may`; that ceiling is checked. Codex automation requests map write permissions to captured repository/project roots and `network` to shell network access and web search; escalation is disabled. Claude automations use restricted mode and require a Bash sandbox, with explicit file/tool allowances and no unsandboxed retry. A real Claude runtime check verifies an outside write is refused. Local tools on macOS require an OS sandbox covering subprocesses: output and private temporary files are writable, declared write permissions add repository/project roots, and `network` enables sockets. Other platforms refuse execution. Reads remain unrestricted; individual commit/push/PR permissions are not enforced. Real Claude and Codex native-runtime checks cover allowed output writes and refused outside writes; network, read isolation, and privileged Git checks remain outstanding. Treat `may` as a reviewed declaration with partial enforcement, not a complete guarantee (see [architecture.md](../architecture.md#provider-runner)).
+`read_repositories`, `write_repositories`, `commit`, `push`, `open_pr`, `network`, `gpu`, `write_project_files`. Any other value is refused. An automation's `may` must fit within its plugin's `may`; that ceiling is checked. Codex automation requests map write permissions to captured repository/project roots and `network` to shell network access and web search; escalation is disabled. Claude automations use restricted mode and require a Bash sandbox, with explicit file/tool allowances and no unsandboxed retry. A real Claude runtime check verifies an outside write is refused. Local tools on macOS require an OS sandbox covering subprocesses: output and private temporary files are writable, declared write permissions add repository/project roots, and `network` enables sockets. Other platforms refuse execution. Reads remain unrestricted; individual commit/push/PR permissions are not enforced. Real Claude and Codex native-runtime checks cover allowed output writes and refused outside writes; network, read isolation, and privileged Git checks remain outstanding. Treat `may` as a reviewed declaration with partial enforcement, not a complete guarantee (see [architecture.md](../architecture.md#provider-runner)).
 
 ## skills/&lt;name&gt;.md
 
@@ -117,6 +117,19 @@ command: /daily-autobuild
 ```
 
 Front matter fields: `id` (UUID), `name`, `description` (up to 8,000 bytes), optional `command` (a relative name, leading `/` allowed). Unknown or duplicate fields are refused. Fields occupy one line each, with either plain text or a JSON-quoted string (which preserves embedded newlines and quotes). The body is the instructions, 1–64,000 bytes.
+
+
+`gpu` grants local tools access to Apple Silicon Metal devices, surfaces, graphics
+context registration and shader compilation services. It does not add socket or
+filesystem write access. Version probes inherit this permission because graphics
+applications can initialize their driver even during startup. Probes retain their
+own scratch-only write boundary and receive no network permission. This adapter
+is verified on Apple Silicon; other GPU backends remain unsupported. Provider
+shell GPU policy is separate; use a granted Inferay tool for this execution path.
+
+Local executable discovery preserves interpreter/virtual-environment aliases.
+Aliases into a macOS `.app` bundle resolve to the actual executable so bundled
+fonts, shaders and other resources can be found.
 
 ## tools/&lt;name&gt;/tool.json
 

@@ -171,11 +171,10 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
     }
     if !status.is_some_and(|s| s.success()) {
         return Err(format!(
-            "Tool failed (exit {}): {}",
+            "Tool failed ({}): {}",
             status
-                .and_then(|status| status.code())
-                .map(|code| code.to_string())
-                .unwrap_or_else(|| "signal".into()),
+                .map(|status| status.to_string())
+                .unwrap_or_else(|| "unknown status".into()),
             String::from_utf8_lossy(&errors)
                 .chars()
                 .take(2000)

@@ -924,6 +924,12 @@ async fn real_origin_blender_render_retains_image_artifacts() {
     let profile = tempfile::tempdir().unwrap();
     let (project, automation) = definition_files(profile.path(), "unused");
     let root = profile.path().join("projects").join(&project);
+    for path in ["plugins/report/plugin.json", "plugins/report/automations/report.json"] {
+        let path = root.join(path);
+        let mut definition: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        definition["may"] = json!(["gpu"]);
+        std::fs::write(path, definition.to_string()).unwrap();
+    }
     let repository = uuid::Uuid::new_v4().to_string();
     let path = root.join("project.json");
     let mut definition: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
@@ -936,7 +942,7 @@ async fn real_origin_blender_render_retains_image_artifacts() {
     tool["entrypoint"] = json!(entrypoint);
     tool["requires"] = json!(["blender>=5.0"]);
     tool["timeoutSeconds"] = json!(180);
-    tool["args"] = json!(["--factory-startup", "--background", "--python-exit-code", "1", "--python", "{entrypoint}", "--", "--family", "pillar-stack", "--seed", "3", "--out", "{output}/proof", "--scale", "0.1", "--samples", "2"]);
+    tool["args"] = json!(["--factory-startup", "--background", "-noaudio", "--python-exit-code", "1", "--python", "{entrypoint}", "--", "--family", "pillar-stack", "--seed", "3", "--out", "{output}/proof", "--scale", "0.1", "--samples", "2"]);
     tool["pack"] = json!({"repositoryId":repository,"commit":revision,"sha256":project_store::hash(&bytes)});
     std::fs::write(path, tool.to_string()).unwrap();
     std::fs::remove_file(root.join("plugins/report/tools/report/run.py")).unwrap();
@@ -970,6 +976,13 @@ async fn real_origin_blender_render_retains_image_artifacts() {
         assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
         assert_eq!(u32::from_be_bytes(bytes[16..20].try_into().unwrap()), 108);
         assert_eq!(u32::from_be_bytes(bytes[20..24].try_into().unwrap()), 144);
+        if let Some(directory) = std::env::var_os("INFERAY_PROOF_OUTPUT_DIR") {
+            let directory = Path::new(&directory);
+            std::fs::create_dir_all(directory).unwrap();
+            std::fs::write(directory.join(name), &bytes).unwrap();
+        }
     }
+    // Recapturing the approved pack rejects dirty, untracked or ignored source files.
+    runtime.command(ProjectFileCommand::ReviewAutomation { id: automation }, true).await.unwrap();
     eprintln!("Origin render verified at {revision}; two 108x144 PNG artifacts");
 }

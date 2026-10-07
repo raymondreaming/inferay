@@ -43,7 +43,7 @@ The test prints the tested commit and entrypoint hash. It requires a trusted loc
 kit and Python 3. It exercises the real quality checker, not the render pipeline;
 the Blender artifact and daily-lane gates remain open.
 
-## Blender render gate (currently failing)
+## Real Blender render gate
 
 ```sh
 INFERAY_ORIGIN_KIT_REPOSITORY=/path/to/Origin \
@@ -53,11 +53,14 @@ INFERAY_ORIGIN_KIT_REPOSITORY=/path/to/Origin \
 This uses the actual kit's `pillar-stack` scene in a disposable linked checkout,
 with two samples and 108 × 144 output. It requires Blender 5 on PATH and expects
 both the beauty and depth PNGs to appear in run history. It never enables a
-schedule or posts. Current evidence: Blender fails during startup before rendering;
-its PATH symlink loses bundled resources and the sandbox denies startup services.
-This gate remains failing until application-bundle execution and the necessary
-sandbox capabilities are supported. The runner must not fall back to unrestricted
-execution to pass it.
+schedule or posts. The disposable library and automation explicitly declare `gpu`;
+all output still runs inside the required macOS sandbox. The check passes on Apple
+Silicon with Blender 5.0.1. An attempted user-cache write is refused while both
+rendered images are retained. Set `INFERAY_PROOF_OUTPUT_DIR` to export the two PNGs
+for visual inspection; otherwise the temporary profile is removed after the test.
+
+This proves a real render and artifact capture. The daily scheduled lane and a
+combined render/quality workflow remain separate milestone gates.
 
 ## Planned fixtures
 

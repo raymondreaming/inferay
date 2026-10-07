@@ -7,6 +7,7 @@ use std::{collections::BTreeSet, path::Path};
 pub(crate) struct AutomationSandbox {
     roots: Vec<String>,
     network: bool,
+    gpu: bool,
 }
 impl AutomationSandbox {
     pub(crate) fn new(may: &BTreeSet<Permission>, repositories: &Value, project: &Path) -> Self {
@@ -22,6 +23,7 @@ impl AutomationSandbox {
         Self {
             roots: roots.into_iter().collect(),
             network: may.contains(&Permission::Network),
+            gpu: may.contains(&Permission::Gpu),
         }
     }
     pub(crate) fn claude(&self, arguments: &mut Vec<String>, output: &Path) -> Result<(), String> {
@@ -121,7 +123,32 @@ impl AutomationSandbox {
         if self.network {
             profile.push_str("(allow network*)\n(allow mach-lookup (global-name \"com.apple.system.opendirectoryd.libinfo\") (global-name \"com.apple.SystemConfiguration.configd\"))\n");
         }
-        command.args(["-p", &profile, "--", program]).args(args);
+        if self.gpu {
+            // Apple Silicon graphics device/surface access and the application
+            // registration required by Metal's AppKit-backed context creation.
+            profile.push_str(
+                r#"(allow iokit-open
+    (iokit-user-client-class "AGXDeviceUserClient")
+    (iokit-user-client-class "IOSurfaceRootUserClient"))
+(allow mach-lookup
+    (global-name "com.apple.system.notification_center")
+    (global-name "com.apple.system.opendirectoryd.libinfo")
+    (global-name "com.apple.coreservices.launchservicesd")
+    (global-name "com.apple.lsd.mapdb")
+    (global-name "com.apple.lsd.modifydb")
+    (global-name "com.apple.windowserver.active")
+    (global-name "com.apple.MTLCompilerService"))
+"#,
+            );
+        }
+        let executable = crate::agent_command::resolve_local_program(
+            program,
+            &std::env::var_os("PATH").unwrap_or_default(),
+        )?;
+        command
+            .args(["-p", &profile, "--"])
+            .arg(executable)
+            .args(args);
         Ok(command)
     }
     #[cfg(not(target_os = "macos"))]
@@ -211,12 +238,15 @@ except OSError as e:
 else: assert network == 'yes'
 print('verified')
 "#;
-        for granted in [false, true] {
-            let may = if granted {
+        for (granted, gpu) in [(false, false), (false, true), (true, false), (true, true)] {
+            let mut may = if granted {
                 BTreeSet::from([Permission::WriteProjectFiles, Permission::Network])
             } else {
                 BTreeSet::new()
             };
+            if gpu {
+                may.insert(Permission::Gpu);
+            }
             let policy = AutomationSandbox::new(&may, &json!({}), &project);
             let flag = if granted { "yes" } else { "no" };
             let args = vec![
