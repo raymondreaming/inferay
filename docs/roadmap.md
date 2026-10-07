@@ -84,7 +84,7 @@ Development continues directly on `main`. The formats and validators exist; this
 - a document moved into Memory;
 - an unlinked repository.
 
-A disposable-profile runtime check covers accepting a chat library, refusing unapproved execution with a recorded failure, approving the bundle, executing its tool into an artifact, and disabling it after an outside edit while keeping run history. This checks the native path; the browser checks above remain required.
+A disposable-profile runtime check covers accepting a chat library, refusing unapproved execution with a recorded failure, approving the bundle, executing its tool into an artifact, and disabling it after an outside edit while keeping run history. This checks the native path. The browser verifier now uses the current file contracts and passes project creation/reordering, repository linking and unlinking, graph navigation, conversation-grid deletion, automation autosave and local-tool execution, artifact viewing, chat plugin saving, and reopening a retained run as a chat. The run-to-chat case uses a synthetic provider log. Plugin approval from chat, invalid-manifest repair, Memory import, and native desktop interaction remain separate gates; this browser run uses a disposable profile and the committed renderer.
 
 Real Codex and Claude runs now pass disposable native-runtime filesystem probes, including recorded successful runs and outside-write refusal. Native app interaction checks remain. These changes are developed and committed directly on `main`; the remaining interaction and permission checks remain release gates.
 

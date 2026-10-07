@@ -29,7 +29,7 @@
 		"check:rust-host": "cargo check -p inferay-desktop",
 		"build:presentation": "bash scripts/build-presentation.sh",
 		"sync:file-icons": "bash scripts/sync-file-icons.sh",
-		"verify:projects": "cargo build -p inferay-server --bin inferay-dev-server && node scripts/verify-projects.mjs"
+		"verify:projects": "cargo build -p inferay-server --bin inferay-dev-server && bun scripts/verify-projects.mjs"
 	},
 	"lint-staged": {
 		"*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}": [

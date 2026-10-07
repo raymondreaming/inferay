@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
+import { projectWorkspaceView } from "../src/modules/workspace/model/projectFiles.ts";
 
 const profile = await realpath(
 	await mkdtemp(join(tmpdir(), "inferay-project-check-")),
@@ -200,16 +202,14 @@ try {
 		.waitFor();
 	await page.getByRole("button", { name: "Cancel", exact: true }).click();
 	assert.equal(await page.locator("[data-workspace-explorer]").count(), 0);
-	for (const name of ["Files", "Tools", "Plugins"]) {
+	for (const name of ["Plugins"]) {
 		await navigation.getByRole("button", { name, exact: true }).click();
 		await page
 			.getByRole("searchbox", { name: "Search " + name, exact: true })
 			.waitFor();
 		assert.equal(await page.locator("[data-workspace-explorer]").count(), 0);
 	}
-	await navigation
-		.getByRole("button", { name: "Resources", exact: true })
-		.click();
+	await navigation.getByRole("button", { name: "Memory", exact: true }).click();
 
 	const api = async (path, data) => {
 		const response =
@@ -222,13 +222,57 @@ try {
 						headers: { origin: address, "sec-fetch-site": "same-origin" },
 					});
 		assert.ok(response.ok(), await response.text());
-		return response.json();
+		const result = await response.json();
+		return path.startsWith("/api/projects?") || path === "/api/projects"
+			? projectWorkspaceView(result)
+			: result;
 	};
 	const setupCatalog = await api("/api/projects");
+	const fixtureProject = setupCatalog.projects.find(
+		(project) => project.name === "Brand Lab",
+	);
+	const reportAutomationId = randomUUID();
+	const reportPluginId = randomUUID();
+	const reportFiles = {
+		"plugin.json": JSON.stringify({
+			schema: "inferay.plugin/1",
+			id: reportPluginId,
+			name: "Report kit",
+			version: "1",
+			description: "Reusable local report writer",
+			may: [],
+		}),
+		"README.md": "Write a small local report using the report tool.",
+		"tools/report/tool.json": JSON.stringify({
+			schema: "inferay.tool/1",
+			id: randomUUID(),
+			name: "Report",
+			program: "python3",
+			entrypoint: "run.py",
+			args: [],
+			timeoutSeconds: 30,
+			inputSchema: { type: "object" },
+			outputSchema: { type: "object" },
+		}),
+		"tools/report/run.py":
+			"import os,json\nfrom pathlib import Path\np=Path(os.environ['INFERAY_RUN_OUTPUT'])/'report.txt'\np.write_text('A local project, a reusable tool, and a durable run.')\nprint(json.dumps({'artifacts':['report.txt']}))\n",
+		"automations/report.json": JSON.stringify({
+			schema: "inferay.automation/1",
+			id: reportAutomationId,
+			name: "Weekly report example",
+			trigger: { kind: "manual" },
+			overlap: "skip",
+			execution: { kind: "tool", tool: "report", input: {} },
+			may: [],
+		}),
+	};
 	await api("/api/projects/command", {
-		type: "createExample",
-		projectId: setupCatalog.projects.find((p) => p.name === "Brand Lab").id,
+		type: "createPlugin",
+		projectId: fixtureProject.id,
+		slug: "report-kit",
+		files: reportFiles,
 	});
+	await page.reload();
 	await page
 		.getByRole("navigation", { name: "Project navigation" })
 		.getByRole("button", { name: "Automations", exact: true })
@@ -278,13 +322,13 @@ try {
 			setupCatalog.projects.find((p) => p.name === "Brand Lab").id,
 	);
 	assert.equal(
-		savedDraft.automations.find((a) => a.name === "Briefing draft")
-			.intervalSeconds,
-		86400,
+		savedDraft.automations.find((a) => a.name === "Briefing draft").trigger
+			.kind,
+		"calendar",
 	);
 	assert.equal(
-		savedDraft.automations.find((a) => a.name === "Briefing draft").calendar
-			.time,
+		savedDraft.automations.find((a) => a.name === "Briefing draft").trigger
+			.times[0],
 		"10:15",
 	);
 	assert.ok(
@@ -303,6 +347,9 @@ try {
 		.getByRole("textbox", { name: "Name", exact: true })
 		.fill("Autosaved weekly report");
 	await page.getByRole("button", { name: "Run now", exact: true }).click();
+	await page
+		.getByRole("button", { name: "Approve & run", exact: true })
+		.click();
 	await page.getByText("History", { exact: true }).last().waitFor();
 	assert.equal(
 		await navigation.getByRole("button", { name: "Runs", exact: true }).count(),
@@ -319,35 +366,10 @@ try {
 		.last()
 		.waitFor();
 	await page.screenshot({ path: join(output, "runs.png") });
-	await page
-		.getByRole("navigation", { name: "Project navigation" })
-		.getByRole("button", { name: "Resources", exact: true })
-		.click();
-	await page.getByRole("button", { name: "Add resource", exact: true }).click();
-	await page.getByLabel("Name", { exact: true }).fill("Northstar");
-	await page
-		.getByLabel("Purpose", { exact: true })
-		.fill("Practical design for independent teams");
-	await page.getByLabel("Voice", { exact: true }).fill("Clear and direct");
-	await page
-		.getByRole("button", { name: "Save resource", exact: true })
-		.click();
-	await page.getByText("Northstar", { exact: true }).waitFor();
-	await page.getByRole("button", { name: "Add resource", exact: true }).click();
-	await page
-		.getByRole("button", { name: "Resource type", exact: true })
-		.click();
-	await page.getByRole("button", { name: "brand.mind", exact: true }).click();
-	await page.getByLabel("Name", { exact: true }).fill("Northstar Mind");
-	await page
-		.getByLabel("Instructions and knowledge", { exact: true })
-		.fill("Every brief should state the audience and a single next action.");
-	await page
-		.getByRole("button", { name: "Save resource", exact: true })
-		.click();
-	await page.getByText("Northstar Mind", { exact: true }).waitFor();
-	await page.screenshot({ path: join(output, "resources.png") });
-	await page.getByRole("button", { name: "Resources", exact: true }).click();
+	// Memory import/graph verification remains a separate gate. These retired
+	// brand forms have no corresponding page in the current interface.
+	await navigation.getByRole("button", { name: "Memory", exact: true }).click();
+	await page.screenshot({ path: join(output, "memory.png") });
 	await page.getByRole("button", { name: "New chat", exact: true }).click();
 	await page.getByRole("textbox", { name: "Message input" }).waitFor();
 	assert.equal(
@@ -363,25 +385,50 @@ try {
 		.locator("[data-chat-pane-id]")
 		.first()
 		.getAttribute("data-chat-pane-id");
-	const proposal = {
-		type: "saveAutomation",
-		id: "chat-proposal-fixture",
-		projectId: cardProject.id,
-		expectedRevision: null,
+	const proposalAutomationId = randomUUID();
+	const proposalPluginId = randomUUID();
+	const proposalDefinition = {
+		schema: "inferay.automation/1",
+		id: proposalAutomationId,
 		name: "Chat briefing",
+		trigger: {
+			kind: "calendar",
+			timezone: "America/Chicago",
+			days: [1],
+			times: ["09:00"],
+		},
+		overlap: "skip",
+		may: [],
 		execution: {
 			kind: "agent",
-			instructions: "Prepare a weekly briefing.\n".repeat(100),
 			provider: "codex",
 			model: null,
 			reasoningLevel: "medium",
-			skillIds: [],
-			resourceIds: [],
+			instructions: "Prepare a weekly briefing.\n".repeat(100),
+			skills: [],
+			resources: [],
+			repositories: [],
+			tools: [],
 			workingDirectory: { base: "project", path: "." },
 			timeoutSeconds: 300,
 		},
-		intervalSeconds: 604800,
-		overlapPolicy: "skip",
+	};
+	const proposal = {
+		type: "createPlugin",
+		projectId: cardProject.id,
+		slug: "briefing-kit",
+		files: {
+			"plugin.json": JSON.stringify({
+				schema: "inferay.plugin/1",
+				id: proposalPluginId,
+				name: "Briefing kit",
+				version: "1",
+				description: "Reusable project briefing",
+				may: [],
+			}),
+			"README.md": "Reusable briefing instructions and a weekly schedule.",
+			"automations/weekly.json": JSON.stringify(proposalDefinition),
+		},
 	};
 	const sendCard = () =>
 		chatSocket.send(
@@ -400,66 +447,43 @@ try {
 						id: "automation-card-fixture",
 						role: "system",
 						content: JSON.stringify({
-							type: "inferay.automation-proposal",
+							type: "inferay.plugin-proposal",
 							command: proposal,
 						}),
 						render: {
 							version: 1,
 							kind: "message",
-							automationProposal: proposal,
+							pluginProposal: proposal,
 						},
 					},
 				],
 			}),
 		);
 	sendCard();
-	const card = page.getByRole("region", { name: "Automation proposal" });
-	await card
-		.getByRole("button", { name: "Accept & save", exact: true })
-		.click();
-	await card
-		.getByText("Project automation · Saved, schedule off", { exact: true })
-		.waitFor();
-	await card
-		.getByRole("switch", { name: "Enable automation", exact: true })
-		.click();
-	await card
-		.getByText("Project automation · Schedule enabled", { exact: true })
-		.waitFor();
-	await card
-		.getByRole("switch", { name: "Enable automation", exact: true })
-		.click();
-	await card.getByRole("button", { name: "Edit", exact: true }).click();
-	const cardDialog = page.getByRole("dialog", { name: "Edit automation" });
-	await cardDialog
-		.getByRole("textbox", { name: "Name", exact: true })
-		.fill("Edited chat briefing");
-	await cardDialog
-		.getByRole("button", { name: "Save changes", exact: true })
-		.click();
-	await card.getByText("Edited chat briefing", { exact: true }).waitFor();
-	await card
-		.getByRole("button", { name: "View instructions", exact: true })
-		.click();
-	assert.ok(
-		(await card.boundingBox()).height < 500,
-		"Expanded instructions must keep the card compact",
-	);
-	await card.getByRole("button", { name: "Run now", exact: true }).waitFor();
+	const card = page.getByRole("region", { name: "Plugin proposal" });
+	await card.getByRole("button", { name: "Save plugin", exact: true }).click();
+	await card.getByText("Saved in project", { exact: true }).waitFor();
 	const savedCardCatalog = await api(
 		`/api/projects?projectId=${cardProject.id}`,
 	);
 	assert.equal(
-		savedCardCatalog.automations.filter((a) => a.id === proposal.id).length,
+		savedCardCatalog.plugins.filter(
+			(plugin) => plugin.file.id === proposalPluginId,
+		).length,
 		1,
 	);
-	assert.equal(
-		savedCardCatalog.automations.find((a) => a.id === proposal.id).execution
-			.reasoningLevel,
-		"medium",
+	const savedAutomation = savedCardCatalog.automations.find(
+		(automation) => automation.id === proposalAutomationId,
 	);
-	await page.screenshot({ path: join(output, "automation-chat-card.png") });
-
+	assert.equal(savedAutomation.execution.reasoningLevel, "medium");
+	assert.equal(savedAutomation.enabled, false);
+	await page.screenshot({ path: join(output, "plugin-chat-card.png") });
+	const review = page.getByRole("dialog", {
+		name: "Review Briefing kit",
+		exact: true,
+	});
+	await review.getByRole("button", { name: "Cancel", exact: true }).click();
+	await review.waitFor({ state: "hidden" });
 	const runId = "run-chat-fixture";
 	const runDirectory = join(profile, "projects", cardProject.id, "runs", runId);
 	await mkdir(join(runDirectory, "logs"), { recursive: true });
@@ -481,8 +505,12 @@ try {
 			join(profile, "projects.sqlite3"),
 			runId,
 			cardProject.id,
-			proposal.id,
-			JSON.stringify({ execution: proposal.execution }),
+			proposalAutomationId,
+			JSON.stringify({
+				automation: proposalDefinition,
+				execution: proposalDefinition.execution,
+				projectId: cardProject.id,
+			}),
 		],
 		{ stdio: "inherit" },
 	);
@@ -538,18 +566,29 @@ try {
 		.waitFor();
 	const catalog = await api("/api/projects");
 	const brand = catalog.projects.find((p) => p.name === "Brand Lab");
+	const repositoryId = randomUUID();
 	await api("/api/projects/command", {
-		type: "saveResource",
-		id: null,
-		expectedRevision: null,
+		type: "saveDefinition",
 		projectId: brand.id,
-		typeId: "inferay.repository",
-		name: "Fixture repository",
-		schemaVersion: 1,
-		body: {
-			location: { base: "external", path: repository },
-			instructions: "",
-		},
+		path: "project.json",
+		expectedHash: brand.file.sourceHash,
+		content: JSON.stringify({
+			...brand.file.definition,
+			repositories: [
+				...brand.repositories,
+				{ id: repositoryId, name: "fixture-repository" },
+			],
+		}),
+	});
+	const declaredBrand = (await api("/api/projects")).projects.find(
+		(p) => p.id === brand.id,
+	);
+	await api("/api/projects/command", {
+		type: "linkRepository",
+		projectId: brand.id,
+		repositoryId,
+		expectedProjectHash: declaredBrand.file.sourceHash,
+		path: repository,
 	});
 	await page.reload();
 	await page.getByRole("tab", { name: "Brand Lab", exact: true }).click();
@@ -600,9 +639,7 @@ try {
 	const conversationCount = await page
 		.getByRole("button", { name: /^Delete / })
 		.count();
-	await projectNav
-		.getByRole("button", { name: "Resources", exact: true })
-		.click();
+	await projectNav.getByRole("button", { name: "Memory", exact: true }).click();
 	assert.equal(
 		await page.getByRole("textbox", { name: "Message input" }).count(),
 		0,
@@ -622,9 +659,7 @@ try {
 		await page.getByRole("button", { name: /^Delete / }).count(),
 		conversationCount,
 	);
-	await projectNav
-		.getByRole("button", { name: "Resources", exact: true })
-		.click();
+	await projectNav.getByRole("button", { name: "Memory", exact: true }).click();
 	await page.getByRole("tab", { name: "Brand Lab", exact: true }).waitFor();
 	await page.getByRole("button", { name: "New project", exact: true }).click();
 	await page.getByLabel("Name", { exact: true }).fill("Aivre");
@@ -744,9 +779,7 @@ try {
 	await page.screenshot({
 		path: join(output, "conversation-grid-after-delete.png"),
 	});
-	await projectNav
-		.getByRole("button", { name: "Resources", exact: true })
-		.click();
+	await projectNav.getByRole("button", { name: "Memory", exact: true }).click();
 	await page.getByRole("tab", { name: "Aivre", exact: true }).waitFor();
 
 	assert.equal(
