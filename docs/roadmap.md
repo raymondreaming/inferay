@@ -92,7 +92,7 @@ It also needs one real Codex run and one real Claude run in the native app. Thes
 - **CLI tools (E2): implemented.** Existing scripts run with literal argument templates, explicit entrypoint placement, closed stdin and pass/fail from the exit code. Successful output includes stdout/stderr; failed runs retain both logs. Disposable-profile tests exercise success and failure.
 - **Tool grants (E7): implemented in the shared provider tool path.** Agent automations select library tools by plugin and tool ID. Calls recheck the approved library contents, execute through the normal tool runner, and retain inputs, events, logs and artifacts with the parent run. Native integration checks exercise the path; real Codex and Claude automation runs remain release gates. Grants restrict `inferay_tools`; provider shell permissions still require the enforcement below.
 - **Permission enforcement.** `may` maps to each provider's own controls instead of full access:
-  - Codex: read-only or workspace-write sandbox, and its network setting.
+  - Codex: request mapping implemented for read-only or workspace-write roots, network access, disabled escalation, and removal of ambient MCP tools. Real-provider sandbox verification remains outstanding.
   - Claude: permission mode and allowed tools.
   - `push` and `open_pr` are only possible when declared.
 - **Requirements (E3).** Plugins and tools declare required programs and modules (`blender>=5.0`, `ffmpeg`, `python3:numpy`). A missing one blocks the run up front with a clear message.
@@ -139,7 +139,7 @@ Build an automation for a domain nobody designed for (for example a weekly finan
 
 ## Known gaps
 
-- Agent runs execute with full provider access; permissions are advisory until M3.
+- Permission enforcement is partial: Codex requests scoped filesystem/network limits; Claude and local tools still have full access. Push/PR/commit isolation and real-provider sandbox checks remain open in M3.
 - `check:architecture` has a "Solid reactivity regression" step that runs nothing.
 - There is no CI; checks run locally and through lint-staged.
 - The README describes a source-available license, but the repository has no `LICENSE` file.

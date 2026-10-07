@@ -450,7 +450,11 @@ impl ProjectRuntime {
                 let _tool_lease = crate::project_tools::ToolLease(tools.clone());
                 let handle = AgentProcessHandle::with_skills(self.prompts.clone())
                     .with_memory(Some(memory.clone()))
-                    .with_tools(tools.clone());
+                    .with_tools(tools.clone())
+                    .with_sandbox(crate::automation_sandbox::AutomationSandbox::new(
+                        &serde_json::from_value::<inferay_core::project_files::AutomationDefinition>(snapshot["automation"].clone())?.may,
+                        &snapshot["repositoryPaths"], &root,
+                    ));
                 let kind = if provider == "codex" {
                     AgentKind::Codex
                 } else {
@@ -459,16 +463,17 @@ impl ProjectRuntime {
                 let binary = self.resolver.resolve_agent_binary(kind);
                 let env = self.resolver.create_agent_env(kind);
                 let prompt = format!(
-                    "{}\n\n{}\n\nPinned resources:\n{}\n\nPinned skill instructions (use these captured versions for this run):\n{}\n\nManaged project files: {}\nWrite intended outputs under {}. Report the outcome accurately; ask for input if blocked.",
+                    "{}\n\n{}\n\nPinned resources:\n{}\n\nPinned skill instructions (use these captured versions for this run):\n{}\n\nManaged project files: {}\nConfigured working directory: {}\nWrite intended outputs under {}. Report the outcome accurately; ask for input if blocked.",
                     snapshot["projectInstructions"].as_str().unwrap_or(""),
                     instructions,
                     snapshot["resources"],
                     snapshot["skills"],
                     root.display(),
+                    cwd.display(),
                     dir.join("output").display()
                 );
                 let prompt = format!("{prompt}\n\n{}\n\nGranted library tools: {}. Use inferay_tools list to discover their input schemas and call them through inferay_tools; do not bypass the granted interface with shell commands.", recalled.text, snapshot["tools"]);
-                let invocation=CodexInvocationContext{cwd:cwd.clone(),reference_paths:vec![],images:vec![],model:model.clone(),reasoning_level:reasoning_level.clone(),developer_instructions:Some("Run the explicitly requested project automation. Do not enable schedules or expand permissions. Report failures truthfully.".into()),session_id:None,mcp_servers:Some(vec![])};
+                let invocation=CodexInvocationContext{cwd:dir.join("output"),reference_paths:vec![],images:vec![],model:model.clone(),reasoning_level:reasoning_level.clone(),developer_instructions:Some("Run the explicitly requested project automation. Do not enable schedules or expand permissions. Report failures truthfully.".into()),session_id:None,mcp_servers:Some(vec![])};
                 let mut protocol = AgentProtocolContext::new(cwd.clone());
                 let mut codex = CodexProtocolState::default();
                 let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();

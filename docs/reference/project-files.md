@@ -89,7 +89,7 @@ Other type IDs are accepted as relative names; their schemas come from plugins (
 
 ### Permissions
 
-`read_repositories`, `write_repositories`, `commit`, `push`, `open_pr`, `network`, `write_project_files`. Any other value is refused. An automation's `may` must fit within its plugin's `may`; that ceiling is checked. Beyond that, permissions are currently advisory: agent runs launch Claude and Codex with full access (see [architecture.md](../architecture.md#provider-runner)) and receive `may` as instructions. Enforcing them requires Inferay to perform those actions itself or to run providers under a sandbox; until then, treat `may` as a declaration you review, not a guarantee.
+`read_repositories`, `write_repositories`, `commit`, `push`, `open_pr`, `network`, `write_project_files`. Any other value is refused. An automation's `may` must fit within its plugin's `may`; that ceiling is checked. Codex automation requests map write permissions to captured repository/project roots and `network` to shell network access and web search; escalation is disabled. Claude and local tool processes still have full access, and individual commit/push/PR permissions are not enforced. Real-provider sandbox checks remain outstanding. Treat `may` as a reviewed declaration with partial enforcement, not a complete guarantee (see [architecture.md](../architecture.md#provider-runner)).
 
 ## skills/&lt;name&gt;.md
 

@@ -53,6 +53,7 @@ pub struct AgentProcessHandle {
     projects: Option<Arc<crate::project_runtime::ProjectRuntime>>,
     memory: Option<MemoryScope>,
     tools: Option<Arc<crate::project_tools::ToolScope>>,
+    sandbox: Option<crate::automation_sandbox::AutomationSandbox>,
 }
 
 /// Project memory available to one chat turn or automation run. Reads are collected for run provenance.
@@ -81,6 +82,7 @@ impl AgentProcessHandle {
             projects: None,
             memory: None,
             tools: None,
+            sandbox: None,
             pid: Arc::default(),
             cancelled: Arc::default(),
             codex_control: Arc::default(),
@@ -97,6 +99,11 @@ impl AgentProcessHandle {
 
     pub(crate) fn with_memory(mut self, memory: Option<MemoryScope>) -> Self {
         self.memory = memory;
+        self
+    }
+
+    pub(crate) fn with_sandbox(mut self, sandbox: crate::automation_sandbox::AutomationSandbox) -> Self {
+        self.sandbox = Some(sandbox);
         self
     }
 
@@ -513,10 +520,12 @@ pub async fn run_codex(
             .await?;
         let mut start_params = codex_thread_params(run.invocation);
         configure_codex_session(&mut start_params, &config["config"], run.env);
+        if let Some(policy) = &handle.sandbox { policy.thread(&mut start_params, &config["config"]); }
         start_params["dynamicTools"] = handle.tool_definitions();
         let thread_response = if let Some(thread_id) = &run.invocation.session_id {
             let mut params = codex_thread_params(run.invocation);
             configure_codex_session(&mut params, &config["config"], run.env);
+            if let Some(policy) = &handle.sandbox { policy.thread(&mut params, &config["config"]); }
             params["threadId"] = json!(thread_id);
             rpc.request(
                 "thread/resume",
@@ -565,10 +574,12 @@ pub async fn run_codex(
                 break;
             }
         }
+        let mut turn_params = codex_turn_params(&thread_id, run.prompt, run.invocation);
+        if let Some(policy) = &handle.sandbox { turn_params["sandboxPolicy"] = policy.turn(); }
         let turn_response = rpc
             .request(
                 "turn/start",
-                codex_turn_params(&thread_id, run.prompt, run.invocation),
+                turn_params,
                 (&mut *context, &mut *state, emissions),
             )
             .await?;
