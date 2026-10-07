@@ -373,3 +373,145 @@ async fn library_update_proposal_requires_user_save_and_revokes_approval() {
     assert!(runtime.preview_plugin(&command).await.is_err());
     assert!(runtime.command(command, true).await.is_err());
 }
+
+#[tokio::test]
+async fn chat_library_acceptance_approval_run_and_outside_edit_share_one_owner() {
+    use inferay_core::project_files::{
+        ProjectProposalDecision, ProjectProposalRequest, ProjectProposalStatus,
+    };
+    use std::collections::BTreeMap;
+    let profile = tempfile::tempdir().unwrap();
+    let runtime = runtime(profile.path());
+    let project = uuid::Uuid::new_v4().to_string();
+    let plugin = uuid::Uuid::new_v4().to_string();
+    let automation = uuid::Uuid::new_v4().to_string();
+    runtime.command(ProjectFileCommand::SaveDefinition {
+        project_id: project.clone(), path: "project.json".into(), expected_hash: None,
+        content: json!({"schema":"inferay.project/1","id":project,"name":"Chat library","description":"","instructions":"","repositories":[]}).to_string(),
+    }, true).await.unwrap();
+    let command = ProjectFileCommand::CreatePlugin {
+        project_id: project.clone(), slug: "report-kit".into(),
+        files: BTreeMap::from([
+            ("plugin.json".into(), json!({"schema":"inferay.plugin/1","id":plugin,"name":"Report kit","version":"1","description":"Reusable reporting tools","may":[]}).to_string()),
+            ("tools/report/tool.json".into(), json!({"schema":"inferay.tool/1","id":uuid::Uuid::new_v4().to_string(),"name":"Report","program":"python3","entrypoint":"run.py","args":[],"timeoutSeconds":30,"inputSchema":{"type":"object"},"outputSchema":{"type":"object"}}).to_string()),
+            ("tools/report/run.py".into(), "import json,os\nfrom pathlib import Path\n(Path(os.environ['INFERAY_RUN_OUTPUT'])/'report.md').write_text('Report from an accepted chat library')\nprint(json.dumps({'artifacts':['report.md']}))".into()),
+            ("automations/report.json".into(), json!({"schema":"inferay.automation/1","id":automation,"name":"Daily report","trigger":{"kind":"interval","seconds":86400},"overlap":"skip","execution":{"kind":"tool","tool":"report","input":{}},"may":[]}).to_string()),
+        ]),
+    };
+    runtime.preview_plugin(&command).await.unwrap();
+    assert!(
+        runtime
+            .catalog(Some(project.clone()), None)
+            .await
+            .unwrap()
+            .catalog
+            .plugins
+            .is_empty()
+    );
+    let request = ProjectProposalRequest {
+        message_id: "chat:plugin-run".into(),
+        command,
+        decision: Some(ProjectProposalDecision::Save),
+        edited_command: None,
+    };
+    let saved = runtime.proposal(request.clone()).await.unwrap();
+    assert_eq!(saved.status, ProjectProposalStatus::Saved);
+    assert_eq!(saved.entity_id.as_deref(), Some(plugin.as_str()));
+    let run_command = ProjectFileCommand::RunAutomation {
+        id: automation.clone(),
+        request_id: "manual-report".into(),
+    };
+    let refused_id = runtime.command(run_command.clone(), true).await.unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let refused = completed(&runtime, &project, &refused_id).await;
+    assert_eq!(
+        refused.status, "failed",
+        "Saving never authorizes execution"
+    );
+    assert!(refused.started_at.is_none());
+    assert!(!Path::new(&refused.directory).exists());
+    let review = runtime
+        .command(
+            ProjectFileCommand::ReviewPlugin { id: plugin.clone() },
+            true,
+        )
+        .await
+        .unwrap();
+    runtime
+        .command(
+            ProjectFileCommand::ApprovePlugin {
+                id: plugin,
+                expected_inputs_hash: review["inputsHash"].as_str().unwrap().into(),
+                enable: true,
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    let id = runtime
+        .command(
+            ProjectFileCommand::RunAutomation {
+                id: automation.clone(),
+                request_id: "approved-report".into(),
+            },
+            true,
+        )
+        .await
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    runtime.tick().await.unwrap();
+    let run = completed(&runtime, &project, &id).await;
+    assert_eq!(run.status, "succeeded", "{:?}", run.error);
+    let workspace = runtime.catalog(Some(project.clone()), None).await.unwrap();
+    assert!(workspace.catalog.automations[0].enabled);
+    assert_eq!(
+        std::fs::read_to_string(&workspace.history.artifacts[0].path).unwrap(),
+        "Report from an accepted chat library"
+    );
+    let root = profile.path().join("projects").join(&project);
+    std::fs::write(
+        root.join("plugins/report-kit/tools/report/run.py"),
+        "raise Exception('unapproved change')",
+    )
+    .unwrap();
+    let changed = runtime.catalog(Some(project.clone()), None).await.unwrap();
+    assert!(!changed.catalog.automations[0].enabled);
+    assert!(changed.catalog.automations[0].inputs_changed);
+    let blocked_id = runtime
+        .command(
+            ProjectFileCommand::RunAutomation {
+                id: automation,
+                request_id: "after-edit".into(),
+            },
+            true,
+        )
+        .await
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let blocked = completed(&runtime, &project, &blocked_id).await;
+    assert_eq!(blocked.status, "failed");
+    assert!(blocked.started_at.is_none());
+    assert!(
+        changed
+            .history
+            .runs
+            .iter()
+            .any(|run| run.id == id && run.status == "succeeded")
+    );
+
+    assert_eq!(
+        runtime.proposal(request).await.unwrap().status,
+        ProjectProposalStatus::Saved
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("plugins/report-kit/tools/report/run.py")).unwrap(),
+        "raise Exception('unapproved change')",
+        "Reopening the accepted card never restores old files"
+    );
+}
