@@ -10,6 +10,7 @@ Start high and go lower only as far as the task needs.
 | Decisions | [adr/](adr/) | Why things are shaped this way: [0001](adr/0001-rust-models-solid-views.md) Rust models with Solid views; [0002](adr/0002-automation-kernel.md) the automation kernel |
 | Storage | [storage.md](storage.md) | Where everything lives, the databases and their tables, how data is written and how chats, automations and the interface read it |
 | Memory | [memory.md](memory.md) | Project memory: notes, files and records, the memory tool, and how it makes skills and automations better over time |
+| Connections | [connections.md](connections.md) | Project key management, Keychain storage and the remaining execution boundary |
 | Reference | [reference/project-files.md](reference/project-files.md) | Exact definition file formats, limits, validation and local state |
 | Working on the code | [CODING_GUIDELINES](../CODING_GUIDELINES.md), [CONTRIBUTING](../CONTRIBUTING.md), [design system](../src/design-system/README.md) | Rules, boundaries, setup, checks, releases |
 | Performance | [performance-notes.md](performance-notes.md), [chat performance rules](../src/modules/conversation/PERFORMANCE.md) | Current measurements, approaches that do not help, chat-surface rules |

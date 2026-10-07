@@ -9,6 +9,7 @@ import {
 } from "../../hooks/useProjects.tsx";
 import { pluginName } from "../../model/projectFiles.ts";
 import { importPluginLibrary } from "../../services/projectsApi.ts";
+import { ConnectionsDialog } from "./ConnectionsDialog.tsx";
 import { LibraryToolbar } from "./LibraryToolbar.tsx";
 import { PluginContentsSummary } from "./PluginContentsSummary.tsx";
 import { PluginLibraryDialog } from "./PluginLibraryDialog.tsx";
@@ -16,6 +17,9 @@ import { droppedPluginFiles } from "./pluginImport.ts";
 import { styles } from "./styles.ts";
 
 export function PluginsPanel() {
+	const [connectionsProject, setConnectionsProject] = createSignal<
+		string | null
+	>(null);
 	const [dragging, setDragging] = createSignal(false);
 	const [libraryTarget, setLibraryTarget] = createSignal<{
 		projectId: string;
@@ -112,6 +116,14 @@ export function PluginsPanel() {
 					Drop files or a folder to create a draft plugin library
 				</p>
 			)}
+			<Show when={connectionsProject()}>
+				{(projectId) => (
+					<ConnectionsDialog
+						projectId={projectId()}
+						close={() => setConnectionsProject(null)}
+					/>
+				)}
+			</Show>
 			<Show when={library()}>
 				{(value) => (
 					<PluginLibraryDialog
@@ -138,6 +150,13 @@ export function PluginsPanel() {
 				value={search()}
 				onInput={setSearch}
 			>
+				<Button
+					size="sm"
+					variant="ghost"
+					onClick={() => setConnectionsProject(projects.selectedId())}
+				>
+					Connections
+				</Button>
 				<Button
 					size="sm"
 					disabled={importing()}

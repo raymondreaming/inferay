@@ -1,6 +1,7 @@
 mod agent_tools_mcp;
 use inferay_presentation::appearance::normalize_background_settings;
 mod files;
+mod connections;
 mod local_video;
 mod mcp_connections;
 mod mcp_icons;
@@ -464,6 +465,7 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
                             .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, e))
                     })
             }
+            ("/api/projects/connections", "GET" | "POST") => connections::http(&state, request).await,
             ("/api/projects/run-chat", "POST") => project_chat::open(&state, request).await,
             ("/api/projects/command", "POST") => project_command(&state, request).await,
             ("/api/projects/proposal", "POST") => project_proposal(&state, request).await,

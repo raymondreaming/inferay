@@ -35,6 +35,7 @@ pub(crate) struct ProjectRuntime {
     pub(crate) prompts: Arc<tokio::sync::Mutex<PromptStore>>,
     tracker: RuntimePidTracker,
     pub memory: crate::memory_store::MemoryStore,
+    pub connections: crate::connections::Store,
 }
 impl ProjectRuntime {
     pub fn open(
@@ -56,6 +57,7 @@ impl ProjectRuntime {
             prompts,
             tracker,
             memory: crate::memory_store::MemoryStore::open(root)?,
+            connections: crate::connections::Store::open(root)?,
         }))
     }
     pub fn start(self: &Arc<Self>) {

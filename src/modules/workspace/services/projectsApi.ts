@@ -1,5 +1,7 @@
 import type {
 	AutomationReview,
+	ConnectionCommand,
+	ConnectionInfo,
 	PluginLibrary,
 	PluginProposalReview,
 	PluginReview,
@@ -164,6 +166,22 @@ export function reviewPluginProposal(
 		"/api/projects/proposal-review",
 		command,
 		{ signal },
+		{ server: true },
+	);
+}
+
+export function loadProjectConnections(projectId: string) {
+	return fetchJson<{ connections: ConnectionInfo[] }>(
+		`/api/projects/connections?${new URLSearchParams({ projectId })}`,
+		undefined,
+		{ server: true },
+	);
+}
+export function changeProjectConnection(command: ConnectionCommand) {
+	return postJson<{ connections: ConnectionInfo[] }>(
+		"/api/projects/connections",
+		command,
+		undefined,
 		{ server: true },
 	);
 }

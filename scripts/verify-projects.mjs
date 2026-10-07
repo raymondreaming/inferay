@@ -761,6 +761,66 @@ try {
 	await navigation
 		.getByRole("button", { name: "Plugins", exact: true })
 		.click();
+
+	if (process.env.INFERAY_VERIFY_CONNECTIONS === "1") {
+		const endpoint = `/api/projects/connections?projectId=${cardProject.id}`;
+		try {
+			await page
+				.getByRole("button", { name: "Connections", exact: true })
+				.click();
+			const dialog = page.getByRole("dialog", { name: "Project connections" });
+			const testSecret = `inferay-browser-test-${randomUUID()}`;
+			await dialog.getByLabel("Name", { exact: true }).fill("Fixture API");
+			await dialog.getByLabel("API key", { exact: true }).fill(testSecret);
+			await dialog
+				.getByRole("button", { name: "Save key", exact: true })
+				.click();
+			await dialog
+				.getByRole("button", { name: "Replace key", exact: true })
+				.waitFor();
+			assert.equal(
+				await dialog.getByLabel("API key", { exact: true }).inputValue(),
+				"",
+			);
+			assert.ok(!(await dialog.innerText()).includes(testSecret));
+			const saved = (await api(endpoint)).connections[0];
+			assert.equal(saved.name, "Fixture API");
+			assert.ok(!JSON.stringify(await api(endpoint)).includes(testSecret));
+			await dialog
+				.getByRole("button", { name: "Replace key", exact: true })
+				.click();
+			await dialog
+				.getByLabel("New key", { exact: true })
+				.fill("inferay-browser-replacement");
+			await dialog
+				.getByRole("button", { name: "Replace key", exact: true })
+				.last()
+				.click();
+			await dialog.getByLabel("API key", { exact: true }).waitFor();
+			assert.notEqual(
+				(await api(endpoint)).connections[0].revision,
+				saved.revision,
+			);
+			await dialog.getByRole("button", { name: "Remove", exact: true }).click();
+			await dialog
+				.getByRole("button", { name: "Confirm removal", exact: true })
+				.click();
+			await dialog
+				.getByRole("button", { name: "Replace key", exact: true })
+				.waitFor({ state: "hidden" });
+			assert.deepEqual((await api(endpoint)).connections, []);
+			await page.keyboard.press("Escape");
+		} finally {
+			for (const connection of (await api(endpoint)).connections) {
+				await api("/api/projects/connections", {
+					action: "delete",
+					projectId: cardProject.id,
+					id: connection.id,
+					expectedRevision: connection.revision,
+				});
+			}
+		}
+	}
 	const brokenLibrary = page
 		.getByRole("article")
 		.filter({ hasText: "briefing-kit" });
