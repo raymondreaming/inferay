@@ -371,6 +371,13 @@ pub struct ProjectEffectIntent {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectInboxPage {
+    pub effects: Vec<ProjectEffectIntent>,
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EffectReviewRequest {
     pub id: String,

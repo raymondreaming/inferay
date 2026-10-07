@@ -3,6 +3,7 @@ import type {
 	ConnectionCommand,
 	ConnectionInfo,
 	DraftPreview,
+	EffectInboxPage,
 	EffectReviewRequest,
 	PluginLibrary,
 	PluginProposalReview,
@@ -195,6 +196,21 @@ export function dismissEffect(request: EffectReviewRequest) {
 	return postJson<Pick<ProjectEffectIntent, "dismissedAt">>(
 		"/api/projects/effects/dismiss",
 		request,
+		undefined,
+		{ server: true },
+	);
+}
+
+export function loadEffectInbox(
+	projectId: string,
+	automationId?: string,
+	before?: string,
+) {
+	const query = new URLSearchParams({ projectId });
+	if (automationId) query.set("automationId", automationId);
+	if (before) query.set("before", before);
+	return fetchJson<EffectInboxPage>(
+		`/api/projects/effects?${query}`,
 		undefined,
 		{ server: true },
 	);

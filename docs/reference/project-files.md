@@ -412,6 +412,8 @@ bodies in SQLite's operational `effect_intents` table, in the same transaction a
 artifact indexing. Identical retries reuse the original intent. Different contents
 under the same project/key fail the run and roll back its new artifact/intent rows.
 History shows the original run's intents as **Pending review · Not sent**.
+Its **Needs review** inbox lists pending proposals independently of run pagination,
+filtered to the current project or automation. Older reviews have their own cursor.
 **View intent** reads the canonical stored payload, not the source artifact, which
 may have been edited since capture. **Dismiss intent** records a hash-bound local
 decision in `effect_dismissals`. Mismatched hashes are refused, repeated dismissal

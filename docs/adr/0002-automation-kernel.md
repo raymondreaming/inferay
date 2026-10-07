@@ -1,6 +1,6 @@
 # Automation kernel: a small trusted core, everything else as plugins
 
-Status: accepted. Definitions, references and runs are implemented; callables and authority are partly implemented. Effects and observations remain planned, in the order below and in the [roadmap](../roadmap.md). [concepts.md](../concepts.md) tracks status per concept.
+Status: accepted. Definitions, references and runs are implemented; callables and authority are partly implemented. Effect capture, review and dismissal are implemented; delivery and observations remain planned, in the order below and in the [roadmap](../roadmap.md). [concepts.md](../concepts.md) tracks status per concept.
 
 ## Context
 
@@ -19,7 +19,7 @@ Inferay's core is a small kernel that owns seven concepts. Everything domain-spe
 | 3 | **Callables** | One abstraction for everything a run can invoke: agent providers, JSON tools, CLI tools, MCP tools. Granted per run, enforced in one place. | JSON, CLI and local stdio MCP tools, agents and per-run tool grants implemented; authenticated remote MCP connections planned (E6) |
 | 4 | **Runs** | Triggers and events lead to admission, bounded execution and evidence (state, events, logs, artifacts). | built (manual, interval, calendar) |
 | 5 | **Authority** | Permissions (`may`), approvals by input hash, machine requirements, connections holding secrets. | approvals, permission ceilings, machine requirements and partial provider/tool sandbox enforcement implemented; Keychain management implemented; privileged Git enforcement and approved credential access remain open |
-| 6 | **Effects** | The only route for consequences outside the machine: intent, budget check, review, outbox record before sending, handler, receipt, reconcile. | planned (E5) |
+| 6 | **Effects** | The only route for consequences outside the machine: intent, budget check, review, outbox record before sending, handler, receipt, reconcile. | intent capture, review inbox and dismissal implemented; budgets, delivery and receipts planned (E5) |
 | 7 | **Observations** | Facts flowing back (analytics, build status, store numbers) as typed records that skills read and triggers react to. | planned |
 
 Plugins contribute through these extension points only: skills, callables (tools, MCP servers), resource types, effect handlers, observers, and triggers on events. Chat is the authoring surface: an agent creates and edits plugins through the same validated operations as the UI.
@@ -108,7 +108,7 @@ When a repository already defines its process (for example Point's AutoBuild gui
 2. Callables: CLI tools, per-run tool grants, MCP declarations (E2, E7, E6).
 3. Packs and requirements (E1, E3).
 4. Connections (E4).
-5. Effects with review inbox and outbox (E5).
+5. Effects with review inbox and outbox (E5), verified against local fixture handlers. Real publishing and account-specific workflows are deferred.
 6. Events as triggers.
 7. Observations.
 

@@ -126,16 +126,18 @@ Run History previews retained PNG, JPEG, WebP, GIF, BMP, ICO and SVG images thro
 
 ## M5. Acts in the world
 
+Current scope is the generic harness, verified with disposable local handlers. Real posting, account setup and individual production workflows are deferred; they are not completion gates for this work.
+
 - **Connections (E4): key management, library binding controls and GET relay implemented.** Plugins → Connections adds, replaces and removes project credentials in macOS Keychain. The authenticated API returns metadata only, revisions prevent stale updates, and a profile lock serializes cross-process writes. The native Keychain gate checks persistence, isolation, rotation, removal and no secret files. Tool declarations can reference local connection IDs, and selected revisions participate in approval hashes; rotation revokes approval. Selected tools receive an invocation-scoped loopback URL; the host attaches credentials only to reviewed HTTPS GET requests. Network permission is required before provider/tool launch. Redirects, oversized responses and literal/common credential echoes are refused, and access ends with the invocation. Temporary HTTPS and sandboxed-tool gates pass. Library tool forms save connection aliases and destinations through conflict-checked definition writes. Real-service checks and authenticated remote MCP remain unfinished; raw keys never enter tool environments. See [Connections](connections.md).
-- **Effects (E5): intent capture implemented; delivery planned.** Successful runs can retain `inferay.effect/1` JSON artifacts. Inferay validates and records them transactionally with artifact indexing, deduplicates identical project/key retries and refuses conflicting reuse. History shows pending intents without sending them. Review reads the canonical stored payload and supports hash-bound, persistent dismissal. Native checks verify rollback, stale-review refusal and persistence across reopening; the browser changes the source artifact and verifies the review still displays the stored proposal before dismissing it. Approval budgets, the delivery outbox, handlers, receipts and reconciliation remain unfinished. The target is for external consequences to pass exclusively through this boundary; unrestricted network permissions do not enforce that yet.
+- **Effects (E5): intent capture implemented; delivery planned.** Successful runs can retain `inferay.effect/1` JSON artifacts. Inferay validates and records them transactionally with artifact indexing, deduplicates identical project/key retries and refuses conflicting reuse. History includes a paginated Needs review inbox independent of the run-history cursor, scoped to the project or selected automation. Pending intents remain discoverable when their source runs are older than the visible history page. Review reads the canonical stored payload and supports hash-bound, persistent dismissal. Native checks verify rollback, stale-review refusal and persistence across reopening; the browser changes the source artifact and verifies the review still displays the stored proposal before dismissing it. Approval budgets, the delivery outbox, handlers, receipts and reconciliation remain unfinished. The target is for external consequences to pass exclusively through this boundary; unrestricted network permissions do not enforce that yet.
   - The core checks each intent against an approved budget (count, window, accounts).
   - It records the intent in an outbox before sending, through a handler plugin.
   - It saves the receipt and reconciles after a crash.
-  - A review inbox shows intents waiting for approval.
+  - The review inbox supports inspection and dismissal; delivery approval remains planned.
 
 **Done when**
-- posting to a test account works with a limit of 2 per day;
-- a force-quit between recording and sending produces no duplicate after relaunch;
+- a generic local fixture handler demonstrates an approved limit of 2 effects per day;
+- a force-quit between recording and fixture delivery produces no duplicate after relaunch;
 - a search of every run folder finds no key.
 
 ## M6. Closes the loop

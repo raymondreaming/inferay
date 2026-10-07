@@ -411,7 +411,10 @@ try {
 			payload: { text: "Changed source must not replace the saved intent" },
 		}),
 	);
-	await page.getByRole("button", { name: "View intent", exact: true }).click();
+	await page
+		.getByRole("region", { name: "Pending reviews" })
+		.getByRole("button", { name: /test-account/ })
+		.click();
 	const intentDialog = page.getByRole("dialog", {
 		name: "Review intent",
 		exact: true,
@@ -427,6 +430,9 @@ try {
 	await page
 		.getByText("test-account · Dismissed · Not sent", { exact: true })
 		.waitFor();
+	await page
+		.getByRole("region", { name: "Pending reviews" })
+		.waitFor({ state: "hidden" });
 	await page.getByRole("button", { name: /report.md ·/ }).click();
 	await page
 		.getByText("A local project, a reusable tool, and a durable run.", {

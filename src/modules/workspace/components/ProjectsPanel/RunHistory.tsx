@@ -11,6 +11,7 @@ import {
 import { loadCanonicalAgentState } from "../../hooks/useWorkspaceState.tsx";
 import type { ProjectWorkspaceView } from "../../model/projectFiles.ts";
 import { loadProjects, openRunChat } from "../../services/projectsApi.ts";
+import { EffectInbox } from "./EffectInbox.tsx";
 import { EffectIntentDialog } from "./EffectIntentDialog.tsx";
 import { RunFilePreview } from "./RunFilePreview.tsx";
 import { styles } from "./styles.ts";
@@ -100,6 +101,10 @@ export function RunHistory(props: {
 					/>
 				)}
 			</Show>
+			<EffectInbox
+				projectId={projects.selectedId()}
+				automationId={props.automationId}
+			/>
 			<Show when={!page() && upcoming().length > 0}>
 				<section
 					aria-label="Upcoming automations"
