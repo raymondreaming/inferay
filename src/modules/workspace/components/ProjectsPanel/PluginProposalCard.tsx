@@ -40,8 +40,7 @@ export function PluginProposalCard(props: { command: Bundle }) {
 	const existing = () =>
 		catalog.data?.plugins.find(
 			(plugin) =>
-				plugin.file.sourcePath ===
-				`plugins/${manifest()?.name ?? props.command.slug}/plugin.json`,
+				plugin.file.sourcePath === `plugins/${props.command.slug}/plugin.json`,
 		);
 	const manifest = createMemo(() => {
 		const content = props.command.files["plugin.json"];
@@ -85,7 +84,7 @@ export function PluginProposalCard(props: { command: Bundle }) {
 		>
 			<div {...stylex.attrs(cardStyles.header)}>
 				<strong {...stylex.attrs(cardStyles.title)}>
-					{props.command.slug}
+					{manifest()?.name ?? props.command.slug}
 				</strong>
 			</div>
 			<p {...stylex.attrs(cardStyles.status)}>
