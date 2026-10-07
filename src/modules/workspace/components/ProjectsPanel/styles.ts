@@ -5,6 +5,33 @@ import {
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
+	runTableScroll: {
+		width: "100%",
+		minWidth: 0,
+		overflow: "auto",
+		maxHeight: "65vh",
+		borderRadius: radius.md,
+		border: `1px solid ${color.borderSubtle}`,
+	},
+	runTable: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
+	runTableHeader: {
+		position: "sticky",
+		top: 0,
+		textAlign: "left",
+		padding: "10px 14px",
+		fontWeight: 600,
+		borderBottom: `1px solid ${color.borderSubtle}`,
+		backgroundColor: color.background,
+	},
+	runTableCell: {
+		padding: "10px 14px",
+		borderBottom: `1px solid ${color.borderSubtle}`,
+		verticalAlign: "top",
+		whiteSpace: "pre-wrap",
+		minWidth: 100,
+		maxWidth: 360,
+		overflowWrap: "anywhere",
+	},
 	runPreviewVideo: {
 		width: "100%",
 		maxWidth: 720,

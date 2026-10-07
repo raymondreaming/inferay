@@ -245,6 +245,9 @@ try {
 			new URL("./tests/fixtures/media/preview.webm", import.meta.url),
 		)
 	).toString("base64");
+	const tableFixture = Buffer.from(
+		'Name,Count,Note\n"Research, daily",001,"First line\nSecond line"\n<script>no()</script>,0,Pending\n',
+	).toString("base64");
 	const reportFiles = {
 		"plugin.json": JSON.stringify({
 			schema: "inferay.plugin/1",
@@ -266,7 +269,7 @@ try {
 			inputSchema: { type: "object" },
 			outputSchema: { type: "object" },
 		}),
-		"tools/report/run.py": `import os,json,base64\nfrom pathlib import Path\nout=Path(os.environ['INFERAY_RUN_OUTPUT'])\n(out/'report.txt').write_text('A local project, a reusable tool, and a durable run.')\n(out/'preview.webm').write_bytes(base64.b64decode('${videoFixture}'))\nprint(json.dumps({'artifacts':['report.txt','preview.webm']}))\n`,
+		"tools/report/run.py": `import os,json,base64\nfrom pathlib import Path\nout=Path(os.environ['INFERAY_RUN_OUTPUT'])\n(out/'report.txt').write_text('A local project, a reusable tool, and a durable run.')\n(out/'preview.webm').write_bytes(base64.b64decode('${videoFixture}'))\n(out/'metrics.csv').write_bytes(base64.b64decode('${tableFixture}'))\n(out/'rows.json').write_text(json.dumps([{'name':'Research','count':7},{'name':'Build','count':0}]))\nprint(json.dumps({'artifacts':['report.txt','preview.webm','metrics.csv','rows.json']}))\n`,
 		"automations/report.json": JSON.stringify({
 			schema: "inferay.automation/1",
 			id: reportAutomationId,
@@ -407,6 +410,71 @@ try {
 		.getByRole("button", { name: "Close preview", exact: true })
 		.click();
 	assert.equal(await video.count(), 0);
+	await page.getByRole("button", { name: /metrics.csv ·/ }).click();
+	const table = page.getByRole("table", {
+		name: "output/metrics.csv",
+		exact: true,
+	});
+	await table.waitFor();
+	assert.deepEqual(await table.getByRole("columnheader").allTextContents(), [
+		"Name",
+		"Count",
+		"Note",
+	]);
+	assert.equal(
+		await table.getByRole("cell", { name: "001", exact: true }).count(),
+		1,
+	);
+	assert.equal(
+		await table
+			.getByRole("cell", { name: "<script>no()</script>", exact: true })
+			.count(),
+		1,
+	);
+	assert.equal(await table.locator("script").count(), 0);
+	assert.equal(
+		await table
+			.getByRole("cell", { name: "First line Second line", exact: true })
+			.textContent(),
+		"First line\nSecond line",
+	);
+	assert.ok(
+		await table.evaluate(
+			(element) =>
+				element.getBoundingClientRect().width >
+				element.closest("section").getBoundingClientRect().width * 0.9,
+		),
+	);
+	await page.screenshot({ path: join(output, "run-table.png") });
+	await page.getByRole("button", { name: "View source", exact: true }).click();
+	assert.equal(await table.count(), 0);
+	assert.ok(
+		(
+			await page
+				.getByRole("region", { name: "Run output preview" })
+				.locator("pre")
+				.textContent()
+		).includes('"Research, daily",001'),
+	);
+	await page.getByRole("button", { name: "View table", exact: true }).click();
+	await table.waitFor();
+	await page.getByRole("button", { name: /rows.json ·/ }).click();
+	const jsonTable = page.getByRole("table", {
+		name: "output/rows.json",
+		exact: true,
+	});
+	await jsonTable.waitFor();
+	assert.equal(
+		await jsonTable.getByRole("cell", { name: "Build", exact: true }).count(),
+		1,
+	);
+	assert.equal(
+		await jsonTable.getByRole("cell", { name: "0", exact: true }).count(),
+		1,
+	);
+	await page
+		.getByRole("button", { name: "Close preview", exact: true })
+		.click();
 
 	// Memory import/graph verification remains a separate gate. These retired
 	// brand forms have no corresponding page in the current interface.
@@ -1139,7 +1207,7 @@ try {
 	await page.screenshot({ path: join(output, "compact-overview.png") });
 	assert.deepEqual(errors, []);
 	console.log(
-		"PASS: project tabs and creation, repository membership, sidebar Git totals, standalone graph without new chats, conversation grid and first-pane deletion, automation and artifact flow with video playback/seeking, chat plugin approval/revocation, manifest repair and unsaved-edit protection.",
+		"PASS: project tabs and creation, repository membership, sidebar Git totals, standalone graph without new chats, conversation grid and first-pane deletion, automation and artifact flow with video playback/seeking and structured tables, chat plugin approval/revocation, manifest repair and unsaved-edit protection.",
 	);
 } catch (e) {
 	console.log("BODY:", (await page.locator("body").innerText()).slice(0, 5000));

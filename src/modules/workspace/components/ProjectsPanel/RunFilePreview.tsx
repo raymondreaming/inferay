@@ -2,7 +2,7 @@ import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
 import { queryClient } from "@shared/lib/dom.tsx";
 import { Button } from "@shared/ui/Button/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { createSignal } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import {
 	projectImageUrl,
 	projectVideoUrl,
@@ -19,6 +19,7 @@ export function RunFilePreview(props: {
 	const video = () => /\.(mp4|m4v|webm|mov|ogv)$/i.test(props.path);
 	const [mediaError, setMediaError] = createSignal(false);
 	const [loaded, setLoaded] = createSignal(false);
+	const [source, setSource] = createSignal(false);
 	const file = useBackgroundQuery(
 		() => ({
 			queryKey: ["run-file", props.directory, props.path],
@@ -32,6 +33,15 @@ export function RunFilePreview(props: {
 		<section aria-label="Run output preview" {...stylex.attrs(styles.card)}>
 			<div {...stylex.attrs(styles.row)}>
 				<strong>{props.path}</strong>
+				<Show when={file.data?.table}>
+					<Button
+						size="sm"
+						variant="ghost"
+						onClick={() => setSource(!source())}
+					>
+						{source() ? "View table" : "View source"}
+					</Button>
+				</Show>
 				<Button size="sm" variant="ghost" onClick={props.close}>
 					Close preview
 				</Button>
@@ -76,9 +86,61 @@ export function RunFilePreview(props: {
 				<>
 					{file.isPending && <p role="status">Loading file…</p>}
 					{file.error && <p role="alert">{String(file.error)}</p>}
-					{file.data && (
-						<pre {...stylex.attrs(styles.pre)}>{file.data.content}</pre>
-					)}
+					{file.data?.tableError && <p role="status">{file.data.tableError}</p>}
+					<Show
+						when={!source() && file.data?.table}
+						fallback={
+							file.data && (
+								<pre {...stylex.attrs(styles.pre)}>{file.data.content}</pre>
+							)
+						}
+					>
+						{(table) => (
+							<>
+								<p {...stylex.attrs(styles.muted)}>
+									{table().rows.length < table().totalRows
+										? `Showing ${table().rows.length} of ${table().totalRows} rows`
+										: `${table().totalRows} rows`}
+								</p>
+								<div {...stylex.attrs(styles.runTableScroll)}>
+									<table
+										aria-label={props.path}
+										{...stylex.attrs(styles.runTable)}
+									>
+										<thead>
+											<tr>
+												<For each={table().columns}>
+													{(column) => (
+														<th
+															scope="col"
+															{...stylex.attrs(styles.runTableHeader)}
+														>
+															{column}
+														</th>
+													)}
+												</For>
+											</tr>
+										</thead>
+										<tbody>
+											<For each={table().rows}>
+												{(row) => (
+													<tr>
+														<For each={row}>
+															{(cell) => (
+																<td {...stylex.attrs(styles.runTableCell)}>
+																	{cell}
+																</td>
+															)}
+														</For>
+													</tr>
+												)}
+											</For>
+										</tbody>
+									</table>
+								</div>
+							</>
+						)}
+					</Show>
 				</>
 			)}
 		</section>

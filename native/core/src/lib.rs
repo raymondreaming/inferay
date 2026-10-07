@@ -47,3 +47,5 @@ pub mod projects;
 
 pub mod project_files;
 pub mod project_requirements;
+
+pub mod table_preview;

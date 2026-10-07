@@ -58,7 +58,13 @@ Project ─┬─ Repositories (linked, never copied)
 
 **Definition vs state.** Definitions (project, resources, plugins, skills, tools, automations) are files you can read, copy and put under Git if you want. State (approvals, enabled schedules, next due times, runs, events, artifacts, which folder a repository ID means on this Mac) stays in Inferay's local database and is never shared by copying a folder. Pulling or copying someone's plugin never enables anything.
 
-**Run vs effect.** A run does work inside the project and its linked repositories. Its `may` permissions are declared and reviewed, but agent runs currently execute with the provider's full access, so they are not yet enforced; see [architecture.md](architecture.md#provider-runner). An effect leaves the machine with consequences. Runs never perform effects directly; the core does, within a budget you approved.
+**Run vs effect.** A run does work inside the project and its linked repositories. Automation agents use provider sandbox settings for filesystem and network limits; local tools use an OS sandbox. Enforcement is partial: read isolation and separate commit, push and PR permissions remain unfinished. See [architecture.md](architecture.md#provider-runner). An effect is a planned, core-mediated external action with an approved budget, durable intent and receipt. That effect path is not implemented yet.
+
+## Reviewing run output
+
+History retains a run's result, logs and artifacts. Open a text report, image or video directly from its artifact button. Videos have playback and seeking controls, with a 50 MB preview limit and codec support determined by the browser or desktop webview.
+
+CSV and TSV files display their first record as column headings. JSON arrays of objects display their field names as columns. Table previews show up to 200 rows and 64 columns from files up to 1 MB; the row count identifies a partial preview. **View source** shows the original text. Invalid or unsupported table shapes remain available as text. Previews never execute formulas or markup from a cell.
 
 ## Plugins are local libraries
 

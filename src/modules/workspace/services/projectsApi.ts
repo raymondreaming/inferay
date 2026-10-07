@@ -8,6 +8,7 @@ import type {
 	ProjectProposalRequest,
 	ProjectProposalView,
 	ProjectWorkspace,
+	TablePreview,
 } from "@contracts";
 import { fetchJson, postJson, request } from "@shared/lib/native.tsx";
 import { projectWorkspaceView } from "../model/projectFiles.ts";
@@ -36,7 +37,12 @@ export function readProjectFile(
 	path: string,
 	signal?: AbortSignal,
 ) {
-	return fetchJson<{ content: string; hash: string }>(
+	return fetchJson<{
+		content: string;
+		hash: string;
+		table: TablePreview | null;
+		tableError: string | null;
+	}>(
 		`/api/files/content?${new URLSearchParams({ cwd: directory, path })}`,
 		{ signal },
 		{ server: true },

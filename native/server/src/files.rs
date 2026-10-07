@@ -101,8 +101,15 @@ impl ServerState {
             return Err(api_error(StatusCode::PAYLOAD_TOO_LARGE, "File too large"));
         }
         let bytes = tokio::fs::read(&file).await.map_err(map_io_error)?;
+        let content = String::from_utf8_lossy(&bytes);
+        let (table, table_error) = match inferay_core::table_preview::TablePreview::from_content(path, &content) {
+            Ok(table) => (table, None),
+            Err(error) => (None, Some(error)),
+        };
         Ok(serde_json::json!({
-            "content": String::from_utf8_lossy(&bytes),
+            "content": content,
+            "table": table,
+            "tableError": table_error,
             "hash": crate::project_store::hash(&bytes),
             "cwd": cwd.to_string_lossy(),
             "path": file.strip_prefix(&cwd).unwrap_or(&file).to_string_lossy(),
