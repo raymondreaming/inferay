@@ -35,7 +35,7 @@ pub(crate) struct ProjectRuntime {
     pub(crate) prompts: Arc<tokio::sync::Mutex<PromptStore>>,
     tracker: RuntimePidTracker,
     pub memory: crate::memory_store::MemoryStore,
-    pub connections: crate::connections::Store,
+    pub connections: Arc<crate::connections::Store>,
 }
 impl ProjectRuntime {
     pub fn open(
@@ -57,7 +57,7 @@ impl ProjectRuntime {
             prompts,
             tracker,
             memory: crate::memory_store::MemoryStore::open(root)?,
-            connections: crate::connections::Store::open(root)?,
+            connections: Arc::new(crate::connections::Store::open(root)?),
         }))
     }
     pub fn start(self: &Arc<Self>) {
@@ -420,14 +420,17 @@ impl ProjectRuntime {
             serde_json::to_vec_pretty(snapshot)?,
         )?;
         if snapshot["connections"].as_object().is_some_and(|connections| !connections.is_empty()) {
-            return Err("This automation requires credential delivery, which is not available yet".into());
+            let definition: inferay_core::project_files::AutomationDefinition = serde_json::from_value(snapshot["automation"].clone())?;
+            if !definition.may.contains(&inferay_core::project_files::Permission::Network) {
+                return Err("Connection requests require network permission".into());
+            }
         }
         crate::project_requirements::check(snapshot, &root, &dir).await?;
         match serde_json::from_value::<ProjectExecution>(snapshot["execution"].clone())? {
-            ProjectExecution::Tool { tool_id: _, input } => {
+            ProjectExecution::Tool { tool_id, input } => {
                 let tool: LocalTool = serde_json::from_value(snapshot["tool"].clone())?;
                 tool::execute(self, tool::Invocation {
-                    id, root: &root, dir: &dir, call: None, tool, input, snapshot,
+                    id, root: &root, dir: &dir, call: None, connection_tool: Some(&tool_id), tool, input, snapshot,
                     entrypoint_hash: snapshot["entrypointHash"].as_str().ok_or("Missing entrypoint hash")?, active: None,
                 }).await
             }

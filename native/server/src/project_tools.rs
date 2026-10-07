@@ -288,6 +288,7 @@ impl ToolScope {
                 root: &self.root,
                 dir: &self.dir,
                 call: Some(&call),
+                connection_tool: grant.as_ref().map(|grant| grant.tool_id.as_str()),
                 tool,
                 input,
                 snapshot: &self.snapshot,

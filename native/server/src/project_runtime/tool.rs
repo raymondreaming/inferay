@@ -9,6 +9,7 @@ pub(crate) struct Invocation<'a> {
     pub root: &'a Path,
     pub dir: &'a Path,
     pub call: Option<&'a str>,
+    pub connection_tool: Option<&'a str>,
     pub tool: LocalTool,
     pub input: Value,
     pub snapshot: &'a Value,
@@ -54,6 +55,7 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
         root,
         dir,
         call,
+        connection_tool,
         tool,
         input,
         snapshot,
@@ -110,6 +112,24 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
         .kill_on_drop(true);
     #[cfg(unix)]
     command.process_group(0);
+    let _relay = if let Some(tool_id) =
+        connection_tool.filter(|tool| snapshot["connectionRequests"][*tool].is_object())
+    {
+        if !definition.may.contains(&inferay_core::project_files::Permission::Network) {
+            return Err("Connection requests require network permission".into());
+        }
+        let relay = crate::connections::relay::Relay::start(
+            runtime.connections.clone(),
+            snapshot["projectId"].as_str().ok_or("Project identity missing")?,
+            serde_json::from_value(snapshot["connectionRequests"][tool_id].clone())?,
+            serde_json::from_value(snapshot["connections"][tool_id].clone())?,
+        )
+        .await?;
+        command.env("INFERAY_CONNECTIONS_URL", &relay.url);
+        Some(relay)
+    } else {
+        None
+    };
     let mut child = command.spawn()?;
     let pid = child.id();
     if let Some(pid) = pid {

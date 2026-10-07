@@ -1,10 +1,9 @@
 # Project connections
 
-**Implemented:** managing project credentials in macOS Keychain and capturing
-selected connection metadata in automation approval inputs.
-**Planned:** credential delivery, binding controls, output protection and
-remote authenticated MCP. Saving a connection currently does not give a tool or
-agent access to its key and does not enable an automation.
+**Implemented:** project credentials in macOS Keychain, approval of selected
+connection metadata, and authenticated GET requests through an invocation-scoped
+host relay. **Planned:** binding controls and remote authenticated MCP. Saving a
+connection does not enable an automation or give a tool the raw key.
 
 Open **Plugins → Connections** to add a named API key, replace its value or remove
 it. Replacement starts with an empty password field. The value is cleared from
@@ -82,27 +81,50 @@ then refuses execution and turns the schedule off. Deleting a referenced
 connection also refuses capture. Tools without references do not access Keychain
 while capturing inputs.
 
-Credential-dependent runs currently fail before starting a tool or provider:
-credential delivery is not implemented. Capturing metadata does not grant raw key
-access. The remaining work is user-facing binding controls, invocation-only
-credential resolution and output protection before logs, artifacts or provider
-responses are retained.
+## Credential delivery
 
-## Delivery boundary being built
+Tools receive `INFERAY_CONNECTIONS_URL`, a random loopback URL valid only for that
+invocation. This applies to CLI scripts, JSON-stdin tools and local MCP tools,
+whether called directly or granted to an agent. The automation must declare
+`network`; otherwise it fails before launching a tool or provider.
 
-Keys stay in the host. Tools will request authenticated HTTP through a local,
-invocation-scoped endpoint; the host attaches the selected credential. Raw keys
-will not be placed in process arguments, environment variables, stdin or provider
-context. A script with a raw key could persist it before any output scan, including
-just before a crash, so log redaction alone cannot establish this boundary.
+A Python tool can make an authenticated request like this:
 
-The relay must check the current project, connection ID and approved revision,
-require the automation's network permission, and limit requests to the reviewed
-HTTPS destination. Redirects must not forward credentials. Access ends with the
-invocation. Responses still require output protection because a remote service
-can echo request credentials. Publishing and other effects require the separate
-outbox and authorization work; declaring an endpoint does not implement those
-features. The relay is not implemented yet.
+```python
+import os
+import urllib.parse
+import urllib.request
+
+query = urllib.parse.urlencode({"path": "items?limit=10"})
+url = os.environ["INFERAY_CONNECTIONS_URL"] + "/SERVICE?" + query
+with urllib.request.urlopen(url, timeout=30) as response:
+    body = response.read()
+```
+
+`SERVICE` must be declared in that tool's `connections`. The path must be relative
+and remain under its reviewed HTTPS base URL. The host checks the project, ID and
+approved revision at startup and on each request, then attaches the configured
+header. Raw keys never enter process arguments, environment variables, stdin or
+provider context. Replacement invalidates subsequent requests; it cannot undo a
+request already delivered to the service.
+
+The relay accepts GET requests only, with at most 64 requests per invocation,
+30 seconds per request and 1 MiB per response. It refuses redirects, encoded
+responses, browser Origin headers, and paths outside the approved base. TLS
+certificate verification remains enabled and inherited HTTP proxies are disabled.
+It forwards the remote status and body, with a fixed binary content type, rather
+than remote response headers. Ending or cancelling the invocation revokes the URL
+and cancels pending relay requests.
+
+Before returning a body, the host rejects literal credential echoes and selected
+common representations: standard Base64, percent encoding and JSON escaping.
+This is bounded output protection, not a guarantee against arbitrary encodings
+chosen by a malicious remote service. The approved service receives the key as
+part of authentication and must be trusted with it. Tools should not persist the
+temporary URL; it is a capability while the invocation remains active.
+
+This transport does not implement publishing, POST requests, an outbox or
+publication receipts. Those remain separate effects work.
 
 ## Verification
 
@@ -121,3 +143,15 @@ a claim about every possible credential-exfiltration technique. The browser veri
 `INFERAY_VERIFY_CONNECTIONS=1` mode for adding, replacing and removing a test key
 through the dialog. Both gates pass and clean up their test credentials. The integrated renderer now
 builds and passes the project browser checks.
+
+The relay gates use temporary Keychain entries and disposable profiles:
+
+```sh
+cargo test -p inferay-server credential_relay --lib -- --ignored
+```
+
+The HTTPS fixture requires Python 3 and OpenSSL. It proves authenticated requests,
+redirect and credential-echo refusal, response bounds, revision checks and access
+revocation. The native runtime gate proves network permission is required, a
+sandboxed tool can reach its relay, the URL expires, and saved run files contain
+no raw test key. It does not replace authenticated real-service integration tests.

@@ -1,4 +1,5 @@
 //! Local credential management. Only metadata leaves the Keychain boundary.
+pub(crate) mod relay;
 use crate::project_store::{Result, hash};
 use inferay_core::connections::{ConnectionCommand as Command, ConnectionInfo};
 use serde::{Deserialize, Serialize};

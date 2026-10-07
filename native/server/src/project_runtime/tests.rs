@@ -1525,3 +1525,75 @@ async fn mcp_agent_grant_records_outputs_and_revokes_after_library_edit() {
     );
     scope.close().await;
 }
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+#[ignore = "uses a temporary test-only Keychain entry and the native tool sandbox"]
+async fn credential_relay_tool_scope_has_no_raw_key_and_requires_network() {
+    use inferay_core::connections::ConnectionCommand;
+    let profile = tempfile::tempdir().unwrap();
+    let (project, automation) = definition_files(profile.path(), r#"import os,json,urllib.request,urllib.error
+from pathlib import Path
+url=os.environ['INFERAY_CONNECTIONS_URL']
+try:
+ urllib.request.urlopen(url+'/UNKNOWN?path=hash',timeout=5)
+ raise AssertionError('ungranted connection was accepted')
+except urllib.error.HTTPError as error:
+ assert error.code == 404, error.code
+Path(os.environ['INFERAY_RUN_OUTPUT'],'relay.json').write_text(json.dumps({'url':url,'environment':dict(os.environ)}))
+print(json.dumps({'artifacts':['relay.json']}))
+"#);
+    let runtime = runtime(profile.path());
+    let secret = format!("temporary-relay-key-{}", uuid::Uuid::new_v4());
+    let saved = runtime.connections.apply(ConnectionCommand::Save {
+        project_id: project.clone(), id: None, expected_revision: None,
+        name: "Tool relay fixture".into(), secret: secret.clone(),
+    }).unwrap().unwrap();
+    struct Cleanup(Arc<crate::connections::Store>, inferay_core::connections::ConnectionInfo);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = self.0.apply(ConnectionCommand::Delete {
+                project_id: self.1.project_id.clone(), id: self.1.id.clone(),
+                expected_revision: self.1.revision.clone(),
+            });
+        }
+    }
+    let _cleanup = Cleanup(runtime.connections.clone(), saved.clone());
+    let root = profile.path().join("projects").join(&project);
+    let tool_file = root.join("plugins/report/tools/report/tool.json");
+    let mut tool: Value = serde_json::from_slice(&std::fs::read(&tool_file).unwrap()).unwrap();
+    tool["connections"] = json!({"SERVICE":{"id":saved.id,"baseUrl":"https://api.example.test/v1/","header":"Authorization","prefix":"Bearer "}});
+    std::fs::write(&tool_file, tool.to_string()).unwrap();
+    runtime.catalog(Some(project.clone()), None).await.unwrap();
+    let denied = approved_run(&runtime, &automation, "no-network").await;
+    runtime.tick().await.unwrap();
+    let denied = completed(&runtime, &project, &denied).await;
+    assert_eq!(denied.status, "failed");
+    assert!(denied.error.unwrap().contains("network permission"));
+    assert!(!Path::new(&denied.directory).join("output/relay.json").exists());
+    for path in ["plugins/report/plugin.json", "plugins/report/automations/report.json"] {
+        let file = root.join(path);
+        let mut body: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        body["may"] = json!(["network"]);
+        std::fs::write(file, body.to_string()).unwrap();
+    }
+    runtime.catalog(Some(project.clone()), None).await.unwrap();
+    let id = approved_run(&runtime, &automation, "with-network").await;
+    runtime.tick().await.unwrap();
+    let done = completed(&runtime, &project, &id).await;
+    assert_eq!(done.status, "succeeded", "{:?}", done.error);
+    let output: Value = serde_json::from_slice(&std::fs::read(Path::new(&done.directory).join("output/relay.json")).unwrap()).unwrap();
+    let expired = format!("{}/UNKNOWN?path=hash", output["url"].as_str().unwrap());
+    assert!(reqwest::Client::new().get(expired).send().await.is_err());
+    fn check_files(path: &Path, secret: &str) {
+        for entry in std::fs::read_dir(path).unwrap() {
+            let entry = entry.unwrap();
+            if entry.file_type().unwrap().is_dir() { check_files(&entry.path(), secret); }
+            else if entry.file_type().unwrap().is_file() {
+                let bytes = std::fs::read(entry.path()).unwrap();
+                assert!(!bytes.windows(secret.len()).any(|window| window == secret.as_bytes()), "credential leaked into {}", entry.path().display());
+            }
+        }
+    }
+    check_files(Path::new(&done.directory), &secret);
+}
