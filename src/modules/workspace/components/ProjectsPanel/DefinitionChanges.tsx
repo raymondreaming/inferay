@@ -37,8 +37,8 @@ export function DefinitionChanges(props: {
 				{(file) => (
 					<details {...stylex.attrs(styles.changeFile)}>
 						<summary {...stylex.attrs(styles.changeSummary)}>
-							<span>{file().path}</span>
-							<span {...stylex.attrs(styles.muted)}>
+							<span>{file().path}</span>{" "}
+							<span {...stylex.attrs(styles.badge)}>
 								{file().hash === file().previousHash
 									? "Unchanged"
 									: !file().hash

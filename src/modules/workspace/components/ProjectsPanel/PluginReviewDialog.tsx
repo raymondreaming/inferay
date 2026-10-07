@@ -1,6 +1,7 @@
 import type { PluginReview } from "@contracts";
 import { Button } from "@shared/ui/Button/index.tsx";
 import { Modal } from "@shared/ui/Modal/index.tsx";
+import { SettingsRow } from "@shared/ui/SettingsSurface/index.tsx";
 import { Switch } from "@shared/ui/Switch/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createSignal, For } from "solid-js";
@@ -40,7 +41,7 @@ export function PluginReviewDialog(props: {
 			onClose={props.close}
 			class={stylex.attrs(styles.dialog).class}
 		>
-			<div {...stylex.attrs(styles.formFields)}>
+			<div {...stylex.attrs(styles.form)}>
 				<h3>{props.review.name}</h3>
 				<p {...stylex.attrs(styles.muted)}>
 					Permissions: {props.review.permissions.join(", ") || "None declared"}
@@ -67,12 +68,17 @@ export function PluginReviewDialog(props: {
 				{props.review.automations.some(
 					(automation) => automation.trigger.kind !== "manual",
 				) && (
-					<Switch
-						label="Enable schedules after approval"
-						checked={enable()}
-						onChange={setEnable}
-						disabled={busy()}
-					/>
+					<SettingsRow
+						label="Enable schedules"
+						description="Start scheduled runs after approval"
+					>
+						<Switch
+							label="Enable schedules after approval"
+							checked={enable()}
+							onChange={setEnable}
+							disabled={busy()}
+						/>
+					</SettingsRow>
 				)}
 				{error() && <p role="alert">{error()}</p>}
 				<div {...stylex.attrs(styles.row)}>
