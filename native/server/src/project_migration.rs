@@ -394,7 +394,10 @@ fn tool(
         name,
         program: old.program,
         entrypoint: filename.into(),
-        args: old.arguments,
+        args: old.arguments.into_iter().map(|arg| match arg {
+            inferay_core::projects::ToolArgument::Literal(value) => Ok(value),
+            _ => Err("Legacy tool arguments must be literal strings"),
+        }).collect::<std::result::Result<Vec<_>, _>>()?,
         timeout_seconds: old.timeout_seconds,
         input_schema: old.input_schema,
         output_schema: old.output_schema,

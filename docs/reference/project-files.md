@@ -139,6 +139,21 @@ The default `json_stdin` interface runs `program entrypoint ...args`: input is J
 
 For an existing script, use `interface: "cli"`. Its `args` must contain exactly one `{entrypoint}` argument; place it after any interpreter flags. Each `{input.field}` argument reads a top-level input string, number or boolean. Missing, null or structured values fail preflight. Fields use letters, digits, underscores or hyphens. Values are passed as individual arguments, never split, re-expanded or interpolated through a shell. Stdin is closed. Exit zero returns `{ "stdout": "…", "stderr": "…", "exitCode": 0 }`, checked against `outputSchema`; nonzero exit fails the run. Both streams are retained under the run's logs, including on failure, with the existing 1 MiB limit per stream.
 
+Use `{output}` for the run's output directory, or `{output}/render` for an output
+path or filename prefix inside it. Output paths cannot traverse upwards or contain
+another placeholder. These runtime arguments stay distinct from input strings:
+an input value containing `{output}` is passed literally. For example,
+`["{entrypoint}", "--out", "{output}/render"]` passes a run-specific absolute path
+without a shell or a machine path in the definition.
+
+After a successful CLI exit, regular files under that output directory become
+`artifacts` in the result and are indexed in run history. Nested directories are
+supported; symlinks and special files fail the run. Collection is bounded to 100
+files, 1,000 filesystem entries and 32 directory levels. Existing artifact limits
+apply (50 MB per file). Failed commands retain logs and files on disk, but do not
+register their partial output as successful artifacts. JSON-stdin tools continue
+to name their artifacts explicitly in their response.
+
 ```json
 { "schema": "inferay.tool/1", "id": "7a41…", "name": "copy-check",
   "interface": "cli", "program": "python3", "entrypoint": "copy_check.py",

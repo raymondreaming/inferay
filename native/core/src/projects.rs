@@ -47,6 +47,35 @@ pub enum ToolInterface {
     JsonStdin,
     Cli,
 }
+/// Resolved literals stay literal, including strings supplied by a tool caller.
+/// Runtime paths are represented separately until the run directory exists.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(untagged)]
+pub enum ToolArgument {
+    Literal(String),
+    Runtime { runtime: ToolRuntimeArgument },
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+pub enum ToolRuntimeArgument {
+    Output { path: String },
+}
+impl ToolArgument {
+    pub fn resolve(&self, output_directory: &str) -> String {
+        match self {
+            Self::Literal(value) => value.clone(),
+            Self::Runtime {
+                runtime: ToolRuntimeArgument::Output { path },
+            } => {
+                if path.is_empty() {
+                    output_directory.into()
+                } else {
+                    format!("{output_directory}/{path}")
+                }
+            }
+        }
+    }
+}
 impl ToolInterface {
     pub fn validate_arguments(self, args: &[String]) -> Result<(), String> {
         if args.len() > 64 {
@@ -65,12 +94,28 @@ impl ToolInterface {
             if self == Self::Cli && arg.contains("{entrypoint}") && arg != "{entrypoint}" {
                 return Err("{entrypoint} must occupy an entire CLI argument".into());
             }
+            if self == Self::Cli && arg.contains("{output}") {
+                Self::output_path(arg)?;
+            }
             bounded_text(arg, 8000, false)?;
             if self == Self::Cli && arg.contains("{input.") {
                 Self::input_key(arg)?;
             }
         }
         Ok(())
+    }
+    fn output_path(arg: &str) -> Result<&str, String> {
+        if arg == "{output}" {
+            return Ok("");
+        }
+        let path = arg
+            .strip_prefix("{output}/")
+            .ok_or("CLI output arguments must be {output} or {output}/relative-path")?;
+        crate::project_files::relative_path(path)?;
+        if path.contains(['{', '}']) {
+            return Err("Output paths cannot contain placeholders".into());
+        }
+        Ok(path)
     }
     fn input_key(arg: &str) -> Result<&str, String> {
         let key = arg
@@ -91,20 +136,28 @@ impl ToolInterface {
         args: &[String],
         input: &Value,
         entrypoint: &str,
-    ) -> Result<Vec<String>, String> {
+    ) -> Result<Vec<ToolArgument>, String> {
         self.validate_arguments(args)?;
         if self == Self::JsonStdin {
             return Ok(std::iter::once(entrypoint.to_owned())
                 .chain(args.iter().cloned())
+                .map(ToolArgument::Literal)
                 .collect());
         }
         args.iter()
             .map(|arg| {
                 if arg == "{entrypoint}" {
-                    return Ok(entrypoint.to_owned());
+                    return Ok(ToolArgument::Literal(entrypoint.to_owned()));
+                }
+                if arg.contains("{output}") {
+                    return Ok(ToolArgument::Runtime {
+                        runtime: ToolRuntimeArgument::Output {
+                            path: Self::output_path(arg)?.into(),
+                        },
+                    });
                 }
                 if !arg.contains("{input.") {
-                    return Ok(arg.clone());
+                    return Ok(ToolArgument::Literal(arg.clone()));
                 }
                 let key = Self::input_key(arg)?;
                 let value = match input.get(key) {
@@ -117,7 +170,7 @@ impl ToolInterface {
                     }
                 };
                 bounded_text(&value, 8000, false)?;
-                Ok(value)
+                Ok(ToolArgument::Literal(value))
             })
             .collect()
     }
@@ -130,7 +183,7 @@ pub struct LocalTool {
     pub program: String,
     pub entrypoint: ProjectPath,
     #[serde(default)]
-    pub arguments: Vec<String>,
+    pub arguments: Vec<ToolArgument>,
     #[serde(default)]
     pub working_directory: ProjectPath,
     #[serde(default = "default_timeout")]

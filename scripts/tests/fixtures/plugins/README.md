@@ -43,6 +43,22 @@ The test prints the tested commit and entrypoint hash. It requires a trusted loc
 kit and Python 3. It exercises the real quality checker, not the render pipeline;
 the Blender artifact and daily-lane gates remain open.
 
+## Blender render gate (currently failing)
+
+```sh
+INFERAY_ORIGIN_KIT_REPOSITORY=/path/to/Origin \
+  cargo test -p inferay-server real_origin_blender_render --lib -- --ignored --nocapture
+```
+
+This uses the actual kit's `pillar-stack` scene in a disposable linked checkout,
+with two samples and 108 × 144 output. It requires Blender 5 on PATH and expects
+both the beauty and depth PNGs to appear in run history. It never enables a
+schedule or posts. Current evidence: Blender fails during startup before rendering;
+its PATH symlink loses bundled resources and the sandbox denies startup services.
+This gate remains failing until application-bundle execution and the necessary
+sandbox capabilities are supported. The runner must not fall back to unrestricted
+execution to pass it.
+
 ## Planned fixtures
 
 `planned/hatch-content`, `planned/hatch-design`, and `planned/hatch-posting` retain

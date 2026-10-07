@@ -15,7 +15,10 @@ fn cli_inputs_are_single_literal_arguments_with_bounded_scalar_values() {
     assert_eq!(
         ToolInterface::Cli
             .arguments(&args, &input, "script.py")
-            .unwrap(),
+            .unwrap()
+            .iter()
+            .map(|arg| arg.resolve("/output"))
+            .collect::<Vec<_>>(),
         vec![
             "script.py",
             "--title",
@@ -58,7 +61,10 @@ fn cli_inputs_are_single_literal_arguments_with_bounded_scalar_values() {
     assert_eq!(
         ToolInterface::JsonStdin
             .arguments(&args, &input, "script.py")
-            .unwrap(),
+            .unwrap()
+            .iter()
+            .map(|arg| arg.resolve("/output"))
+            .collect::<Vec<_>>(),
         std::iter::once("script.py".to_string())
             .chain(args)
             .collect::<Vec<_>>()
@@ -78,7 +84,10 @@ fn cli_entrypoint_can_follow_interpreter_flags_and_values_are_not_reexpanded() {
     assert_eq!(
         ToolInterface::Cli
             .arguments(&args, &json!({"caption":"{entrypoint}"}), "render.py")
-            .unwrap(),
+            .unwrap()
+            .iter()
+            .map(|arg| arg.resolve("/output"))
+            .collect::<Vec<_>>(),
         [
             "--background",
             "--python",
@@ -93,4 +102,32 @@ fn cli_entrypoint_can_follow_interpreter_flags_and_values_are_not_reexpanded() {
             .validate_arguments(&["{entrypoint}".into(), "{entrypoint}".into()])
             .is_err()
     );
+}
+
+#[test]
+fn cli_output_path_is_bound_at_execution_without_reexpanding_input() {
+    let args = ["{entrypoint}", "--out", "{output}/render", "{input.text}"].map(String::from);
+    let resolved = ToolInterface::Cli
+        .arguments(&args, &json!({"text":"{output}"}), "render.py")
+        .unwrap();
+    assert_eq!(
+        resolved
+            .iter()
+            .map(|arg| arg.resolve("/run one/output"))
+            .collect::<Vec<_>>(),
+        ["render.py", "--out", "/run one/output/render", "{output}"]
+    );
+    for invalid in [
+        "--out={output}",
+        "{output}/../escape",
+        "{output}//absolute",
+        "{output}/a/{input.text}",
+        "{output}/",
+    ] {
+        assert!(
+            ToolInterface::Cli
+                .validate_arguments(&["{entrypoint}".into(), invalid.into()])
+                .is_err()
+        );
+    }
 }

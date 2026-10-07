@@ -801,10 +801,7 @@ async fn repository_tool_executes_in_place_and_dirty_checkout_revokes_approval()
     assert!(refused.error.as_deref().unwrap().contains("clean checkout"));
 }
 
-/// Opt-in real kit check. Only a disposable clone/profile is changed.
-#[tokio::test]
-#[ignore = "Requires INFERAY_ORIGIN_KIT_REPOSITORY pointing to a local Origin checkout"]
-async fn real_origin_copy_gate_runs_as_a_repository_tool() {
+fn clone_origin_kit() -> (tempfile::TempDir, String) {
     let source = std::env::var("INFERAY_ORIGIN_KIT_REPOSITORY").expect("Set INFERAY_ORIGIN_KIT_REPOSITORY");
     let checkout = tempfile::tempdir().unwrap();
     let clone = std::process::Command::new("git")
@@ -815,6 +812,14 @@ async fn real_origin_copy_gate_runs_as_a_repository_tool() {
         .args(["rev-parse", "HEAD"]).output().unwrap();
     assert!(revision.status.success());
     let revision = String::from_utf8(revision.stdout).unwrap().trim().to_owned();
+    (checkout, revision)
+}
+
+/// Opt-in real kit check. Only a disposable clone/profile is changed.
+#[tokio::test]
+#[ignore = "Requires INFERAY_ORIGIN_KIT_REPOSITORY pointing to a local Origin checkout"]
+async fn real_origin_copy_gate_runs_as_a_repository_tool() {
+    let (checkout, revision) = clone_origin_kit();
     let entrypoint = "Plugins/design-blender/content/scripts/copy_check.py";
     let bytes = std::fs::read(checkout.path().join(entrypoint)).unwrap();
     eprintln!("Origin copy gate: commit {revision}, SHA-256 {}", project_store::hash(&bytes));
@@ -869,4 +874,102 @@ async fn real_origin_copy_gate_runs_as_a_repository_tool() {
         .args(["status", "--porcelain", "--untracked-files=all", "--ignored=matching"]).output().unwrap();
     assert!(status.status.success());
     assert!(status.stdout.is_empty(), "The quality gate changed its source checkout");
+}
+
+#[tokio::test]
+async fn cli_outputs_are_indexed_and_output_links_fail_the_run() {
+    for symlink in [false, true] {
+        let profile = tempfile::tempdir().unwrap();
+        let script = if symlink {
+            "import sys\nfrom pathlib import Path\np=Path(sys.argv[1]);p.mkdir();(p/'escape').symlink_to('/etc/hosts')\n"
+        } else {
+            "import sys\nfrom pathlib import Path\nassert sys.argv[2]=='{output}'\np=Path(sys.argv[1]);p.mkdir();(p/'report.md').write_text('actual output')\nprint('render complete')\n"
+        };
+        let (project, automation) = definition_files(profile.path(), script);
+        let root = profile.path().join("projects").join(&project);
+        let path = root.join("plugins/report/tools/report/tool.json");
+        let mut tool: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        tool["interface"] = json!("cli");
+        tool["args"] = json!(["{entrypoint}", "{output}/images", "{input.text}"]);
+        std::fs::write(path, tool.to_string()).unwrap();
+        let path = root.join("plugins/report/automations/report.json");
+        let mut definition: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        definition["execution"]["input"] = json!({"text":"{output}"});
+        std::fs::write(path, definition.to_string()).unwrap();
+        let runtime = runtime(profile.path());
+        let id = approved_run(&runtime, &automation, "cli-output").await;
+        runtime.tick().await.unwrap();
+        let run = completed(&runtime, &project, &id).await;
+        let catalog = runtime.catalog(Some(project), None).await.unwrap();
+        let artifacts: Vec<_> = catalog.history.artifacts.iter().filter(|artifact| artifact.run_id == id).collect();
+        if symlink {
+            assert_eq!(run.status, "failed");
+            assert!(run.error.unwrap().contains("regular files"));
+            assert!(artifacts.is_empty());
+        } else {
+            assert_eq!(run.status, "succeeded", "{:?}", run.error);
+            assert_eq!(artifacts.len(), 1);
+            assert_eq!(artifacts[0].name, "images/report.md");
+            assert_eq!(std::fs::read_to_string(Path::new(&run.directory).join("output/images/report.md")).unwrap(), "actual output");
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "Requires INFERAY_ORIGIN_KIT_REPOSITORY and Blender 5 on PATH"]
+async fn real_origin_blender_render_retains_image_artifacts() {
+    let (checkout, revision) = clone_origin_kit();
+    let entrypoint = "Plugins/design-blender/content/scripts/crate_families/run.py";
+    let bytes = std::fs::read(checkout.path().join(entrypoint)).unwrap();
+    let profile = tempfile::tempdir().unwrap();
+    let (project, automation) = definition_files(profile.path(), "unused");
+    let root = profile.path().join("projects").join(&project);
+    let repository = uuid::Uuid::new_v4().to_string();
+    let path = root.join("project.json");
+    let mut definition: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    definition["repositories"] = json!([{"id":repository,"name":"Origin kit"}]);
+    std::fs::write(&path, definition.to_string()).unwrap();
+    let path = root.join("plugins/report/tools/report/tool.json");
+    let mut tool: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    tool["program"] = json!("blender");
+    tool["interface"] = json!("cli");
+    tool["entrypoint"] = json!(entrypoint);
+    tool["requires"] = json!(["blender>=5.0"]);
+    tool["timeoutSeconds"] = json!(180);
+    tool["args"] = json!(["--factory-startup", "--background", "--python-exit-code", "1", "--python", "{entrypoint}", "--", "--family", "pillar-stack", "--seed", "3", "--out", "{output}/proof", "--scale", "0.1", "--samples", "2"]);
+    tool["pack"] = json!({"repositoryId":repository,"commit":revision,"sha256":project_store::hash(&bytes)});
+    std::fs::write(path, tool.to_string()).unwrap();
+    std::fs::remove_file(root.join("plugins/report/tools/report/run.py")).unwrap();
+    let runtime = runtime(profile.path());
+    runtime.command(ProjectFileCommand::LinkRepository {
+        project_id: project.clone(), repository_id: repository,
+        expected_project_hash: project_store::hash(&std::fs::read(root.join("project.json")).unwrap()),
+        path: checkout.path().display().to_string(),
+    }, true).await.unwrap();
+    let id = approved_run(&runtime, &automation, "real-render").await;
+    runtime.tick().await.unwrap();
+    let run = tokio::time::timeout(Duration::from_secs(200), async {
+        loop {
+            let catalog = runtime.catalog(Some(project.clone()), None).await.unwrap();
+            let run = catalog.history.runs.into_iter().find(|run| run.id == id).unwrap();
+            if !["queued", "running"].contains(&run.status.as_str()) { break run; }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    }).await.unwrap();
+    for name in ["stdout.txt", "stderr.txt"] {
+        let log = std::fs::read_to_string(Path::new(&run.directory).join("logs").join(name)).unwrap_or_default();
+        eprintln!("{name}: {}", log.chars().rev().take(6000).collect::<String>().chars().rev().collect::<String>());
+    }
+    assert_eq!(run.status, "succeeded", "{:?}", run.error);
+    let catalog = runtime.catalog(Some(project), None).await.unwrap();
+    let artifacts: Vec<_> = catalog.history.artifacts.iter().filter(|artifact| artifact.run_id == id).collect();
+    assert_eq!(artifacts.len(), 2);
+    for name in ["proof_raw.png", "proof_raw_z.png"] {
+        assert!(artifacts.iter().any(|artifact| artifact.name == name));
+        let bytes = std::fs::read(Path::new(&run.directory).join("output").join(name)).unwrap();
+        assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"));
+        assert_eq!(u32::from_be_bytes(bytes[16..20].try_into().unwrap()), 108);
+        assert_eq!(u32::from_be_bytes(bytes[20..24].try_into().unwrap()), 144);
+    }
+    eprintln!("Origin render verified at {revision}; two 108x144 PNG artifacts");
 }

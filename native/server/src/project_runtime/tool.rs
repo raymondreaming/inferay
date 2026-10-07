@@ -54,7 +54,12 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
         &snapshot["repositoryPaths"],
         root,
     );
-    let mut command = policy.tool_command(&tool.program, &tool.arguments, &output_dir, &scratch)?;
+    let arguments: Vec<_> = tool
+        .arguments
+        .iter()
+        .map(|arg| arg.resolve(&output_dir.to_string_lossy()))
+        .collect();
+    let mut command = policy.tool_command(&tool.program, &arguments, &output_dir, &scratch)?;
     command
         .current_dir(cwd)
         .env_clear()
@@ -178,7 +183,7 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
         )
         .into());
     }
-    let result: Value = match tool.interface {
+    let mut result: Value = match tool.interface {
         ToolInterface::JsonStdin => serde_json::from_slice(&output)
             .map_err(|e| format!("Tool must return JSON on stdout: {e}"))?,
         ToolInterface::Cli => json!({
@@ -187,6 +192,52 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
             "exitCode": 0,
         }),
     };
+    if tool.interface == ToolInterface::Cli {
+        let artifacts = collect_outputs(&output_dir)?;
+        if !artifacts.is_empty() {
+            result["artifacts"] = json!(artifacts);
+        }
+    }
     validate_json(&tool.output_schema, &result)?;
     Ok(result)
+}
+
+// CLI programs need no Inferay-specific stdout protocol to produce artifacts.
+// Bound traversal before indexing; finalization owns size/hash validation.
+fn collect_outputs(root: &Path) -> Result<Vec<String>> {
+    let mut pending = vec![(root.to_path_buf(), 0)];
+    let mut artifacts = Vec::new();
+    let mut entries = 0;
+    while let Some((directory, depth)) = pending.pop() {
+        for entry in std::fs::read_dir(directory)? {
+            let entry = entry?;
+            entries += 1;
+            if entries > 1000 {
+                return Err("Tool output exceeds 1000 filesystem entries".into());
+            }
+            let kind = entry.file_type()?;
+            if kind.is_symlink() || (!kind.is_file() && !kind.is_dir()) {
+                return Err("Tool output must contain only regular files and directories".into());
+            }
+            if kind.is_dir() {
+                if depth >= 32 {
+                    return Err("Tool output directories exceed depth 32".into());
+                }
+                pending.push((entry.path(), depth + 1));
+            } else {
+                if artifacts.len() >= 100 {
+                    return Err("At most 100 artifacts per run".into());
+                }
+                let path = entry.path();
+                artifacts.push(
+                    path.strip_prefix(root)?
+                        .to_str()
+                        .ok_or("Tool output paths must be UTF-8")?
+                        .replace('\\', "/"),
+                );
+            }
+        }
+    }
+    artifacts.sort();
+    Ok(artifacts)
 }
