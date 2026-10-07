@@ -433,6 +433,51 @@ try {
 	await page
 		.getByRole("region", { name: "Pending reviews" })
 		.waitFor({ state: "hidden" });
+
+	for (const state of ["queued", "in_flight"]) {
+		const seed = spawn(
+			"python3",
+			[
+				"-c",
+				`
+import hashlib,json,sqlite3,sys,uuid
+with sqlite3.connect(sys.argv[1]) as db:
+    project,run,artifact,body=db.execute("SELECT project_id,run_id,artifact,intent FROM effect_intents WHERE id=?",(sys.argv[2],)).fetchone()
+    effect=str(uuid.uuid4()); delivery=str(uuid.uuid4())
+    intent=json.loads(body); intent["key"]=effect; intent["target"]="fixture-"+sys.argv[3]
+    body=json.dumps(intent,separators=(",",":")); digest=hashlib.sha256(body.encode()).hexdigest()
+    db.execute("INSERT INTO effect_intents VALUES(?,?,?,?,?,?,?,1)",(effect,project,run,artifact,effect,body,digest))
+    db.execute("INSERT INTO effect_outbox(id,effect_id,project_id,kind,target,intent_hash,limit_revision,handler_hash,state,queued_at,not_before,reserved_at) VALUES(?,?,?,?,?,?,'fixture',?,?,1,0,1)",(delivery,effect,project,intent["kind"],intent["target"],digest,"0"*64,sys.argv[3]))
+`,
+				join(profile, "projects.sqlite3"),
+				savedEffect.id,
+				state,
+			],
+			{ stdio: "pipe" },
+		);
+		assert.equal((await once(seed, "exit"))[0], 0);
+		const label = `fixture-${state} · ${state === "queued" ? "Queued · Not sent" : "In progress · Outcome pending"}`;
+		const status = page.getByText(label, { exact: true });
+		await status.waitFor();
+		await status
+			.locator("..")
+			.locator("..")
+			.getByRole("button", { name: "View intent", exact: true })
+			.click();
+		await page
+			.getByRole("dialog", { name: "Review intent" })
+			.getByRole("button", {
+				name: state === "queued" ? "Cancel delivery" : "Request stop",
+				exact: true,
+			})
+			.click();
+		await page
+			.getByText(
+				`fixture-${state} · ${state === "queued" ? "Cancelled · Not sent" : "Stop requested · Outcome unknown"}`,
+				{ exact: true },
+			)
+			.waitFor();
+	}
 	await page.getByRole("button", { name: /report.md ·/ }).click();
 	await page
 		.getByText("A local project, a reusable tool, and a durable run.", {

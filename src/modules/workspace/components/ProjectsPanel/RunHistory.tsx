@@ -9,6 +9,7 @@ import {
 	showProjectView,
 } from "../../hooks/useProjects.tsx";
 import { loadCanonicalAgentState } from "../../hooks/useWorkspaceState.tsx";
+import { effectStatus } from "../../model/projectEffects.ts";
 import type { ProjectWorkspaceView } from "../../model/projectFiles.ts";
 import { loadProjects, openRunChat } from "../../services/projectsApi.ts";
 import { EffectInbox } from "./EffectInbox.tsx";
@@ -85,13 +86,13 @@ export function RunHistory(props: {
 					<EffectIntentDialog
 						effect={effect}
 						close={() => setReviewing(null)}
-						dismissed={async (dismissedAt) => {
+						changed={async (updated) => {
 							setPage((previous) =>
 								previous
 									? {
 											...previous,
 											effects: previous.effects.map((item) =>
-												item.id === effect.id ? { ...item, dismissedAt } : item,
+												item.id === updated.id ? updated : item,
 											),
 										}
 									: null,
@@ -252,11 +253,7 @@ export function RunHistory(props: {
 									<div {...stylex.attrs(styles.historyIdentity)}>
 										<strong>{effect().intent.kind}</strong>
 										<span {...stylex.attrs(styles.muted)}>
-											{effect().intent.target} ·{" "}
-											{effect().dismissedAt === null
-												? "Pending review"
-												: "Dismissed"}{" "}
-											· Not sent
+											{effect().intent.target} · {effectStatus(effect())}
 										</span>
 									</div>
 									<Button

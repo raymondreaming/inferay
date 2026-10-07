@@ -117,3 +117,10 @@ mod tests {
         assert!(inbox(&db,"project",None,Some("invalid")).is_err());
     }
 }
+
+pub(crate) async fn cancel_http(state: &crate::ServerState, request: crate::Request) -> crate::ApiResult {
+    let input=crate::api_body::<inferay_core::projects::EffectReviewRequest>(request).await?;
+    let mut store=state.projects.store.lock().map_err(|_| crate::api_error(crate::StatusCode::INTERNAL_SERVER_ERROR,"Project store lock failed"))?;
+    let delivery=outbox::cancel(&mut store.db,&input,now()).map_err(|e|crate::api_error(crate::StatusCode::BAD_REQUEST,e))?;
+    serde_json::to_value(delivery).map_err(|e|crate::api_error(crate::StatusCode::INTERNAL_SERVER_ERROR,e))
+}

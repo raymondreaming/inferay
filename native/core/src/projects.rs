@@ -368,6 +368,30 @@ pub struct ProjectEffectIntent {
     pub created_at: i64,
     pub intent_hash: String,
     pub dismissed_at: Option<i64>,
+    #[serde(default)]
+    pub delivery: Option<EffectDelivery>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectDeliveryState { Queued, InFlight, Uncertain, Delivered, Cancelled }
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EffectReceipt {
+    pub delivery_id: String,
+    pub intent_hash: String,
+    pub destination_id: String,
+    pub completed_at: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectDelivery {
+    pub id: String,
+    pub state: EffectDeliveryState,
+    pub cancellation_requested_at: Option<i64>,
+    pub receipt: Option<EffectReceipt>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]

@@ -1,5 +1,6 @@
 //! Durable delivery admission. Handler execution belongs to the existing callable runner.
 use crate::project_store::Result;
+use inferay_core::projects::EffectReceipt as Receipt;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 
@@ -53,6 +54,8 @@ pub(super) fn create_schema(db: &Connection) -> Result<()> {
         state TEXT NOT NULL CHECK(state IN ('queued','in_flight','uncertain','delivered','cancelled')),
         queued_at INTEGER NOT NULL, not_before INTEGER NOT NULL,
         reserved_at INTEGER, receipt TEXT);
+        CREATE TABLE IF NOT EXISTS effect_cancellations(
+        delivery_id TEXT PRIMARY KEY REFERENCES effect_outbox(id), requested_at INTEGER NOT NULL);
         CREATE INDEX IF NOT EXISTS effect_outbox_scope ON effect_outbox(project_id,kind,target,state,reserved_at);")?;
     Ok(())
 }
@@ -196,14 +199,6 @@ pub(crate) fn recover(db: &Connection) -> Result<usize> {
     )?)
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct Receipt {
-    pub delivery_id: String,
-    pub intent_hash: String,
-    pub destination_id: String,
-    pub completed_at: i64,
-}
 /// Only an invoked/reconciled handler may supply this evidence, never a chat claim.
 pub(super) fn complete(db: &mut Connection, receipt: &Receipt) -> Result<()> {
     if receipt.completed_at < 0
@@ -367,6 +362,91 @@ mod tests {
         let invalid = Limit { maximum: 0, ..rule };
         assert!(approve_limit(&mut db, &invalid, Some(&new_revision)).is_err());
     }
+    #[test]
+    fn outbox_cancellation_preserves_uncertain_outcomes_and_receipts() {
+        use inferay_core::projects::{EffectDeliveryState, EffectReviewRequest};
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("state.sqlite3");
+        let mut db = Connection::open(&path).unwrap();
+        super::super::create_schema(&db).unwrap();
+        let rule = Limit {
+            maximum: 1,
+            ..limit()
+        };
+        let revision = approve_limit(&mut db, &rule, None).unwrap();
+        let (effect, digest) = intent(&db, "cancel-before", 0);
+        let id = enqueue(&mut db, &effect, &digest, &revision, 0).unwrap();
+        let request = EffectReviewRequest {
+            id: effect,
+            intent_hash: digest,
+        };
+        assert!(
+            cancel(
+                &mut db,
+                &EffectReviewRequest {
+                    intent_hash: "stale".into(),
+                    ..request.clone()
+                },
+                100
+            )
+            .is_err()
+        );
+        let cancelled = cancel(&mut db, &request, 100).unwrap();
+        assert_eq!(cancelled.state, EffectDeliveryState::Cancelled);
+        assert_eq!(
+            cancel(&mut db, &request, 200)
+                .unwrap()
+                .cancellation_requested_at,
+            Some(100)
+        );
+        assert!(!claim(&mut db, &id, &rule.handler_hash, 300).unwrap());
+        assert!(
+            complete(
+                &mut db,
+                &Receipt {
+                    delivery_id: id,
+                    intent_hash: request.intent_hash,
+                    destination_id: "never-delivered".into(),
+                    completed_at: 100
+                }
+            )
+            .is_err()
+        );
+        let (effect, digest) = intent(&db, "cancel-after", 0);
+        let id = enqueue(&mut db, &effect, &digest, &revision, 0).unwrap();
+        assert!(claim(&mut db, &id, &rule.handler_hash, 100).unwrap());
+        let request = EffectReviewRequest {
+            id: effect,
+            intent_hash: digest.clone(),
+        };
+        assert_eq!(
+            cancel(&mut db, &request, 200).unwrap().state,
+            EffectDeliveryState::Uncertain
+        );
+        let (other, other_digest) = intent(&db, "capacity", 0);
+        let other = enqueue(&mut db, &other, &other_digest, &revision, 0).unwrap();
+        assert!(!claim(&mut db, &other, &rule.handler_hash, 86_400_200).unwrap());
+        drop(db);
+        let mut db = Connection::open(&path).unwrap();
+        let receipt = Receipt {
+            delivery_id: id.clone(),
+            intent_hash: digest,
+            destination_id: "actually-delivered".into(),
+            completed_at: 100,
+        };
+        complete(&mut db, &receipt).unwrap();
+        assert!(cancel(&mut db, &request, 300).is_err());
+        assert_eq!(
+            db.query_row(
+                "SELECT requested_at FROM effect_cancellations WHERE delivery_id=?",
+                [&id],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            200
+        );
+        assert!(claim(&mut db, &other, &rule.handler_hash, 86_400_200).unwrap());
+    }
 }
 
 #[cfg(test)]
@@ -523,4 +603,37 @@ mod admission_tests {
             1
         );
     }
+}
+
+/// Cancellation is serialized with claim: before launch it prevents dispatch;
+/// after launch the outcome stays unknown and the reservation remains charged.
+pub(super) fn cancel(
+    db: &mut Connection,
+    request: &inferay_core::projects::EffectReviewRequest,
+    time: i64,
+) -> Result<inferay_core::projects::EffectDelivery> {
+    if time < 0 {
+        return Err("Invalid cancellation time".into());
+    }
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let (id, digest, state): (String, String, String) = tx.query_row(
+        "SELECT id,intent_hash,state FROM effect_outbox WHERE effect_id=?",
+        [&request.id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )?;
+    if digest != request.intent_hash {
+        return Err("Effect changed since review".into());
+    }
+    if state == "delivered" {
+        return Err("Delivered effects cannot be cancelled".into());
+    }
+    tx.execute(
+        "INSERT INTO effect_cancellations VALUES(?1,?2) ON CONFLICT(delivery_id) DO NOTHING",
+        params![id, time],
+    )?;
+    tx.execute("UPDATE effect_outbox SET state=CASE WHEN state='queued' THEN 'cancelled' WHEN state='in_flight' THEN 'uncertain' ELSE state END WHERE id=?",[&id])?;
+    let body: String=tx.query_row("SELECT json_object('id',o.id,'state',o.state,'cancellationRequestedAt',c.requested_at,'receipt',json(o.receipt)) FROM effect_outbox o LEFT JOIN effect_cancellations c ON c.delivery_id=o.id WHERE o.id=?",[id],|r|r.get(0))?;
+    let delivery = serde_json::from_str(&body)?;
+    tx.commit()?;
+    Ok(delivery)
 }

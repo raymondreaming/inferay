@@ -469,6 +469,7 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             ("/api/projects/connections", "GET" | "POST") => connections::http(&state, request).await,
             ("/api/projects/run-chat", "POST") => project_chat::open(&state, request).await,
             ("/api/projects/effects", "GET") => project_effects::inbox_http(&state, request).await,
+            ("/api/projects/effects/cancel", "POST") => project_effects::cancel_http(&state, request).await,
             ("/api/projects/effects/dismiss", "POST") => project_effects::dismiss_http(&state, request).await,
             ("/api/projects/command", "POST") => project_command(&state, request).await,
             ("/api/projects/proposal", "POST") => project_proposal(&state, request).await,

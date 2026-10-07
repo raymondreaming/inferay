@@ -26,6 +26,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     export!(
         inferay_core::projects::ProjectHistory,
         inferay_core::projects::EffectReviewRequest,
+        inferay_core::projects::EffectDelivery,
+        inferay_core::projects::EffectDeliveryState,
+        inferay_core::projects::EffectReceipt,
         inferay_core::projects::EffectInboxPage,
         inferay_core::table_preview::TablePreview,
         inferay_core::draft_preview::DraftPreview,

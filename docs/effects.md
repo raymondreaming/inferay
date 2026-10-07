@@ -24,7 +24,11 @@ unimplemented.
 
 Native outbox storage primitives retain reviewed scope revisions, a queued delivery
 identity, count reservations and receipts. Admission uses an immediate transaction;
-uncertain attempts retain capacity past the rolling window. Startup changes
+uncertain attempts retain capacity past the rolling window. Cancellation is serialized
+with admission: queued work becomes cancelled, while an in-flight attempt becomes
+uncertain with a durable stop request. A later delivery receipt remains valid even
+after a stop request. History shows these states and provides cancellation controls;
+requesting a stop does not claim that an action was undone. Startup changes
 in-flight records to uncertain without resending. Storage tests exercise competing
 SQLite connections and an independent local destination that commits before
 losing its reply. These primitives are not yet connected to delivery controls or

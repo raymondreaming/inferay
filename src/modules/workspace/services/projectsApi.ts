@@ -3,6 +3,7 @@ import type {
 	ConnectionCommand,
 	ConnectionInfo,
 	DraftPreview,
+	EffectDelivery,
 	EffectInboxPage,
 	EffectReviewRequest,
 	PluginLibrary,
@@ -211,6 +212,15 @@ export function loadEffectInbox(
 	if (before) query.set("before", before);
 	return fetchJson<EffectInboxPage>(
 		`/api/projects/effects?${query}`,
+		undefined,
+		{ server: true },
+	);
+}
+
+export function cancelEffect(request: EffectReviewRequest) {
+	return postJson<EffectDelivery>(
+		"/api/projects/effects/cancel",
+		request,
 		undefined,
 		{ server: true },
 	);

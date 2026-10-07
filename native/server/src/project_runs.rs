@@ -300,7 +300,7 @@ pub(crate) fn history(
     )?;
     Ok(inferay_core::projects::ProjectHistory {
         effects: rows(db,
-            "SELECT json_object('id',e.id,'runId',e.run_id,'artifact',e.artifact,'intent',json(e.intent),'createdAt',e.created_at,'intentHash',e.intent_hash,'dismissedAt',d.dismissed_at) FROM effect_intents e LEFT JOIN effect_dismissals d ON d.effect_id=e.id WHERE e.project_id=?1 AND e.run_id IN (SELECT value FROM json_each(?2)) ORDER BY e.created_at DESC,e.id LIMIT 5000",
+            "SELECT json_object('id',e.id,'runId',e.run_id,'artifact',e.artifact,'intent',json(e.intent),'createdAt',e.created_at,'intentHash',e.intent_hash,'dismissedAt',d.dismissed_at,'delivery',json((SELECT json_object('id',o.id,'state',o.state,'cancellationRequestedAt',c.requested_at,'receipt',json(o.receipt)) FROM effect_outbox o LEFT JOIN effect_cancellations c ON c.delivery_id=o.id WHERE o.effect_id=e.id))) FROM effect_intents e LEFT JOIN effect_dismissals d ON d.effect_id=e.id WHERE e.project_id=?1 AND e.run_id IN (SELECT value FROM json_each(?2)) ORDER BY e.created_at DESC,e.id LIMIT 5000",
             params![project,serde_json::to_string(&runs.iter().map(|r| &r.id).collect::<Vec<_>>())?])?,
         runs,
         artifacts,

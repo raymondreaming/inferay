@@ -44,7 +44,7 @@ export function EffectInbox(props: {
 					<EffectIntentDialog
 						effect={effect}
 						close={() => setReviewing(null)}
-						dismissed={async () => {
+						changed={async () => {
 							await queryClient.invalidateQueries({
 								queryKey: ["effect-inbox", props.projectId],
 							});
