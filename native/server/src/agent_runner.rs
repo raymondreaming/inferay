@@ -458,7 +458,7 @@ pub async fn run_codex(
     state: &mut CodexProtocolState,
     emissions: &mpsc::UnboundedSender<ProtocolEmission>,
 ) -> String {
-    let mut child = match spawn_codex_app_server(run.binary, &run.invocation.cwd, run.env) {
+    let mut child = match spawn_codex_app_server(run.binary, &run.invocation.cwd, run.env, handle.sandbox.as_ref()) {
         Ok(child) => child,
         Err(error) => {
             if !handle.is_cancelled() {
@@ -828,7 +828,7 @@ pub(crate) async fn inspect_codex_mcp(
     env: &HashMap<OsString, OsString>,
     wanted: Option<&[String]>,
 ) -> Result<(Value, Vec<Value>), String> {
-    let mut child = spawn_codex_app_server(binary, cwd, env).map_err(|e| e.to_string())?;
+    let mut child = spawn_codex_app_server(binary, cwd, env, None).map_err(|e| e.to_string())?;
     let stderr = tokio::spawn(drain_bounded(child.stderr.take().expect("piped stderr")));
     let mut rpc = CodexConnection {
         stdin: child.stdin.take().expect("piped stdin"),
@@ -1069,9 +1069,13 @@ fn spawn_codex_app_server(
     binary: &Path,
     cwd: &Path,
     env: &HashMap<OsString, OsString>,
+    policy: Option<&crate::automation_sandbox::AutomationSandbox>,
 ) -> std::io::Result<tokio::process::Child> {
-    Command::new(binary)
-        .args(["app-server", "--listen", "stdio://"])
+    let mut command = match policy {
+        Some(policy) => policy.codex_command(binary, env).map_err(std::io::Error::other)?,
+        None => Command::new(binary),
+    };
+    command.args(["app-server", "--listen", "stdio://"])
         .current_dir(cwd)
         .env_clear()
         .envs(env)

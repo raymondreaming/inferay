@@ -411,7 +411,7 @@ supports_websockets = false
     let transcript = serde_json::to_string(&*requests).unwrap();
     assert!(transcript.contains("INFERAY_APPROVED_CONTEXT_41931"), "Explicit run instructions must still reach the provider");
     assert!(!transcript.contains("INFERAY_UNAPPROVED_CODEX_PROJECT_CONTEXT_41931"), "Unapproved project instructions entered the provider context");
-    eprintln!("Codex personal instructions remain in context: {}", transcript.contains("INFERAY_UNAPPROVED_CODEX_PERSONAL_CONTEXT_41931"));
+    assert!(!transcript.contains("INFERAY_UNAPPROVED_CODEX_PERSONAL_CONTEXT_41931"), "Unapproved personal instructions entered the provider context");
     let output = requests
         .iter()
         .flat_map(|request| request["input"].as_array().into_iter().flatten())

@@ -921,6 +921,9 @@ async fn real_provider_library_tool(provider: &str, model: Option<&str>, mcp: bo
     let read = |path: &str| -> Value { serde_json::from_slice(&std::fs::read(root.join(path)).unwrap()).unwrap() };
     let plugin = read("plugins/report/plugin.json")["id"].clone();
     let tool = read("plugins/report/tools/report/tool.json")["id"].clone();
+    let mut tool_definition = read("plugins/report/tools/report/tool.json");
+    tool_definition["inputSchema"] = json!({"type":"object","properties":{"text":{"type":"string"}},"required":["text"],"additionalProperties":false});
+    std::fs::write(root.join("plugins/report/tools/report/tool.json"), tool_definition.to_string()).unwrap();
     if mcp {
         let mut definition = read("plugins/report/tools/report/tool.json");
         definition["interface"] = json!({"mcp":{"tool":"report"}});

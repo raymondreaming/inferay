@@ -14,6 +14,47 @@ pub(crate) struct AutomationSandbox {
     git_writes: BTreeSet<std::path::PathBuf>,
 }
 impl AutomationSandbox {
+    /// Keep authentication in the provider's own home, but exclude its personal
+    /// instruction files from this automation process and its descendants.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn codex_command(
+        &self,
+        binary: &Path,
+        env: &std::collections::HashMap<std::ffi::OsString, std::ffi::OsString>,
+    ) -> Result<tokio::process::Command, String> {
+        let home = env.get(std::ffi::OsStr::new("CODEX_HOME"))
+            .filter(|value| !value.is_empty())
+            .map(std::path::PathBuf::from)
+            .or_else(|| env.get(std::ffi::OsStr::new("HOME")).map(|home| std::path::PathBuf::from(home).join(".codex")))
+            .ok_or("Cannot locate Codex home for automation context isolation")?;
+        let home = home.canonicalize().map_err(|error| format!("Cannot resolve Codex home: {error}"))?;
+        let mut paths = BTreeSet::new();
+        for name in ["AGENTS.md", "AGENTS.override.md"] {
+            let path = home.join(name);
+            match path.canonicalize() {
+                Ok(target) => { paths.insert(target); }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(format!("Cannot resolve personal instruction path: {error}")),
+            }
+            paths.insert(path);
+        }
+        let mut profile = String::from("(version 1)\n(allow default)\n");
+        for path in paths {
+            let path = path.to_str().ok_or("Codex instruction path must be UTF-8")?;
+            profile.push_str(&format!("(deny file-read-data (literal {}))\n", serde_json::to_string(path).map_err(|error| error.to_string())?));
+        }
+        let mut command = tokio::process::Command::new("/usr/bin/sandbox-exec");
+        command.args(["-p", &profile, "--"]).arg(binary);
+        Ok(command)
+    }
+    #[cfg(not(target_os = "macos"))]
+    pub(crate) fn codex_command(
+        &self,
+        _binary: &Path,
+        _env: &std::collections::HashMap<std::ffi::OsString, std::ffi::OsString>,
+    ) -> Result<tokio::process::Command, String> {
+        Err("Codex automation context isolation currently requires macOS".into())
+    }
     pub(crate) fn new(may: &BTreeSet<Permission>, repositories: &Value, project: &Path) -> Self {
         let mut roots = BTreeSet::new();
         if may.contains(&Permission::WriteRepositories) {
