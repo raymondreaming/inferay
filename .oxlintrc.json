@@ -50,7 +50,6 @@
 		"target/**",
 		"coverage/**",
 		"public/file-icons/**",
-		"site/**",
 		"docs/**"
 	],
 	"settings": {
