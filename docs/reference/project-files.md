@@ -141,6 +141,14 @@ Environment: `INFERAY_PROJECT_DIR`, `INFERAY_RUN_ID`, `INFERAY_RUN_OUTPUT` (writ
 
 **JSON Schema subset.** Offline only: `type`, `properties`, `required`, `items`, `enum`, boolean `additionalProperties`, and numeric, length and count bounds. Other keywords are refused; remote references are never fetched.
 
+## Tools available to automation agents
+
+An agent execution can include `tools: [{ "pluginId": "<plugin UUID>", "toolId": "<tool UUID>" }]` (default empty, maximum 32 distinct grants). The pair identifies an entrypoint inside a reusable library, including a library separate from the automation. The library’s declared permissions must fit within the automation’s permissions. Missing or invalid tools prevent approval.
+
+The automation editor exposes these grants under Context & execution → Configure → Library tools. Claude and Codex receive the same `inferay_tools` interface: `{"action":"list"}` lists only granted tools and their input schemas; `{"action":"call","pluginId":"…","toolId":"…","input":{}}` runs one. Approval captures the entire referenced library, including companion scripts and binary assets. Each invocation rechecks current approved inputs. Outside edits require review again.
+
+Calls run serially, with at most 64 calls per agent run. Each call retains its input, entrypoint, stdout, stderr and result event under the parent run; returned artifacts become parent-run artifacts. Ending or cancelling the agent closes the tool grants and stops an active helper. These controls govern Inferay’s tool interface; they do not yet sandbox an agent’s own shell.
+
 ## Automation proposals from chat
 
 An ordinary automation is saved at `automations/<id>/automation.json`. A plugin may also contain automations at `plugins/<slug>/automations/<name>.json`; a standalone job does not create a plugin.

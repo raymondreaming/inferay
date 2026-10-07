@@ -463,7 +463,16 @@ fn scan_candidate(
         } else if standalone || plugin.is_some() {
             if let Some(DefinitionFile::Automation(automation)) = &indexed[i].definition {
                 let mut skills = globals.clone();
-                let mut tools = BTreeSet::new();
+                let mut tools: BTreeSet<String> = indexed.iter().filter_map(|entry| {
+                    let Some(DefinitionFile::Tool(tool)) = &entry.definition else { return None; };
+                    let owner = entry.path.split('/').take(2).collect::<Vec<_>>().join("/");
+                    if !owner.starts_with("plugins/") { return None; }
+                    let plugin = indexed.iter().find_map(|entry| {
+                        if entry.path != format!("{owner}/plugin.json") { return None; }
+                        match &entry.definition { Some(DefinitionFile::Plugin(plugin)) => Some(plugin), _ => None }
+                    })?;
+                    Some(AgentToolGrant { plugin_id: plugin.id.clone(), tool_id: tool.id.clone() }.key())
+                }).collect();
                 for entry in indexed.iter().filter(|e| e.path.starts_with(&prefix)) {
                     match &entry.definition {
                         Some(DefinitionFile::Skill(skill)) => {

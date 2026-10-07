@@ -297,18 +297,44 @@ pub(crate) fn execution_inputs(
         "project.json".into(),
         project_entry.hash.clone().ok_or("Project hash missing")?,
     );
+    let mut packages = BTreeMap::from([(prefix.clone(), package.clone())]);
+    let mut granted_tools = BTreeMap::new();
     let mut selected_skills = BTreeMap::new();
     let mut skill_context = Vec::new();
     let mut resource_context = Vec::new();
     let mut repositories = BTreeMap::new();
     if let DefinitionExecution::Agent {
         skills: selected,
+        tools: grants,
         resources,
         repositories: selected_repositories,
         working_directory,
         ..
     } = &definition.execution
     {
+        for grant in grants {
+            let owner = scanned.iter().find(|entry| matches!(&entry.definition, Some(DefinitionFile::Plugin(plugin)) if plugin.id == grant.plugin_id)).ok_or("Granted tool library is missing")?;
+            let owner_prefix = owner.path.strip_suffix("/plugin.json").ok_or("Invalid library path")?;
+            let Some(DefinitionFile::Plugin(plugin)) = &owner.definition else { unreachable!() };
+            if !plugin.may.is_subset(&definition.may) { return Err(format!("Granted tool library {} requires permissions absent from this automation", plugin.name).into()); }
+            if let Some(entry) = scanned.iter().find(|entry| entry.path.starts_with(&format!("{owner_prefix}/")) && entry.error.is_some()) {
+                return Err(format!("Granted library needs repair: {}", entry.error.as_deref().unwrap()).into());
+            }
+            let entry = scanned.iter().find(|entry| entry.path.starts_with(&format!("{owner_prefix}/tools/")) && matches!(&entry.definition, Some(DefinitionFile::Tool(tool)) if tool.id == grant.tool_id)).ok_or("Granted tool is missing")?;
+            let Some(DefinitionFile::Tool(tool)) = &entry.definition else { unreachable!() };
+            let package = files::package_files(&root, owner_prefix)?;
+            for entry in scanned.iter().filter(|entry| entry.path.starts_with(&format!("{owner_prefix}/"))) {
+                if entry.hash.as_ref() != package.get(&entry.path) { return Err("Granted tool library changed while capturing inputs".into()); }
+            }
+            let directory = entry.path.strip_suffix("/tool.json").ok_or("Invalid tool path")?.to_owned();
+            let entrypoint = format!("{directory}/{}", tool.entrypoint);
+            granted_tools.insert(grant.key(), crate::project_tools::CapturedTool {
+                grant: grant.clone(), definition: tool.clone(), directory,
+                entrypoint_hash: package.get(&entrypoint).ok_or("Granted entrypoint hash missing")?.clone(),
+            });
+            inputs.extend(package.clone());
+            packages.insert(owner_prefix.into(), package);
+        }
         for id in resources {
             let entry = scanned
                 .iter()
@@ -382,10 +408,12 @@ pub(crate) fn execution_inputs(
             return Err(format!("Execution input changed while reading: {path}").into());
         }
     }
-    if files::package_files(&root, &prefix)? != package {
-        return Err("Plugin files changed while capturing execution inputs".into());
+    for (prefix, package) in packages {
+        if files::package_files(&root, &prefix)? != package {
+            return Err("Plugin files changed while capturing execution inputs".into());
+        }
     }
-    let mut snapshot = json!({"projectId":project,"automation":definition,"files":inputs,"globalSkills":selected_skills,"repositoryPaths":repositories,"projectInstructions":project_definition.instructions,"resources":resource_context,"skills":skill_context});
+    let mut snapshot = json!({"projectId":project,"automation":definition,"files":inputs,"globalSkills":selected_skills,"repositoryPaths":repositories,"projectInstructions":project_definition.instructions,"resources":resource_context,"skills":skill_context,"tools":granted_tools});
     use inferay_core::projects::{LocalTool, ProjectExecution, ProjectPath};
     let execution = match &definition.execution {
         DefinitionExecution::Agent {

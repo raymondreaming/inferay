@@ -279,6 +279,16 @@ impl Trigger {
         }
     }
 }
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AgentToolGrant {
+    pub plugin_id: String,
+    pub tool_id: String,
+}
+impl AgentToolGrant {
+    pub fn key(&self) -> String { format!("{}/{}", self.plugin_id, self.tool_id) }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(
     tag = "kind",
@@ -296,6 +306,8 @@ pub enum DefinitionExecution {
         model: Option<String>,
         reasoning_level: Option<String>,
         instructions: String,
+        #[serde(default)]
+        tools: Vec<AgentToolGrant>,
         skills: Vec<String>,
         resources: Vec<String>,
         repositories: Vec<String>,
@@ -457,6 +469,7 @@ impl Definition for AutomationDefinition {
             DefinitionExecution::Agent {
                 provider,
                 instructions,
+                tools,
                 skills,
                 resources,
                 repositories,
@@ -469,11 +482,17 @@ impl Definition for AutomationDefinition {
                 }
                 bounded_text(instructions, 64000, true)?;
                 if !(1..=86400).contains(timeout_seconds)
+                    || tools.len() > 32
+                    || tools.iter().collect::<BTreeSet<_>>().len() != tools.len()
                     || skills.len() > 20
                     || resources.len() > 32
                     || repositories.len() > 512
                 {
                     return Err("execution limits exceeded".into());
+                }
+                for grant in tools {
+                    uuid::Uuid::parse_str(&grant.plugin_id).map_err(|_| "tools.pluginId must be a UUID")?;
+                    uuid::Uuid::parse_str(&grant.tool_id).map_err(|_| "tools.toolId must be a UUID")?;
                 }
                 match working_directory {
                     DefinitionDirectory::Repository { id } => {
@@ -511,11 +530,13 @@ pub fn validate_references(
         DefinitionExecution::Tool { tool, .. } => check("tool", tool, tools)?,
         DefinitionExecution::Agent {
             skills: selected,
+            tools: grants,
             resources: refs,
             repositories: repos,
             working_directory,
             ..
         } => {
+            for grant in grants { check("tool", &grant.key(), tools)?; }
             for id in selected {
                 if let Some(global_id) = id.strip_prefix("global:") {
                     bounded_text(global_id, 200, true)

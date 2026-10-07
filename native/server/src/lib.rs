@@ -74,6 +74,7 @@ pub mod native_git;
 mod one_shot;
 mod path_resolution;
 mod project_runtime;
+mod project_tools;
 mod project_runs;
 mod project_file_commands;
 mod project_proposals;

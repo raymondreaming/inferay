@@ -39,6 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         inferay_core::project_files::ResourceDefinition,
         inferay_core::project_files::PluginDefinition,
         inferay_core::project_files::ToolDefinition,
+        inferay_core::project_files::AgentToolGrant,
         inferay_core::project_files::AutomationDefinition,
         inferay_core::project_files::SkillDefinition,
         inferay_core::memory::MemoryNote,

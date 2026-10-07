@@ -566,3 +566,46 @@ async fn cli_tools_use_literal_arguments_and_exit_status_with_durable_logs() {
         }
     }
 }
+
+#[tokio::test]
+async fn agent_tool_grants_execute_only_approved_library_inputs() {
+    let profile = tempfile::tempdir().unwrap();
+    let (project, automation) = definition_files(profile.path(),
+        "import json,sys,os\nfrom pathlib import Path\nx=json.load(sys.stdin)\nimport time\ntime.sleep(10 if x.get('slow') else 0)\n(Path(os.environ['INFERAY_RUN_OUTPUT'])/'report.md').write_text(x['text'])\nprint(json.dumps({'artifacts':['report.md']}))");
+    let root = profile.path().join("projects").join(&project).canonicalize().unwrap();
+    let read = |path: &str| -> Value { serde_json::from_slice(&std::fs::read(root.join(path)).unwrap()).unwrap() };
+    let plugin = read("plugins/report/plugin.json")["id"].clone();
+    let tool = read("plugins/report/tools/report/tool.json")["id"].clone();
+    let path = root.join("plugins/report/automations/report.json");
+    let mut definition = read("plugins/report/automations/report.json");
+    definition["execution"] = json!({"kind":"agent","provider":"codex","instructions":"Use the report tool","tools":[{"pluginId":plugin,"toolId":tool}],"skills":[],"resources":[],"repositories":[],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":30});
+    std::fs::remove_file(&path).unwrap();
+    let standalone = root.join("automations").join(&automation);
+    std::fs::create_dir_all(&standalone).unwrap();
+    std::fs::write(standalone.join("automation.json"), definition.to_string()).unwrap();
+    let runtime = runtime(profile.path());
+    let run = approved_run(&runtime, &automation, "grants").await;
+    let snapshot = {
+        let mut store = runtime.store.lock().unwrap();
+        crate::project_runs::claim_next(&mut store.db, profile.path(), &[]).unwrap().unwrap().2
+    };
+    let scope = crate::project_tools::ToolScope::new(runtime.clone(), &run, root.clone(), root.join("runs").join(&run), snapshot).unwrap();
+    assert_eq!(scope.call(json!({"action":"list"})).await.unwrap()["tools"].as_array().unwrap().len(), 1);
+    assert!(scope.call(json!({"action":"call","pluginId":plugin,"toolId":uuid::Uuid::new_v4().to_string(),"input":{}})).await.unwrap_err().to_string().contains("not granted"));
+    let request = json!({"action":"call","pluginId":plugin,"toolId":tool,"input":{"text":"Recorded tool output"}});
+    let result = scope.call(request.clone()).await.unwrap();
+    let artifact = result["artifacts"][0].as_str().unwrap();
+    assert_eq!(std::fs::read_to_string(root.join("runs").join(&run).join("output").join(artifact)).unwrap(), "Recorded tool output");
+    assert_eq!(scope.artifacts().unwrap(), vec![artifact]);
+    std::fs::write(root.join("plugins/report/README.md"), "Changed library instructions").unwrap();
+    assert!(scope.call(request.clone()).await.is_err(), "An outside library edit must invalidate the grant");
+    std::fs::remove_file(root.join("plugins/report/README.md")).unwrap();
+    let running = scope.clone();
+    let mut slow = request.clone();
+    slow["input"]["slow"] = json!(true);
+    let task = tokio::spawn(async move { running.call(slow).await });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    tokio::time::timeout(Duration::from_secs(5), scope.close()).await.unwrap();
+    assert!(task.await.unwrap().is_err(), "Closing the agent must stop its helper");
+    assert!(scope.call(request).await.unwrap_err().to_string().contains("closed"));
+}

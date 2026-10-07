@@ -1,4 +1,5 @@
 //! Durable local execution; presentation observes this owner and never drives its clock.
+pub(crate) mod tool;
 use crate::{
     agent_command::AgentCommandResolver,
     agent_runner::{self, AgentProcessHandle, RuntimePidTracker},
@@ -22,7 +23,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::AsyncWriteExt,
     sync::Semaphore,
 };
 
@@ -31,7 +32,7 @@ pub(crate) struct ProjectRuntime {
     pub capacity: Arc<Semaphore>,
     background: Arc<Semaphore>,
     resolver: Arc<AgentCommandResolver>,
-    prompts: Arc<tokio::sync::Mutex<PromptStore>>,
+    pub(crate) prompts: Arc<tokio::sync::Mutex<PromptStore>>,
     tracker: RuntimePidTracker,
     pub memory: crate::memory_store::MemoryStore,
 }
@@ -356,7 +357,7 @@ impl ProjectRuntime {
         }
         Ok(())
     }
-    fn stopped(&self, id: &str) -> bool {
+    pub(crate) fn stopped(&self, id: &str) -> bool {
         self.store
             .lock()
             .ok()
@@ -416,128 +417,10 @@ impl ProjectRuntime {
         match serde_json::from_value::<ProjectExecution>(snapshot["execution"].clone())? {
             ProjectExecution::Tool { tool_id: _, input } => {
                 let tool: LocalTool = serde_json::from_value(snapshot["tool"].clone())?;
-                let file = resolve_path(&root, &tool.entrypoint)?;
-                let bytes = std::fs::read(&file)?;
-                if snapshot["entrypointHash"].as_str() != Some(&project_store::hash(&bytes)) {
-                    return Err(
-                        "Tool changed after this run was queued. Retry to capture the new input."
-                            .into(),
-                    );
-                }
-                std::fs::write(dir.join("inputs/entrypoint"), &bytes)?;
-                let cwd = resolve_path(&root, &tool.working_directory)?;
-                let mut command = tokio::process::Command::new(&tool.program);
-                command
-                    .args(&tool.arguments)
-                    .current_dir(cwd)
-                    .env("INFERAY_PROJECT_DIR", &root)
-                    .env("INFERAY_RUN_OUTPUT", dir.join("output"))
-                    .env("INFERAY_RUN_ID", id)
-                    .stdin(if tool.interface == ToolInterface::JsonStdin {
-                        std::process::Stdio::piped()
-                    } else {
-                        std::process::Stdio::null()
-                    })
-                    .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::piped())
-                    .kill_on_drop(true);
-                #[cfg(unix)]
-                command.process_group(0);
-                let mut child = command.spawn()?;
-                let pid = child.id();
-                if let Some(pid) = pid {
-                    self.tracker.track_pid(pid);
-                }
-                let write = if tool.interface == ToolInterface::JsonStdin {
-                    let mut stdin = child.stdin.take().ok_or("No process stdin")?;
-                    let data = serde_json::to_vec(&input)?;
-                    Some(tokio::spawn(async move {
-                        stdin.write_all(&data).await?;
-                        stdin.shutdown().await
-                    }))
-                } else {
-                    None
-                };
-                let stdout = child.stdout.take().ok_or("No stdout")?;
-                let stderr = child.stderr.take().ok_or("No stderr")?;
-                let mut out = tokio::spawn(async move {
-                    let mut bytes = Vec::new();
-                    stdout
-                        .take(1_048_577)
-                        .read_to_end(&mut bytes)
-                        .await
-                        .map(|_| bytes)
-                });
-                let mut err = tokio::spawn(async move {
-                    let mut bytes = Vec::new();
-                    stderr
-                        .take(1_048_577)
-                        .read_to_end(&mut bytes)
-                        .await
-                        .map(|_| bytes)
-                });
-                let deadline =
-                    tokio::time::Instant::now() + Duration::from_secs(tool.timeout_seconds);
-                let mut failure = None;
-                let status = loop {
-                    tokio::select! {result=child.wait()=>{match result {Ok(status)=>break Some(status),Err(_)=>{failure=Some("Could not wait for tool process");break None;}}},_=tokio::time::sleep(Duration::from_millis(100))=>{if self.stopped(id)||tokio::time::Instant::now()>=deadline{failure=Some(if self.stopped(id){"Cancelled"}else{"Tool timed out"});if let Some(pid)=pid{agent_runner::tree_kill(pid);}let _=child.kill().await;let _=child.wait().await;break None;}}}
-                };
-                if let Some(write) = write {
-                    write.abort();
-                }
-                if let Some(pid) = pid {
-                    #[cfg(unix)]
-                    {
-                        let _ = std::process::Command::new("/bin/kill")
-                            .args(["-KILL", "--", &format!("-{pid}")])
-                            .stdout(std::process::Stdio::null())
-                            .stderr(std::process::Stdio::null())
-                            .status();
-                    }
-                    self.tracker.untrack_pid(pid);
-                }
-                let output = tokio::time::timeout(Duration::from_secs(2), &mut out).await;
-                let errors = tokio::time::timeout(Duration::from_secs(2), &mut err).await;
-                if output.is_err() || errors.is_err() {
-                    out.abort();
-                    err.abort();
-                    return Err("Tool streams did not close".into());
-                }
-                let output = output???;
-                let errors = errors???;
-                std::fs::write(dir.join("logs/stdout.txt"), &output)?;
-                std::fs::write(dir.join("logs/stderr.txt"), &errors)?;
-                if let Some(error) = failure {
-                    return Err(error.into());
-                }
-                if output.len() > 1_048_576 || errors.len() > 1_048_576 {
-                    return Err("Tool output exceeded 1 MiB per stream".into());
-                }
-                if !status.is_some_and(|s| s.success()) {
-                    return Err(format!(
-                        "Tool failed (exit {}): {}",
-                        status
-                            .and_then(|status| status.code())
-                            .map(|code| code.to_string())
-                            .unwrap_or_else(|| "signal".into()),
-                        String::from_utf8_lossy(&errors)
-                            .chars()
-                            .take(2000)
-                            .collect::<String>()
-                    )
-                    .into());
-                }
-                let result: Value = match tool.interface {
-                    ToolInterface::JsonStdin => serde_json::from_slice(&output)
-                        .map_err(|e| format!("Tool must return JSON on stdout: {e}"))?,
-                    ToolInterface::Cli => json!({
-                        "stdout": String::from_utf8_lossy(&output),
-                        "stderr": String::from_utf8_lossy(&errors),
-                        "exitCode": 0,
-                    }),
-                };
-                validate_json(&tool.output_schema, &result)?;
-                Ok(result)
+                tool::execute(self, tool::Invocation {
+                    id, root: &root, dir: &dir, call: None, tool, input,
+                    entrypoint_hash: snapshot["entrypointHash"].as_str().ok_or("Missing entrypoint hash")?, active: None,
+                }).await
             }
             ProjectExecution::Agent {
                 instructions,
@@ -563,8 +446,11 @@ impl ProjectRuntime {
                 if let Ok(mut reads) = memory.reads.lock() {
                     reads.extend(recalled.read);
                 }
+                let tools = crate::project_tools::ToolScope::new(self.clone(), id, root.clone(), dir.clone(), snapshot.clone())?;
+                let _tool_lease = crate::project_tools::ToolLease(tools.clone());
                 let handle = AgentProcessHandle::with_skills(self.prompts.clone())
-                    .with_memory(Some(memory.clone()));
+                    .with_memory(Some(memory.clone()))
+                    .with_tools(tools.clone());
                 let kind = if provider == "codex" {
                     AgentKind::Codex
                 } else {
@@ -581,7 +467,7 @@ impl ProjectRuntime {
                     root.display(),
                     dir.join("output").display()
                 );
-                let prompt = format!("{prompt}\n\n{}", recalled.text);
+                let prompt = format!("{prompt}\n\n{}\n\nGranted library tools: {}. Use inferay_tools list to discover their input schemas and call them through inferay_tools; do not bypass the granted interface with shell commands.", recalled.text, snapshot["tools"]);
                 let invocation=CodexInvocationContext{cwd:cwd.clone(),reference_paths:vec![],images:vec![],model:model.clone(),reasoning_level:reasoning_level.clone(),developer_instructions:Some("Run the explicitly requested project automation. Do not enable schedules or expand permissions. Report failures truthfully.".into()),session_id:None,mcp_servers:Some(vec![])};
                 let mut protocol = AgentProtocolContext::new(cwd.clone());
                 let mut codex = CodexProtocolState::default();
@@ -670,6 +556,7 @@ impl ProjectRuntime {
                         tokio::select! {value=&mut run=>break Ok(value),_=tokio::time::sleep(Duration::from_millis(100))=>{if self.stopped(id)||waiting.load(std::sync::atomic::Ordering::Acquire)||tokio::time::Instant::now()>=deadline{handle.kill();break Err("Agent run stopped or timed out");}}}
                     }
                 };
+                tools.close().await;
                 drop(sender);
                 let provider_failed = drain.await??;
                 let reads = memory.reads.lock().map(|r| r.clone()).unwrap_or_default();
@@ -693,9 +580,9 @@ impl ProjectRuntime {
                             "Provider returned no final response; inspect the agent log".into()
                         );
                     }
-                    Ok(
-                        json!({"message":text,"artifacts":["response.md"],"completion":"provider turn completed; not an independently verified business outcome"}),
-                    )
+                    let mut artifacts = tools.artifacts()?;
+                    artifacts.push("response.md".into());
+                    Ok(json!({"message":text,"artifacts":artifacts,"completion":"provider turn completed; not an independently verified business outcome"}))
                 } else {
                     Err("Agent run stopped or timed out".into())
                 }

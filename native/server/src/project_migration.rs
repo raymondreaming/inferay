@@ -585,6 +585,7 @@ pub(crate) fn export(db: &mut Connection, root: &Path, skills: &[Prompt]) -> Res
                         warnings.push(format!("Automation {automation_id}: instructions contain absolute paths; replace them with repository references after review"));
                     }
                     DefinitionExecution::Agent {
+                        tools: vec![],
                         provider,
                         model,
                         reasoning_level,

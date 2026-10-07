@@ -1,4 +1,8 @@
-import type { AutomationDefinition, ProjectFileCommand } from "@contracts";
+import type {
+	AgentToolGrant,
+	AutomationDefinition,
+	ProjectFileCommand,
+} from "@contracts";
 import { ComposerControls } from "@conversation/components/ChatComposer/ComposerControls.tsx";
 import { ProviderConfigMenu } from "@conversation/components/ChatComposer/ProviderConfigMenu.tsx";
 import { useAgentConfiguration } from "@conversation/components/ChatComposer/useAgentConfiguration.tsx";
@@ -21,6 +25,7 @@ import type {
 	ProjectAutomation,
 	ProjectResource,
 } from "../../model/projectFiles.ts";
+import { AutomationTools } from "./AutomationTools.tsx";
 import { AutomationTrigger } from "./AutomationTrigger.tsx";
 import { styles } from "./styles.ts";
 export function AutomationEditor(props: {
@@ -60,6 +65,9 @@ export function AutomationEditor(props: {
 	const [instructionsFocused, setInstructionsFocused] = createSignal(false);
 	const library = useBackgroundQuery(skillsQuery, () => queryClient);
 	const initial = props.automation?.execution;
+	const [grants, setGrants] = createSignal<AgentToolGrant[]>(
+		initial?.kind === "agent" ? initial.tools : [],
+	);
 	const [name, setName] = createSignal(
 		props.automation?.name ?? (props.seed?.instructions ? props.seed.name : ""),
 	);
@@ -180,6 +188,7 @@ export function AutomationEditor(props: {
 							.split(",")
 							.map((s) => s.trim())
 							.filter(Boolean),
+						tools: grants(),
 						skills: skills()
 							.split(",")
 							.map((s) => s.trim())
@@ -513,6 +522,11 @@ export function AutomationEditor(props: {
 									</label>
 								))}
 							</fieldset>
+							<AutomationTools
+								projectId={props.projectId}
+								value={grants()}
+								onChange={setGrants}
+							/>
 							<label>
 								External working directory (blank uses project)
 								<input
