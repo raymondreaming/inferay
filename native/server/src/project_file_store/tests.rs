@@ -232,6 +232,11 @@ fn studio_library_fixture_has_separate_disabled_workflow_and_required_tools() {
     assert_eq!(store.db.query_row("SELECT count(*) FROM plugins", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
     assert_eq!(store.db.query_row("SELECT count(*) FROM automations", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
     assert_eq!(store.db.query_row("SELECT count(*) FROM automation_state WHERE enabled<>0 OR coalesce(approved_hash,'')<>''", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    let catalog = store.catalog(Some(PROJECT), &[]).unwrap();
+    assert_eq!(catalog.skills.len(), 1);
+    let skill = catalog.skills[0].definition.as_ref().unwrap();
+    assert_eq!(skill.name, "Procedural studio");
+    assert!(catalog.skills[0].source_path.starts_with("plugins/procedural-studio/skills/"));
     let error: Option<String> = store.db.query_row("SELECT error FROM automations", [], |r| r.get(0)).unwrap();
     assert!(error.is_none(), "{error:?}");
     let definition: serde_json::Value = serde_json::from_slice(&std::fs::read(root.join("automations/daily-studio/automation.json")).unwrap()).unwrap();

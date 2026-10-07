@@ -46,6 +46,7 @@ export function projectWorkspaceView(workspace: ProjectWorkspace) {
 		),
 		resources: catalog.resources.flatMap(defined),
 		tools: catalog.tools.flatMap(defined),
+		skills: catalog.skills.flatMap(defined),
 		automations: catalog.automations.flatMap(
 			({ file, ...state }): ProjectAutomation[] =>
 				file.definition ? [{ ...file.definition, file, ...state }] : [],

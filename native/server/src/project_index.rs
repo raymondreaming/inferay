@@ -59,8 +59,11 @@ pub(crate) fn catalog(db: &Connection, project: Option<&str>) -> Result<ProjectF
         .query_map([project], |r|Ok((r.get(0)?,r.get(1)?)))?.collect::<std::result::Result<_,_>>()?;
     let tools = db.prepare("SELECT id,project_id,plugin_id,source_path,source_hash,error,body FROM tools WHERE project_id=? ORDER BY source_path LIMIT 512")?
         .query_map([project], indexed)?.collect::<std::result::Result<_,_>>()?;
+    let skills = db.prepare("SELECT id,project_id,plugin_id,source_path,source_hash,error,body FROM project_skills WHERE project_id=? ORDER BY source_path LIMIT 512")?
+        .query_map([project], indexed)?.collect::<std::result::Result<_,_>>()?;
     Ok(ProjectFileCatalog {
         tools,
+        skills,
         projects,
         resources,
         plugins,

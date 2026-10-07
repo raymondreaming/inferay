@@ -136,7 +136,9 @@ A skill in another library can be selected as
 own folder; `global:<id>` selects a global skill. Qualified library references
 capture the whole library in the approval hash and inject the selected skill's
 instructions. Using knowledge alone does not require that library's executables
-or repository binding; tool grants add those execution requirements.
+or repository binding; tool grants add those execution requirements. The automation
+editor lists global, library and local skills with their source labels. Missing
+selected references remain visible for repair or removal.
 
 ## tools/&lt;name&gt;/tool.json
 
@@ -280,6 +282,7 @@ Required tools must be called, and their latest attempt must succeed before the
 agent run can finish successfully. A skipped check, failed call, or invalid retry
 cannot be hidden by the provider's final response. A successful retry restores the
 check. Omitted `required` means optional, preserving recoverable tool calls.
+The editor exposes these grant modes as Not available, Available and Must pass.
 Required grants are included in approved inputs, and duplicate tool identities
 are refused even when their `required` values differ. This validates tool outcomes;
 it does not prove an agent selected the right inputs or satisfied brand goals.

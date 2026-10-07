@@ -132,6 +132,7 @@ pub struct ProjectFileCatalog {
     pub resources: Vec<IndexedDefinition<ResourceDefinition>>,
     pub plugins: Vec<IndexedPlugin>,
     pub tools: Vec<IndexedDefinition<ToolDefinition>>,
+    pub skills: Vec<IndexedDefinition<SkillDefinition>>,
     pub automations: Vec<IndexedAutomation>,
     pub issues: Vec<DefinitionIssue>,
     pub repository_paths: BTreeMap<String, String>,

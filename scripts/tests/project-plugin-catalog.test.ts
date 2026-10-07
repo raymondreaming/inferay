@@ -19,6 +19,7 @@ test("invalid libraries remain visible and retain their file identity for repair
 			projects: [],
 			resources: [],
 			tools: [],
+			skills: [],
 			automations: [],
 			issues: [],
 			repositoryPaths: {},

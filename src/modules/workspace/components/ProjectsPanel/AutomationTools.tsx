@@ -1,4 +1,5 @@
 import type { AgentToolGrant } from "@contracts";
+import { DropdownButton } from "@shared/ui/DropdownButton/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { projects } from "../../hooks/useProjects.tsx";
 import { styles } from "./styles.ts";
@@ -35,31 +36,47 @@ export function AutomationTools(props: {
 		<fieldset {...stylex.attrs(styles.form)}>
 			<legend>Library tools</legend>
 			<p {...stylex.attrs(styles.muted)}>
-				Selected tools are available to this agent through Inferay.
+				Available tools can be called by the agent. “Must pass” checks are
+				required for a successful run.
 			</p>
-			{options().map((option) => (
-				<label {...stylex.attrs(styles.row)}>
-					<input
-						type="checkbox"
-						checked={props.value.some(
-							(grant) =>
-								grant.pluginId === option.pluginId &&
-								grant.toolId === option.toolId,
-						)}
-						onChange={(event) => {
-							const next = props.value.filter(
-								(grant) =>
-									grant.pluginId !== option.pluginId ||
-									grant.toolId !== option.toolId,
-							);
-							if (event.currentTarget.checked)
-								next.push({ pluginId: option.pluginId, toolId: option.toolId });
-							props.onChange(next);
-						}}
-					/>
-					{option.label}
-				</label>
-			))}
+			{options().map((option) => {
+				const grant = () =>
+					props.value.find(
+						(item) =>
+							item.pluginId === option.pluginId &&
+							item.toolId === option.toolId,
+					);
+				return (
+					<div {...stylex.attrs(styles.row)}>
+						<span>{option.label}</span>
+						<DropdownButton
+							aria-label={`${option.label} access`}
+							value={
+								grant() ? (grant()?.required ? "required" : "optional") : "none"
+							}
+							options={[
+								{ id: "none", label: "Not available" },
+								{ id: "optional", label: "Available" },
+								{ id: "required", label: "Must pass" },
+							]}
+							onChange={(value) => {
+								const next = props.value.filter(
+									(item) =>
+										item.pluginId !== option.pluginId ||
+										item.toolId !== option.toolId,
+								);
+								if (value !== "none")
+									next.push({
+										pluginId: option.pluginId,
+										toolId: option.toolId,
+										required: value === "required",
+									});
+								props.onChange(next);
+							}}
+						/>
+					</div>
+				);
+			})}
 		</fieldset>
 	);
 }

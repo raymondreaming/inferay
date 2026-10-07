@@ -7,8 +7,7 @@ import { ComposerControls } from "@conversation/components/ChatComposer/Composer
 import { ProviderConfigMenu } from "@conversation/components/ChatComposer/ProviderConfigMenu.tsx";
 import { useAgentConfiguration } from "@conversation/components/ChatComposer/useAgentConfiguration.tsx";
 import { surfaceStyles } from "@design-system/styles.stylex.ts";
-import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
-import { ariaValue, queryClient } from "@shared/lib/dom.tsx";
+import { ariaValue } from "@shared/lib/dom.tsx";
 import { getAgentDefinition } from "@shared/lib/native.tsx";
 import { BorderBeamOverlay } from "@shared/ui/BorderBeamOverlay/index.tsx";
 import { Button } from "@shared/ui/Button/index.tsx";
@@ -16,7 +15,6 @@ import { DropdownButton } from "@shared/ui/DropdownButton/index.tsx";
 import { IconFolder, IconGitBranch } from "@shared/ui/Icons/index.tsx";
 import { SettingsRow } from "@shared/ui/SettingsSurface/index.tsx";
 import { Switch } from "@shared/ui/Switch/index.tsx";
-import { skillsQuery } from "@skills/services/skillsApi.ts";
 import * as stylex from "@stylexjs/stylex";
 import { createSignal, Show } from "solid-js";
 import { useAutomationAutosave } from "../../hooks/useAutomationAutosave.tsx";
@@ -25,6 +23,7 @@ import type {
 	ProjectAutomation,
 	ProjectResource,
 } from "../../model/projectFiles.ts";
+import { AutomationSkills } from "./AutomationSkills.tsx";
 import { AutomationTools } from "./AutomationTools.tsx";
 import { AutomationTrigger } from "./AutomationTrigger.tsx";
 import { styles } from "./styles.ts";
@@ -63,7 +62,6 @@ export function AutomationEditor(props: {
 		),
 	);
 	const [instructionsFocused, setInstructionsFocused] = createSignal(false);
-	const library = useBackgroundQuery(skillsQuery, () => queryClient);
 	const initial = props.automation?.execution;
 	const [grants, setGrants] = createSignal<AgentToolGrant[]>(
 		initial?.kind === "agent" ? initial.tools : [],
@@ -497,31 +495,12 @@ export function AutomationEditor(props: {
 										</label>
 									))}
 							</fieldset>
-							<fieldset {...stylex.attrs(styles.form)}>
-								<legend>Skills</legend>
-								{library.data?.map((skill) => (
-									<label {...stylex.attrs(styles.row)}>
-										<input
-											type="checkbox"
-											checked={skills()
-												.split(",")
-												.map((v) => v.trim())
-												.includes(`global:${skill._id}`)}
-											onChange={(e) => {
-												const ids = skills()
-													.split(",")
-													.map((v) => v.trim())
-													.filter(Boolean)
-													.filter((id) => id !== `global:${skill._id}`);
-												if (e.currentTarget.checked)
-													ids.push(`global:${skill._id}`);
-												setSkills(ids.join(", "));
-											}}
-										/>
-										{skill.name}
-									</label>
-								))}
-							</fieldset>
+							<AutomationSkills
+								projectId={props.projectId}
+								ownerPath={pluginPath}
+								value={skills()}
+								onChange={setSkills}
+							/>
 							<AutomationTools
 								projectId={props.projectId}
 								value={grants()}
