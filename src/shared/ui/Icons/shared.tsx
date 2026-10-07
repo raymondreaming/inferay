@@ -101,6 +101,7 @@ export const {
 	IconTarget,
 	IconLoader,
 	IconSparkles,
+	IconBookmark,
 } = {
 	IconAgent: icon(["M4 17l6-6-6-6", "M12 19h8"]),
 	IconX: icon("M18 6L6 18M6 6l12 12"),
@@ -187,6 +188,7 @@ export const {
 	IconArrowDown: icon(["M12 2v20", "M5 15l7 7 7-7"]),
 	IconArrowUp: icon(["M12 22V2", "M5 9l7-7 7 7"]),
 	IconTag: icon(["M2 12l10 10 10-10-10-10H2z", "M7 7h.01"]),
+	IconBookmark: icon("M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"),
 	IconCloud: icon([
 		"M7 18h10a4 4 0 0 0 0-8 5 5 0 0 0-9.7-1.5A3.5 3.5 0 0 0 7 18z",
 	]),

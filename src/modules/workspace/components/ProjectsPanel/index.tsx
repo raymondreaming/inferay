@@ -11,6 +11,7 @@ import {
 } from "../../hooks/useProjects.tsx";
 import { AutomationWorkspace } from "./AutomationWorkspace.tsx";
 import { LibraryToolbar } from "./LibraryToolbar.tsx";
+import { MemoryPanel } from "./MemoryPanel/index.tsx";
 import { ProjectEditor } from "./ProjectEditor.tsx";
 import { ProjectFiles } from "./ProjectFiles.tsx";
 import { ResourceEditor } from "./ResourceEditor.tsx";
@@ -211,6 +212,9 @@ export function ProjectsPanel() {
 							))}
 					</div>
 				</>
+			) : null}
+			{current() && projects.view() === "memory" ? (
+				<MemoryPanel projectId={current()!.id} />
 			) : null}
 			{current() && ["files", "tools", "plugins"].includes(projects.view()) ? (
 				<Show when={projects.view()} keyed>

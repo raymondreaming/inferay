@@ -562,6 +562,7 @@ export const styles = stylex.create({
 	},
 	messageActionRow: {
 		display: "flex",
+		gap: controlSize._0,
 		justifyContent: "flex-end",
 		marginTop: controlSize._1,
 	},

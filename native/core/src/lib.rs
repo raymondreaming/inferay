@@ -5,6 +5,7 @@ pub mod agent_state;
 pub mod chat_protocol;
 pub mod config;
 pub mod mcp_presentation;
+pub mod memory;
 pub mod path_security;
 pub mod prompts;
 

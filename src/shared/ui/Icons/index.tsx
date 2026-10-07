@@ -6,6 +6,7 @@ export {
 	IconArrowDown,
 	IconArrowLeft,
 	IconArrowUp,
+	IconBookmark,
 	IconCheck,
 	IconChevronDown,
 	IconChevronRight,

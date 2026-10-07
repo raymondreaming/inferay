@@ -7,6 +7,7 @@ import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
 import { useCopyText } from "../ChatRichContent/CopyButton.tsx";
 import { AssistantMessagePart } from "./AssistantMessagePart.tsx";
 import { BtwMessage } from "./BtwMessage.tsx";
+import { MemoryButton } from "./MemoryButton.tsx";
 import { SystemMessage } from "./SystemMessage.tsx";
 import { styles } from "./styles.ts";
 import { ToolMessage } from "./ToolMessage.tsx";
@@ -80,6 +81,11 @@ export const Bubble = function Bubble(_props: {
 										)}
 										<span>{_source.copied ? "Copied" : "Copy"}</span>
 									</button>
+									<MemoryButton
+										paneId={_props.paneId}
+										messageId={_props.msg.id}
+										content={_props.msg.content}
+									/>
 								</div>
 							) : null}
 						</div>

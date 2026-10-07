@@ -32,6 +32,7 @@ pub(crate) struct ProjectRuntime {
     resolver: Arc<AgentCommandResolver>,
     prompts: Arc<tokio::sync::Mutex<PromptStore>>,
     tracker: RuntimePidTracker,
+    pub memory: crate::memory_store::MemoryStore,
 }
 impl ProjectRuntime {
     pub fn open(
@@ -47,6 +48,7 @@ impl ProjectRuntime {
             resolver,
             prompts,
             tracker,
+            memory: crate::memory_store::MemoryStore::open(root)?,
         }))
     }
     pub fn start(self: &Arc<Self>) {
@@ -387,7 +389,19 @@ impl ProjectRuntime {
                 ..
             } => {
                 let cwd = resolve_path(&root, &working_directory)?;
-                let handle = AgentProcessHandle::with_skills(self.prompts.clone());
+                // Automations read memory but never save to it; what they read is recorded on the run.
+                let memory = crate::agent_runner::MemoryScope {
+                    runtime: self.clone(),
+                    project: project.to_owned(),
+                    dir: root.clone(),
+                    allow_save: false,
+                    reads: Arc::default(),
+                };
+                let recalled = self.memory.prompt(project, &root, &instructions, provider == "codex");
+                if let Ok(mut reads) = memory.reads.lock() {
+                    reads.extend(recalled.read);
+                }
+                let handle = AgentProcessHandle::with_skills(self.prompts.clone()).with_memory(Some(memory.clone()));
                 let kind = if provider == "codex" {
                     AgentKind::Codex
                 } else {
@@ -403,6 +417,7 @@ impl ProjectRuntime {
                     root.display(),
                     dir.join("output").display()
                 );
+                let prompt = format!("{prompt}\n\n{}", recalled.text);
                 let invocation=CodexInvocationContext{cwd:cwd.clone(),reference_paths:vec![],images:vec![],model:model.clone(),reasoning_level:reasoning_level.clone(),developer_instructions:Some("Run the explicitly requested project automation. Do not enable schedules or expand permissions. Report failures truthfully.".into()),session_id:None,mcp_servers:Some(vec![])};
                 let mut protocol = AgentProtocolContext::new(cwd.clone());
                 let mut codex = CodexProtocolState::default();
@@ -493,6 +508,12 @@ impl ProjectRuntime {
                 };
                 drop(sender);
                 let provider_failed = drain.await??;
+                let reads = memory.reads.lock().map(|r| r.clone()).unwrap_or_default();
+                if !reads.is_empty()
+                    && let Ok(store) = self.store.lock()
+                {
+                    event(&store.db, id, "memory_read", &json!({"notes": reads}))?;
+                }
                 if waiting.load(std::sync::atomic::Ordering::Acquire) {
                     return Ok(
                         json!({"waitingForInput":true,"message":"This run needs your input. Read the agent log, update its instructions, and retry. No provider process remains running."}),

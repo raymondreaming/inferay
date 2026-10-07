@@ -51,6 +51,17 @@ pub struct AgentProcessHandle {
     codex_control: Arc<Mutex<Option<mpsc::UnboundedSender<CodexControl>>>>,
     skills: Arc<tokio::sync::Mutex<PromptStore>>,
     projects: Option<Arc<crate::project_runtime::ProjectRuntime>>,
+    memory: Option<MemoryScope>,
+}
+
+/// Project memory available to one chat turn or automation run. Reads are collected for run provenance.
+#[derive(Clone)]
+pub(crate) struct MemoryScope {
+    pub runtime: Arc<crate::project_runtime::ProjectRuntime>,
+    pub project: String,
+    pub dir: PathBuf,
+    pub allow_save: bool,
+    pub reads: Arc<std::sync::Mutex<Vec<Value>>>,
 }
 
 pub(crate) enum CodexControl {
@@ -67,6 +78,7 @@ impl AgentProcessHandle {
         Self {
             skills,
             projects: None,
+            memory: None,
             pid: Arc::default(),
             cancelled: Arc::default(),
             codex_control: Arc::default(),
@@ -78,6 +90,11 @@ impl AgentProcessHandle {
         projects: Arc<crate::project_runtime::ProjectRuntime>,
     ) -> Self {
         self.projects = Some(projects);
+        self
+    }
+
+    pub(crate) fn with_memory(mut self, memory: Option<MemoryScope>) -> Self {
+        self.memory = memory;
         self
     }
 
@@ -373,6 +390,9 @@ pub async fn run_codex(
         if handle.projects.is_some() {
             start_params["dynamicTools"].as_array_mut().unwrap().push(json!({"type":"function","name":"inferay_projects","description":"List local projects and their resources, or prepare a project command. Commands use ProjectCommand: saveProject, saveResource, writeFile, saveAutomation, associateConversation, createExample, stopRun. Read action=help for complete command shapes. saveAutomation displays an automation approval card without saving. Users accept, edit, run, and enable from that card. Skills are separate reusable instructions; never create a skill for an automation request unless explicitly requested. Running/enabling/installing requires a user action. Never edit SQLite directly.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["list","help","command"]},"projectId":{"type":"string"},"command":{"type":"object"}},"required":["action"]}}));
         }
+        if handle.memory.is_some() {
+            start_params["dynamicTools"].as_array_mut().unwrap().push(serde_json::from_str(crate::memory_store::TOOL_DEFINITION).expect("memory tool definition"));
+        }
         let thread_response = if let Some(thread_id) = &run.invocation.session_id {
             let mut params = codex_thread_params(run.invocation);
             configure_codex_session(&mut params, &config["config"], run.env);
@@ -555,6 +575,19 @@ pub async fn run_codex(
                                     _ => Err("Use list, help, or command".into()),
                                 }
                             } else { Err("Project tools unavailable".into()) }
+                        } else if tool == "inferay_memory" {
+                            match &handle.memory {
+                                Some(memory) => {
+                                    let result = memory.runtime.memory.tool(&memory.project, &memory.dir, &args, memory.allow_save);
+                                    if let (Ok((note, _)), Some("read")) = (&result, args["action"].as_str())
+                                        && let Ok(mut reads) = memory.reads.lock()
+                                    {
+                                        reads.push(json!({"id": note["id"], "title": note["title"], "via": "tool"}));
+                                    }
+                                    result
+                                }
+                                None => Err("This conversation is not part of a project, so it has no memory".into()),
+                            }
                         } else { handle.skills.lock().await.call_tool(tool, &args) };
                         let (success, output) = match result {
                             Ok((output, card)) => {

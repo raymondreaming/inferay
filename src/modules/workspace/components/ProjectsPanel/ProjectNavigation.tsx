@@ -2,6 +2,7 @@ import { FileChangeTotals } from "@repository/components/changes/components/Chan
 import { useGitStatus } from "@repository/hooks/useGitStatus.tsx";
 import { APP_REGION_NO_DRAG_CLASS, ariaValue } from "@shared/lib/dom.tsx";
 import {
+	IconBookmark,
 	IconChevronDown,
 	IconChevronRight,
 	IconCode,
@@ -50,6 +51,7 @@ export function ProjectNavigation() {
 			),
 	);
 	const items = [
+		{ view: "memory", label: "Memory", icon: IconBookmark },
 		{ view: "resources", label: "Resources", icon: IconWrench },
 		{ view: "files", label: "Files", icon: IconFileDiff },
 		{ view: "tools", label: "Tools", icon: IconCode },

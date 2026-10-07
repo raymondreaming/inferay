@@ -1105,12 +1105,34 @@ impl ChatRuntime {
             if state.cancelled {
                 return String::new();
             }
+            let project = self
+                .projects
+                .context(&state.pane_id, &state.cwd)
+                .ok()
+                .flatten();
+            let memory = project
+                .as_ref()
+                .map(|(id, _, dir)| crate::agent_runner::MemoryScope {
+                    runtime: self.projects.clone(),
+                    project: id.clone(),
+                    dir: dir.clone(),
+                    allow_save: true,
+                    reads: Arc::default(),
+                });
+            let memory_context = memory.as_ref().map(|m| {
+                self.projects
+                    .memory
+                    .prompt(&m.project, &m.dir, &prompt, state.agent_kind == "codex")
+                    .text
+            });
             let handle = AgentProcessHandle::with_skills(self.prompts.clone())
-                .with_projects(self.projects.clone());
+                .with_projects(self.projects.clone())
+                .with_memory(memory);
             state.current_handle = Some(handle.clone());
-            let project_context = self.projects.context(&state.pane_id, &state.cwd).ok().flatten().map(|(id,instructions,dir)|format!("<inferay-project>Project ID: {id}\nManaged files: {}\n{instructions}\nUse inferay_projects to discover and prepare resources, files, and automations. Put newly created tools and plugin files in this managed directory unless the user specifies another location. Never edit the database directly. An automation is a scheduled or manually triggered task with execution settings; a skill is reusable instructions. For automation requests, call inferay_projects help then command saveAutomation to display an automation proposal card. This does not save until the user accepts. Do not also create a skill unless explicitly requested. The card supports editing, saving, running and enabling without leaving chat. Never claim saved or enabled before a successful result.</inferay-project>",dir.display()));
+            let project_context = project.map(|(id,instructions,dir)|format!("<inferay-project>Project ID: {id}\nManaged files: {}\n{instructions}\nUse inferay_projects to discover and prepare resources, files, and automations. Put newly created tools and plugin files in this managed directory unless the user specifies another location. Never edit the database directly. An automation is a scheduled or manually triggered task with execution settings; a skill is reusable instructions. For automation requests, call inferay_projects help then command saveAutomation to display an automation proposal card. This does not save until the user accepts. Do not also create a skill unless explicitly requested. The card supports editing, saving, running and enabling without leaving chat. Never claim saved or enabled before a successful result.</inferay-project>",dir.display()));
             let developer_instructions = [
                 project_context.as_deref(),
+                memory_context.as_deref(),
                 (state.agent_kind == "codex").then_some(CODEX_WORKFLOW_INSTRUCTIONS),
                 turn_instructions,
             ]

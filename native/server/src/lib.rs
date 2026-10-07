@@ -67,6 +67,7 @@ mod highlight;
 mod json_file;
 mod markdown;
 mod markdown_stream;
+mod memory_store;
 mod native_app;
 pub mod native_git;
 mod one_shot;
@@ -449,6 +450,10 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             }
             ("/api/projects/run-chat", "POST") => project_chat::open(&state, request).await,
             ("/api/projects/command", "POST") => project_command(&state, request).await,
+            ("/api/memory", "GET") => memory_store::http::list(&state, request).await,
+            ("/api/memory/note", "GET") => memory_store::http::note(&state, request).await,
+            ("/api/memory/pane", "GET") => memory_store::http::pane(&state, request).await,
+            ("/api/memory/save", "POST") => memory_store::http::save(&state, request).await,
             ("/api/client-storage", "GET") => get_client_storage(&state, request).await,
             ("/api/client-storage", "POST" | "PUT") => update_client_storage(&state, request).await,
             ("/api/config/search-folders", "GET") => get_search_folders(&state, request).await,
