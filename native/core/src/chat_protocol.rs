@@ -91,6 +91,9 @@ pub struct NativeChatRender {
     pub skill_proposal: Option<SkillProposal>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
+    pub automation_proposal: Option<crate::projects::ProjectCommand>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     pub skill_read: Option<SkillRead>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -370,6 +373,11 @@ impl ChatMessageBuffer {
                 if message.role == "system" {
                     if let Ok(value) = serde_json::from_str::<Value>(&message.content) {
                         prepare_system_card(&value, &mut render);
+                        if value["type"] == "inferay.automation-proposal" {
+                            if let Ok(command @ crate::projects::ProjectCommand::SaveAutomation { .. }) = serde_json::from_value(value["command"].clone()) {
+                                render.automation_proposal = Some(command);
+                            }
+                        }
                         render.skill_proposal = crate::prompts::cards::chat_skill_proposal(&value);
                         render.skill_read = crate::prompts::cards::chat_skill_read(&value);
                     }
@@ -981,6 +989,17 @@ fn prepare_system_card(value: &Value, render: &mut NativeChatRender) {
 #[cfg(test)]
 mod output_reference_tests {
     use super::*;
+
+    #[test]
+    fn automation_card_survives_transcript_reload_without_becoming_a_skill() {
+        let command = serde_json::json!({"type":"saveAutomation","id":"proposal-1","projectId":"project-1","expectedRevision":null,"name":"Weekly briefing","execution":{"kind":"agent","instructions":"Prepare a briefing","provider":"codex","model":null,"reasoningLevel":"medium","skillIds":[],"resourceIds":[],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":300},"intervalSeconds":604800,"calendar":null,"overlapPolicy":"skip"});
+        let message: ChatTranscriptMessage = serde_json::from_value(serde_json::json!({"id":"card-1","role":"system","content":serde_json::json!({"type":"inferay.automation-proposal","command":command}).to_string()})).unwrap();
+        let mut buffer = ChatMessageBuffer::default();
+        buffer.replace_messages(vec![message]);
+        let render = buffer.messages()[0].render.as_ref().unwrap();
+        assert_eq!(serde_json::to_value(&render.automation_proposal).unwrap(), command);
+        assert!(render.skill_proposal.is_none());
+    }
 
     #[test]
     fn truncation_preserves_utf16_limits_and_stream_append_boundaries() {

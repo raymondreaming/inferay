@@ -50,6 +50,7 @@ pub struct AgentProcessHandle {
     cancelled: Arc<AtomicBool>,
     codex_control: Arc<Mutex<Option<mpsc::UnboundedSender<CodexControl>>>>,
     skills: Arc<tokio::sync::Mutex<PromptStore>>,
+    projects: Option<Arc<crate::project_runtime::ProjectRuntime>>,
 }
 
 pub(crate) enum CodexControl {
@@ -65,10 +66,19 @@ impl AgentProcessHandle {
     pub(crate) fn with_skills(skills: Arc<tokio::sync::Mutex<PromptStore>>) -> Self {
         Self {
             skills,
+            projects: None,
             pid: Arc::default(),
             cancelled: Arc::default(),
             codex_control: Arc::default(),
         }
+    }
+
+    pub(crate) fn with_projects(
+        mut self,
+        projects: Arc<crate::project_runtime::ProjectRuntime>,
+    ) -> Self {
+        self.projects = Some(projects);
+        self
     }
 
     pub fn pid(&self) -> Option<u32> {
@@ -360,6 +370,9 @@ pub async fn run_codex(
         let mut start_params = codex_thread_params(run.invocation);
         configure_codex_session(&mut start_params, &config["config"], run.env);
         start_params["dynamicTools"] = inferay_core::prompts::tools::tool_definitions();
+        if handle.projects.is_some() {
+            start_params["dynamicTools"].as_array_mut().unwrap().push(json!({"type":"function","name":"inferay_projects","description":"List local projects and their resources, or prepare a project command. Commands use ProjectCommand: saveProject, saveResource, writeFile, saveAutomation, associateConversation, createExample, stopRun. Read action=help for complete command shapes. saveAutomation displays an automation approval card without saving. Users accept, edit, run, and enable from that card. Skills are separate reusable instructions; never create a skill for an automation request unless explicitly requested. Running/enabling/installing requires a user action. Never edit SQLite directly.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["list","help","command"]},"projectId":{"type":"string"},"command":{"type":"object"}},"required":["action"]}}));
+        }
         let thread_response = if let Some(thread_id) = &run.invocation.session_id {
             let mut params = codex_thread_params(run.invocation);
             configure_codex_session(&mut params, &config["config"], run.env);
@@ -521,7 +534,28 @@ pub async fn run_codex(
                     {
                         let tool = message.pointer("/params/tool").and_then(Value::as_str).unwrap_or("");
                         let args = message.pointer("/params/arguments").cloned().unwrap_or(Value::Null);
-                        let result = handle.skills.lock().await.call_tool(tool, &args);
+                        let result = if tool == "inferay_projects" {
+                            if let Some(projects) = &handle.projects {
+                                match args["action"].as_str() {
+                                    Some("list") => projects.catalog(args["projectId"].as_str().map(str::to_owned),None).await.map(|v|(json!(v),None)).map_err(|e|e.to_string()),
+                                    Some("help") => Ok((json!({"commands":include_str!("project_commands.json")}),None)),
+                                    Some("command") => match serde_json::from_value::<inferay_core::projects::ProjectCommand>(args["command"].clone()) {
+                                        Ok(mut command @ inferay_core::projects::ProjectCommand::SaveAutomation { .. }) => {
+                                            if let inferay_core::projects::ProjectCommand::SaveAutomation { id, .. } = &mut command {
+                                                if id.is_none() { *id = Some(uuid::Uuid::new_v4().to_string()); }
+                                            }
+                                            match projects.preview_automation(command.clone()).await {
+                                                Ok(()) => Ok((json!({"status":"proposed", "message":"Validated automation proposal displayed. Nothing saved yet. The user can accept, edit, run, or enable from the chat card. Do not also propose a skill unless explicitly requested."}), Some(json!({"type":"inferay.automation-proposal","command":command})))),
+                                                Err(error) => Err(format!("Automation proposal was not displayed: {error}. Correct the definition before proposing it again.")),
+                                            }
+                                        },
+                                        Ok(command) => projects.command(command,false).await.map(|v|(v,None)).map_err(|e|e.to_string()),
+                                        Err(error) => Err(error.to_string()),
+                                    },
+                                    _ => Err("Use list, help, or command".into()),
+                                }
+                            } else { Err("Project tools unavailable".into()) }
+                        } else { handle.skills.lock().await.call_tool(tool, &args) };
                         let (success, output) = match result {
                             Ok((output, card)) => {
                                 if let Some(card) = card {
@@ -1148,7 +1182,7 @@ impl RuntimePidTracker {
 }
 
 #[cfg(windows)]
-fn tree_kill(pid: u32) {
+pub(crate) fn tree_kill(pid: u32) {
     if pid == 0 {
         return;
     }
@@ -1160,7 +1194,7 @@ fn tree_kill(pid: u32) {
 }
 
 #[cfg(not(windows))]
-fn tree_kill(pid: u32) {
+pub(crate) fn tree_kill(pid: u32) {
     if pid == 0 {
         return;
     }

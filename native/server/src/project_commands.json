@@ -1,0 +1,89 @@
+{
+	"saveProject": {
+		"type": "saveProject",
+		"id": null,
+		"expectedRevision": null,
+		"name": "My project",
+		"description": "",
+		"instructions": "",
+		"repositoryPaths": []
+	},
+	"saveResource": {
+		"type": "saveResource",
+		"id": null,
+		"projectId": "PROJECT_ID",
+		"expectedRevision": null,
+		"typeId": "inferay.tool",
+		"name": "Report",
+		"schemaVersion": 1,
+		"body": {
+			"program": "python3",
+			"entrypoint": {
+				"base": "project",
+				"path": "tools/report.py"
+			},
+			"arguments": [],
+			"timeoutSeconds": 300,
+			"inputSchema": {
+				"type": "object"
+			},
+			"outputSchema": {
+				"type": "object"
+			}
+		}
+	},
+	"writeFile": {
+		"type": "writeFile",
+		"projectId": "PROJECT_ID",
+		"path": "tools/report.py",
+		"content": "...",
+		"expectedContent": null
+	},
+	"saveAutomation": {
+		"type": "saveAutomation",
+		"id": null,
+		"projectId": "PROJECT_ID",
+		"expectedRevision": null,
+		"name": "Report",
+		"execution": {
+			"kind": "tool",
+			"toolId": "TOOL_ID",
+			"input": {}
+		},
+		"intervalSeconds": 604800,
+		"overlapPolicy": "skip",
+		"calendar": {
+			"time": "09:00",
+			"timezone": "America/Chicago",
+			"weekday": 0
+		}
+	},
+	"agentExecution": {
+		"kind": "agent",
+		"instructions": "Prepare a brief",
+		"provider": "codex",
+		"model": null,
+		"skillIds": [],
+		"resourceIds": [],
+		"workingDirectory": {
+			"base": "project",
+			"path": "."
+		},
+		"timeoutSeconds": 300,
+		"reasoningLevel": null
+	},
+	"associateConversation": {
+		"type": "associateConversation",
+		"projectId": "PROJECT_ID",
+		"paneId": "PANE_ID"
+	},
+	"resourceTypes": [
+		"inferay.repository",
+		"inferay.skill",
+		"inferay.tool",
+		"brand.brand",
+		"brand.mind",
+		"brand.genome"
+	],
+	"notes": "Agent execution timeoutSeconds is 1\u201386400 seconds (up to 24 hours); local tools are limited to 1\u20133600 seconds. Proposals are validated before displaying a card. Use the existing Inferay Skills library and proposal approval tool for skill changes; skillIds refer to library IDs. Resource edits require id and expectedRevision. Brand minds/genomes require brandId. Only prepare work requested by the user. Tool processes receive JSON stdin, return JSON stdout and may return artifacts under INFERAY_RUN_OUTPUT. saveAutomation from chat produces an approval card, not a saved automation. The user can accept, edit, run, or enable from the card. Do not propose a skill for an automation request unless explicitly asked. For daily/weekly schedules, ask for a local time and IANA timezone (and weekday for weekly), then supply calendar {time:HH:MM,timezone,weekday:null for daily or Monday=0 through Sunday=6}. Do not assume the user means an interval from now. intervalSeconds must be 86400 for daily or 604800 for weekly. Hourly/custom intervals use calendar:null."
+}

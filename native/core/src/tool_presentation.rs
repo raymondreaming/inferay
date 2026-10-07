@@ -460,8 +460,8 @@ pub fn display(tool_name: Option<&str>, input: &Value) -> ToolDisplayInfo {
     }
     let name = tool_name.unwrap_or_default().trim().to_lowercase();
     let file = match name.as_str() {
-        "read" | "read_file" | "view" | "patch" | "apply_patch" | "edit" | "multiedit" | "write"
-        | "notebookedit" | "notebook_edit" => file_target(input),
+        "read" | "read_file" | "view" | "patch" | "apply_patch" | "edit" | "multiedit"
+        | "write" | "notebookedit" | "notebook_edit" => file_target(input),
         _ => None,
     };
     ToolDisplayInfo {
@@ -506,7 +506,10 @@ mod tool_display_tests {
 
     #[test]
     fn searches_and_commands_carry_no_file_icon() {
-        let glob = display(Some("Glob"), &json!({"path": "src/modules", "pattern": "*.ts"}));
+        let glob = display(
+            Some("Glob"),
+            &json!({"path": "src/modules", "pattern": "*.ts"}),
+        );
         assert_eq!(glob.label, "Searching code");
         assert_eq!(glob.file, None);
         assert_eq!(glob.detail, None);

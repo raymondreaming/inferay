@@ -283,6 +283,12 @@ impl Workspace {
             return Ok(());
         }
 
+        // Conversations in the current grid take priority over repository navigation.
+        if !group.panes.is_empty() {
+            self.compact();
+            return Ok(());
+        }
+
         // Prefer another chat in the same repository, then the nearest tab to
         // its left. Removing the first tab falls forward to the next repository.
         let index = paths
@@ -439,6 +445,25 @@ mod presentation_tests {
             workspace.presentation().unwrap()["repositories"]["activePath"],
             "/b"
         );
+    }
+
+    #[test]
+    fn deleting_first_chat_keeps_the_current_grid_across_repository_contexts() {
+        let mut group = repository_group("current", "/a");
+        group["panes"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"id":"next-chat", "title":"next", "agentKind":"codex", "cwd":"/b"}));
+        let mut workspace =
+            deletion_workspace(json!([repository_group("other", "/a"), group]), "current");
+        workspace
+            .apply(&json!({"type":"removePane", "groupId":"current", "paneId":"current-chat"}))
+            .unwrap();
+        workspace.validate().unwrap();
+        assert_eq!(workspace.selected_group_id, "current");
+        let current = workspace.groups.iter().find(|g| g.id == "current").unwrap();
+        assert_eq!(current.selected_pane_id.as_deref(), Some("next-chat"));
+        assert_eq!(current.panes.len(), 1);
     }
 
     #[test]

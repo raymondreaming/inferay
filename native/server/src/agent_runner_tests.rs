@@ -78,6 +78,9 @@ for line in sys.stdin:
   send({'id':m['id'],'result':{'config':{}}})
  elif method=='thread/resume': send({'id':m['id'],'error':{'code':-32000,'message':'resume unavailable'}})
  elif method=='thread/start':
+  tools=m['params']['dynamicTools']
+  assert all(tool.get('type')=='function' for tool in tools), 'mixed canonical and legacy dynamic tools'
+  assert any(tool['name']=='inferay_projects' for tool in tools)
   assert m['params']['modelProvider']=='inferay_openai_http'
   assert m['params']['config']['model_providers.inferay_openai_http']['supports_websockets']==False
   send({'id':m['id'],'result':{'thread':{'id':'fixture-thread'}}})
@@ -108,10 +111,21 @@ for line in sys.stdin:
         }
     }
     fn handle(&self) -> AgentProcessHandle {
-        AgentProcessHandle::with_skills(Arc::new(tokio::sync::Mutex::new(PromptStore::new(
+        let skills = Arc::new(tokio::sync::Mutex::new(PromptStore::new(
             self.root.join("bundled.json"),
             self.root.join("local.json"),
-        ))))
+        )));
+        let projects = crate::project_runtime::ProjectRuntime::open(
+            &self.root,
+            Arc::new(crate::agent_command::AgentCommandResolver::new(
+                &self.root,
+                self.root.join("mcp.json"),
+            )),
+            skills.clone(),
+            RuntimePidTracker::new(self.root.join("pids.json")),
+        )
+        .unwrap();
+        AgentProcessHandle::with_skills(skills).with_projects(projects)
     }
 }
 impl Drop for Fixture {

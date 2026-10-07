@@ -23,6 +23,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_import_extension(Some("ts"));
     macro_rules! export { ($($ty:ty),* $(,)?) => { $(<$ty>::export_all(&cfg)?;)* }; }
     export!(
+        inferay_core::projects::ProjectCatalog,
+        inferay_core::projects::ProjectCommand,
+        inferay_core::projects::LocalTool,
         inferay_presentation::documents::DocumentView,
         inferay_presentation::dock_session::DockRequest,
         inferay_presentation::dock::DockLayout,

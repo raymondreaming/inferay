@@ -11,6 +11,7 @@ pub struct AllowedPaths {
     project_root: PathBuf,
     home_directory: PathBuf,
     working_directory: PathBuf,
+    managed_root: Option<PathBuf>,
 }
 
 impl AllowedPaths {
@@ -24,7 +25,14 @@ impl AllowedPaths {
             project_root: resolve_lexically(project_root.as_ref(), working_directory)?,
             home_directory: resolve_lexically(home_directory.as_ref(), working_directory)?,
             working_directory: working_directory.to_path_buf(),
+            managed_root: None,
         })
+    }
+
+    /// The native host supplies its managed project directory, which may live outside home in an isolated profile.
+    pub fn with_managed_root(mut self, root: impl AsRef<Path>) -> Result<Self, &'static str> {
+        self.managed_root = Some(resolve_lexically(root.as_ref(), &self.working_directory)?);
+        Ok(self)
     }
 
     pub fn project_root(&self) -> &Path {
@@ -44,6 +52,10 @@ impl AllowedPaths {
 
         is_resolved_within_directory(&pathname, &self.project_root)
             || is_resolved_within_directory(&pathname, &self.home_directory)
+            || self
+                .managed_root
+                .as_ref()
+                .is_some_and(|root| is_resolved_within_directory(&pathname, root))
     }
 
     pub fn resolve_allowed_local_path(&self, pathname: impl AsRef<Path>) -> Option<PathBuf> {

@@ -37,12 +37,12 @@ use futures_util::{SinkExt, StreamExt, future::join_all};
 use inferay_core::path_security::{AllowedPaths, is_safe_relative_path};
 use inferay_core::prompts::PromptError;
 use inferay_native_diff::{
-    checkout_git_branch, commit_git, finish_git_ref_operation, get_git_branches,
+    checkout_git_branch, commit_git, discard_git, finish_git_ref_operation, get_git_branches,
     get_git_commit_details_for_parent, get_git_commit_hunk_diff_for_parent,
     get_git_comparison_details, get_git_comparison_hunk_diff, get_git_status,
     get_git_worktree_comparison_details, get_git_worktree_comparison_hunk_diff,
     perform_git_graph_action_with_targets, perform_git_ref_operation, preflight_git_ref_operation,
-    discard_git, stage_git, stash_git_file, unstage_git,
+    stage_git, stash_git_file, unstage_git,
 };
 use percent_encoding::percent_decode_str;
 use reqwest::Client;
@@ -58,6 +58,7 @@ mod agent_protocol;
 mod agent_runner;
 mod atomic_write;
 pub mod chat_persistence;
+mod project_chat;
 mod chat_runtime;
 pub mod checkpoint;
 mod client_storage;
@@ -70,6 +71,8 @@ mod native_app;
 pub mod native_git;
 mod one_shot;
 mod path_resolution;
+mod project_runtime;
+mod project_store;
 mod prompt_store;
 mod provider_history;
 mod render_jobs;
@@ -144,6 +147,7 @@ struct ServerState {
     client_storage: Arc<tokio::sync::Mutex<client_storage::ClientStorage>>,
     chat_persistence: chat_persistence::ChatPersistence,
     chat_runtime: chat_runtime::ChatRuntime,
+    projects: Arc<project_runtime::ProjectRuntime>,
     checkpoint_service: checkpoint::CheckpointService,
     config_manager: Arc<tokio::sync::Mutex<ConfigManager>>,
     forge_state: Arc<forge::ForgeState>,
@@ -300,9 +304,15 @@ fn run_server(
 }
 
 fn build_router_with_connection_reset(
-    config: ServerConfig,
+    mut config: ServerConfig,
     connection_reset: broadcast::Sender<()>,
 ) -> Router {
+    std::fs::create_dir_all(&config.user_data_dir)
+        .expect("Could not create Inferay data directory");
+    config.user_data_dir = config
+        .user_data_dir
+        .canonicalize()
+        .expect("Could not resolve Inferay data directory");
     let dist_dir = if config.app_root.join("dist").is_dir() {
         config.app_root.join("dist")
     } else {
@@ -313,7 +323,9 @@ fn build_router_with_connection_reset(
         &config.home_directory,
         std::env::current_dir().expect("server working directory must resolve"),
     )
-    .expect("server path roots must resolve");
+    .expect("server path roots must resolve")
+    .with_managed_root(config.user_data_dir.join("projects"))
+    .expect("managed project root must resolve");
     let bundled_prompts = config.app_root.join("data/prompts.json");
     let agent_state_path = config.user_data_dir.join("agent-state.json");
     let checkpoints_path = config.user_data_dir.join("checkpoints.json");
@@ -346,6 +358,24 @@ fn build_router_with_connection_reset(
     let client_storage = Arc::new(tokio::sync::Mutex::new(client_storage::ClientStorage::new(
         config.user_data_dir.join("client-storage.json"),
     )));
+    let projects = project_runtime::ProjectRuntime::open(
+        &config.user_data_dir,
+        agent_command_resolver.clone(),
+        prompt_store.clone(),
+        pid_tracker.clone(),
+    )
+    .expect("Could not open local projects: close other instances using this profile");
+    if let Ok(saved) = agent_state_store.lock().expect("workspace lock").read()
+        && let Err(error) = projects.migrate_repositories(&saved)
+    {
+        eprintln!("Project migration: {error}");
+    }
+    prompt_store
+        .try_lock()
+        .expect("skills startup lock")
+        .migrate()
+        .expect("Could not migrate local skills");
+    projects.start();
     let chat_runtime = chat_runtime::ChatRuntime::new(
         chat_persistence.clone(),
         checkpoint_service.clone(),
@@ -354,6 +384,7 @@ fn build_router_with_connection_reset(
         prompt_store.clone(),
         agent_state_store.clone(),
         agent_command_resolver.clone(),
+        projects.clone(),
     );
     let state = ServerState {
         dist_dir,
@@ -368,6 +399,7 @@ fn build_router_with_connection_reset(
         chat_runtime,
         checkpoint_service,
         config_manager,
+        projects,
         forge_state: Arc::new(forge::ForgeState::default()),
         next_client_id: Arc::new(AtomicU64::new(1)),
         agent_context_store,
@@ -402,6 +434,21 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             return response;
         }
         let result = match (path.as_str(), request.method().as_str()) {
+            ("/api/projects", "GET") => {
+                let project = query_value(&request, "projectId");
+                let before = query_value(&request, "before");
+                state
+                    .projects
+                    .catalog(project, before)
+                    .await
+                    .map_err(|e| api_error(StatusCode::BAD_REQUEST, e.to_string()))
+                    .and_then(|v| {
+                        serde_json::to_value(v)
+                            .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, e))
+                    })
+            }
+            ("/api/projects/run-chat", "POST") => project_chat::open(&state, request).await,
+            ("/api/projects/command", "POST") => project_command(&state, request).await,
             ("/api/client-storage", "GET") => get_client_storage(&state, request).await,
             ("/api/client-storage", "POST" | "PUT") => update_client_storage(&state, request).await,
             ("/api/config/search-folders", "GET") => get_search_folders(&state, request).await,
@@ -3188,4 +3235,13 @@ mod proposal_http_tests {
         }
         std::fs::remove_dir_all(root).unwrap();
     }
+}
+
+async fn project_command(state: &ServerState, request: Request) -> ApiResult {
+    let command: inferay_core::projects::ProjectCommand = api_body(request).await?;
+    state
+        .projects
+        .command(command, true)
+        .await
+        .map_err(|e| api_error(StatusCode::BAD_REQUEST, e.to_string()))
 }
