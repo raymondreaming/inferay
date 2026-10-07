@@ -61,3 +61,46 @@ export function memoryTitle(text: string) {
 			.find((row) => row.length > 0) ?? "Saved from chat";
 	return line.length > 80 ? `${line.slice(0, 77).trimEnd()}…` : line;
 }
+
+export type MemoryGraphNode = {
+	id: string;
+	kind: "note" | "image" | "file" | "source";
+	title: string;
+	source: string;
+	created: string;
+	path: string;
+	tags: string[];
+	superseded: boolean;
+	size: number;
+};
+export type MemoryGraphEdge = {
+	from: string;
+	to: string;
+	kind: "source" | "link" | "supersedes";
+};
+export type MemoryGraphData = {
+	nodes: MemoryGraphNode[];
+	edges: MemoryGraphEdge[];
+	truncated: boolean;
+};
+
+export function loadMemoryGraph(projectId: string) {
+	return fetchJson<MemoryGraphData>(
+		`/api/memory/graph?${new URLSearchParams({ projectId })}`,
+		undefined,
+		{ server: true },
+	);
+}
+
+/** Removes a note (by id) or a dropped document (by its memory/documents path). */
+export function deleteMemoryItem(
+	projectId: string,
+	item: { id?: string; path?: string },
+) {
+	return postJson<{ deleted: boolean }>(
+		"/api/memory/delete",
+		{ projectId, ...item },
+		undefined,
+		{ server: true },
+	);
+}
