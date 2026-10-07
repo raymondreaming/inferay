@@ -1058,7 +1058,11 @@ try {
 			proposalAutomationId,
 			JSON.stringify({
 				automation: proposalDefinition,
-				execution: proposalDefinition.execution,
+				execution: {
+					...proposalDefinition.execution,
+					model: "gpt-6-sol",
+					reasoningLevel: "high",
+				},
 				projectId: cardProject.id,
 			}),
 		],
@@ -1117,7 +1121,28 @@ try {
 		)
 		.waitFor();
 	const imported = await api("/api/projects/run-chat", { id: runId });
+	const importedConfig = await api("/api/native/provider-config", {
+		paneId: imported.paneId,
+		agentKind: "codex",
+	});
+	assert.equal(importedConfig.model, "gpt-6-sol");
+	assert.equal(importedConfig.reasoningLevel, "high");
+	await api("/api/native/provider-config", {
+		paneId: imported.paneId,
+		agentKind: "codex",
+		reasoningLevel: "low",
+	});
 	const reopened = await api("/api/projects/run-chat", { id: runId });
+	assert.equal(
+		(
+			await api("/api/native/provider-config", {
+				paneId: imported.paneId,
+				agentKind: "codex",
+			})
+		).reasoningLevel,
+		"low",
+		"Reopening preserves the user's chat settings",
+	);
 	assert.equal(
 		imported.paneId,
 		reopened.paneId,

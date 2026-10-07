@@ -153,6 +153,10 @@ pub(super) async fn open(state: &ServerState, request: Request) -> ApiResult {
         }
     };
     if !existing {
+        save_provider_configuration(state, json!({
+            "paneId":pane_id, "agentKind":provider,
+            "model":execution["model"], "reasoningLevel":execution["reasoningLevel"]
+        })).await?;
         if let Some(update) = buffer.take_update() {
             state
                 .chat_persistence

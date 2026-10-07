@@ -760,7 +760,10 @@ async fn patch_chat_queue(state: &ServerState, request: Request, pane_id: &str) 
 }
 
 async fn provider_configuration(state: &ServerState, request: Request) -> ApiResult {
-    let mut input: Value = api_body(request).await?;
+    save_provider_configuration(state, api_body(request).await?).await
+}
+
+async fn save_provider_configuration(state: &ServerState, mut input: Value) -> ApiResult {
     let Some(pane_id) = input["paneId"].as_str().map(str::to_owned) else {
         let resolved = json!(inferay_core::provider_config::resolve(&input));
         state
