@@ -15,6 +15,7 @@ Run its native conformance check with:
 
 ```sh
 cargo test -p inferay-server point_proof --lib
+cargo test -p inferay-server shared_genome_edit --lib
 ```
 
 The check copies files into a throwaway profile, validates the complete project,
@@ -42,7 +43,7 @@ second validator accept it just to turn a test green.
 |---|---|
 | Baseline definitions | Point fixture passes the native scanner; creative fixtures remain planned |
 | Skill edit changes approval inputs | `point_proof` checks the captured input hash changes |
-| Genome edit invalidates readers | Memory record indexing exists; shared-genome invalidation across every creative reader still needs a conformance check |
+| Genome edit invalidates readers | `shared_genome_edit` checks two selected-record readers, immediate admission refusal, refresh disabling, unrelated approval retention and no automatic approval after reverting |
 | Automation exceeds library permissions | `point_proof` rejects the extra permission |
 | Absolute working directory | `point_proof` rejects it |
 | Effect without budget | Planned with effects/outbox (M5) |

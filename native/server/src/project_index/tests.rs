@@ -734,3 +734,51 @@ fn broken_plugin_manifest_can_be_read_and_repaired_without_reapproval() {
     assert!(repaired.plugins[0].approved_hash.is_none());
     assert!(!repaired.automations[0].enabled);
 }
+
+#[test]
+fn shared_genome_edit_revokes_every_reader_but_preserves_unrelated_approval() {
+    let (profile, project, original) = fixture();
+    let root = profile.path().join("projects").join(&project);
+    let template: Value = serde_json::from_slice(&fs::read(root.join("plugins/daily/automations/daily.json")).unwrap()).unwrap();
+    fs::remove_file(root.join("plugins/daily/automations/daily.json")).unwrap();
+    let record = uuid::Uuid::new_v4().to_string();
+    let record_path = format!("memory/brand.genome/{record}.json");
+    let genome = json!({"schema":"inferay.resource/1","id":record,"type":"brand.genome","typeVersion":1,"name":"Shared identity","archived":false,"body":{"brandId":"brand","rules":["Cite sources"]}});
+    files::write(&root, &record_path, genome.to_string().as_bytes(), None).unwrap();
+    let ids = [original, uuid::Uuid::new_v4().to_string(), uuid::Uuid::new_v4().to_string()];
+    for (index, id) in ids.iter().enumerate() {
+        let mut definition = template.clone();
+        definition["id"] = json!(id);
+        definition["name"] = json!(format!("Job {index}"));
+        definition["execution"]["resources"] = if index < 2 { json!([record]) } else { json!([]) };
+        files::write(&root, &format!("automations/{id}/automation.json"), definition.to_string().as_bytes(), None).unwrap();
+    }
+    let mut db = Connection::open_in_memory().unwrap();
+    create_schema(&db).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
+    for id in &ids {
+        let inputs = execution_inputs(&db, profile.path(), id, &[]).unwrap();
+        let digest = hash(&serde_json::to_vec(&inputs).unwrap());
+        approve_automation(&db, profile.path(), id, &digest, true, &[]).unwrap();
+        assert!(approved_inputs(&db, profile.path(), id, true, &[]).is_ok());
+    }
+    let mut edited = genome.clone();
+    edited["body"]["rules"] = json!(["Cite sources", "Review financial claims"]);
+    fs::write(root.join(&record_path), edited.to_string()).unwrap();
+    // Admission must notice an outside edit even before the next index refresh.
+    assert!(approved_inputs(&db, profile.path(), &ids[0], true, &[]).is_err());
+    // The other reader is still enabled until refresh independently rechecks it.
+    assert!(db.query_row("SELECT enabled FROM automation_state WHERE automation_id=?", [&ids[1]], |r| r.get::<_, bool>(0)).unwrap());
+    assert!(approved_inputs(&db, profile.path(), &ids[2], true, &[]).is_ok());
+    refresh(&mut db, profile.path(), &[]).unwrap();
+    for (index, id) in ids.iter().enumerate() {
+        let state: (bool, bool, Option<i64>) = db.query_row("SELECT enabled,inputs_changed,next_due_at FROM automation_state WHERE automation_id=?", [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap();
+        assert_eq!(state.0, index == 2);
+        assert_eq!(state.1, index < 2);
+        assert_eq!(state.2.is_some(), index == 2);
+    }
+    fs::write(root.join(&record_path), genome.to_string()).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
+    for id in &ids[..2] { assert!(approved_inputs(&db, profile.path(), id, false, &[]).is_err()); }
+    assert!(approved_inputs(&db, profile.path(), &ids[2], true, &[]).is_ok());
+}
