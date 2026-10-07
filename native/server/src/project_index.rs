@@ -325,6 +325,7 @@ pub(crate) fn execution_inputs(
             }
             let entry = scanned.iter().find(|entry| entry.path.starts_with(&format!("{owner_prefix}/tools/")) && matches!(&entry.definition, Some(DefinitionFile::Tool(tool)) if tool.id == grant.tool_id)).ok_or("Granted tool is missing")?;
             let Some(DefinitionFile::Tool(tool)) = &entry.definition else { unreachable!() };
+            if tool.effect_handler.is_some() { return Err("Effect handlers require delivery approval and cannot be granted as ordinary automation tools".into()); }
             let package = files::package_files(&root, owner_prefix)?;
             for entry in scanned.iter().filter(|entry| entry.path.starts_with(&format!("{owner_prefix}/"))) {
                 if entry.hash.as_ref() != package.get(&entry.path) { return Err("Granted tool library changed while capturing inputs".into()); }
@@ -489,6 +490,7 @@ pub(crate) fn execution_inputs(
             let Some(DefinitionFile::Tool(tool)) = &entry.definition else {
                 return Err("Selected tool is invalid".into());
             };
+            if tool.effect_handler.is_some() { return Err("Effect handlers require delivery approval and cannot run as ordinary automation tools".into()); }
             inferay_core::projects::validate_json(&tool.input_schema, input)?;
             let (entrypoint, working_directory, entrypoint_hash) = crate::project_packs::resolve(db, &root, project_definition, tool, &directory, &mut repositories)?;
             let path = crate::project_store::resolve_path(&root, &entrypoint)?;

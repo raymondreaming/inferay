@@ -181,3 +181,22 @@ fn connection_request_targets_reject_ambient_authority_and_header_injection() {
     connection.prefix = "Bearer\r\nInjected: value".into();
     assert!(connection.validate().is_err());
 }
+
+#[test]
+fn effect_handler_declarations_require_explicit_recovery_and_json_interface() {
+    let mut value = json!({"schema":"inferay.tool/1","id":ID,"name":"Delivery","program":"python3","entrypoint":"run.py","args":[],"timeoutSeconds":30,"inputSchema":{},"outputSchema":{},"effectHandler":{"kinds":["example.deliver"],"retrySafety":"never"}});
+    let valid = |value: &serde_json::Value| parse::<ToolDefinition>("tools/delivery/tool.json", value.to_string().as_bytes()).is_ok();
+    assert!(valid(&value));
+    value["effectHandler"]["retrySafety"] = json!("idempotent");
+    assert!(valid(&value));
+    for declaration in [json!({"kinds":["example.deliver"]}), json!({"kinds":[],"retrySafety":"never"}), json!({"kinds":["bad\nkind"],"retrySafety":"never"}), json!({"kinds":["example.deliver"],"retrySafety":"automatic"})] {
+        let mut invalid = value.clone();
+        invalid["effectHandler"] = declaration;
+        assert!(!valid(&invalid));
+    }
+    value["interface"] = json!("cli");
+    value["args"] = json!(["{entrypoint}"]);
+    assert!(!valid(&value));
+    value.as_object_mut().unwrap().remove("effectHandler");
+    assert!(valid(&value));
+}

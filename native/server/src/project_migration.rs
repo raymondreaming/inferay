@@ -386,6 +386,7 @@ fn tool(
         &prefix,
     )?;
     let value = ToolDefinition {
+        effect_handler: None,
         connections: Default::default(),
         pack: None,
         requires: vec![],

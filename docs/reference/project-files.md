@@ -155,6 +155,7 @@ selected references remain visible for repair or removal.
 | `interface` | `json_stdin` (default), `cli`, or `{ "mcp": { "tool": "name" } } |
 | `args` | up to 64, each up to 8,000 bytes; CLI placeholders occupy a whole argument |
 | `timeoutSeconds` | 1–3,600 |
+| `effectHandler` | optional `{ "kinds": ["example.deliver"], "retrySafety": "idempotent" }`. Requires JSON stdin; 1–32 nonempty kinds, at most 128 bytes each, without control characters. Retry safety must explicitly be `idempotent` or `never`. This declaration grants no execution or delivery approval. |
 | `connections` | optional map of credential aliases to `{id, baseUrl, header, prefix}` request bindings; at most 16. The ID is local, and the HTTPS destination/header are reviewed. Aliases start with an uppercase letter and use uppercase letters, digits and underscores (64 characters maximum). Selected metadata participates in approval. With network permission, tools use the invocation-scoped `INFERAY_CONNECTIONS_URL` relay for authenticated GET requests; they never receive the raw key. See [Connections](../connections.md). |
 | `inputSchema`, `outputSchema` | the supported JSON Schema subset below |
 

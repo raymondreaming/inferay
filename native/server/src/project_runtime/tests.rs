@@ -1712,3 +1712,25 @@ async fn shared_tool_runner_uses_explicit_authority_without_an_automation_snapsh
     assert_eq!(result["artifacts"],json!(["ran.txt"]));
     assert_eq!(std::fs::read_to_string(dir.join("output/ran.txt")).unwrap(),"ran");
 }
+
+#[tokio::test]
+async fn effect_handlers_cannot_enter_ordinary_automation_execution() {
+    let root = tempfile::tempdir().unwrap();
+    let (project, automation) = definition_files(root.path(), "raise Exception('must never launch')");
+    let tool_path = root.path().join("projects").join(&project).join("plugins/report/tools/report/tool.json");
+    let mut tool: serde_json::Value = serde_json::from_slice(&std::fs::read(&tool_path).unwrap()).unwrap();
+    tool["effectHandler"] = json!({"kinds":["example.deliver"],"retrySafety":"never"});
+    std::fs::write(&tool_path, tool.to_string()).unwrap();
+    let runtime = runtime(root.path());
+    let error = runtime.command(ProjectFileCommand::ReviewAutomation { id: automation.clone() }, true).await.unwrap_err();
+    assert!(error.to_string().contains("Effect handlers require delivery approval"), "{error}");
+    let automation_path = root.path().join("projects").join(&project).join("plugins/report/automations/report.json");
+    let plugin: serde_json::Value = serde_json::from_slice(&std::fs::read(root.path().join("projects").join(&project).join("plugins/report/plugin.json")).unwrap()).unwrap();
+    let mut definition: serde_json::Value = serde_json::from_slice(&std::fs::read(&automation_path).unwrap()).unwrap();
+    definition["execution"] = json!({"kind":"agent","provider":"codex","model":null,"reasoningLevel":null,"instructions":"Use the library","skills":[],"resources":[],"repositories":[],"tools":[{"pluginId":plugin["id"],"toolId":tool["id"]}],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":60});
+    std::fs::write(automation_path, definition.to_string()).unwrap();
+    runtime.catalog(Some(project.clone()), None).await.unwrap();
+    let error = runtime.command(ProjectFileCommand::ReviewAutomation { id: automation }, true).await.unwrap_err();
+    assert!(error.to_string().contains("Effect handlers require delivery approval"), "{error}");
+    assert!(runtime.catalog(Some(project), None).await.unwrap().history.runs.is_empty());
+}

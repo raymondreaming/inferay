@@ -206,6 +206,8 @@ pub struct PluginDefinition {
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ToolDefinition {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effect_handler: Option<EffectHandler>,
     /// Logical credential aliases mapped to local, project-scoped connection IDs.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub connections: BTreeMap<String, crate::connections::ToolConnection>,
@@ -225,6 +227,17 @@ pub struct ToolDefinition {
     pub input_schema: Value,
     pub output_schema: Value,
 }
+/// Explicit delivery protocol support. This declaration grants no execution authority.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EffectHandler {
+    pub kinds: BTreeSet<String>,
+    pub retry_safety: EffectRetrySafety,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectRetrySafety { Idempotent, Never }
+
 /// A tool executes directly from this linked checkout, at an exact reviewed revision.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -439,6 +452,15 @@ impl Definition for PluginDefinition {
 }
 impl Definition for ToolDefinition {
     fn validate(&self) -> Result<(), String> {
+        if let Some(handler) = &self.effect_handler {
+            if self.interface != crate::projects::ToolInterface::JsonStdin { return Err("Effect handlers use the JSON stdin interface".into()); }
+            if handler.kinds.is_empty() || handler.kinds.len()>32 { return Err("Effect handlers declare 1–32 effect kinds".into()); }
+            for kind in &handler.kinds {
+                bounded_text(kind,128,true)?;
+                if kind.chars().any(char::is_control) { return Err("Effect kinds cannot contain control characters".into()); }
+            }
+        }
+
         if self.connections.len() > 16 { return Err("A tool can request at most 16 connections".into()); }
         for (alias, connection) in &self.connections {
             if alias.is_empty() || alias.len() > 64 || !alias.as_bytes()[0].is_ascii_uppercase() || !alias.bytes().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == b'_') {

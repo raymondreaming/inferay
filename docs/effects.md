@@ -42,6 +42,12 @@ the launched PID in `process.json`, so cleanup evidence does not depend on the c
 writing a file. A local check executes with no automation snapshot or run row; this
 prepares handler reuse but does not wire the delivery worker.
 
+Tools can declare `effectHandler` with supported kinds and an explicit retry-safety
+policy. Declared handlers are refused as ordinary automation tools and agent tool
+grants. This admission rule does not prevent an agent with shell access from
+running source directly. Handler binding, approval and execution remain planned;
+the declaration alone never launches a process.
+
 ## Planned delivery contract
 
 The following is the implementation target, not an available file format or API.
