@@ -115,6 +115,7 @@ impl AutomationSandbox {
         let mut profile = String::from(
             "(version 1)\n(deny default)\n(allow file-read*)\n(allow process-exec process-fork sysctl-read)\n(allow signal (target same-sandbox))\n(allow process-info* (target same-sandbox))\n(allow file-write-data (literal \"/dev/null\"))\n",
         );
+        let mut writable_roots = Vec::new();
         for (index, root) in self
             .roots
             .iter()
@@ -125,6 +126,7 @@ impl AutomationSandbox {
             let canonical = root
                 .canonicalize()
                 .map_err(|error| format!("Sandbox write directory is unavailable: {error}"))?;
+            writable_roots.push(canonical.clone());
             let name = format!("WRITE_{index}");
             command
                 .arg("-D")
@@ -140,8 +142,9 @@ impl AutomationSandbox {
                 r##"(deny file-write* (regex #"(^|/)\.git(/|$)"))
 "##,
             );
-            let protected =
+            let mut protected =
                 protected_git_directories(self.repositories.iter().chain(self.roots.iter()))?;
+            protected.extend(git_metadata_aliases(&protected, &writable_roots)?);
             // Seatbelt path rules do not follow a renamed ancestor. Keep each
             // containing directory in place while allowing edits to its other files.
             let ancestors = protected
@@ -244,6 +247,88 @@ impl AutomationSandbox {
             params["config"]["mcp_servers"] = json!(disabled);
         }
     }
+}
+
+/// Seatbelt rules name paths, not inodes. Include existing writable hard-link
+/// aliases and metadata symlink targets before granting broad working-file writes.
+#[cfg(target_os = "macos")]
+fn git_metadata_aliases(
+    directories: &BTreeSet<std::path::PathBuf>,
+    writable_roots: &[std::path::PathBuf],
+) -> Result<BTreeSet<std::path::PathBuf>, String> {
+    use std::os::unix::fs::MetadataExt;
+    let mut aliases = BTreeSet::new();
+    let mut linked = BTreeSet::new();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    let mut remaining = 200_000usize;
+    let mut check_budget = || -> Result<(), String> {
+        if remaining == 0 || std::time::Instant::now() >= deadline {
+            return Err(
+                "Git metadata alias inspection exceeded its limit; the tool was not started".into(),
+            );
+        }
+        remaining -= 1;
+        Ok(())
+    };
+    for directory in directories {
+        for entry in walkdir::WalkDir::new(directory).follow_links(true) {
+            check_budget()?;
+            let entry =
+                entry.map_err(|error| format!("Cannot inspect Git metadata aliases: {error}"))?;
+            if entry.path_is_symlink() {
+                aliases.insert(
+                    entry
+                        .path()
+                        .canonicalize()
+                        .map_err(|error| format!("Cannot resolve Git metadata alias: {error}"))?,
+                );
+            }
+            let metadata = entry
+                .metadata()
+                .map_err(|error| format!("Cannot inspect Git metadata file: {error}"))?;
+            if metadata.is_file() && metadata.nlink() > 1 {
+                linked.insert((metadata.dev(), metadata.ino()));
+            }
+        }
+    }
+    if linked.is_empty() {
+        return Ok(aliases);
+    }
+    let roots = writable_roots.iter().collect::<BTreeSet<_>>();
+    for root in &roots {
+        if roots
+            .iter()
+            .any(|parent| root != parent && root.starts_with(parent))
+        {
+            continue;
+        }
+        // Targets outside these canonical write roots are already read-only.
+        // Metadata directories and ordinary .git paths are already protected.
+        for entry in walkdir::WalkDir::new(root)
+            .follow_links(false)
+            .into_iter()
+            .filter_entry(|entry| {
+                entry.file_name() != ".git"
+                    && !directories
+                        .iter()
+                        .any(|directory| entry.path().starts_with(directory))
+            })
+        {
+            check_budget()?;
+            let entry =
+                entry.map_err(|error| format!("Cannot inspect writable Git aliases: {error}"))?;
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let metadata = entry
+                .metadata()
+                .map_err(|error| format!("Cannot inspect writable file: {error}"))?;
+            if linked.contains(&(metadata.dev(), metadata.ino())) {
+                aliases.insert(entry.into_path());
+            }
+        }
+    }
+    Ok(aliases)
 }
 
 /// Resolve worktree and separate-git-dir pointers without invoking repository
@@ -469,6 +554,17 @@ print('verified')
             };
             let head = git(&repo, &["rev-parse", "HEAD"]);
             let metadata = git(&repo, &["rev-parse", "--absolute-git-dir"]);
+            std::fs::hard_link(
+                Path::new(&metadata).join("HEAD"),
+                project.join("existing-head-alias"),
+            )
+            .unwrap();
+            std::fs::write(project.join("shared-metadata"), "keep").unwrap();
+            std::os::unix::fs::symlink(
+                project.join("shared-metadata"),
+                Path::new(&metadata).join("metadata-link"),
+            )
+            .unwrap();
             let output = project.join("output");
             let scratch = project.join("tmp");
             std::fs::create_dir(&output).unwrap();
@@ -489,6 +585,8 @@ if granted == 'no':
         else: raise AssertionError('metadata write escaped: ' + str(path))
     head = pathlib.Path(metadata, 'HEAD')
     denied_write(head)
+    denied_write(pathlib.Path(repo).parent / "existing-head-alias")
+    denied_write(pathlib.Path(repo).parent / "shared-metadata")
     alias = pathlib.Path(output, 'head-alias')
     try: os.link(head, alias)
     except OSError as e: assert e.errno in (errno.EPERM, errno.EACCES), repr(e)
