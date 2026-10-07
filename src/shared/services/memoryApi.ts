@@ -51,7 +51,13 @@ export function memoryTitle(text: string) {
 	const line =
 		text
 			.split("\n")
-			.map((row) => row.replace(/^[#>*\-\s`]+/, "").trim())
+			.map((row) =>
+				row
+					.replace(/^[#>*\-\s`]+/, "")
+					.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+					.replace(/(\*\*|__|`|~~)/g, "")
+					.trim(),
+			)
 			.find((row) => row.length > 0) ?? "Saved from chat";
 	return line.length > 80 ? `${line.slice(0, 77).trimEnd()}…` : line;
 }
