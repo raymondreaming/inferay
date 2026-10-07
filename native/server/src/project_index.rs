@@ -363,6 +363,27 @@ pub(crate) fn execution_inputs(
                 selected_skills.insert(id.clone(), hash(&serde_json::to_vec(skill)?));
                 skill_context
                     .push(json!({"id":id,"name":skill.name,"instructions":skill.prompt_template}));
+            } else if let Some(reference) = id.strip_prefix("plugin:") {
+                let (plugin_id, skill_id) = reference.split_once(':').ok_or("Invalid plugin skill reference")?;
+                let owner = scanned.iter().find(|entry| matches!(&entry.definition, Some(DefinitionFile::Plugin(plugin)) if plugin.id == plugin_id)).ok_or("Selected skill library is missing")?;
+                let owner_prefix = owner.path.strip_suffix("/plugin.json").ok_or("Invalid skill library path")?;
+                if scanned.iter().any(|entry| entry.path.starts_with(&format!("{owner_prefix}/")) && entry.error.is_some()) {
+                    return Err("Selected skill library needs repair".into());
+                }
+                let skill = scanned.iter().find_map(|entry| {
+                    if !entry.path.starts_with(&format!("{owner_prefix}/skills/")) { return None; }
+                    match &entry.definition {
+                        Some(DefinitionFile::Skill(skill)) if skill.id == skill_id => Some(skill),
+                        _ => None,
+                    }
+                }).ok_or("Selected library skill is missing")?;
+                let package = files::package_files(&root, owner_prefix)?;
+                for entry in scanned.iter().filter(|entry| entry.path.starts_with(&format!("{owner_prefix}/"))) {
+                    if entry.hash.as_ref() != package.get(&entry.path) { return Err("Selected skill library changed while capturing inputs".into()); }
+                }
+                inputs.extend(package.clone());
+                packages.insert(owner_prefix.into(), package);
+                skill_context.push(json!({"id":id,"name":skill.name,"instructions":skill.instructions}));
             } else {
                 let skill = scanned
                     .iter()
@@ -497,7 +518,7 @@ pub(crate) fn execution_inputs(
     // Only the owning library and selected tools contribute requirements.
     for entry in &scanned {
         match &entry.definition {
-            Some(DefinitionFile::Plugin(plugin)) if inputs.contains_key(&entry.path) => {
+            Some(DefinitionFile::Plugin(plugin)) if entry.path == format!("{prefix}/plugin.json") || granted_tools.values().any(|tool| tool.grant.plugin_id == plugin.id) => {
                 requirements.extend(plugin.requires.iter().cloned());
             }
             Some(DefinitionFile::Tool(tool)) if selected_tools.contains(&entry.path) => {

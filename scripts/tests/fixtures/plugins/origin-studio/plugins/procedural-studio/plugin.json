@@ -1,0 +1,9 @@
+{
+	"schema": "inferay.plugin/1",
+	"id": "bfe6e63e-f1f4-5dfd-ac59-7ba163cfe6db",
+	"name": "Procedural studio",
+	"version": "1",
+	"description": "Create procedural Blender stills and depth maps, and check captions using the linked Origin kit. Reuse these tools from chats and automations.",
+	"may": ["gpu"],
+	"requires": ["blender>=5.0", "python3"]
+}

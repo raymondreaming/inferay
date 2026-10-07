@@ -1,0 +1,13 @@
+{
+	"schema": "inferay.project/1",
+	"id": "4b3ed31d-1e35-55af-94af-2968a11bc10b",
+	"name": "Origin studio proof",
+	"description": "Reusable procedural rendering and caption checks from a linked, pinned kit.",
+	"instructions": "Keep the kit linked. Store produced files in run output. Do not publish or contact external services.",
+	"repositories": [
+		{
+			"id": "ceb98bdc-9cb0-5d60-b4e5-b17026f15a20",
+			"name": "Origin studio kit"
+		}
+	]
+}

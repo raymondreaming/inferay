@@ -578,7 +578,7 @@ async fn agent_tool_grants_execute_only_approved_library_inputs() {
     let tool = read("plugins/report/tools/report/tool.json")["id"].clone();
     let path = root.join("plugins/report/automations/report.json");
     let mut definition = read("plugins/report/automations/report.json");
-    definition["execution"] = json!({"kind":"agent","provider":"codex","instructions":"Use the report tool","tools":[{"pluginId":plugin,"toolId":tool}],"skills":[],"resources":[],"repositories":[],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":30});
+    definition["execution"] = json!({"kind":"agent","provider":"codex","instructions":"Use the report tool","tools":[{"pluginId":plugin,"toolId":tool,"required":true}],"skills":[],"resources":[],"repositories":[],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":30});
     std::fs::remove_file(&path).unwrap();
     let standalone = root.join("automations").join(&automation);
     std::fs::create_dir_all(&standalone).unwrap();
@@ -590,6 +590,7 @@ async fn agent_tool_grants_execute_only_approved_library_inputs() {
         crate::project_runs::claim_next(&mut store.db, profile.path(), &[]).unwrap().unwrap().2
     };
     let scope = crate::project_tools::ToolScope::new(runtime.clone(), &run, root.clone(), root.join("runs").join(&run), snapshot).unwrap();
+    assert!(scope.verify_required().unwrap_err().to_string().contains("Report"));
     assert_eq!(scope.call(json!({"action":"list"})).await.unwrap()["tools"].as_array().unwrap().len(), 1);
     assert!(scope.call(json!({"action":"call","pluginId":plugin,"toolId":uuid::Uuid::new_v4().to_string(),"input":{}})).await.unwrap_err().to_string().contains("not granted"));
     let request = json!({"action":"call","pluginId":plugin,"toolId":tool,"input":{"text":"Recorded tool output"}});
@@ -597,6 +598,13 @@ async fn agent_tool_grants_execute_only_approved_library_inputs() {
     let artifact = result["artifacts"][0].as_str().unwrap();
     assert_eq!(std::fs::read_to_string(root.join("runs").join(&run).join("output").join(artifact)).unwrap(), "Recorded tool output");
     assert_eq!(scope.artifacts().unwrap(), vec![artifact]);
+    scope.verify_required().unwrap();
+    let mut invalid = request.clone();
+    invalid["input"] = json!({});
+    assert!(scope.call(invalid).await.is_err());
+    assert!(scope.verify_required().is_err(), "A previous success must not hide a failed check");
+    scope.call(request.clone()).await.unwrap();
+    scope.verify_required().unwrap();
     std::fs::write(root.join("plugins/report/README.md"), "Changed library instructions").unwrap();
     assert!(scope.call(request.clone()).await.is_err(), "An outside library edit must invalidate the grant");
     std::fs::remove_file(root.join("plugins/report/README.md")).unwrap();
@@ -985,4 +993,52 @@ async fn real_origin_blender_render_retains_image_artifacts() {
     // Recapturing the approved pack rejects dirty, untracked or ignored source files.
     runtime.command(ProjectFileCommand::ReviewAutomation { id: automation }, true).await.unwrap();
     eprintln!("Origin render verified at {revision}; two 108x144 PNG artifacts");
+}
+
+#[tokio::test]
+#[ignore = "Runs real Codex and Blender with a disposable scheduled Origin studio project"]
+async fn real_scheduled_studio_uses_library_skill_and_required_tools() {
+    let (checkout, revision) = clone_origin_kit();
+    assert_eq!(revision, "271fb05956913c730a5f496378406677e03f422f", "Use the fixture's pinned kit revision in the supplied checkout");
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/tests/fixtures/plugins/origin-studio");
+    let profile = tempfile::tempdir().unwrap();
+    let project = "4b3ed31d-1e35-55af-94af-2968a11bc10b";
+    let automation = "f5b40ea3-3aea-5319-b295-dca7f110827b";
+    let root = profile.path().join("projects").join(project);
+    for entry in walkdir::WalkDir::new(&source) {
+        let entry = entry.unwrap();
+        let target = root.join(entry.path().strip_prefix(&source).unwrap());
+        if entry.file_type().is_dir() { std::fs::create_dir_all(target).unwrap(); }
+        else { std::fs::copy(entry.path(), target).unwrap(); }
+    }
+    let runtime = runtime(profile.path());
+    runtime.command(ProjectFileCommand::LinkRepository {
+        project_id: project.into(), repository_id: "ceb98bdc-9cb0-5d60-b4e5-b17026f15a20".into(),
+        expected_project_hash: project_store::hash(&std::fs::read(root.join("project.json")).unwrap()),
+        path: checkout.path().display().to_string(),
+    }, true).await.unwrap();
+    let review = runtime.command(ProjectFileCommand::ReviewAutomation { id:automation.into() }, true).await.unwrap();
+    runtime.command(ProjectFileCommand::ApproveAutomation { id:automation.into(), expected_inputs_hash:review["inputsHash"].as_str().unwrap().into(), enable:true }, true).await.unwrap();
+    // Advance this disposable schedule's due time, then use the real scheduler path.
+    runtime.store.lock().unwrap().db.execute("UPDATE automation_state SET next_due_at=? WHERE automation_id=?", rusqlite::params![now()-1000,automation]).unwrap();
+    runtime.tick().await.unwrap();
+    let run = tokio::time::timeout(Duration::from_secs(270), async {
+        loop {
+            let catalog = runtime.catalog(Some(project.into()), None).await.unwrap();
+            if let Some(run) = catalog.history.runs.into_iter().find(|run| run.automation_id == automation && !["queued","running"].contains(&run.status.as_str())) { break run; }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    }).await.unwrap();
+    let log = std::fs::read_to_string(Path::new(&run.directory).join("logs/agent.jsonl")).unwrap_or_default();
+    assert_eq!(run.status, "succeeded", "{:?}\n{}", run.error, log.chars().rev().take(10000).collect::<String>().chars().rev().collect::<String>());
+    assert!(run.snapshot["skills"].as_array().unwrap().iter().any(|skill| skill["name"] == "Procedural studio"));
+    assert!(run.conversation_available);
+    let catalog = runtime.catalog(Some(project.into()), None).await.unwrap();
+    assert_eq!(catalog.history.runs.len(), 1, "One due occurrence should create one run");
+    let artifacts: Vec<_> = catalog.history.artifacts.iter().filter(|artifact| artifact.run_id == run.id).collect();
+    assert!(artifacts.iter().any(|artifact| artifact.name.ends_with("render_raw.png")));
+    assert!(artifacts.iter().any(|artifact| artifact.name.ends_with("render_raw_z.png")));
+    assert!(artifacts.iter().any(|artifact| artifact.name == "response.md"));
+    runtime.command(ProjectFileCommand::ReviewAutomation { id:automation.into() }, true).await.unwrap();
+    eprintln!("Scheduled studio run: {}\n{}", run.id, std::fs::read_to_string(Path::new(&run.directory).join("output/response.md")).unwrap());
 }

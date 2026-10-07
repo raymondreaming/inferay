@@ -55,7 +55,7 @@ Development continues directly on `main`. The formats and validators exist; this
 6. Every automation arrives disabled.
 7. Flag absolute paths found in instructions, with a suggested repository reference. Do not rewrite them.
 
-**Skill references:** automations name plugin skills by stable UUID, and global library skills by `global:<id>`. Names are display labels. `validate_references` checks the reference format and resolves it against the supplied inventory.
+**Skill references:** automations name skills in their own folder by stable UUID, skills in another library by `plugin:<plugin UUID>:<skill UUID>`, and global library skills by `global:<id>`. Selected library files participate in approval hashes; reading a skill alone does not require that library’s executables. Names are display labels. `validate_references` checks the reference format and resolves it against the supplied inventory.
 
 **Done when**
 - the live profile's Rthmn automations migrate into standalone packages, arrive disabled and keep their run history, and a second launch changes nothing;
@@ -105,7 +105,7 @@ Real Codex and Claude runs now pass disposable native-runtime filesystem probes,
 
 ## M4. Builds on other people's work
 
-- **Packs (E1): implemented for clean Git checkouts.** Tools resolve entrypoints in linked repositories pinned by full commit ID and SHA-256. Direct tools and agent grants use the same resolver; changed, untracked or ignored files, hidden index entries and submodules are refused. Tracked aliases must resolve to tracked content inside the checkout. Native checks cover bindings, pins, in-place execution and refusal after an outside edit. An opt-in native-runtime check runs Origin’s actual caption checker from a disposable linked checkout: accepted copy succeeds, rejected copy fails with retained findings, and the source stays clean. A second opt-in native-runtime check runs the actual pillar-stack scene with explicit gpu permission, retains beauty and depth PNGs, and indexes both as run artifacts. The Apple Silicon sandbox grants only the required graphics device/context/compiler services; user-cache writes remain refused. The daily lane and its combined render/quality workflow remain milestone gates.
+- **Packs (E1): implemented for clean Git checkouts.** Tools resolve entrypoints in linked repositories pinned by full commit ID and SHA-256. Direct tools and agent grants use the same resolver; changed, untracked or ignored files, hidden index entries and submodules are refused. Tracked aliases must resolve to tracked content inside the checkout. Native checks cover bindings, pins, in-place execution and refusal after an outside edit. An opt-in native-runtime check runs Origin’s actual caption checker from a disposable linked checkout: accepted copy succeeds, rejected copy fails with retained findings, and the source stays clean. A second opt-in native-runtime check runs the actual pillar-stack scene with explicit gpu permission, retains beauty and depth PNGs, and indexes both as run artifacts. The Apple Silicon sandbox grants only the required graphics device/context/compiler services; user-cache writes remain refused. The `origin-studio` fixture now separates the reusable studio library from a standalone daily automation. A real Codex run admitted through the scheduler reads the library skill, passes the required caption checker and renderer, retains both images and its response, and leaves the pinned checkout clean. Required tool grants prevent successful completion when a tool is skipped or its latest attempt fails. This proves one scheduled preview occurrence; sustained daily operation, production image quality and the Spline gate remain open.
 - **MCP declarations (E6).** A plugin names the MCP servers it needs; a missing server blocks the run.
 
 **Done when**
@@ -138,6 +138,8 @@ Real Codex and Claude runs now pass disposable native-runtime filesystem probes,
 Build an automation for a domain nobody designed for (for example a weekly finance summary or an inbox digest) entirely from chat. **Done when** it needs no kernel change. If it does, the missing piece is a generic concept added to ADR 0002, never domain-specific code.
 
 ## Known gaps
+
+- The parallel server suite has intermittently failed the proposal-reopen test with a profile-lock error. The isolated test and full serial suite pass; lock lifetime under concurrent subprocess tests needs investigation.
 
 - Permission enforcement is partial: Codex requests scoped filesystem/network limits; Claude requests restricted tool access and a required Bash sandbox; macOS local tools enforce approved write roots and network access through an OS sandbox, including subprocesses. Other platforms refuse local tools. Push/PR/commit isolation, read isolation, provider network checks and additional platform adapters remain open in M3.
 - `check:architecture` has a "Solid reactivity regression" step that runs nothing.

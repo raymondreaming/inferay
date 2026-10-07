@@ -131,6 +131,13 @@ Local executable discovery preserves interpreter/virtual-environment aliases.
 Aliases into a macOS `.app` bundle resolve to the actual executable so bundled
 fonts, shaders and other resources can be found.
 
+A skill in another library can be selected as
+`plugin:<plugin UUID>:<skill UUID>`. A bare UUID selects a skill in the automation's
+own folder; `global:<id>` selects a global skill. Qualified library references
+capture the whole library in the approval hash and inject the selected skill's
+instructions. Using knowledge alone does not require that library's executables
+or repository binding; tool grants add those execution requirements.
+
 ## tools/&lt;name&gt;/tool.json
 
 ```json
@@ -267,6 +274,15 @@ Library discovery uses `readPlugin`. Its inventory includes per-file hashes and 
 `archived` is an optional boolean, defaulting to false. It belongs to the definition; enabled state remains local.
 
 ### execution
+
+Agent tool grants accept `required: true` alongside `pluginId` and `toolId`.
+Required tools must be called, and their latest attempt must succeed before the
+agent run can finish successfully. A skipped check, failed call, or invalid retry
+cannot be hidden by the provider's final response. A successful retry restores the
+check. Omitted `required` means optional, preserving recoverable tool calls.
+Required grants are included in approved inputs, and duplicate tool identities
+are refused even when their `required` values differ. This validates tool outcomes;
+it does not prove an agent selected the right inputs or satisfied brand goals.
 
 **Agent** (`"kind": "agent"`): `provider` is `codex` or `claude`; optional `model` and `reasoningLevel`; `instructions` 1–64,000 bytes; up to 20 `skills`, 32 `resources`, 512 `repositories`; `timeoutSeconds` 1–86,400. `workingDirectory` is one of:
 

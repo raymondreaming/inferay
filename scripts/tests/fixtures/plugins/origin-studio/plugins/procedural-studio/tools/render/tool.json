@@ -1,0 +1,63 @@
+{
+	"schema": "inferay.tool/1",
+	"id": "c44a2a35-86ba-5470-83a1-8725533c23c1",
+	"name": "Render procedural still",
+	"program": "blender",
+	"interface": "cli",
+	"entrypoint": "Plugins/design-blender/content/scripts/crate_families/run.py",
+	"args": [
+		"--factory-startup",
+		"--background",
+		"-noaudio",
+		"--python-exit-code",
+		"1",
+		"--python",
+		"{entrypoint}",
+		"--",
+		"--family",
+		"{input.family}",
+		"--seed",
+		"{input.seed}",
+		"--out",
+		"{output}/render",
+		"--scale",
+		"{input.scale}",
+		"--samples",
+		"{input.samples}"
+	],
+	"timeoutSeconds": 180,
+	"inputSchema": {
+		"type": "object",
+		"properties": {
+			"family": {
+				"type": "string",
+				"enum": ["pillar-stack", "pebble-ring", "arch-glow"]
+			},
+			"seed": {
+				"type": "integer",
+				"minimum": 1,
+				"maximum": 100000
+			},
+			"scale": {
+				"type": "number",
+				"minimum": 0.1,
+				"maximum": 2
+			},
+			"samples": {
+				"type": "integer",
+				"minimum": 1,
+				"maximum": 128
+			}
+		},
+		"required": ["family", "seed", "scale", "samples"],
+		"additionalProperties": false
+	},
+	"outputSchema": {
+		"type": "object"
+	},
+	"pack": {
+		"repositoryId": "ceb98bdc-9cb0-5d60-b4e5-b17026f15a20",
+		"commit": "271fb05956913c730a5f496378406677e03f422f",
+		"sha256": "4d7045a0ba1fbc55914f9041d3c3d914261f03c6917693c97084700462467718"
+	}
+}

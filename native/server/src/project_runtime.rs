@@ -588,6 +588,7 @@ impl ProjectRuntime {
                             "Provider returned no final response; inspect the agent log".into()
                         );
                     }
+                    tools.verify_required()?;
                     let mut artifacts = tools.artifacts()?;
                     artifacts.push("response.md".into());
                     Ok(json!({"message":text,"artifacts":artifacts,"completion":"provider turn completed; not an independently verified business outcome"}))

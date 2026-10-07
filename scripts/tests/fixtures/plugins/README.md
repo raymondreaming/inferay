@@ -41,7 +41,7 @@ INFERAY_ORIGIN_KIT_REPOSITORY=/path/to/Origin \
 
 The test prints the tested commit and entrypoint hash. It requires a trusted local
 kit and Python 3. It exercises the real quality checker, not the render pipeline;
-the Blender artifact and daily-lane gates remain open.
+the separate checks below cover rendering and one scheduled occurrence.
 
 ## Real Blender render gate
 
@@ -59,8 +59,31 @@ Silicon with Blender 5.0.1. An attempted user-cache write is refused while both
 rendered images are retained. Set `INFERAY_PROOF_OUTPUT_DIR` to export the two PNGs
 for visual inspection; otherwise the temporary profile is removed after the test.
 
-This proves a real render and artifact capture. The daily scheduled lane and a
-combined render/quality workflow remain separate milestone gates.
+This proves a real render and artifact capture.
+
+## Reusable studio library and scheduled workflow
+
+`origin-studio/` contains a reusable Procedural studio library with two pinned
+repository tools and a skill. Its daily automation lives separately under the
+project's `automations/` folder. See its [library guide](origin-studio/plugins/procedural-studio/README.md).
+
+```sh
+cargo test -p inferay-server studio_library_fixture --lib
+INFERAY_ORIGIN_KIT_REPOSITORY=/path/to/Origin \
+  cargo test -p inferay-server real_scheduled_studio --lib -- --ignored --nocapture
+```
+
+The regular check validates the files, disabled initial state, binding refusal and
+shared skill approval inputs. The opt-in check uses real Codex and Blender in a
+disposable profile, approves only that temporary workflow and advances one due
+occurrence through the scheduler. Both required tools must pass. The completed
+run retains beauty/depth images, its response and provider conversation metadata.
+It verifies the source remains clean. This gate passes with the pinned kit and
+Blender 5.0.1; it consumes provider usage and never enables the user's schedules.
+
+The preview is 108 × 144 with two samples. Checker success and render success are
+execution evidence; they do not prove brand quality or that copy describes the
+image accurately. Sustained daily operation and production quality remain open.
 
 ## Planned fixtures
 

@@ -299,7 +299,11 @@ impl Trigger {
 pub struct AgentToolGrant {
     pub plugin_id: String,
     pub tool_id: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub required: bool,
 }
+fn is_false(value: &bool) -> bool { !value }
+
 impl AgentToolGrant {
     pub fn key(&self) -> String { format!("{}/{}", self.plugin_id, self.tool_id) }
 }
@@ -509,7 +513,7 @@ impl Definition for AutomationDefinition {
                 bounded_text(instructions, 64000, true)?;
                 if !(1..=86400).contains(timeout_seconds)
                     || tools.len() > 32
-                    || tools.iter().collect::<BTreeSet<_>>().len() != tools.len()
+                    || tools.iter().map(AgentToolGrant::key).collect::<BTreeSet<_>>().len() != tools.len()
                     || skills.len() > 20
                     || resources.len() > 32
                     || repositories.len() > 512
@@ -567,9 +571,13 @@ pub fn validate_references(
                 if let Some(global_id) = id.strip_prefix("global:") {
                     bounded_text(global_id, 200, true)
                         .map_err(|_| format!("invalid global skill reference: {id}"))?;
+                } else if let Some(reference) = id.strip_prefix("plugin:") {
+                    let (plugin, skill) = reference.split_once(':').ok_or("Plugin skill reference needs plugin and skill UUIDs")?;
+                    uuid::Uuid::parse_str(plugin).map_err(|_| "Plugin skill reference has an invalid plugin UUID")?;
+                    uuid::Uuid::parse_str(skill).map_err(|_| "Plugin skill reference has an invalid skill UUID")?;
                 } else {
                     uuid::Uuid::parse_str(id).map_err(|_| {
-                        format!("skill reference must be a UUID or global:<id>: {id}")
+                        format!("skill reference must be a UUID, global:<id>, or plugin:<plugin UUID>:<skill UUID>: {id}")
                     })?;
                 }
                 check("skill", id, skills)?;

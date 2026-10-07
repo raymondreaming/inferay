@@ -1,0 +1,39 @@
+{
+	"schema": "inferay.tool/1",
+	"id": "98bdb723-6e28-5d54-933e-ea4e9d95af7e",
+	"name": "Check caption",
+	"program": "python3",
+	"interface": "cli",
+	"entrypoint": "Plugins/design-blender/content/scripts/copy_check.py",
+	"args": [
+		"-B",
+		"{entrypoint}",
+		"--text",
+		"{input.text}",
+		"--platform",
+		"instagram",
+		"--cta-allowed",
+		"no",
+		"--json"
+	],
+	"timeoutSeconds": 30,
+	"inputSchema": {
+		"type": "object",
+		"properties": {
+			"text": {
+				"type": "string",
+				"maxLength": 320
+			}
+		},
+		"required": ["text"],
+		"additionalProperties": false
+	},
+	"outputSchema": {
+		"type": "object"
+	},
+	"pack": {
+		"repositoryId": "ceb98bdc-9cb0-5d60-b4e5-b17026f15a20",
+		"commit": "271fb05956913c730a5f496378406677e03f422f",
+		"sha256": "03b3c9b8094717c8233ee37ae7d53f10c9312afd2c67aaf80e95294429291b7b"
+	}
+}

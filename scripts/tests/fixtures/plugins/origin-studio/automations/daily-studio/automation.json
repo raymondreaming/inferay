@@ -1,0 +1,42 @@
+{
+	"schema": "inferay.automation/1",
+	"id": "f5b40ea3-3aea-5319-b295-dca7f110827b",
+	"name": "Daily studio preview",
+	"trigger": {
+		"kind": "calendar",
+		"timezone": "America/Chicago",
+		"days": [1, 2, 3, 4, 5, 6, 7],
+		"times": ["09:00"]
+	},
+	"overlap": "skip",
+	"execution": {
+		"kind": "agent",
+		"provider": "codex",
+		"model": null,
+		"reasoningLevel": "medium",
+		"instructions": "Follow the Procedural studio skill. Make one pillar-stack preview at scale 0.1 with 2 samples and seed 3, and check a factual caption describing its stacked colorful forms. Use both granted library tools; inspect their actual results. Return a short summary with the exact caption, quality-check result, and artifact paths. No posting.",
+		"tools": [
+			{
+				"pluginId": "bfe6e63e-f1f4-5dfd-ac59-7ba163cfe6db",
+				"toolId": "98bdb723-6e28-5d54-933e-ea4e9d95af7e",
+				"required": true
+			},
+			{
+				"pluginId": "bfe6e63e-f1f4-5dfd-ac59-7ba163cfe6db",
+				"toolId": "c44a2a35-86ba-5470-83a1-8725533c23c1",
+				"required": true
+			}
+		],
+		"skills": [
+			"plugin:bfe6e63e-f1f4-5dfd-ac59-7ba163cfe6db:beb8a6e9-be9c-580c-8fa2-d802c22b620a"
+		],
+		"resources": [],
+		"repositories": [],
+		"workingDirectory": {
+			"base": "project",
+			"path": "."
+		},
+		"timeoutSeconds": 240
+	},
+	"may": ["gpu"]
+}

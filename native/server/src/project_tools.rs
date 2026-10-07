@@ -41,6 +41,7 @@ pub(crate) struct ToolScope {
     serial: Semaphore,
     calls: AtomicU32,
     artifacts: Mutex<Vec<String>>,
+    outcomes: Mutex<BTreeMap<String, bool>>,
 }
 /// Closes grants even when the provider future is dropped or errors early.
 pub(crate) struct ToolLease(pub Arc<ToolScope>);
@@ -81,17 +82,28 @@ impl ToolScope {
             serial: Semaphore::new(1),
             calls: AtomicU32::new(0),
             artifacts: Mutex::new(vec![]),
+            outcomes: Mutex::new(BTreeMap::new()),
         }))
     }
     pub(crate) fn available(&self) -> bool {
         !self.tools.is_empty()
     }
     pub(crate) fn definition() -> Value {
-        json!({"type":"function","name":"inferay_tools","description":"List or call the reusable library tools explicitly granted to this automation. Use list to discover names, pluginId, toolId and input schemas, then call with those IDs and input. Undeclared tools are refused. Tool failures are real failures; inspect the error before retrying.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["list","call"]},"pluginId":{"type":"string"},"toolId":{"type":"string"},"input":{}},"required":["action"],"additionalProperties":false}})
+        json!({"type":"function","name":"inferay_tools","description":"List or call the reusable library tools explicitly granted to this automation. Use list to discover names, pluginId, toolId and input schemas, then call with those IDs and input. Undeclared tools are refused. Tools marked required must be called and pass before the run can succeed. Their latest attempt must succeed; repair failures and retry. Optional tool failures may be recovered.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["list","call"]},"pluginId":{"type":"string"},"toolId":{"type":"string"},"input":{}},"required":["action"],"additionalProperties":false}})
     }
     pub(crate) async fn close(&self) {
         self.active.store(false, Ordering::Release);
         let _permit = self.serial.acquire().await;
+    }
+    pub(crate) fn verify_required(&self) -> Result<()> {
+        let outcomes = self.outcomes.lock().map_err(|_| "Tool outcome lock failed")?;
+        let missing: Vec<_> = self.tools.iter()
+            .filter(|(key, tool)| tool.grant.required && outcomes.get(*key) != Some(&true))
+            .map(|(_, tool)| tool.definition.name.as_str()).collect();
+        if !missing.is_empty() {
+            return Err(format!("Required tools did not pass: {}. Inspect tool logs and retry.", missing.join(", ")).into());
+        }
+        Ok(())
     }
     pub(crate) fn artifacts(&self) -> Result<Vec<String>> {
         Ok(self
@@ -112,18 +124,22 @@ impl ToolScope {
         } = request
         else {
             return Ok(
-                json!({"tools":self.tools.values().map(|tool| json!({"pluginId":tool.grant.plugin_id,"toolId":tool.grant.tool_id,"name":tool.definition.name,"inputSchema":tool.definition.input_schema})).collect::<Vec<_>>() }),
+                json!({"tools":self.tools.values().map(|tool| json!({"pluginId":tool.grant.plugin_id,"toolId":tool.grant.tool_id,"name":tool.definition.name,"required":tool.grant.required,"inputSchema":tool.definition.input_schema})).collect::<Vec<_>>() }),
             );
         };
-        let grant = AgentToolGrant { plugin_id, tool_id };
+        let grant = AgentToolGrant { plugin_id, tool_id, required: false };
         let captured = self
             .tools
             .get(&grant.key())
             .ok_or("This tool is not granted to the automation")?;
+        let grant = captured.grant.clone();
         let _permit = self
             .serial
             .try_acquire()
             .map_err(|_| "Another tool is running; wait for its result before calling again")?;
+        // Invalidate the previous result before validating or executing this attempt.
+        // A later successful retry restores it; an ignored failure cannot count as a pass.
+        self.outcomes.lock().map_err(|_| "Tool outcome lock failed")?.insert(grant.key(), false);
         if input.to_string().len() > 64000 {
             return Err("Tool input exceeds 64 KB".into());
         }
@@ -257,6 +273,9 @@ impl ToolScope {
             },
             &outcome,
         )?;
+        if result.is_ok() {
+            self.outcomes.lock().map_err(|_| "Tool outcome lock failed")?.insert(grant.key(), true);
+        }
         result
     }
 }

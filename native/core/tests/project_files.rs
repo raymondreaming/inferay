@@ -131,3 +131,17 @@ fn repository_packs_require_stable_identity_and_full_hashes() {
         assert!(parse::<ToolDefinition>("tools/report/tool.json", invalid_value.to_string().as_bytes()).is_err(), "{field}");
     }
 }
+
+#[test]
+fn required_tool_grants_preserve_optional_defaults_and_reject_duplicate_identity() {
+    let plugin = "11111111-1111-4111-8111-111111111111";
+    let tool = "22222222-2222-4222-8222-222222222222";
+    let optional = serde_json::json!({"pluginId":plugin,"toolId":tool});
+    let grant: inferay_core::project_files::AgentToolGrant = serde_json::from_value(optional.clone()).unwrap();
+    assert!(!grant.required);
+    assert_eq!(serde_json::to_value(grant).unwrap(), optional);
+    let mut automation = serde_json::json!({"schema":"inferay.automation/1","id":"33333333-3333-4333-8333-333333333333","name":"Required checks","trigger":{"kind":"manual"},"overlap":"skip","may":[],"execution":{"kind":"agent","provider":"codex","instructions":"Use the check","skills":[],"resources":[],"repositories":[],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":60,"tools":[{"pluginId":plugin,"toolId":tool,"required":true}]}});
+    assert!(parse::<AutomationDefinition>("automations/check/automation.json", automation.to_string().as_bytes()).is_ok());
+    automation["execution"]["tools"].as_array_mut().unwrap().push(optional);
+    assert!(parse::<AutomationDefinition>("automations/check/automation.json", automation.to_string().as_bytes()).is_err());
+}

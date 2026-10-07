@@ -213,3 +213,46 @@ fn point_proof_uses_native_validation_bindings_and_approval_inputs() {
         assert!(entries.iter().any(|entry| entry.path.ends_with("daily-0800.json") && entry.error.is_some()), "{mutation} was accepted");
     }
 }
+
+#[test]
+fn studio_library_fixture_has_separate_disabled_workflow_and_required_tools() {
+    const PROJECT: &str = "4b3ed31d-1e35-55af-94af-2968a11bc10b";
+    const AUTOMATION: &str = "f5b40ea3-3aea-5319-b295-dca7f110827b";
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/tests/fixtures/plugins/origin-studio");
+    let profile = tempfile::tempdir().unwrap();
+    let root = profile.path().join("projects").join(PROJECT);
+    for entry in walkdir::WalkDir::new(&source) {
+        let entry = entry.unwrap();
+        let target = root.join(entry.path().strip_prefix(&source).unwrap());
+        if entry.file_type().is_dir() { std::fs::create_dir_all(target).unwrap(); }
+        else { std::fs::copy(entry.path(), target).unwrap(); }
+    }
+    let mut store = FileProjectStore::open(profile.path(), &[]).unwrap();
+    assert_eq!(store.db.query_row("SELECT count(*) FROM definition_errors", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    assert_eq!(store.db.query_row("SELECT count(*) FROM plugins", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+    assert_eq!(store.db.query_row("SELECT count(*) FROM automations", [], |r| r.get::<_, i64>(0)).unwrap(), 1);
+    assert_eq!(store.db.query_row("SELECT count(*) FROM automation_state WHERE enabled<>0 OR coalesce(approved_hash,'')<>''", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    let error: Option<String> = store.db.query_row("SELECT error FROM automations", [], |r| r.get(0)).unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let definition: serde_json::Value = serde_json::from_slice(&std::fs::read(root.join("automations/daily-studio/automation.json")).unwrap()).unwrap();
+    assert_eq!(definition["execution"]["tools"].as_array().unwrap().len(), 2);
+    assert!(definition["execution"]["tools"].as_array().unwrap().iter().all(|grant| grant["required"] == true));
+    assert!(!root.join("plugins/procedural-studio/automations").exists());
+    let error = crate::project_index::execution_inputs(&store.db, profile.path(), AUTOMATION, &[]).unwrap_err();
+    assert!(error.to_string().contains("not linked on this machine"), "{error}");
+    // Selecting knowledge alone does not require the kit's executable or a repo binding.
+    let path = root.join("automations/daily-studio/automation.json");
+    let mut knowledge = definition;
+    knowledge["execution"]["tools"] = json!([]);
+    knowledge["may"] = json!([]);
+    std::fs::write(&path, knowledge.to_string()).unwrap();
+    crate::project_index::refresh(&mut store.db, profile.path(), &[]).unwrap();
+    let before = crate::project_index::execution_inputs(&store.db, profile.path(), AUTOMATION, &[]).unwrap();
+    assert_eq!(before["requirements"], json!([]));
+    assert_eq!(before["skills"][0]["name"], "Procedural studio");
+    let skill = root.join("plugins/procedural-studio/skills/studio.md");
+    std::fs::write(&skill, format!("{}\nUse a different seed.\n", std::fs::read_to_string(&skill).unwrap())).unwrap();
+    let after = crate::project_index::execution_inputs(&store.db, profile.path(), AUTOMATION, &[]).unwrap();
+    assert_ne!(before, after, "An edit to the shared library skill must change approval inputs");
+
+}
