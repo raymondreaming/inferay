@@ -1,7 +1,8 @@
 //! Shared process execution for direct tools and granted agent tool calls.
 mod mcp;
 use super::*;
-use std::sync::atomic::{AtomicBool, Ordering};
+use inferay_core::project_files::Permission;
+use std::collections::BTreeSet;
 use tokio::io::AsyncReadExt;
 
 pub(crate) struct Invocation<'a> {
@@ -14,7 +15,8 @@ pub(crate) struct Invocation<'a> {
     pub input: Value,
     pub snapshot: &'a Value,
     pub entrypoint_hash: &'a str,
-    pub active: Option<&'a AtomicBool>,
+    pub permissions: &'a BTreeSet<Permission>,
+    pub cancelled: &'a (dyn Fn() -> bool + Send + Sync),
 }
 
 /// Own process cleanup even when the execution future is dropped mid-await.
@@ -60,8 +62,13 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
         input,
         snapshot,
         entrypoint_hash,
-        active,
+        permissions,
+        cancelled,
     } = invocation;
+    if cancelled() {
+        return Err("Cancelled before tool launch".into());
+    }
+    validate_json(&tool.input_schema, &input)?;
     let subdir = call.map(|id| format!("tools/{id}")).unwrap_or_default();
     let inputs = dir.join("inputs").join(&subdir);
     let logs = dir.join("logs").join(&subdir);
@@ -83,10 +90,8 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
     }
     std::fs::write(inputs.join("entrypoint"), &bytes)?;
     let cwd = resolve_path(&root, &tool.working_directory)?;
-    let definition: inferay_core::project_files::AutomationDefinition =
-        serde_json::from_value(snapshot["automation"].clone())?;
     let policy = crate::automation_sandbox::AutomationSandbox::new(
-        &definition.may,
+        permissions,
         &snapshot["repositoryPaths"],
         root,
     )
@@ -115,7 +120,7 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
     let _relay = if let Some(tool_id) =
         connection_tool.filter(|tool| snapshot["connectionRequests"][*tool].is_object())
     {
-        if !definition.may.contains(&inferay_core::project_files::Permission::Network) {
+        if !permissions.contains(&Permission::Network) {
             return Err("Connection requests require network permission".into());
         }
         let relay = crate::connections::relay::Relay::start(
@@ -130,6 +135,9 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
     } else {
         None
     };
+    if cancelled() {
+        return Err("Cancelled before tool launch".into());
+    }
     let mut child = command.spawn()?;
     let pid = child.id();
     if let Some(pid) = pid {
@@ -140,14 +148,15 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
         tracker: &runtime.tracker,
         exited: false,
     };
+    if let Some(pid) = pid {
+        std::fs::write(logs.join("process.json"), json!({"pid":pid}).to_string())?;
+    }
     if let ToolInterface::Mcp { tool: name } = &tool.interface {
         let response = mcp::execute(
-            runtime,
             &mut child,
             &mut process,
             mcp::Call {
-                id,
-                active,
+                cancelled,
                 name,
                 input: &input,
                 logs: &logs,
@@ -201,9 +210,9 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
                 Err(_) => { failure = Some("Could not wait for tool process"); break None; }
             },
             _ = tokio::time::sleep(Duration::from_millis(100)) => {
-                let cancelled = runtime.stopped(id) || active.is_some_and(|flag| !flag.load(Ordering::Acquire));
-                if cancelled || tokio::time::Instant::now() >= deadline {
-                    failure = Some(if cancelled { "Cancelled" } else { "Tool timed out" });
+                let stopped = cancelled();
+                if stopped || tokio::time::Instant::now() >= deadline {
+                    failure = Some(if stopped { "Cancelled" } else { "Tool timed out" });
                     process.stop();
                     let _ = child.kill().await;
                     let _ = child.wait().await;

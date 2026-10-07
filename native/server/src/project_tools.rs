@@ -5,7 +5,7 @@ use crate::{
 };
 use inferay_core::{
     project_files::{AgentToolGrant, ToolDefinition},
-    projects::{LocalTool, ProjectPath, ToolArgument, ToolInterface, validate_json},
+    projects::{LocalTool, ProjectPath, ToolArgument, ToolInterface},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -212,7 +212,6 @@ impl ToolScope {
             Request::Call { input, .. } => {
                 let captured = &self.tools[&grant.as_ref().unwrap().key()];
                 let definition = &captured.definition;
-                validate_json(&definition.input_schema, &input)?;
                 let entrypoint = resolve_path(&self.root, &captured.entrypoint)?;
                 let tool = LocalTool {
                     interface: definition.interface.clone(),
@@ -281,6 +280,8 @@ impl ToolScope {
                 &json!({"callId":call,"grant":grant,"input":input}),
             )?;
         }
+        let permissions = serde_json::from_value(self.snapshot["automation"]["may"].clone())?;
+        let cancelled = || self.runtime.stopped(&self.run) || !self.active.load(Ordering::Acquire);
         let result = tool::execute(
             &self.runtime,
             tool::Invocation {
@@ -293,7 +294,8 @@ impl ToolScope {
                 input,
                 snapshot: &self.snapshot,
                 entrypoint_hash: &entrypoint_hash,
-                active: Some(&self.active),
+                permissions: &permissions,
+                cancelled: &cancelled,
             },
         )
         .await

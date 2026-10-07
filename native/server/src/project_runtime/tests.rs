@@ -1443,10 +1443,11 @@ async fn mcp_library_tools_use_approved_processes_and_retain_protocol_failures()
         if mode == "collision" {
             assert_eq!(std::fs::read_to_string(output.join("mcp-response.json")).unwrap(), "server-owned output");
         }
-        let pid = std::fs::read_to_string(output.join("server-pid.txt")).unwrap();
+        let process: Value = serde_json::from_slice(&std::fs::read(logs.join("process.json")).unwrap()).unwrap();
+        let pid = process["pid"].as_u64().unwrap().to_string();
         assert!(
             !std::process::Command::new("/bin/kill")
-                .args(["-0", pid.trim()])
+                .args(["-0", pid.as_str()])
                 .stderr(std::process::Stdio::null())
                 .status()
                 .unwrap()
@@ -1658,4 +1659,56 @@ async fn effect_artifacts_are_durable_deduplicated_and_conflict_safe() {
     assert_eq!(history.effects.len(), 1);
     assert_eq!(history.effects[0].artifact, "intent.json");
     assert_eq!(history.effects[0].dismissed_at, Some(dismissed));
+}
+
+#[tokio::test]
+async fn shared_tool_runner_uses_explicit_authority_without_an_automation_snapshot() {
+    let temp = tempfile::tempdir().unwrap();
+    let runtime = runtime(temp.path());
+    let root = temp.path().join("callable");
+    std::fs::create_dir_all(&root).unwrap();
+    let root = root.canonicalize().unwrap();
+    let script = "import json,os,pathlib\npathlib.Path(os.environ['INFERAY_RUN_OUTPUT'],'ran.txt').write_text('ran')\nprint(json.dumps({'artifacts':['ran.txt']}))\n";
+    std::fs::write(root.join("handler.py"),script).unwrap();
+    let make_tool = || LocalTool {
+        interface: ToolInterface::JsonStdin,
+        program: "python3".into(),
+        entrypoint: ProjectPath::Project {path:"handler.py".into()},
+        arguments: vec![ToolArgument::Literal(root.join("handler.py").to_string_lossy().into())],
+        working_directory: ProjectPath::Project {path:".".into()},
+        timeout_seconds: 5,
+        input_schema: json!({"type":"object"}),
+        output_schema: json!({"type":"object"}),
+    };
+    // Effect handlers supply their own reviewed permissions and cancellation owner.
+    // There is deliberately no automation definition or run row in this snapshot.
+    let snapshot = json!({"projectId":"fixture","repositoryPaths":{}});
+    let permissions=std::collections::BTreeSet::new();
+    let digest=project_store::hash(script.as_bytes());
+    let cancelled_dir=root.join("cancelled");
+    let error=tool::execute(&runtime,tool::Invocation {
+        id:"cancelled",root:&root,dir:&cancelled_dir,call:None,connection_tool:None,
+        tool:make_tool(),input:json!({}),snapshot:&snapshot,entrypoint_hash:&digest,
+        permissions:&permissions,cancelled:&||true,
+    }).await.unwrap_err();
+    assert!(error.to_string().contains("Cancelled before tool launch"), "{error}");
+    assert!(!cancelled_dir.exists());
+    assert!(!cancelled_dir.join("output/ran.txt").exists());
+    let invalid_dir=root.join("invalid-input");
+    let mut invalid_tool=make_tool();
+    invalid_tool.input_schema=json!({"type":"object","required":["count"],"properties":{"count":{"type":"integer"}}});
+    assert!(tool::execute(&runtime,tool::Invocation {
+        id:"invalid",root:&root,dir:&invalid_dir,call:None,connection_tool:None,
+        tool:invalid_tool,input:json!({"count":"wrong"}),snapshot:&snapshot,entrypoint_hash:&digest,
+        permissions:&permissions,cancelled:&||false,
+    }).await.is_err());
+    assert!(!invalid_dir.exists());
+    let dir=root.join("allowed");
+    let result=tool::execute(&runtime,tool::Invocation {
+        id:"allowed",root:&root,dir:&dir,call:None,connection_tool:None,
+        tool:make_tool(),input:json!({}),snapshot:&snapshot,entrypoint_hash:&digest,
+        permissions:&permissions,cancelled:&||false,
+    }).await.unwrap();
+    assert_eq!(result["artifacts"],json!(["ran.txt"]));
+    assert_eq!(std::fs::read_to_string(dir.join("output/ran.txt")).unwrap(),"ran");
 }

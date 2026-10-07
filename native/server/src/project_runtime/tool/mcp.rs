@@ -4,8 +4,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 
 const LIMIT: u64 = 1_048_576;
 pub(super) struct Call<'a> {
-    pub id: &'a str,
-    pub active: Option<&'a AtomicBool>,
+    pub cancelled: &'a (dyn Fn() -> bool + Send + Sync),
     pub name: &'a str,
     pub input: &'a Value,
     pub logs: &'a Path,
@@ -13,7 +12,6 @@ pub(super) struct Call<'a> {
 }
 
 pub(super) async fn execute(
-    runtime: &ProjectRuntime,
     child: &mut tokio::process::Child,
     process: &mut ToolProcess<'_>,
     call: Call<'_>,
@@ -45,7 +43,7 @@ pub(super) async fn execute(
             tokio::select! {
                 result = &mut exchange => break result,
                 _ = tokio::time::sleep(Duration::from_millis(100)) => {
-                    if runtime.stopped(call.id) || call.active.is_some_and(|flag| !flag.load(Ordering::Acquire)) {
+                    if (call.cancelled)() {
                         break Err("Cancelled".into());
                     }
                     if tokio::time::Instant::now() >= deadline {

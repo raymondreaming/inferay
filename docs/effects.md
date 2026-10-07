@@ -34,6 +34,14 @@ SQLite connections and an independent local destination that commits before
 losing its reply. These primitives are not yet connected to delivery controls or
 handler execution; the full local conformance gate below remains incomplete.
 
+The shared callable runner accepts explicit reviewed permissions and an owner-supplied
+cancellation check. Direct automation tools, granted library tools and MCP tools
+use that same boundary. Input validation and cancellation precede filesystem setup;
+cancellation is checked again before launch and during execution. Native logs retain
+the launched PID in `process.json`, so cleanup evidence does not depend on the child
+writing a file. A local check executes with no automation snapshot or run row; this
+prepares handler reuse but does not wire the delivery worker.
+
 ## Planned delivery contract
 
 The following is the implementation target, not an available file format or API.

@@ -419,8 +419,8 @@ impl ProjectRuntime {
             dir.join("inputs/run.json"),
             serde_json::to_vec_pretty(snapshot)?,
         )?;
+        let definition: inferay_core::project_files::AutomationDefinition = serde_json::from_value(snapshot["automation"].clone())?;
         if snapshot["connections"].as_object().is_some_and(|connections| !connections.is_empty()) {
-            let definition: inferay_core::project_files::AutomationDefinition = serde_json::from_value(snapshot["automation"].clone())?;
             if !definition.may.contains(&inferay_core::project_files::Permission::Network) {
                 return Err("Connection requests require network permission".into());
             }
@@ -429,9 +429,10 @@ impl ProjectRuntime {
         match serde_json::from_value::<ProjectExecution>(snapshot["execution"].clone())? {
             ProjectExecution::Tool { tool_id, input } => {
                 let tool: LocalTool = serde_json::from_value(snapshot["tool"].clone())?;
+                let cancelled = || self.stopped(id);
                 tool::execute(self, tool::Invocation {
                     id, root: &root, dir: &dir, call: None, connection_tool: Some(&tool_id), tool, input, snapshot,
-                    entrypoint_hash: snapshot["entrypointHash"].as_str().ok_or("Missing entrypoint hash")?, active: None,
+                    entrypoint_hash: snapshot["entrypointHash"].as_str().ok_or("Missing entrypoint hash")?, permissions: &definition.may, cancelled: &cancelled,
                 }).await
             }
             ProjectExecution::Agent {
