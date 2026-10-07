@@ -33,6 +33,35 @@ Plugins contribute through these extension points only: skills, callables (tools
 5. Every run is bounded in time, concurrency and size, and records honest failure states. An interrupted run is never reported as a success.
 6. The kernel contains no domain vocabulary. Words like post, render, blender or app appear only in plugins (an effect kind is an opaque string to the kernel).
 
+### Execution authority: remaining boundary
+
+**Planned:** privileged operations use Inferay-owned callables. A provider shell
+command is not an authorization record. Matching `git push` in a command string
+cannot enforce `push`: a script, another Git client, or a direct API call can do
+the same work. Likewise, allowing general network access does not distinguish
+research from publication. Credentials and consequence-bearing requests must
+stay behind the connections and effects boundary.
+
+The provider adapters must preserve working-file edits while withholding Git
+metadata mutation unless `commit` is approved. Tests must cover direct file
+writes, linked worktrees, separate Git directories, existing aliases and renamed
+ancestors, as the local-tool checks do. An ordinary `git commit` refusal alone is
+insufficient. Approved commits also need a positive execution check.
+
+On the installed macOS runtime, an outer `sandbox-exec` policy cannot simply be
+wrapped around Codex's own sandbox: the inner sandbox fails to initialize with
+`Operation not permitted`, before the command runs. Do not ship that composition
+or remove the provider sandbox to make it pass. Provider-native filesystem rules
+or execution through Inferay's bounded callable runner must establish the
+boundary. If execution is brokered, built-in provider execution and file mutation
+paths must be disabled and tested too; adding another tool alongside unrestricted
+alternatives does not enforce authority.
+
+Release evidence must come from the actual supported provider versions and both
+allowed and refused operations in disposable profiles. The current real-provider
+write and TCP checks establish only those tested limits. Interactive chats keep
+their existing policy; automation policy changes must not silently change them.
+
 ### Local library ownership
 
 Plugins are intentionally created reusable libraries, not mandatory containers for every automation. Workflow definitions belong to Inferay projects, outside linked repositories. A project can have automations and no plugins; code, assets and usage skills can form a plugin with no automation. Related jobs may reuse one library.
