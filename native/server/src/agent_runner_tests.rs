@@ -442,3 +442,163 @@ supports_websockets = false
         "Native shell remained callable: {shell}"
     );
 }
+
+#[tokio::test]
+#[ignore = "Uses installed Claude with a local Messages fixture; no paid provider request"]
+async fn installed_claude_refuses_native_mutation_paths_in_automation_policy() {
+    use axum::{Json, Router, extract::State, routing::post};
+    let root = tempfile::tempdir().unwrap();
+    let work = root.path().join("work");
+    let home = root.path().join("claude-home");
+    std::fs::create_dir_all(&work).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(work.join("edit.txt"), "original").unwrap();
+    let requests = Arc::new(Mutex::new(Vec::<Value>::new()));
+    async fn respond(
+        State((requests, work)): State<(Arc<Mutex<Vec<Value>>>, PathBuf)>,
+        Json(body): Json<Value>,
+    ) -> impl axum::response::IntoResponse {
+        let mut requests = requests.lock().unwrap();
+        requests.push(body);
+        let probe = match requests.len() {
+            1 => Some((
+                "Bash",
+                json!({"command":"printf native-write > shell-forbidden.txt"}),
+            )),
+            2 => Some((
+                "Write",
+                json!({"file_path":work.join("write-forbidden.txt"),"content":"native-write"}),
+            )),
+            3 => Some((
+                "Edit",
+                json!({"file_path":work.join("edit.txt"),"old_string":"original","new_string":"changed"}),
+            )),
+            _ => None,
+        };
+        let mut events = vec![
+            json!({"type":"message_start","message":{"id":format!("fixture-{}",requests.len()),"type":"message","role":"assistant","model":"claude-haiku-4-5","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":0}}}),
+        ];
+        if let Some((name, input)) = probe {
+            events.push(json!({"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":format!("native-{name}"),"name":name,"input":{}}}));
+            events.push(json!({"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":input.to_string()}}));
+        } else {
+            events.push(json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}));
+            events.push(json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"PROBE_COMPLETE"}}));
+        }
+        events.extend([
+            json!({"type":"content_block_stop","index":0}),
+            json!({"type":"message_delta","delta":{"stop_reason":if requests.len() <= 3 { "tool_use" } else { "end_turn" },"stop_sequence":null},"usage":{"output_tokens":1}}),
+            json!({"type":"message_stop"}),
+        ]);
+        let body = events
+            .iter()
+            .map(|event| {
+                format!(
+                    "event: {}\ndata: {event}\n\n",
+                    event["type"].as_str().unwrap()
+                )
+            })
+            .collect::<String>();
+        ([("content-type", "text/event-stream")], body)
+    }
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let router = Router::new()
+        .route("/v1/messages", post(respond))
+        .with_state((requests.clone(), work.clone()));
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    let resolver =
+        crate::agent_command::AgentCommandResolver::new(root.path(), root.path().join("mcp.json"));
+    let binary = resolver.resolve_agent_binary(inferay_core::agent_kind::AgentKind::Claude);
+    let mut env = resolver.create_agent_env(inferay_core::agent_kind::AgentKind::Claude);
+    for (key, value) in [
+        ("ANTHROPIC_BASE_URL", format!("http://{address}")),
+        ("ANTHROPIC_API_KEY", "local-fixture".into()),
+        ("ANTHROPIC_AUTH_TOKEN", "".into()),
+        ("CLAUDE_CODE_OAUTH_TOKEN", "".into()),
+        ("CLAUDE_CONFIG_DIR", home.to_string_lossy().into_owned()),
+        ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1".into()),
+    ] {
+        env.insert(key.into(), value.into());
+    }
+    let handle =
+        AgentProcessHandle::with_skills(Arc::new(tokio::sync::Mutex::new(PromptStore::new(
+            root.path().join("bundled.json"),
+            root.path().join("skills.json"),
+        ))))
+        .with_sandbox(crate::automation_sandbox::AutomationSandbox::new(
+            &[inferay_core::project_files::Permission::WriteProjectFiles]
+                .into_iter()
+                .collect(),
+            &json!({}),
+            &work,
+        ));
+    let mut context = AgentProtocolContext::new(work.clone());
+    let (sender, mut receiver) = mpsc::unbounded_channel();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(60),
+        run_claude(
+            ClaudeRun {
+                binary: &binary,
+                prompt: "Execute the supplied tool probe.",
+                developer_instructions: None,
+                cwd: &work,
+                model: Some("haiku"),
+                session_id: None,
+                env: &env,
+                mcp_servers: Some(&[]),
+            },
+            &handle,
+            &mut context,
+            &sender,
+        ),
+    )
+    .await;
+    if result.is_err() {
+        handle.kill();
+    }
+    server.abort();
+    let mut emissions = Vec::new();
+    while let Ok(emission) = receiver.try_recv() {
+        match emission {
+            ProtocolEmission::Chat(value) => emissions.push(value),
+            ProtocolEmission::System(text) => emissions.push(json!({"system":text})),
+            _ => {}
+        }
+    }
+    assert!(result.is_ok(), "Claude probe timed out: {emissions:?}");
+    assert!(!work.join("shell-forbidden.txt").exists());
+    assert!(!work.join("write-forbidden.txt").exists());
+    assert_eq!(
+        std::fs::read_to_string(work.join("edit.txt")).unwrap(),
+        "original"
+    );
+    let requests = requests.lock().unwrap();
+    for name in ["Bash", "Write", "Edit"] {
+        let id = format!("native-{name}");
+        let output = requests
+            .iter()
+            .flat_map(|request| request["messages"].as_array().into_iter().flatten())
+            .flat_map(|message| message["content"].as_array().into_iter().flatten())
+            .find(|part| part["type"] == "tool_result" && part["tool_use_id"] == id);
+        let output = output.unwrap_or_else(|| {
+            panic!("Missing {name} refusal: {emissions:?}; requests={requests:?}")
+        });
+        assert_eq!(
+            output["is_error"], true,
+            "Native {name} remained callable: {output}"
+        );
+        let content = output["content"].to_string().to_ascii_lowercase();
+        assert!(
+            content.contains("no such tool")
+                || content.contains("unknown")
+                || content.contains("unavailable")
+                || content.contains("not available")
+                || content.contains("not allowed")
+                || content.contains("denied"),
+            "Unexpected {name} refusal: {output}"
+        );
+    }
+}
