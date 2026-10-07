@@ -30,7 +30,7 @@ native/core/                        stable vocabulary, state, protocol, path pol
 native/presentation/, diff-engine/  pure projection and repository engine
 native/server/                      HTTP, persistence, process and application orchestration
   ↓
-src/adapters/                       generated/native contract adapters
+@contracts                          generated Rust contracts (build/presentation)
   ↓
 src/modules/                        feature hooks and rendering components
   ↓
@@ -41,7 +41,7 @@ src/app/, src/router.tsx, client.tsx composition root
 
 `src/shared` contains reusable primitives, contracts, UI, and browser/native adapters. It must not import app or feature code. Generated native types may enter through `@contracts`. `src/app` composes modules; modules must not import it, route entries, or `client.tsx`.
 
-Within a feature, `model/` owns vocabulary and framework-independent rules; `services/` owns native adapters and persistence orchestration; `hooks/` adapts those operations to Solid; `components/` renders and translates input. Models must not import hooks, components, services, or browser/native runtime adapters. Shared model code follows the same rule. Keep appearance settings in `modules/settings`, and window-host constants in `shared/lib/windowChrome.ts`, so features never need to reach into the composition root.
+Within a feature, `model/` owns vocabulary and framework-independent rules; `services/` owns native adapters and persistence orchestration; `hooks/` adapts those operations to Solid; `components/` renders and translates input. Models must not import hooks, components, services, or browser/native runtime adapters. Shared model code follows the same rule. Keep appearance settings in `modules/settings` so features never need to reach into the composition root.
 
 Keep domain-shaped behavior in Rust pure models where it is shared with the native server and WebAssembly renderer. Solid hooks adapt signals, browser events, and query lifecycles; components render and translate interactions. Pass context-derived values into pure functions instead of reading browser state from them.
 
@@ -87,19 +87,21 @@ Feature services own endpoint paths, request payloads, and response parsing. For
 
 The architecture checker permits raw endpoint helpers only in a `services/` module, including shared native-compute services. It parses imports and re-exports and resolves both aliases and relative paths; namespace and dynamic imports cannot bypass this rule. There are no transport exceptions.
 
-Persistence orchestration accepts an injected port. `modules/workspace/services/workspaceSession.ts` owns request ordering and publishes optimistic selection without importing Solid or a live transport. The Rust workspace replica owns selection intent, repeated-selection suppression, optimistic state, and acknowledgement rollback. The service retains the asynchronous persistence queue. Tests supply controlled persistence and exercise the same native rules.
+Persistence orchestration accepts an injected port. `modules/workspace/hooks/useWorkspaceState.tsx` sequences persistence through the `services/workspaceApi.ts` port. The Rust workspace replica owns selection intent, repeated-selection suppression, optimistic state, and acknowledgement rollback; the hook retains only the asynchronous persistence queue. Tests supply controlled persistence and exercise the same native rules.
 
-Git action labels, response contracts, and post-action selection rules belong to `native/presentation/src/git_actions.rs`; server routes and renderer transport failures use that same model. `modules/repository/services/gitOperations.ts` sequences requests, refreshes, and selection callbacks through an injected transport configured in `app/bootstrap/workspace.ts`. Keep these operations out of the rendering controller. Working-tree keyboard navigation uses the Rust changes-panel model so its file order matches the sidebar.
+Git action labels, response contracts, and post-action selection rules belong to `native/presentation/src/git_actions.rs`; server routes and renderer transport failures use that same model. `modules/repository/services/gitApi.ts` owns the requests; repository hooks such as `useGitStatus.tsx` sequence refreshes and selection callbacks. Keep these operations out of rendering components. Working-tree keyboard navigation uses the Rust changes-panel model so its file order matches the sidebar.
 
-`src/app/bootstrap/workspace.ts` wires production persistence for workspace state and panel sessions. Rust panel replicas replay pending actions over acknowledged sessions; file bodies remain in the browser cache. Their hooks own Solid state and query lifecycles; services can be tested without loading the UI or a live backend.
+`src/client.tsx` wires production persistence for workspace state and panel sessions (`configureWorkspacePanels`). Rust panel replicas replay pending actions over acknowledged sessions; file bodies remain in the browser cache. Their hooks own Solid state and query lifecycles; services can be tested without loading the UI or a live backend.
 
 Rust workbench models also resolve retained workspace views from the active and previously visited keys. The renderer receives group and pane indices into its current state, preserving object identity without constructing every possible view or duplicating pane records. Only visited views count toward the eight-view/twenty-four-pane budget; an oversized active view remains mounted.
 
 ## Module shape
 
-Use feature folders under `src/modules`. Repository views and repository orchestration belong under `repository`; pane layout, workspace sessions, and docking belong under `workspace`. Keep reusable UI in `src/shared/ui`, browser-neutral helpers in `src/shared`, and generated contracts behind `src/adapters` or `@contracts`.
+Use feature folders under `src/modules`. Repository views and repository orchestration belong under `repository`; pane layout, workspace sessions, and docking belong under `workspace`. Keep reusable UI in `src/shared/ui`, browser-neutral helpers in `src/shared`, and generated contracts behind `@contracts`.
 
-Use direct paths within a feature. For a cross-layer import, use the owning alias: `@shared`, `@design-system`, `@app`, `@repository`, `@workspace`, `@conversation`, `@agents`, `@context`, `@explorer`, `@settings`, or `@skills`. These aliases name folders only; they are not barrel APIs.
+Use direct paths within a feature. For a cross-layer import, use the owning alias: `@shared`, `@design-system`, `@app`, `@repository`, `@workspace`, `@conversation`, `@agents`, `@context`, `@explorer`, `@onboarding`, `@settings`, or `@skills`. These aliases name folders only; they are not barrel APIs.
+
+Every component family has a named folder with `index.tsx` and, when it has local styles, one `styles.ts` covering the entry point and its children; folder-local hooks, types and pure helpers live beside it. Route files keep their framework-required names. Mutually recursive renderers (`Directory`/`Entry`, `InlineTokens`/`InlineToken`) stay together to avoid circular imports. `bun run check:components` enforces this; `bun run code` reports the current inventory.
 
 StyleX `styles.ts` modules are the exception: its compiler resolves theme definitions before Vite aliases, so they must keep a relative import of `src/design-system/styles.stylex.ts`.
 

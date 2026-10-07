@@ -26,6 +26,10 @@ Repository tabs keep related chats together. Arrange panes to suit your work, re
 
 Inferay works with your local Claude and Codex installations and their configured accounts or credentials. Access to those services is managed separately.
 
+## Turn work into automations
+
+Projects group the repositories, reference material and conversations for one effort, with or without code. Ask an agent to set up a recurring task and Inferay shows it as a card to review: what it runs, when, and what it is allowed to do. Nothing runs on a schedule until you enable it, and editing it turns the schedule off until you review it again. Every run keeps its inputs, logs and outputs.
+
 ## Get Inferay
 
 Download the macOS app from [inferay.com](https://inferay.com), then move it to Applications.
@@ -36,8 +40,8 @@ Open a repository, start a chat, and choose an agent. Add another pane when you 
 
 Inferay uses a Rust desktop host and local backend. Rust also owns application models shared with the interface through WebAssembly; Solid 2 handles the views and browser interactions.
 
-For development setup, architecture checks, and release instructions, see [Contributing](CONTRIBUTING.md).
+For how Inferay is built and how its projects, plugins and automations work, start at [docs](docs/README.md). For development setup, checks and releases, see [Contributing](CONTRIBUTING.md).
 
 ## License
 
-Inferay is source-available for reference and educational purposes. All rights are reserved by the author. See [LICENSE](LICENSE) for the full terms.
+Inferay is source-available for reference and educational purposes. All rights are reserved by the author.
