@@ -639,6 +639,23 @@ fn agents_can_discover_and_read_library_files_without_approval_or_execution() {
             .iter()
             .any(|entry| entry["path"] == "README.md")
     );
+    assert_eq!(list["sourceHash"].as_str().unwrap().len(), 64);
+    fs::write(root.join("plugins/daily/assets/raw.bin"), [255, 0, 1]).unwrap();
+    let updated = crate::project_file_commands::apply(
+        &mut db,
+        profile.path(),
+        ProjectFileCommand::ReadPlugin {
+            id: plugin.clone(),
+            path: None,
+        },
+        false,
+        &[],
+    )
+    .unwrap();
+    assert_ne!(
+        list["sourceHash"], updated["sourceHash"],
+        "Binary assets participate in library identity"
+    );
     let note = crate::project_file_commands::apply(
         &mut db,
         profile.path(),

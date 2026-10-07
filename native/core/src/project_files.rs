@@ -343,6 +343,18 @@ fn identity(schema: &str, expected: &str, id: &str, name: &str) -> Result<(), St
 pub trait Definition: serde::de::DeserializeOwned {
     fn validate(&self) -> Result<(), String>;
 }
+/// Only canonical standalone automation writes become automation proposal cards.
+pub fn proposed_automation(command: &ProjectFileCommand) -> Result<AutomationDefinition, String> {
+    let ProjectFileCommand::SaveDefinition { path, content, .. } = command else {
+        return Err("Expected an automation definition".into());
+    };
+    let definition: AutomationDefinition = parse(path, content.as_bytes())?;
+    if path != &format!("automations/{}/automation.json", definition.id) {
+        return Err("Standalone automations belong in automations/<id>/automation.json".into());
+    }
+    Ok(definition)
+}
+
 pub fn parse<T: Definition>(path: &str, bytes: &[u8]) -> Result<T, String> {
     if bytes.len() > MANIFEST_LIMIT {
         return Err(format!("{path}: exceeds 131072 bytes"));
@@ -618,6 +630,7 @@ pub struct PluginReviewFile {
 #[serde(rename_all = "camelCase")]
 pub struct PluginLibrary {
     pub id: String,
+    pub source_hash: String,
     pub files: Vec<PluginLibraryFile>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]

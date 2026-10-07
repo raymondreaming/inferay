@@ -92,7 +92,9 @@ pub(crate) fn apply(
                     })?
                 }
                 None => {
-                    let entries = index::package_files(&root, prefix)?
+                    let package = index::package_files(&root, prefix)?;
+                    let source_hash = hash(&serde_json::to_vec(&package)?);
+                    let entries = package
                         .into_iter()
                         .map(|(path, hash)| PluginLibraryFile {
                             path: path
@@ -102,7 +104,11 @@ pub(crate) fn apply(
                             source_hash: hash,
                         })
                         .collect::<Vec<_>>();
-                    serde_json::to_value(PluginLibrary { id, files: entries })?
+                    serde_json::to_value(PluginLibrary {
+                        id,
+                        source_hash,
+                        files: entries,
+                    })?
                 }
             }
         }
