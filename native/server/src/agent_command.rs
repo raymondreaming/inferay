@@ -293,7 +293,7 @@ fn mcp_controls_persist_per_provider_and_feed_agent_launches() {
         Some(&true)
     );
     assert_eq!(
-        crate::agent_runner::mcp_overrides(&restored.create_agent_env(AgentKind::Codex))
+        crate::agent_mcp::overrides(&restored.create_agent_env(AgentKind::Codex))
             .get("linear"),
         Some(&false)
     );

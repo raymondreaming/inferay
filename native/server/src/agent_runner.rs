@@ -307,7 +307,18 @@ pub async fn run_claude(
     context: &mut AgentProtocolContext,
     emissions: &mpsc::UnboundedSender<ProtocolEmission>,
 ) -> String {
-    let scoped_mcp = run.mcp_servers.and_then(write_scoped_mcp_config);
+    let scoped_mcp = match run
+        .mcp_servers
+        .map(|wanted| crate::agent_mcp::claude(wanted, run.env, run.cwd))
+        .transpose()
+    {
+        Ok(config) => config,
+        Err(error) => {
+            emit_error(context, error);
+            flush_emissions(context, emissions);
+            return String::new();
+        }
+    };
     let bridge =
         match crate::agent_tools_mcp::ToolBridge::start(handle.clone(), emissions.clone()).await {
             Ok(bridge) => bridge,
@@ -417,7 +428,7 @@ fn claude_invocation_args(run: &ClaudeRun<'_>, mcp_config: Option<&Path>) -> Vec
     );
     arguments.extend([
         "--settings".into(),
-        claude_mcp_policy(run.env),
+        crate::agent_mcp::claude_policy(run.env),
         "--append-system-prompt".into(),
         format!(
             "{}\n\n{DIRECT_INTEGRATIONS}",
@@ -428,26 +439,6 @@ fn claude_invocation_args(run: &ClaudeRun<'_>, mcp_config: Option<&Path>) -> Vec
 }
 
 const DIRECT_INTEGRATIONS: &str = "Inferay uses local Git and the GitHub CLI directly. GitKraken tools are disabled in Inferay. Use the direct Linear MCP tools for Linear; discover the available tools before claiming access is missing. If a direct integration is unavailable, report that specific connection failure rather than asking the user to connect GitKraken.";
-pub(crate) fn mcp_overrides(env: &HashMap<OsString, OsString>) -> HashMap<String, bool> {
-    env.get(OsStr::new("INFERAY_MCP_OVERRIDES"))
-        .and_then(|value| serde_json::from_str(&value.to_string_lossy()).ok())
-        .unwrap_or_default()
-}
-
-pub(crate) fn claude_mcp_policy(env: &HashMap<OsString, OsString>) -> String {
-    let mut denied = vec![
-        json!({"serverName":"GitKraken"}),
-        json!({"serverName":"gitkraken"}),
-    ];
-    denied.extend(
-        mcp_overrides(env)
-            .into_iter()
-            .filter(|(_, enabled)| !enabled)
-            .map(|(name, _)| json!({"serverName":name})),
-    );
-    json!({"deniedMcpServers": denied}).to_string()
-}
-
 /// Config with no MCP servers, for turns that cannot use them.
 pub(crate) fn write_empty_mcp_config() -> Option<tempfile::NamedTempFile> {
     let file = tempfile::Builder::new()
@@ -456,35 +447,6 @@ pub(crate) fn write_empty_mcp_config() -> Option<tempfile::NamedTempFile> {
         .tempfile()
         .ok()?;
     serde_json::to_writer(&file, &serde_json::json!({ "mcpServers": {} })).ok()?;
-    Some(file)
-}
-
-/// Write a config holding only `wanted`, copied out of the user's own
-/// `~/.claude.json`. Returns `None` when nothing needs narrowing, so the caller
-/// falls back to Claude's ambient configuration rather than silently removing
-/// every server.
-fn write_scoped_mcp_config(wanted: &[String]) -> Option<tempfile::NamedTempFile> {
-    let home = std::env::var_os("HOME")?;
-    let source = std::path::Path::new(&home).join(".claude.json");
-    let text = std::fs::read_to_string(source).ok()?;
-    let parsed: serde_json::Value = serde_json::from_str(&text).ok()?;
-    let available = parsed.get("mcpServers")?.as_object()?;
-    let mut scoped = serde_json::Map::new();
-    for name in wanted {
-        if let Some(entry) = available.get(name) {
-            scoped.insert(name.clone(), entry.clone());
-        }
-    }
-    let file = tempfile::Builder::new()
-        .prefix("inferay-mcp-")
-        .suffix(".json")
-        .tempfile()
-        .ok()?;
-    serde_json::to_writer(
-        &file,
-        &serde_json::json!({ "mcpServers": serde_json::Value::Object(scoped) }),
-    )
-    .ok()?;
     Some(file)
 }
 
@@ -538,12 +500,12 @@ pub async fn run_codex(
             )
             .await?;
         let mut start_params = codex_thread_params(run.invocation);
-        configure_codex_session(&mut start_params, &config["config"], run.env);
+        configure_codex_session(&mut start_params, &config["config"], run.env, run.invocation.mcp_servers.as_deref())?;
         if let Some(policy) = &handle.sandbox { policy.thread(&mut start_params, &config["config"]); }
         start_params["dynamicTools"] = handle.tool_definitions();
         let thread_response = if let Some(thread_id) = &run.invocation.session_id {
             let mut params = codex_thread_params(run.invocation);
-            configure_codex_session(&mut params, &config["config"], run.env);
+            configure_codex_session(&mut params, &config["config"], run.env, run.invocation.mcp_servers.as_deref())?;
             if let Some(policy) = &handle.sandbox { policy.thread(&mut params, &config["config"]); }
             params["threadId"] = json!(thread_id);
             rpc.request(
@@ -787,24 +749,17 @@ pub async fn run_codex(
 // fallback lives only in that process, so restarting it repeats the entire retry
 // budget. Use HTTP for the built-in OpenAI provider; leave custom providers alone.
 // Built-in providers cannot be overridden, hence the separate provider ID.
-fn configure_codex_session(params: &mut Value, config: &Value, env: &HashMap<OsString, OsString>) {
+fn configure_codex_session(
+    params: &mut Value,
+    config: &Value,
+    env: &HashMap<OsString, OsString>,
+    wanted: Option<&[String]>,
+) -> Result<(), String> {
     params["config"] = json!({});
-    if let Some(servers) = config["mcp_servers"].as_object() {
-        let overrides = mcp_overrides(env);
-        for name in servers.keys().filter(|name| !name.contains('.')) {
-            let enabled = if name.eq_ignore_ascii_case("gitkraken") {
-                Some(false)
-            } else {
-                overrides.get(name).copied()
-            };
-            if let Some(enabled) = enabled {
-                params["config"][format!("mcp_servers.{name}.enabled")] = json!(enabled);
-            }
-        }
-    }
+    crate::agent_mcp::codex(params, config, &crate::agent_mcp::overrides(env), wanted)?;
     let provider = config["model_provider"].as_str().unwrap_or("openai");
     if provider != "openai" {
-        return;
+        return Ok(());
     }
     let mut http_provider = json!({
         "name": "OpenAI",
@@ -822,6 +777,7 @@ fn configure_codex_session(params: &mut Value, config: &Value, env: &HashMap<OsS
     }
     params["modelProvider"] = json!("inferay_openai_http");
     params["config"]["model_providers.inferay_openai_http"] = http_provider;
+    Ok(())
 }
 
 fn codex_thread_params(invocation: &CodexInvocationContext) -> Value {
@@ -870,6 +826,7 @@ pub(crate) async fn inspect_codex_mcp(
     binary: &Path,
     cwd: &Path,
     env: &HashMap<OsString, OsString>,
+    wanted: Option<&[String]>,
 ) -> Result<(Value, Vec<Value>), String> {
     let mut child = spawn_codex_app_server(binary, cwd, env).map_err(|e| e.to_string())?;
     let stderr = tokio::spawn(drain_bounded(child.stderr.take().expect("piped stderr")));
@@ -900,7 +857,7 @@ pub(crate) async fn inspect_codex_mcp(
             )
             .await?;
         let mut params = json!({"cwd": cwd, "ephemeral": true});
-        configure_codex_session(&mut params, &config["config"], env);
+        configure_codex_session(&mut params, &config["config"], env, wanted)?;
         let thread = rpc
             .request(
                 "thread/start",
@@ -1382,9 +1339,9 @@ mod runner_tests {
             });
             let original = config.clone();
             let mut params = json!({});
-            configure_codex_session(&mut params, &config, &HashMap::new());
-            assert_eq!(params["config"]["mcp_servers.GitKraken.enabled"], false);
-            assert!(params["config"].get("mcp_servers.linear.enabled").is_none());
+            configure_codex_session(&mut params, &config, &HashMap::new(), None).unwrap();
+            assert_eq!(params["config"]["mcp_servers"]["GitKraken"]["enabled"], false);
+            assert!(params["config"]["mcp_servers"].get("linear").is_none());
             assert_eq!(config, original);
         }
         let mut params = json!({});
@@ -1392,7 +1349,8 @@ mod runner_tests {
             &mut params,
             &json!({"model_provider": "custom"}),
             &HashMap::new(),
-        );
+            None,
+        ).unwrap();
         assert_eq!(params["config"], json!({}));
     }
 

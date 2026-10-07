@@ -58,6 +58,7 @@ mod agent_account;
 mod agent_command;
 mod agent_protocol;
 mod agent_runner;
+mod agent_mcp;
 mod atomic_write;
 pub mod chat_persistence;
 mod project_chat;

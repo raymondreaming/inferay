@@ -619,3 +619,83 @@ async fn installed_claude_refuses_native_file_and_shell_tools_in_automation_poli
         );
     }
 }
+
+#[tokio::test]
+#[ignore = "requires installed Codex; uses disposable homes and local MCP fixtures, no model requests"]
+async fn installed_codex_starts_only_explicitly_selected_mcp_servers() {
+    let profile = tempfile::tempdir().unwrap();
+    let home = profile.path().join("home");
+    let work = profile.path().join("work");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&work).unwrap();
+    let script = profile.path().join("server.py");
+    std::fs::write(&script, r#"import json,sys,pathlib
+pathlib.Path(sys.argv[1]).write_text('started')
+for line in sys.stdin:
+ m=json.loads(line)
+ if 'id' not in m: continue
+ method=m.get('method')
+ if method=='initialize': result={'protocolVersion':m['params']['protocolVersion'],'capabilities':{'tools':{}},'serverInfo':{'name':'scope-fixture','version':'1'}}
+ elif method=='tools/list': result={'tools':[{'name':'ping','description':'Returns pong','inputSchema':{'type':'object','properties':{}}}]}
+ elif method=='tools/call': result={'content':[{'type':'text','text':'pong'}]}
+ else: result={}
+ print(json.dumps({'jsonrpc':'2.0','id':m['id'],'result':result}),flush=True)
+"#).unwrap();
+    let chosen = profile.path().join("chosen-started");
+    let other = profile.path().join("other-started");
+    let quote = |path: &Path| serde_json::to_string(&path.to_string_lossy()).unwrap();
+    std::fs::write(
+        home.join("config.toml"),
+        format!(
+            r#"
+model = "gpt-5.4"
+model_provider = "fixture"
+[model_providers.fixture]
+name = "Local fixture"
+base_url = "http://127.0.0.1:9/v1"
+wire_api = "responses"
+requires_openai_auth = false
+[mcp_servers.chosen]
+command = "/usr/bin/python3"
+args = [{}, {}]
+[mcp_servers.other]
+command = "/usr/bin/python3"
+args = [{}, {}]
+"#,
+            quote(&script),
+            quote(&chosen),
+            quote(&script),
+            quote(&other)
+        ),
+    )
+    .unwrap();
+    let resolver = crate::agent_command::AgentCommandResolver::new(
+        profile.path(),
+        profile.path().join("mcp.json"),
+    );
+    let binary = resolver.resolve_agent_binary(inferay_core::agent_kind::AgentKind::Codex);
+    let mut env = resolver.create_agent_env(inferay_core::agent_kind::AgentKind::Codex);
+    env.insert("CODEX_HOME".into(), home.into_os_string());
+    for name in ["OPENAI_API_KEY", "CODEX_API_KEY", "INFERAY_MCP_OVERRIDES"] {
+        env.remove(OsStr::new(name));
+    }
+    inspect_codex_mcp(&binary, &work, &env, Some(&[]))
+        .await
+        .unwrap();
+    assert!(
+        !chosen.exists() && !other.exists(),
+        "An empty selection must start neither server"
+    );
+    let (_, servers) = inspect_codex_mcp(&binary, &work, &env, Some(&["chosen".into()]))
+        .await
+        .unwrap();
+    assert!(chosen.exists(), "Selected MCP server must actually start");
+    assert!(!other.exists(), "Unselected MCP server must never start");
+    assert!(
+        servers.iter().any(|server| server["name"] == "chosen"
+            && server["tools"]
+                .as_object()
+                .is_some_and(|tools| !tools.is_empty())),
+        "Selected server must expose its tool inventory"
+    );
+}

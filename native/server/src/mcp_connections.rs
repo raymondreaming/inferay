@@ -48,7 +48,7 @@ pub(crate) fn status(state: &ServerState, kind: AgentKind, refresh: bool) -> Mcp
             let env = resolver.create_agent_env(kind);
             let overrides = resolver.mcp_overrides(kind);
             let result = match kind {
-                AgentKind::Codex => agent_runner::inspect_codex_mcp(&binary, &cwd, &env)
+                AgentKind::Codex => agent_runner::inspect_codex_mcp(&binary, &cwd, &env, None)
                     .await
                     .map(|(mut config, servers)| {
                         for (name, enabled) in &overrides {
@@ -62,7 +62,7 @@ pub(crate) fn status(state: &ServerState, kind: AgentKind, refresh: bool) -> Mcp
                     let command = Command::new(binary)
                         .args([
                             "--settings",
-                            &agent_runner::claude_mcp_policy(&env),
+                            &crate::agent_mcp::claude_policy(&env),
                             "mcp",
                             "list",
                         ])
