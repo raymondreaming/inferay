@@ -145,3 +145,17 @@ fn required_tool_grants_preserve_optional_defaults_and_reject_duplicate_identity
     automation["execution"]["tools"].as_array_mut().unwrap().push(optional);
     assert!(parse::<AutomationDefinition>("automations/check/automation.json", automation.to_string().as_bytes()).is_err());
 }
+
+#[test]
+fn tool_connection_references_require_bounded_aliases_and_local_ids() {
+    let mut value = json!({"schema":"inferay.tool/1","id":ID,"name":"Connected tool","program":"python3","entrypoint":"run.py","args":[],"timeoutSeconds":30,"inputSchema":{},"outputSchema":{},"connections":{"SERVICE":ID}});
+    assert!(parse::<ToolDefinition>("tools/read/tool.json", value.to_string().as_bytes()).is_ok());
+    for alias in ["", "lowercase", "0START", "WITH SPACE", "WITH=EQUALS"] {
+        value["connections"] = json!({alias:ID});
+        assert!(parse::<ToolDefinition>("tools/read/tool.json", value.to_string().as_bytes()).is_err());
+    }
+    value["connections"] = json!({"SERVICE":"secret-value"});
+    assert!(parse::<ToolDefinition>("tools/read/tool.json", value.to_string().as_bytes()).is_err());
+    value["connections"] = (0..17).map(|i| (format!("SERVICE_{i}"), json!(ID))).collect::<serde_json::Map<_,_>>().into();
+    assert!(parse::<ToolDefinition>("tools/read/tool.json", value.to_string().as_bytes()).is_err());
+}

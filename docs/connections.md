@@ -1,7 +1,8 @@
 # Project connections
 
-**Implemented:** managing project credentials in macOS Keychain.
-**Planned:** approved tool bindings, credential injection, output protection and
+**Implemented:** managing project credentials in macOS Keychain and capturing
+selected connection metadata in automation approval inputs.
+**Planned:** credential delivery, binding controls, output protection and
 remote authenticated MCP. Saving a connection currently does not give a tool or
 agent access to its key and does not enable an automation.
 
@@ -47,10 +48,27 @@ Commands deliberately have no Debug or serialization implementation. Invalid
 request errors do not include submitted values. These commands are not exposed
 through agent project tools.
 
-The next step is binding a tool to specific connection IDs/revisions as part of
-approval, resolving credentials only for that invocation and protecting outputs
-before they enter logs, artifacts or a provider response. Keychain storage alone
-does not satisfy those execution requirements.
+## Tool references and approval
+
+A tool definition may contain `connections: {"SERVICE": "connection-uuid"}`.
+Aliases use 1–64 uppercase letters, digits or underscores, starting with a
+letter; a tool may select at most 16 connections. IDs resolve only within the
+current project and profile. Copying a library does not copy its credentials;
+unresolved references require a new local selection.
+
+Only tools selected by the automation contribute connections. Input capture
+reads selected metadata under the connection-store lock and includes the alias,
+ID, display name, project ID and revision in the approval hash. It never captures
+credential values. Replacement changes the revision. The existing approval check
+then refuses execution and turns the schedule off. Deleting a referenced
+connection also refuses capture. Tools without references do not access Keychain
+while capturing inputs.
+
+Credential-dependent runs currently fail before starting a tool or provider:
+credential delivery is not implemented. Capturing metadata does not grant raw key
+access. The remaining work is user-facing binding controls, invocation-only
+credential resolution and output protection before logs, artifacts or provider
+responses are retained.
 
 ## Verification
 

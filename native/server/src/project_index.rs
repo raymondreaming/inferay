@@ -513,6 +513,7 @@ pub(crate) fn execution_inputs(
         }
     };
     let mut requirements = BTreeSet::new();
+    let mut connections = BTreeMap::new();
     let mut selected_tools: BTreeSet<String> = granted_tools.values()
         .map(|grant| format!("{}/tool.json", grant.directory)).collect();
     if let DefinitionExecution::Tool { tool, .. } = &definition.execution {
@@ -526,9 +527,13 @@ pub(crate) fn execution_inputs(
             }
             Some(DefinitionFile::Tool(tool)) if selected_tools.contains(&entry.path) => {
                 requirements.extend(tool.requires.iter().cloned());
+                if !tool.connections.is_empty() { connections.insert(tool.id.clone(), tool.connections.clone()); }
             }
             _ => {},
         }
+    }
+    if !connections.is_empty() {
+        snapshot["connections"] = serde_json::to_value(crate::connections::Store::open(profile)?.capture(&project, &connections)?)?;
     }
     let project_path = root.to_string_lossy().into_owned();
     let git_metadata = crate::automation_sandbox::git_metadata_directories(

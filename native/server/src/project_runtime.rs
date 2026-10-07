@@ -419,6 +419,9 @@ impl ProjectRuntime {
             dir.join("inputs/run.json"),
             serde_json::to_vec_pretty(snapshot)?,
         )?;
+        if snapshot["connections"].as_object().is_some_and(|connections| !connections.is_empty()) {
+            return Err("This automation requires credential delivery, which is not available yet".into());
+        }
         crate::project_requirements::check(snapshot, &root, &dir).await?;
         match serde_json::from_value::<ProjectExecution>(snapshot["execution"].clone())? {
             ProjectExecution::Tool { tool_id: _, input } => {

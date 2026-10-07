@@ -73,6 +73,34 @@ impl Store {
             ))
         })
     }
+    /// Capture only selected metadata under one lock. Values never enter a run snapshot.
+    pub(crate) fn capture(
+        &self,
+        project: &str,
+        requested: &std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
+    ) -> Result<
+        std::collections::BTreeMap<String, std::collections::BTreeMap<String, ConnectionInfo>>,
+    > {
+        self.edit(|entries| {
+            let mut captured = std::collections::BTreeMap::new();
+            for (tool, aliases) in requested {
+                let mut bindings = std::collections::BTreeMap::new();
+                for (alias, id) in aliases {
+                    let entry = entries
+                        .iter()
+                        .find(|entry| entry.info.id == *id && entry.info.project_id == project)
+                        .ok_or_else(|| {
+                            format!(
+                                "Connection {alias} for tool {tool} is not linked in this project"
+                            )
+                        })?;
+                    bindings.insert(alias.clone(), entry.info.clone());
+                }
+                captured.insert(tool.clone(), bindings);
+            }
+            Ok((captured, false))
+        })
+    }
     pub(crate) fn apply(&self, command: Command) -> Result<Option<ConnectionInfo>> {
         self.edit(|entries| match command {
             Command::Save {
@@ -269,6 +297,90 @@ mod tests {
 
     #[test]
     #[ignore = "writes temporary test-only entries to the macOS Keychain"]
+    fn keychain_connections_invalidate_automation_approval_on_rotation() {
+        use serde_json::json;
+        let profile = tempfile::tempdir().unwrap();
+        let connections = Store::open(profile.path()).unwrap();
+        struct Cleanup(String);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = delete_keychain(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(connections.service.clone());
+        let project = uuid::Uuid::new_v4().to_string();
+        let automation = uuid::Uuid::new_v4().to_string();
+        let tool = uuid::Uuid::new_v4().to_string();
+        let secret = format!("temporary-test-key-{}", uuid::Uuid::new_v4());
+        let saved = connections
+            .apply(Command::Save {
+                project_id: project.clone(),
+                id: None,
+                expected_revision: None,
+                name: "Test".into(),
+                secret: secret.clone(),
+            })
+            .unwrap()
+            .unwrap();
+        let root = profile.path().join("projects").join(&project);
+        let package = root.join("automations/job");
+        let tool_dir = package.join("tools/read");
+        std::fs::create_dir_all(&tool_dir).unwrap();
+        std::fs::write(root.join("project.json"), json!({"schema":"inferay.project/1","id":project,"name":"Connections","description":"","instructions":"","repositories":[]}).to_string()).unwrap();
+        std::fs::write(package.join("automation.json"), json!({"schema":"inferay.automation/1","id":automation,"name":"Read","trigger":{"kind":"interval","seconds":86400},"overlap":"skip","may":[],"execution":{"kind":"tool","tool":"read","input":{}}}).to_string()).unwrap();
+        std::fs::write(tool_dir.join("tool.json"), json!({"schema":"inferay.tool/1","id":tool,"name":"Read","program":"python3","entrypoint":"run.py","args":[],"timeoutSeconds":60,"inputSchema":{"type":"object"},"outputSchema":{"type":"object"},"connections":{"SERVICE":saved.id}}).to_string()).unwrap();
+        std::fs::write(tool_dir.join("run.py"), "print('{}')").unwrap();
+        let store = crate::project_file_store::FileProjectStore::open(profile.path(), &[]).unwrap();
+        let before =
+            crate::project_index::execution_inputs(&store.db, profile.path(), &automation, &[])
+                .unwrap();
+        assert_eq!(
+            before["connections"][&tool]["SERVICE"]["revision"],
+            saved.revision
+        );
+        assert!(!before.to_string().contains(&secret));
+        let fingerprint = hash(&serde_json::to_vec(&before).unwrap());
+        crate::project_index::approve_automation(
+            &store.db,
+            profile.path(),
+            &automation,
+            &fingerprint,
+            true,
+            &[],
+        )
+        .unwrap();
+        connections
+            .apply(Command::Save {
+                project_id: project,
+                id: Some(saved.id),
+                expected_revision: Some(saved.revision),
+                name: "Test".into(),
+                secret: "rotated-test-key".into(),
+            })
+            .unwrap();
+        assert!(
+            crate::project_index::approved_inputs(
+                &store.db,
+                profile.path(),
+                &automation,
+                false,
+                &[]
+            )
+            .is_err()
+        );
+        let enabled: i64 = store
+            .db
+            .query_row(
+                "SELECT enabled FROM automation_state WHERE automation_id=?",
+                [&automation],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(enabled, 0);
+    }
+
+    #[test]
+    #[ignore = "writes temporary test-only entries to the macOS Keychain"]
     fn keychain_connections_are_scoped_conflict_safe_and_never_written_to_disk() {
         let profile = tempfile::tempdir().unwrap();
         let other_profile = tempfile::tempdir().unwrap();
@@ -337,6 +449,20 @@ mod tests {
         assert!(!String::from_utf8_lossy(&result.stderr).contains(&secret));
         // The credential still exists: refusal was not caused by deleting it.
         assert!(read_keychain(&store.service).unwrap().is_some());
+        let requested = std::collections::BTreeMap::from([(
+            "tool-id".into(),
+            std::collections::BTreeMap::from([("SERVICE".into(), saved.id.clone())]),
+        )]);
+        let captured = store.capture(&project, &requested).unwrap();
+        assert_eq!(captured["tool-id"]["SERVICE"].revision, saved.revision);
+        assert!(!serde_json::to_string(&captured).unwrap().contains(&secret));
+        assert!(store.capture("another-project", &requested).is_err());
+        assert!(
+            Store::open(other_profile.path())
+                .unwrap()
+                .capture(&project, &requested)
+                .is_err()
+        );
         let visible = serde_json::to_string(&store.list(&project).unwrap()).unwrap();
         assert!(!visible.contains(&secret));
         assert_eq!(store.list("another-project").unwrap().len(), 0);
@@ -376,6 +502,12 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_ne!(updated.revision, saved.revision);
+        let rotated = reopened.capture(&project, &requested).unwrap();
+        assert_ne!(
+            serde_json::to_value(&captured).unwrap(),
+            serde_json::to_value(&rotated).unwrap()
+        );
+        assert_eq!(rotated["tool-id"]["SERVICE"].revision, updated.revision);
         assert!(
             store
                 .apply(Command::Delete {
@@ -401,5 +533,6 @@ mod tests {
             .unwrap();
         assert!(read_keychain(&store.service).unwrap().is_none());
         assert!(store.list(&project).unwrap().is_empty());
+        assert!(store.capture(&project, &requested).is_err());
     }
 }

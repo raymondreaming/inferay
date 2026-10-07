@@ -386,6 +386,7 @@ fn tool(
         &prefix,
     )?;
     let value = ToolDefinition {
+        connections: Default::default(),
         pack: None,
         requires: vec![],
         interface: old.interface,

@@ -126,7 +126,7 @@ Run History previews retained PNG, JPEG, WebP, GIF, BMP, ICO and SVG images thro
 
 ## M5. Acts in the world
 
-- **Connections (E4): key management implemented; execution bindings planned.** Plugins → Connections adds, replaces and removes project credentials in macOS Keychain. The authenticated API returns metadata only, revisions prevent stale updates, and a profile lock serializes cross-process writes. The native Keychain gate checks persistence, isolation, rotation, removal and no secret files. Tool declarations, approval-bound access, injection and output protection remain unfinished; no tool receives a saved key yet. See [Connections](connections.md).
+- **Connections (E4): key management implemented; execution bindings planned.** Plugins → Connections adds, replaces and removes project credentials in macOS Keychain. The authenticated API returns metadata only, revisions prevent stale updates, and a profile lock serializes cross-process writes. The native Keychain gate checks persistence, isolation, rotation, removal and no secret files. Tool declarations can reference local connection IDs, and selected revisions participate in approval hashes; rotation revokes approval. Credential-dependent runs remain blocked before provider/tool launch. Binding controls, credential delivery and output protection remain unfinished; no tool receives a saved key yet. See [Connections](connections.md).
 - **Effects (E5).** Runs emit intents; they never call external services that have consequences.
   - The core checks each intent against an approved budget (count, window, accounts).
   - It records the intent in an outbox before sending, through a handler plugin.

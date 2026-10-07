@@ -155,6 +155,7 @@ selected references remain visible for repair or removal.
 | `interface` | `json_stdin` (default), `cli`, or `{ "mcp": { "tool": "name" } } |
 | `args` | up to 64, each up to 8,000 bytes; CLI placeholders occupy a whole argument |
 | `timeoutSeconds` | 1–3,600 |
+| `connections` | optional map of credential aliases to local connection UUIDs; at most 16. Aliases start with an uppercase letter and use uppercase letters, digits and underscores (64 characters maximum). Selected metadata participates in approval; credential delivery is not implemented and these runs remain blocked. See [Connections](../connections.md). |
 | `inputSchema`, `outputSchema` | the supported JSON Schema subset below |
 
 The default `json_stdin` interface runs `program entrypoint ...args`: input is JSON on stdin, output is JSON on stdout, and diagnostics go to stderr.
