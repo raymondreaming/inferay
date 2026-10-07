@@ -120,3 +120,14 @@ fn skill_front_matter_and_manifest_limits_are_validated() {
             .contains("131072")
     );
 }
+
+#[test]
+fn repository_packs_require_stable_identity_and_full_hashes() {
+    let value = json!({"schema":"inferay.tool/1","id":ID,"name":"Pinned tool","program":"python3","entrypoint":"scripts/run.py","args":[],"timeoutSeconds":30,"inputSchema":{},"outputSchema":{},"pack":{"repositoryId":ID,"commit":"a".repeat(40),"sha256":"b".repeat(64)}});
+    assert!(parse::<ToolDefinition>("tools/report/tool.json", value.to_string().as_bytes()).is_ok());
+    for (field, invalid) in [("repositoryId", "kit"), ("commit", "main"), ("commit", "abcdef"), ("sha256", "not-a-hash")] {
+        let mut invalid_value = value.clone();
+        invalid_value["pack"][field] = json!(invalid);
+        assert!(parse::<ToolDefinition>("tools/report/tool.json", invalid_value.to_string().as_bytes()).is_err(), "{field}");
+    }
+}

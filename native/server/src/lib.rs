@@ -77,6 +77,7 @@ mod project_runtime;
 mod project_tools;
 mod automation_sandbox;
 mod project_requirements;
+mod project_packs;
 mod project_runs;
 mod project_file_commands;
 mod project_proposals;

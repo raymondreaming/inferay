@@ -147,6 +147,37 @@ For an existing script, use `interface: "cli"`. Its `args` must contain exactly 
   "outputSchema": { "type": "object" } }
 ```
 
+### Repository-backed tools (packs)
+
+A tool can keep its code in a linked repository by adding `pack`:
+
+```json
+{
+  "entrypoint": "content/scripts/copy_check.py",
+  "pack": {
+    "repositoryId": "03f01791-60c3-58e0-97a6-eaae9dc5f78c",
+    "commit": "0123456789abcdef0123456789abcdef01234567",
+    "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  }
+}
+```
+
+The hashes above are illustrative. `commit` is the full Git commit ID; `sha256` is
+the entrypoint's SHA-256. The repository ID must be declared by the project and
+bound locally to the checkout root. `entrypoint` is relative to that root; the
+working directory is the checkout root. Without `pack`, paths remain relative to
+the tool's own folder.
+
+Approval capture and run admission require HEAD to match the pin, a clean checkout
+(including no untracked or ignored files), and entrypoint bytes matching both the
+SHA-256 and the committed blob. Sparse/assume-unchanged index entries, submodules
+and tracked symlinks are refused. Use a dedicated clean checkout for a kit that has
+local caches or build outputs. Checks do not fetch, checkout, reset or alter Git
+configuration. A mismatch prevents execution and invalidates the affected approval.
+Both direct tools and agent tool grants use this resolver. Source stays in the
+checkout; per-run inputs retain an entrypoint copy for execution evidence. Outputs
+belong in `INFERAY_RUN_OUTPUT`, and the normal tool sandbox still applies.
+
 For Blender, arguments can be `["--background", "--python", "{entrypoint}", "--", "{input.scene}"]`. Both tool interfaces use the same required macOS process sandbox. Tools receive PATH, HOME and locale variables plus Inferay’s explicit run variables and private temporary directory; arbitrary ambient environment variables are omitted. Machine requirements are checked before execution; additional platform adapters remain planned.
 
 Environment: `INFERAY_PROJECT_DIR`, `INFERAY_RUN_ID`, `INFERAY_RUN_OUTPUT` (write artifacts here).

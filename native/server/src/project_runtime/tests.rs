@@ -763,3 +763,40 @@ async fn missing_library_requirements_block_direct_and_agent_runs_before_executi
         assert!(!logs.join("stdout.txt").exists());
     }
 }
+
+#[tokio::test]
+async fn repository_tool_executes_in_place_and_dirty_checkout_revokes_approval() {
+    let profile = tempfile::tempdir().unwrap();
+    let (project, automation) = definition_files(profile.path(), "print('{}')");
+    let root = profile.path().join("projects").join(&project);
+    let checkout = tempfile::tempdir().unwrap();
+    let script = "import json,os\nfrom pathlib import Path\n(Path(os.environ['INFERAY_RUN_OUTPUT'])/'report.md').write_text(str(Path.cwd()))\nprint(json.dumps({'artifacts':['report.md']}))\n";
+    std::fs::write(checkout.path().join("report.py"), script).unwrap();
+    let git = |args: &[&str]| { let result = std::process::Command::new("git").arg("-C").arg(checkout.path()).args(args).output().unwrap(); assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr)); String::from_utf8(result.stdout).unwrap().trim().to_owned() };
+    git(&["init", "-q"]); git(&["add", "report.py"]);
+    git(&["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgSign=false", "commit", "-qm", "fixture"]);
+    let revision = git(&["rev-parse", "HEAD"]);
+    let repository = uuid::Uuid::new_v4().to_string();
+    let mut definition: Value = serde_json::from_slice(&std::fs::read(root.join("project.json")).unwrap()).unwrap();
+    definition["repositories"] = json!([{"id":repository,"name":"Kit"}]);
+    std::fs::write(root.join("project.json"), definition.to_string()).unwrap();
+    let path = root.join("plugins/report/tools/report/tool.json");
+    let mut tool: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    tool["entrypoint"] = json!("report.py");
+    tool["pack"] = json!({"repositoryId":repository,"commit":revision,"sha256":project_store::hash(script.as_bytes())});
+    std::fs::write(path, tool.to_string()).unwrap();
+    std::fs::remove_file(root.join("plugins/report/tools/report/run.py")).unwrap();
+    let runtime = runtime(profile.path());
+    runtime.command(ProjectFileCommand::LinkRepository { project_id:project.clone(),repository_id:repository,expected_project_hash:project_store::hash(&std::fs::read(root.join("project.json")).unwrap()),path:checkout.path().display().to_string() },true).await.unwrap();
+    let id = approved_run(&runtime, &automation, "pack").await;
+    runtime.tick().await.unwrap();
+    let run = completed(&runtime, &project, &id).await;
+    assert_eq!(run.status,"succeeded","{:?}",run.error);
+    assert_eq!(std::fs::read_to_string(Path::new(&run.directory).join("output/report.md")).unwrap(), checkout.path().canonicalize().unwrap().display().to_string());
+    assert!(!root.join("plugins/report/tools/report/report.py").exists());
+    std::fs::write(checkout.path().join("report.py"), "print('changed')").unwrap();
+    let result = runtime.command(ProjectFileCommand::RunAutomation { id:automation,request_id:"changed-pack".into() },true).await.unwrap();
+    let refused = completed(&runtime, &project, result["id"].as_str().unwrap()).await;
+    assert_eq!(refused.status,"failed");
+    assert!(refused.error.as_deref().unwrap().contains("clean checkout"));
+}

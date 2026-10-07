@@ -105,7 +105,7 @@ Real Codex and Claude runs now pass disposable native-runtime filesystem probes,
 
 ## M4. Builds on other people's work
 
-- **Packs (E1).** Tool entrypoints can live inside a linked repository, pinned by its commit and the file's hash. An upstream change disables the schedule until it is reviewed.
+- **Packs (E1): implemented for clean Git checkouts.** Tools resolve entrypoints in linked repositories pinned by full commit ID and SHA-256. Direct tools and agent grants use the same resolver; changed, untracked or ignored files, hidden index entries, submodules and tracked symlinks are refused. Native checks cover bindings, pins, in-place execution and refusal after an outside edit. The real Blender lane remains a milestone gate.
 - **MCP declarations (E6).** A plugin names the MCP servers it needs; a missing server blocks the run.
 
 **Done when**

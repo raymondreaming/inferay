@@ -204,6 +204,8 @@ pub struct PluginDefinition {
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ToolDefinition {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pack: Option<RepositoryPack>,
     #[serde(default)]
     pub requires: Vec<String>,
     #[serde(default)]
@@ -217,6 +219,14 @@ pub struct ToolDefinition {
     pub timeout_seconds: u64,
     pub input_schema: Value,
     pub output_schema: Value,
+}
+/// A tool executes directly from this linked checkout, at an exact reviewed revision.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RepositoryPack {
+    pub repository_id: String,
+    pub commit: String,
+    pub sha256: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(tag = "base", rename_all = "camelCase", deny_unknown_fields)]
@@ -426,6 +436,15 @@ impl Definition for ToolDefinition {
         // The executable is resolved locally; host-specific absolute paths are not portable.
         relative_path(&self.program)?;
         relative_path(&self.entrypoint)?;
+        if let Some(pack) = &self.pack {
+            uuid::Uuid::parse_str(&pack.repository_id).map_err(|_| "pack.repositoryId must be a UUID")?;
+            if !matches!(pack.commit.len(), 40 | 64) || !pack.commit.bytes().all(|c| c.is_ascii_hexdigit()) {
+                return Err("pack.commit must be a full Git commit hash".into());
+            }
+            if pack.sha256.len() != 64 || !pack.sha256.bytes().all(|c| c.is_ascii_hexdigit()) {
+                return Err("pack.sha256 must be a SHA-256 hash".into());
+            }
+        }
         if !(1..=3600).contains(&self.timeout_seconds) {
             return Err("invalid tool timeout".into());
         }

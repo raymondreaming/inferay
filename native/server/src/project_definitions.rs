@@ -506,6 +506,10 @@ fn scan_candidate(
     for entry in &mut indexed {
         if entry.error.is_none() {
             if let Some(DefinitionFile::Tool(tool)) = &entry.definition {
+                if let Some(pack) = &tool.pack {
+                    if !repositories.contains(&pack.repository_id) { entry.error = Some("Tool pack repository is not declared in this project".into()); }
+                    continue;
+                }
                 let parent = entry.path.rsplit_once('/').unwrap().0;
                 let entrypoint = format!("{parent}/{}", tool.entrypoint);
                 let result = if let Some(bytes) = overlay.get(entrypoint.as_str()) {

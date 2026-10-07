@@ -386,6 +386,7 @@ fn tool(
         &prefix,
     )?;
     let value = ToolDefinition {
+        pack: None,
         requires: vec![],
         interface: old.interface,
         schema: "inferay.tool/1".into(),

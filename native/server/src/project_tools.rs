@@ -25,6 +25,8 @@ pub(crate) struct CapturedTool {
     pub grant: AgentToolGrant,
     pub definition: ToolDefinition,
     pub directory: String,
+    pub entrypoint: ProjectPath,
+    pub working_directory: ProjectPath,
     pub entrypoint_hash: String,
 }
 
@@ -126,22 +128,18 @@ impl ToolScope {
             return Err("Tool input exceeds 64 KB".into());
         }
         validate_json(&captured.definition.input_schema, &input)?;
-        let entrypoint = format!("{}/{}", captured.directory, captured.definition.entrypoint);
+        let entrypoint = resolve_path(&self.root, &captured.entrypoint)?;
         let definition = &captured.definition;
         let tool = LocalTool {
             interface: definition.interface,
             program: definition.program.clone(),
-            entrypoint: ProjectPath::Project {
-                path: entrypoint.clone(),
-            },
+            entrypoint: captured.entrypoint.clone(),
             arguments: definition.interface.arguments(
                 &definition.args,
                 &input,
-                &self.root.join(&entrypoint).to_string_lossy(),
+                &entrypoint.to_string_lossy(),
             )?,
-            working_directory: ProjectPath::Project {
-                path: captured.directory.clone(),
-            },
+            working_directory: captured.working_directory.clone(),
             timeout_seconds: definition.timeout_seconds,
             input_schema: definition.input_schema.clone(),
             output_schema: definition.output_schema.clone(),

@@ -327,10 +327,9 @@ pub(crate) fn execution_inputs(
                 if entry.hash.as_ref() != package.get(&entry.path) { return Err("Granted tool library changed while capturing inputs".into()); }
             }
             let directory = entry.path.strip_suffix("/tool.json").ok_or("Invalid tool path")?.to_owned();
-            let entrypoint = format!("{directory}/{}", tool.entrypoint);
+            let (entrypoint, working_directory, entrypoint_hash) = crate::project_packs::resolve(db, &root, project_definition, tool, &directory, &mut repositories)?;
             granted_tools.insert(grant.key(), crate::project_tools::CapturedTool {
-                grant: grant.clone(), definition: tool.clone(), directory,
-                entrypoint_hash: package.get(&entrypoint).ok_or("Granted entrypoint hash missing")?.clone(),
+                grant: grant.clone(), definition: tool.clone(), directory, entrypoint, working_directory, entrypoint_hash,
             });
             inputs.extend(package.clone());
             packages.insert(owner_prefix.into(), package);
@@ -467,18 +466,18 @@ pub(crate) fn execution_inputs(
                 return Err("Selected tool is invalid".into());
             };
             inferay_core::projects::validate_json(&tool.input_schema, input)?;
-            let path = format!("{directory}/{}", tool.entrypoint);
-            snapshot["entrypointHash"] =
-                json!(inputs.get(&path).ok_or("Tool entrypoint hash is missing")?);
-            snapshot["entrypoint"] = json!(root.join(&path));
+            let (entrypoint, working_directory, entrypoint_hash) = crate::project_packs::resolve(db, &root, project_definition, tool, &directory, &mut repositories)?;
+            let path = crate::project_store::resolve_path(&root, &entrypoint)?;
+            snapshot["entrypointHash"] = json!(entrypoint_hash);
+            snapshot["entrypoint"] = json!(path);
             snapshot["tool"] = serde_json::to_value(LocalTool {
                 interface: tool.interface,
                 program: tool.program.clone(),
-                entrypoint: ProjectPath::Project { path: path.clone() },
+                entrypoint,
                 arguments: tool.interface.arguments(
-                    &tool.args, input, &root.join(&path).to_string_lossy(),
+                    &tool.args, input, &path.to_string_lossy(),
                 )?,
-                working_directory: ProjectPath::Project { path: directory },
+                working_directory,
                 timeout_seconds: tool.timeout_seconds,
                 input_schema: tool.input_schema.clone(),
                 output_schema: tool.output_schema.clone(),
@@ -507,6 +506,7 @@ pub(crate) fn execution_inputs(
             _ => {},
         }
     }
+    snapshot["repositoryPaths"] = json!(repositories);
     snapshot["requirements"] = json!(requirements);
     snapshot["execution"] = serde_json::to_value(execution)?;
     Ok(snapshot)

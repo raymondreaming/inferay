@@ -50,7 +50,7 @@ second validator accept it just to turn a test green.
 | Effect without handler | Planned with effects/outbox (M5) |
 | Undeclared secret connection | Planned with Keychain connections (M5) |
 | Unlinked repository | `point_proof` refuses capture until explicitly linked |
-| Upstream kit change changes pin | Planned with repository packs (M4) |
+| Upstream kit change changes pin | `pack_resolution_checks_checkout_binding_revision_and_bytes` checks pins; `repository_tool_executes_in_place_and_dirty_checkout_revokes_approval` verifies in-place execution and outside-edit refusal |
 | Unknown definition field | `point_proof` rejects `enabled` in the portable definition |
 
 The regular server suite also covers actual CLI success/failure, tool grants,
