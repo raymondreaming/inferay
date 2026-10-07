@@ -162,6 +162,22 @@ export function ResourceFiles() {
 								plugin.file.sourcePath.replace(/plugin\.json$/, ""),
 							),
 						);
+					const issues = () =>
+						(projects.catalog()?.issues ?? []).filter(
+							(issue) =>
+								issue.projectId === plugin.file.projectId &&
+								issue.sourcePath.startsWith(
+									plugin.file.sourcePath.replace(/plugin\.json$/, ""),
+								),
+						);
+					const latestRun = () =>
+						(projects.catalog()?.runs ?? [])
+							.filter((run) =>
+								automations().some(
+									(automation) => automation.id === run.automationId,
+								),
+							)
+							.sort((a, b) => b.requestedAt - a.requestedAt)[0];
 					return (
 						<article {...stylex.attrs(styles.card)}>
 							<strong {...stylex.attrs(styles.listText)}>
@@ -171,13 +187,13 @@ export function ResourceFiles() {
 								{plugin.file.definition && (
 									<>Version {plugin.file.definition.version} · </>
 								)}
-								{plugin.file.error
+								{issues().length > 0
 									? "Needs repair"
 									: (plugin.approvedAt !== null && !plugin.approvedHash) ||
 											automations().some((item) => item.inputsChanged)
 										? "Changed · Review required"
 										: automations().some((item) => item.enabled)
-											? "Running on schedule"
+											? "Schedules active"
 											: automations().length
 												? "Schedules off"
 												: "Reusable library"}
@@ -190,6 +206,39 @@ export function ResourceFiles() {
 									{plugin.file.error}
 								</p>
 							)}
+							{issues()
+								.filter((issue) => issue.sourcePath !== plugin.file.sourcePath)
+								.map((issue) => (
+									<p role="status" {...stylex.attrs(styles.muted)}>
+										{issue.sourcePath.replace(
+											plugin.file.sourcePath.replace(/plugin\.json$/, ""),
+											"",
+										)}
+										: {issue.error}
+									</p>
+								))}
+							{(plugin.file.definition?.requires?.length ?? 0) > 0 && (
+								<span {...stylex.attrs(styles.muted)}>
+									Requires {plugin.file.definition?.requires?.join(" · ")}
+								</span>
+							)}
+							<Show when={latestRun()}>
+								{(run) => (
+									<div {...stylex.attrs(styles.pluginRun)}>
+										<span {...stylex.attrs(styles.muted)}>
+											Latest automation run ·{" "}
+											{run().status.replaceAll("_", " ")} ·{" "}
+											{new Date(run().requestedAt).toLocaleString()}
+										</span>
+										<span {...stylex.attrs(styles.listText)}>{run().name}</span>
+										{run().error && (
+											<p {...stylex.attrs(styles.resourcePreview)}>
+												{run().error}
+											</p>
+										)}
+									</div>
+								)}
+							</Show>
 							<PluginContentsSummary id={plugin.file.id} />
 							{tools().map((tool) => (
 								<span {...stylex.attrs(styles.muted)}>{tool.name}</span>

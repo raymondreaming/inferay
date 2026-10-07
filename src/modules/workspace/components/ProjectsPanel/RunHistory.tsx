@@ -104,8 +104,8 @@ export function RunHistory(props: { automationId?: string } = {}) {
 								{(run.result as { message: string }).message}
 							</p>
 						) : null}
-						{(run.snapshot as { execution: { kind: string } }).execution
-							.kind === "agent" &&
+						{(run.snapshot as { execution?: { kind?: string } } | null)
+							?.execution?.kind === "agent" &&
 						!["running", "queued"].includes(run.status) ? (
 							<Button
 								size="sm"
@@ -158,8 +158,8 @@ export function RunHistory(props: { automationId?: string } = {}) {
 								onClick={() =>
 									void inspect(
 										run.directory,
-										(run.snapshot as { execution: { kind: string } }).execution
-											.kind === "agent"
+										(run.snapshot as { execution?: { kind?: string } } | null)
+											?.execution?.kind === "agent"
 											? "logs/agent.jsonl"
 											: "logs/stdout.txt",
 									)
@@ -167,8 +167,8 @@ export function RunHistory(props: { automationId?: string } = {}) {
 							>
 								Execution log
 							</Button>
-							{(run.snapshot as { execution: { kind: string } }).execution
-								.kind === "tool" ? (
+							{(run.snapshot as { execution?: { kind?: string } } | null)
+								?.execution?.kind === "tool" ? (
 								<Button
 									size="sm"
 									onClick={() => void inspect(run.directory, "logs/stderr.txt")}

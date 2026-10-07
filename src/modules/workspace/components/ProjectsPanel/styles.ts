@@ -5,6 +5,15 @@ import {
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
+	pluginRun: {
+		display: "flex",
+		flexDirection: "column",
+		gap: 6,
+		paddingTop: 12,
+		borderTopWidth: 1,
+		borderTopStyle: "solid",
+		borderTopColor: color.borderSubtle,
+	},
 	changeFile: {
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",

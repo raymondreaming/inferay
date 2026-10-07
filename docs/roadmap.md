@@ -72,7 +72,7 @@ Development continues directly on `main`. The formats and validators exist; this
 
 **Pages.**
 - **Memory** combines notes, dropped documents and images, and typed records in one searchable card library, with a Records filter. There are no separate Resources or Files pages.
-- **Plugins** is where you build and approve. Invalid manifests remain visible by folder name with their current error and can be repaired in the library editor. Repair does not restore execution approval. Cards show contents, declared permissions and schedule state; richer blocked-state and last-run summaries remain to finish.
+- **Plugins** is where you build and approve. Invalid manifests remain visible by folder name with their current error and can be repaired in the library editor. Repair does not restore execution approval. Cards show contents, declared permissions, machine requirements, schedule state, definition errors within the library, and the latest available run of an owned automation. History handles preflight failures without assuming an execution snapshot exists. Native UI interaction checks remain.
 - **Automations** is where you operate: on/off, next run, last result, and history per automation. A run artifact can be saved to Memory explicitly; nothing is saved there automatically.
 - The Tools page is removed; tools appear inside their plugin.
 
