@@ -16,16 +16,16 @@ The work is a sequence of milestones. Each one ends with something real running,
 
 - Files own definitions; SQLite holds local state and a rebuildable index, never a second editable copy. Deleting `projects.sqlite3` loses only run history, approvals and schedule state.
 - Local by design. Definitions live in `<profile>/projects/<id>/`; linked repositories are never written to by the store. Sharing is copying a plugin folder; Git on a project folder is optional.
-- A plugin is the unit of a capability: one folder of skills, tools and automations, approved and shared as a whole.
+- A plugin is a reusable library: one folder of code, documentation and assets, optionally including skills, tools and automations. It is reviewed and shared as a whole; a schedule is not required.
 - Anything written by a chat, a migration or by hand starts disabled. Enabling records a hash of every input; any change disables it again.
 - Definitions name repositories by ID and files by relative path; each Mac's checkout path is local state.
-- The project has four pages: **Resources** (what it knows), **Plugins** (what it can do), **Automations** (what is running), **Repositories** (linked code), plus its chats. There is no separate Files or Tools page.
+- The project has four pages: **Memory** (what it knows), **Plugins** (what it can do), **Automations** (what is running), **Repositories** (linked code), plus its chats. There is no separate Files or Tools page.
 - When a repository already defines its own process (for example Point's AutoBuild guide), an automation runs an agent there and follows it; Inferay schedules, authorizes and records.
 - New behavior replaces old behavior in the same change; no dual paths or compatibility shims.
 
 ## M1. Definitions are files
 
-Development continues directly on `main`. The formats and validators exist; this milestone connects them to storage. Managed file writes use expected hashes, and global custom skills have a separate `skills.sqlite3` store so rebuilding the project index does not remove them. The bounded filesystem scanner, validated writer, index rebuild, legacy exporter and file-store startup have disposable-profile tests. File-backed approval and queue admission feed the existing executor, including a verified local-tool run and artifact. Chat-context lookup reads current files, and run history has a shared durable reader. The application still opens the legacy store: runtime, API and renderer cutover remain unfinished; the live profile has not migrated.
+Development continues directly on `main`. The formats and validators exist; this milestone connects them to storage. Managed file writes use expected hashes, and global custom skills have a separate `skills.sqlite3` store so rebuilding the project index does not remove them. The bounded filesystem scanner, validated writer, index rebuild, legacy exporter and file-store startup have disposable-profile tests. File-backed approval and queue admission feed the existing executor, including a verified local-tool run and artifact. Chat-context lookup reads current files, and run history has a shared durable reader. The runtime and project HTTP command boundary now open the file-backed store and accept file commands. The renderer uses file commands and can create complete plugin bundles. Memory imports original files into `memory/documents/` and browses them by file type with image and text previews. The retired database definition writer has been removed; migration tests seed the legacy schema directly. Older repository workspace chats migrate to file-backed projects with stable IDs and preserved associations. The live profile has migrated. Plugin proposal editing and full native-app provider runs remain unfinished. Claude and Codex now share the project, memory and skill tool dispatcher; Claude accesses it through a turn-scoped local MCP bridge. A real Claude tool-call test passes, but does not replace the automation-run release gate.
 
 **Storage.** `project_store.rs` and `project_runtime.rs` read definitions from files.
 
@@ -42,13 +42,13 @@ Development continues directly on `main`. The formats and validators exist; this
 - `capture_snapshot` hashes every file a run reads. Every scheduled run and Run now recomputes it; a difference disables the schedule and asks for review. An unlinked repository blocks the run with "Link this repository".
 - Row-writing commands and `resource_revisions` are removed; `project_commands.json` describes the file commands.
 
-**Layout.** Documents move from `files/` to `resources/documents/`; typed records stay in `resources/<type>/`. Agent automations default to the project folder as their working directory.
+**Layout.** Documents move from `files/` to `memory/documents/`; typed records stay in `memory/<type>/`. Agent automations default to the project folder as their working directory.
 
-**Migration**, one-time and idempotent, tested only against a disposable `INFERAY_USER_DATA_DIR`:
+**Migration**, one-time and idempotent, covered by disposable-profile tests and applied to the live profile:
 
 1. Back up `projects.sqlite3` with SQLite's backup API.
 2. Write `project.json` for each project, and move repository locations into `repository_paths`.
-3. Write records to `resources/<type>/`, moving `files/` to `resources/documents/` and keeping every ID.
+3. Write records to `memory/<type>/`, moving `files/` to `memory/documents/` and keeping every ID.
 4. Group each automation with the tools and skills it uses into a plugin folder. Where a tool or skill is shared, copy it into each plugin.
 5. Convert installed plugins to the new manifest.
 6. Every automation arrives disabled.
@@ -70,19 +70,19 @@ Development continues directly on `main`. The formats and validators exist; this
 - Claude gets the same `inferay_projects` commands Codex has.
 
 **Pages.**
-- **Resources** merges the Files page. It shows records (typed, with the existing editors) and documents (with previews), and has Open folder.
+- **Memory** combines notes, dropped documents and images, and typed records in one searchable card library, with a Records filter. There are no separate Resources or Files pages.
 - **Plugins** is where you build and approve. Each card shows its status (draft, enabled, changed, invalid, blocked), its skills and tools, its permissions and its last runs.
-- **Automations** is where you operate: on/off, next run, last result, and history per automation. A run artifact can be saved to Resources explicitly; nothing is saved there automatically.
+- **Automations** is where you operate: on/off, next run, last result, and history per automation. A run artifact can be saved to Memory explicitly; nothing is saved there automatically.
 - The Tools page is removed; tools appear inside their plugin.
 
 **Done when** `verify:projects` covers:
 - a chat-built plugin that is approved and runs;
 - an edit that disables a schedule;
 - an invalid manifest;
-- a document moved into Resources;
+- a document moved into Memory;
 - an unlinked repository.
 
-It also needs one real Codex run and one real Claude run in the native app. Then `projects-foundation` merges to `main`.
+It also needs one real Codex run and one real Claude run in the native app. These changes are developed and committed directly on `main`; the provider runs remain release gates.
 
 ## M3. Safe to leave running
 
@@ -137,7 +137,6 @@ Build an automation for a domain nobody designed for (for example a weekly finan
 
 - Agent runs execute with full provider access; permissions are advisory until M3.
 - `check:architecture` has a "Solid reactivity regression" step that runs nothing.
-- `bunx tsc --noEmit` reports errors in `scripts/tests/fixtures/solid-runtime.tsx`, so it is not a clean gate.
 - There is no CI; checks run locally and through lint-staged.
 - The README describes a source-available license, but the repository has no `LICENSE` file.
 
