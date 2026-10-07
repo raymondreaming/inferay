@@ -19,6 +19,7 @@ import { styles } from "./styles.ts";
 
 export function ProjectsPanel() {
 	const [search, setSearch] = createSignal("");
+	const [category, setCategory] = createSignal("all");
 	const [creatingProject, setCreatingProject] = createSignal(false);
 	const [resource, setResource] = createSignal<ProjectResource | "new" | null>(
 		null,
@@ -113,8 +114,47 @@ export function ProjectsPanel() {
 						)}
 					</Show>
 
+					{projects.view() === "resources" && (
+						<div {...stylex.attrs(styles.resourceCategories)}>
+							{[
+								["all", "All resources"],
+								["brand.brand", "Brand"],
+								["brand.mind", "Mind"],
+								["brand.genome", "Genome"],
+							].map(([id, label]) => (
+								<Button
+									size="sm"
+									variant={category() === id ? "primary" : "ghost"}
+									onClick={() => setCategory(id)}
+								>
+									{label}
+								</Button>
+							))}
+						</div>
+					)}
+					{projects.view() === "resources" &&
+						resources().filter(
+							(r) => !["inferay.repository", "inferay.tool"].includes(r.typeId),
+						).length === 0 && (
+							<div {...stylex.attrs(styles.resourceEmpty)}>
+								<strong>Your project’s reference library</strong>
+								<p>
+									Keep its purpose, voice, knowledge, and creative direction
+									together.
+								</p>
+								<Button size="sm" onClick={() => setResource("new")}>
+									Add your first resource
+								</Button>
+							</div>
+						)}
 					<div {...stylex.attrs(styles.libraryGrid)}>
 						{resources()
+							.filter(
+								(r) =>
+									projects.view() !== "resources" ||
+									category() === "all" ||
+									r.typeId === category(),
+							)
 							.filter((r) =>
 								r.name.toLowerCase().includes(search().toLowerCase()),
 							)
@@ -124,7 +164,7 @@ export function ProjectsPanel() {
 									: !["inferay.repository", "inferay.tool"].includes(r.typeId),
 							)
 							.map((r) => (
-								<article {...stylex.attrs(styles.card)}>
+								<article {...stylex.attrs(styles.card, styles.resourceCard)}>
 									<button
 										type="button"
 										onClick={() => setResource(r)}
@@ -160,7 +200,7 @@ export function ProjectsPanel() {
 											Archive
 										</Button>
 									</div>
-									<p {...stylex.attrs(styles.muted)}>
+									<p {...stylex.attrs(styles.resourcePreview)}>
 										{String(
 											(r.body as Record<string, unknown>).description ??
 												(r.body as Record<string, unknown>).instructions ??

@@ -5,6 +5,34 @@ import {
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
+	resourceCategories: { display: "flex", flexWrap: "wrap", gap: 8 },
+	resourceCard: { padding: 24, gap: 12, minHeight: 210, borderRadius: 16 },
+	resourcePreview: {
+		color: color.textSoft,
+		fontSize: font.size_3,
+		lineHeight: 1.7,
+		margin: 0,
+		overflow: "hidden",
+		display: "-webkit-box",
+		WebkitLineClamp: 4,
+		WebkitBoxOrient: "vertical",
+	},
+	resourceEmpty: {
+		display: "flex",
+		flexDirection: "column",
+		alignItems: "center",
+		justifyContent: "center",
+		minHeight: 320,
+		padding: 40,
+		textAlign: "center",
+		color: color.textMuted,
+		borderWidth: 1,
+		borderStyle: "dashed",
+		borderColor: color.borderSubtle,
+		borderRadius: 16,
+		gap: 12,
+	},
+
 	libraryToolbar: {
 		display: "flex",
 		alignItems: "center",
