@@ -412,9 +412,15 @@ impl AutomationSandbox {
         // Instructions are supplied from the approved run snapshot. Repository
         // documents remain available through the scoped native reader.
         params["config"]["project_doc_max_bytes"] = json!(0);
+        params["config"]["skills"] = json!({"include_instructions":false,"bundled":{"enabled":false}});
+        params["config"]["cloud"] = json!({"skills":{"enabled":false}});
+        params["config"]["memories"] = json!({"use_memories":false,"generate_memories":false,"dedicated_tools":false});
         // Ambient optional executors must not add authority outside the run's tools.
         for feature in [
             "shell_tool",
+            "skill_search",
+            "memory_tool",
+            "memories",
             "js_repl",
             "js_repl_tools_only",
             "apps",

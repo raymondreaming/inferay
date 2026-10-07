@@ -294,6 +294,13 @@ async fn installed_codex_refuses_native_mutation_paths_in_automation_policy() {
         std::fs::write(&override_target, "INFERAY_UNAPPROVED_CODEX_OVERRIDE_CONTEXT_41931").unwrap();
         std::os::unix::fs::symlink(override_target, home.join("AGENTS.override.md")).unwrap();
     }
+    for (path, marker) in [
+        (home.join("skills/personal-fixture/SKILL.md"), "INFERAY_UNAPPROVED_PERSONAL_SKILL_41931"),
+        (work.join(".agents/skills/project-fixture/SKILL.md"), "INFERAY_UNAPPROVED_PROJECT_SKILL_41931"),
+    ] {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, format!("---\nname: fixture-skill\ndescription: {marker}\n---\n{marker}\n")).unwrap();
+    }
     let requests = Arc::new(Mutex::new(Vec::<Value>::new()));
     async fn respond(
         State(requests): State<Arc<Mutex<Vec<Value>>>>,
@@ -419,6 +426,9 @@ supports_websockets = false
     assert!(!transcript.contains("INFERAY_UNAPPROVED_CODEX_PROJECT_CONTEXT_41931"), "Unapproved project instructions entered the provider context");
     assert!(!transcript.contains("INFERAY_UNAPPROVED_CODEX_PERSONAL_CONTEXT_41931"), "Unapproved personal instructions entered the provider context");
     assert!(!transcript.contains("INFERAY_UNAPPROVED_CODEX_OVERRIDE_CONTEXT_41931"), "Symlinked personal overrides entered the provider context");
+    for marker in ["INFERAY_UNAPPROVED_PERSONAL_SKILL_41931", "INFERAY_UNAPPROVED_PROJECT_SKILL_41931"] {
+        assert!(!transcript.contains(marker), "Unselected skill entered automation context: {marker}");
+    }
     let output = requests
         .iter()
         .flat_map(|request| request["input"].as_array().into_iter().flatten())
