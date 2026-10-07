@@ -1,0 +1,26 @@
+{
+	"schema": "inferay.automation/1",
+	"id": "1539403b-5079-5ed7-820f-1873ae64d5f9",
+	"name": "Weekly brand board",
+	"trigger": {
+		"kind": "manual"
+	},
+	"overlap": "skip",
+	"execution": {
+		"kind": "agent",
+		"provider": "claude",
+		"model": null,
+		"reasoningLevel": "medium",
+		"instructions": "Make this week's brand board frame.",
+		"skills": ["brand-screen-spline"],
+		"tools": [],
+		"resources": ["b3103442-6cd4-544b-83a9-80d7778d5d4b"],
+		"repositories": [],
+		"workingDirectory": {
+			"base": "project",
+			"path": "files"
+		},
+		"timeoutSeconds": 1800
+	},
+	"may": ["network"]
+}

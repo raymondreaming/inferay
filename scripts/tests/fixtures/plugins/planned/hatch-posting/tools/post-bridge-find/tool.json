@@ -1,0 +1,25 @@
+{
+	"schema": "inferay.tool/1",
+	"id": "1f3127cc-4946-5257-b107-27b55148cb4f",
+	"name": "post-bridge-find",
+	"interface": "json",
+	"program": "python3",
+	"entrypoint": {
+		"base": "plugin",
+		"path": "tools/post-bridge-find/find.py"
+	},
+	"connections": ["postbridge"],
+	"timeoutSeconds": 120,
+	"inputSchema": {
+		"type": "object",
+		"properties": {
+			"idempotencyKey": {
+				"type": "string"
+			}
+		},
+		"required": ["idempotencyKey"]
+	},
+	"outputSchema": {
+		"type": "object"
+	}
+}

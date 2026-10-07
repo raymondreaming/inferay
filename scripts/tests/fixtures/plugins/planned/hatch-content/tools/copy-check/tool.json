@@ -1,0 +1,42 @@
+{
+	"schema": "inferay.tool/1",
+	"id": "b8b8ed0f-522a-540f-a2e9-224894fac362",
+	"name": "copy-check",
+	"interface": "cli",
+	"program": "python3",
+	"entrypoint": {
+		"base": "repository",
+		"id": "03f01791-60c3-58e0-97a6-eaae9dc5f78c",
+		"path": "content/scripts/copy_check.py"
+	},
+	"args": [
+		"{entrypoint}",
+		"--history",
+		"{history}",
+		"--platform",
+		"{platform}",
+		"--text",
+		"{text}",
+		"--json"
+	],
+	"passOnExitCode": 0,
+	"timeoutSeconds": 60,
+	"inputSchema": {
+		"type": "object",
+		"properties": {
+			"history": {
+				"type": "string"
+			},
+			"platform": {
+				"type": "string"
+			},
+			"text": {
+				"type": "string"
+			}
+		},
+		"required": ["history", "platform", "text"]
+	},
+	"outputSchema": {
+		"type": "object"
+	}
+}

@@ -1,0 +1,8 @@
+{
+	"schema": "inferay.plugin/1",
+	"id": "05fcbcd7-1c44-5511-ba11-8b9c4cc258cc",
+	"name": "Point daily autobuild",
+	"version": "0.1.0",
+	"description": "Daily repository work following Point\u2019s guide; leaves checks and evidence in the run output.",
+	"may": ["read_repositories", "write_repositories", "commit"]
+}

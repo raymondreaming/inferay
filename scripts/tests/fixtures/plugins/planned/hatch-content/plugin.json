@@ -1,0 +1,9 @@
+{
+	"schema": "inferay.plugin/1",
+	"id": "ef31b979-05f4-50df-ab26-a523f9c678a6",
+	"name": "Hatch content lanes",
+	"version": "0.1.0",
+	"description": "Daily Blender posts for Hatching Point, built from the forked kit.",
+	"may": ["read_repositories", "write_project_files", "effect:post"],
+	"requires": ["blender>=4.2", "ffmpeg", "python3"]
+}

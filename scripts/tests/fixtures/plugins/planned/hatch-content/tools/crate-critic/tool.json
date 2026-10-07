@@ -1,0 +1,31 @@
+{
+	"schema": "inferay.tool/1",
+	"id": "8308af69-fadd-58e0-b83f-75f03a4e8f81",
+	"name": "crate-critic",
+	"interface": "cli",
+	"program": "python3",
+	"entrypoint": {
+		"base": "repository",
+		"id": "03f01791-60c3-58e0-97a6-eaae9dc5f78c",
+		"path": "content/scripts/crate_critic.py"
+	},
+	"args": ["{entrypoint}", "--floor", "{...images}"],
+	"passOnExitCode": 0,
+	"timeoutSeconds": 600,
+	"requires": ["python3:numpy", "python3:PIL"],
+	"inputSchema": {
+		"type": "object",
+		"properties": {
+			"images": {
+				"type": "array",
+				"items": {
+					"type": "string"
+				}
+			}
+		},
+		"required": ["images"]
+	},
+	"outputSchema": {
+		"type": "object"
+	}
+}

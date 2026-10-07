@@ -1,0 +1,29 @@
+{
+	"schema": "inferay.automation/1",
+	"id": "d1404e25-8629-5302-8297-d2dd6cb0d0a2",
+	"name": "Autobuild at 08:00",
+	"trigger": {
+		"kind": "calendar",
+		"timezone": "America/Chicago",
+		"days": [1, 2, 3, 4, 5, 6, 7],
+		"times": ["08:00"]
+	},
+	"overlap": "skip",
+	"execution": {
+		"kind": "agent",
+		"provider": "codex",
+		"model": null,
+		"reasoningLevel": "high",
+		"instructions": "Run the daily-autobuild skill.",
+		"skills": ["a7115ce6-e78f-5fb9-bfc4-ce3b1b015a17"],
+		"tools": [],
+		"resources": [],
+		"repositories": ["49e00196-55b9-58ff-b970-c626c85392bb"],
+		"workingDirectory": {
+			"base": "repository",
+			"id": "49e00196-55b9-58ff-b970-c626c85392bb"
+		},
+		"timeoutSeconds": 14400
+	},
+	"may": ["read_repositories", "write_repositories", "commit"]
+}

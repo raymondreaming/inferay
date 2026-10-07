@@ -1,0 +1,35 @@
+{
+	"schema": "inferay.tool/1",
+	"id": "845dcea7-dc99-5a99-8e98-0b2e79492eab",
+	"name": "render",
+	"interface": "cli",
+	"program": "blender",
+	"entrypoint": {
+		"base": "repository",
+		"id": "03f01791-60c3-58e0-97a6-eaae9dc5f78c",
+		"path": "content/scripts/kit.py"
+	},
+	"args": [
+		"--background",
+		"--python",
+		"{entrypoint}",
+		"--",
+		"{scene}",
+		"--out",
+		"{output}"
+	],
+	"timeoutSeconds": 9000,
+	"requires": ["blender>=4.2"],
+	"inputSchema": {
+		"type": "object",
+		"properties": {
+			"scene": {
+				"type": "string"
+			}
+		},
+		"required": ["scene"]
+	},
+	"outputSchema": {
+		"type": "object"
+	}
+}

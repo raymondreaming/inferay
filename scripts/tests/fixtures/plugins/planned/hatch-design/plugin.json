@@ -1,0 +1,18 @@
+{
+	"schema": "inferay.plugin/1",
+	"id": "cbf5497a-4e64-595f-a87f-fc3830d2f347",
+	"name": "Brand design (Spline, Figma)",
+	"version": "0.1.0",
+	"description": "Design screens in Spline and Figma using the project's genome.",
+	"may": ["network"],
+	"mcp": [
+		{
+			"server": "spline",
+			"required": true
+		},
+		{
+			"server": "figma",
+			"required": false
+		}
+	]
+}

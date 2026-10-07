@@ -1,0 +1,46 @@
+{
+	"schema": "inferay.automation/1",
+	"id": "1bb30a1a-bfca-5b34-9cab-390189e4b18d",
+	"name": "Hero lane",
+	"trigger": {
+		"kind": "calendar",
+		"timezone": "America/New_York",
+		"days": [1, 2, 3, 4, 5, 6, 7],
+		"times": ["09:00"]
+	},
+	"overlap": "skip",
+	"execution": {
+		"kind": "agent",
+		"provider": "claude",
+		"model": null,
+		"reasoningLevel": "high",
+		"instructions": "Run the lane-hero skill for today. Post time is 12:00 America/New_York.",
+		"skills": ["lane-hero"],
+		"tools": ["render", "copy-check", "crate-critic"],
+		"resources": ["b3103442-6cd4-544b-83a9-80d7778d5d4b"],
+		"repositories": ["03f01791-60c3-58e0-97a6-eaae9dc5f78c"],
+		"workingDirectory": {
+			"base": "project",
+			"path": "files"
+		},
+		"timeoutSeconds": 10800
+	},
+	"may": ["read_repositories", "write_project_files", "effect:post"],
+	"effects": [
+		{
+			"kind": "post",
+			"connection": "postbridge",
+			"budget": {
+				"perDay": 3,
+				"until": "2026-11-01"
+			},
+			"accounts": [
+				"instagram:hatchingpoint",
+				"tiktok:hatchingpoint",
+				"youtube:hatchingpoint"
+			],
+			"notBefore": "12:00",
+			"review": "owner"
+		}
+	]
+}

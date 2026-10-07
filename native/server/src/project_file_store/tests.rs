@@ -167,3 +167,49 @@ fn chat_context_reads_current_files_and_does_not_guess_shared_repository_ownersh
     );
     assert!(store.history(&projects[1], None).unwrap().runs.is_empty());
 }
+
+#[test]
+fn point_proof_uses_native_validation_bindings_and_approval_inputs() {
+    const PROJECT: &str = "c99b436f-71e0-5942-ac44-146262266d52";
+    const AUTOMATION: &str = "d1404e25-8629-5302-8297-d2dd6cb0d0a2";
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/tests/fixtures/plugins/point");
+    let profile = tempfile::tempdir().unwrap();
+    let root = profile.path().join("projects").join(PROJECT);
+    for entry in walkdir::WalkDir::new(&source) {
+        let entry = entry.unwrap();
+        let target = root.join(entry.path().strip_prefix(&source).unwrap());
+        if entry.file_type().is_dir() { std::fs::create_dir_all(target).unwrap(); }
+        else { std::fs::copy(entry.path(), target).unwrap(); }
+    }
+    let mut store = FileProjectStore::open(profile.path(), &[]).unwrap();
+    assert_eq!(store.db.query_row("SELECT count(*) FROM definition_errors", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    let unlinked = crate::project_index::execution_inputs(&store.db, profile.path(), AUTOMATION, &[]).unwrap_err();
+    assert!(unlinked.to_string().contains("not linked on this machine"));
+    let repository = tempfile::tempdir().unwrap();
+    store.command(ProjectFileCommand::LinkRepository {
+        project_id: PROJECT.into(), repository_id: "49e00196-55b9-58ff-b970-c626c85392bb".into(),
+        expected_project_hash: crate::project_store::hash(&std::fs::read(root.join("project.json")).unwrap()),
+        path: repository.path().display().to_string(),
+    }, true, &[]).unwrap();
+    let before = crate::project_index::execution_inputs(&store.db, profile.path(), AUTOMATION, &[]).unwrap();
+    assert_eq!(before["automation"]["trigger"]["times"], json!(["08:00"]));
+    assert_eq!(before["automation"]["trigger"]["timezone"], "America/Chicago");
+    let skill = root.join("plugins/point-autobuild/skills/daily-autobuild.md");
+    std::fs::write(&skill, format!("{}\nRecord the selected branch.\n", std::fs::read_to_string(&skill).unwrap())).unwrap();
+    let after = crate::project_index::execution_inputs(&store.db, profile.path(), AUTOMATION, &[]).unwrap();
+    assert_ne!(crate::project_store::hash(&serde_json::to_vec(&before).unwrap()), crate::project_store::hash(&serde_json::to_vec(&after).unwrap()));
+    assert!(crate::project_index::approved_inputs(&store.db, profile.path(), AUTOMATION, false, &[]).is_err());
+    let path = root.join("plugins/point-autobuild/automations/daily-0800.json");
+    let original = std::fs::read(&path).unwrap();
+    for mutation in ["unknown", "permission", "absolute"] {
+        let mut value: serde_json::Value = serde_json::from_slice(&original).unwrap();
+        match mutation {
+            "unknown" => value["enabled"] = json!(true),
+            "permission" => value["may"].as_array_mut().unwrap().push(json!("push")),
+            _ => value["execution"]["workingDirectory"] = json!({"base":"external","path":"/tmp/repository"}),
+        }
+        std::fs::write(&path, value.to_string()).unwrap();
+        let entries = crate::project_definitions::scan(&root, &Default::default()).unwrap();
+        assert!(entries.iter().any(|entry| entry.path.ends_with("daily-0800.json") && entry.error.is_some()), "{mutation} was accepted");
+    }
+}

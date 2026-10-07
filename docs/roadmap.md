@@ -96,7 +96,7 @@ Real Codex and Claude runs now pass disposable native-runtime filesystem probes,
   - Claude: restricted mode, explicit tool permissions, required sandbox, no unsandboxed retry, and isolated settings are implemented. A real native-runtime automation writes its output and receives a tool-result refusal for an outside write. Network and privileged Git cases need further checks.
   - `push` and `open_pr` are only possible when declared.
 - **Requirements (E3): implemented.** Plugins and tools declare required programs and modules (`blender>=5.0`, `ffmpeg`, `python3:numpy`). Requirements are captured with approved inputs and checked before a provider or tool starts. Missing dependencies produce a failed run naming the requirement. Bounded version/module probes run without network in the local-tool sandbox; additional platform adapters remain needed. Native tests cover presence, minimum versions, modules, and refusal before both direct-tool and agent execution.
-- **Conformance suite.** The proof definitions (`~/Developer/inferay-proofs`) move into the repository as test fixtures, and every kernel change runs against them.
+- **Conformance suite: in progress.** The proof definitions are retained under `scripts/tests/fixtures/plugins/`. Point is converted to the current format and checked through the native store, bindings and approval inputs. Creative examples remain explicitly planned reference data until packs, connections, MCP and effects exist. The fixture README maps the original eleven cases to native checks or remaining work; the old Python model is not a second validator.
 
 **Done when**
 - the Point daily build runs at 08:00 Chicago for a week with permissions enforced, committing on branches and never deploying;

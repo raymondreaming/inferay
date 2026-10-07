@@ -1,0 +1,24 @@
+{
+	"schema": "inferay.plugin/1",
+	"id": "56f298e9-2958-55be-8a35-d97283a84eb2",
+	"name": "Post Bridge",
+	"version": "0.1.0",
+	"description": "Delivers approved post intents through Post Bridge.",
+	"may": ["network", "effect:post"],
+	"connections": [
+		{
+			"id": "postbridge",
+			"kind": "api-key",
+			"label": "Post Bridge API key",
+			"hosts": ["api.post-bridge.com"]
+		}
+	],
+	"effectHandlers": [
+		{
+			"kind": "post",
+			"tool": "post-bridge-send",
+			"idempotency": "required",
+			"reconcile": "post-bridge-find"
+		}
+	]
+}

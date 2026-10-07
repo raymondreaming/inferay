@@ -1,0 +1,46 @@
+{
+	"schema": "inferay.tool/1",
+	"id": "0cd6d87f-1d10-5cac-9011-def7078d116a",
+	"name": "post-bridge-send",
+	"interface": "json",
+	"program": "python3",
+	"entrypoint": {
+		"base": "plugin",
+		"path": "tools/post-bridge-send/send.py"
+	},
+	"connections": ["postbridge"],
+	"timeoutSeconds": 300,
+	"inputSchema": {
+		"type": "object",
+		"properties": {
+			"idempotencyKey": {
+				"type": "string"
+			},
+			"account": {
+				"type": "string"
+			},
+			"caption": {
+				"type": "string"
+			},
+			"media": {
+				"type": "array",
+				"items": {
+					"type": "string"
+				}
+			},
+			"at": {
+				"type": "string"
+			}
+		},
+		"required": ["idempotencyKey", "account", "caption", "media"]
+	},
+	"outputSchema": {
+		"type": "object",
+		"properties": {
+			"remoteId": {
+				"type": "string"
+			}
+		},
+		"required": ["remoteId"]
+	}
+}

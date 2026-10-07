@@ -1,0 +1,13 @@
+{
+	"schema": "inferay.project/1",
+	"id": "c99b436f-71e0-5942-ac44-146262266d52",
+	"name": "Point app factory",
+	"description": "Daily autobuild across Point's generated apps.",
+	"instructions": "Point's own operations and AGENTS/POINT docs are the authority. Never deploy from an automation.",
+	"repositories": [
+		{
+			"id": "49e00196-55b9-58ff-b970-c626c85392bb",
+			"name": "Point-Marketing"
+		}
+	]
+}
