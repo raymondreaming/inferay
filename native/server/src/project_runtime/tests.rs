@@ -912,9 +912,10 @@ async fn real_provider_library_tool(provider: &str, model: Option<&str>) {
     let path = root.join("plugins/report/automations/report.json");
     let mut definition = read("plugins/report/automations/report.json");
     let marker = format!("verified-library-call-{}", uuid::Uuid::new_v4());
+    std::fs::write(root.join("context.txt"), &marker).unwrap();
     definition["execution"] = json!({
         "kind":"agent","provider":provider,"model":model,
-        "instructions":format!("Use the inferay_tools capability to list the granted tools, then call the Report tool with input {{\"text\":\"{marker}\"}}. Use the actual tool, not a shell command or a description. Do not create any files yourself. Once the call succeeds, report its result briefly."),
+        "instructions":"Read context.txt in the project working directory using inferay_exec. Then use inferay_tools to list the granted tools and call the Report tool with its text input equal to the exact contents you read. Use the actual Report tool to create the report, not a shell write or a description. Once the call succeeds, report its result briefly.",
         "tools":[{"pluginId":plugin,"toolId":tool}],"skills":[],"resources":[],"repositories":[],
         "workingDirectory":{"base":"project","path":"."},"timeoutSeconds":90
     });
@@ -934,7 +935,7 @@ async fn real_provider_library_tool(provider: &str, model: Option<&str>) {
     let log = std::fs::read_to_string(dir.join("logs/agent.jsonl")).unwrap_or_default();
     assert_eq!(run.status, "succeeded", "{:?}\n{}", run.error, log);
     let output = dir.join("output/tools");
-    let calls: Vec<_> = std::fs::read_dir(&output).expect(&log).map(|entry| entry.unwrap().path()).collect();
+    let calls: Vec<_> = std::fs::read_dir(&output).expect(&log).map(|entry| entry.unwrap().path()).filter(|path| path.join("report.md").is_file()).collect();
     assert_eq!(calls.len(), 1, "Expected exactly one real library execution: {log}");
     assert_eq!(std::fs::read_to_string(calls[0].join("report.md")).unwrap(), marker);
     let call = calls[0].file_name().unwrap();

@@ -445,7 +445,7 @@ supports_websockets = false
 
 #[tokio::test]
 #[ignore = "Uses installed Claude with a local Messages fixture; no paid provider request"]
-async fn installed_claude_refuses_native_mutation_paths_in_automation_policy() {
+async fn installed_claude_refuses_native_file_and_shell_tools_in_automation_policy() {
     use axum::{Json, Router, extract::State, routing::post};
     let root = tempfile::tempdir().unwrap();
     let work = root.path().join("work");
@@ -453,6 +453,7 @@ async fn installed_claude_refuses_native_mutation_paths_in_automation_policy() {
     std::fs::create_dir_all(&work).unwrap();
     std::fs::create_dir_all(&home).unwrap();
     std::fs::write(work.join("edit.txt"), "original").unwrap();
+    std::fs::write(root.path().join("private.txt"), "INFERAY_PRIVATE_READ_SENTINEL_31907").unwrap();
     let requests = Arc::new(Mutex::new(Vec::<Value>::new()));
     async fn respond(
         State((requests, work)): State<(Arc<Mutex<Vec<Value>>>, PathBuf)>,
@@ -473,6 +474,9 @@ async fn installed_claude_refuses_native_mutation_paths_in_automation_policy() {
                 "Edit",
                 json!({"file_path":work.join("edit.txt"),"old_string":"original","new_string":"changed"}),
             )),
+            4 => Some(("Read", json!({"file_path":work.parent().unwrap().join("private.txt")}))),
+            5 => Some(("Glob", json!({"path":work.parent().unwrap(),"pattern":"*.txt"}))),
+            6 => Some(("Grep", json!({"path":work.parent().unwrap(),"pattern":"INFERAY_PRIVATE_READ", "output_mode":"content"}))),
             _ => None,
         };
         let mut events = vec![
@@ -487,7 +491,7 @@ async fn installed_claude_refuses_native_mutation_paths_in_automation_policy() {
         }
         events.extend([
             json!({"type":"content_block_stop","index":0}),
-            json!({"type":"message_delta","delta":{"stop_reason":if requests.len() <= 3 { "tool_use" } else { "end_turn" },"stop_sequence":null},"usage":{"output_tokens":1}}),
+            json!({"type":"message_delta","delta":{"stop_reason":if requests.len() <= 6 { "tool_use" } else { "end_turn" },"stop_sequence":null},"usage":{"output_tokens":1}}),
             json!({"type":"message_stop"}),
         ]);
         let body = events
@@ -576,7 +580,8 @@ async fn installed_claude_refuses_native_mutation_paths_in_automation_policy() {
         "original"
     );
     let requests = requests.lock().unwrap();
-    for name in ["Bash", "Write", "Edit"] {
+    assert!(!serde_json::to_string(&*requests).unwrap().contains("INFERAY_PRIVATE_READ_SENTINEL_31907"));
+    for name in ["Bash", "Write", "Edit", "Read", "Glob", "Grep"] {
         let id = format!("native-{name}");
         let output = requests
             .iter()

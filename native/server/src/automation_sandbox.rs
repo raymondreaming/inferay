@@ -99,7 +99,7 @@ impl AutomationSandbox {
                 .map_err(|error| format!("Invalid Claude settings: {error}"))?;
         settings["disableAllHooks"] = json!(true);
         // Mutations and shell commands share Inferay's bounded process runner.
-        settings["permissions"] = json!({"allow":["Read","Glob","Grep","mcp__inferay__*"],"deny":["Bash","Edit","Write","WebFetch","WebSearch"]});
+        settings["permissions"] = json!({"allow":["mcp__inferay__*"],"deny":["Bash","Edit","Write","Read","Glob","Grep","WebFetch","WebSearch"]});
         settings["sandbox"] = json!({
             "enabled":true,"failIfUnavailable":true,"autoAllowBashIfSandboxed":false,
             "allowUnsandboxedCommands":false,"excludedCommands":[],
@@ -117,7 +117,7 @@ impl AutomationSandbox {
             "--setting-sources".into(),
             "".into(),
             "--tools".into(),
-            "Read,Glob,Grep".into(),
+            "".into(),
         ]);
         Ok(())
     }
@@ -1036,17 +1036,23 @@ print('verified')
                 .iter()
                 .any(|arg| arg == "--dangerously-skip-permissions")
         );
-        assert!(
-            args.windows(2)
-                .any(|pair| pair == ["--tools", "Read,Glob,Grep"])
-        );
+        assert!(args.windows(2).any(|pair| pair == ["--tools", ""]));
         let settings: Value = serde_json::from_str(
             &args[args.iter().position(|arg| arg == "--settings").unwrap() + 1],
         )
         .unwrap();
         assert_eq!(
             settings["permissions"]["deny"],
-            json!(["Bash", "Edit", "Write", "WebFetch", "WebSearch"])
+            json!([
+                "Bash",
+                "Edit",
+                "Write",
+                "Read",
+                "Glob",
+                "Grep",
+                "WebFetch",
+                "WebSearch"
+            ])
         );
         assert_eq!(settings["disableAllHooks"], true);
         assert_eq!(settings["sandbox"]["allowUnsandboxedCommands"], false);
