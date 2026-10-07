@@ -88,9 +88,8 @@ export function ConnectionsDialog(props: {
 			<div {...stylex.attrs(styles.form)}>
 				<strong>Project connections</strong>
 				<p {...stylex.attrs(styles.muted)}>
-					Keys are stored in macOS Keychain for this project. Saved keys are
-					never shown again. Connecting these keys to tools is not available
-					yet.
+					Keys are stored in macOS Keychain for this project. To connect a key,
+					open a library tool and choose Configure connections.
 				</p>
 				{(error() || connections.error) && (
 					<p role="alert">{error() || String(connections.error)}</p>

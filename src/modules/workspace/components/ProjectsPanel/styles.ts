@@ -70,6 +70,11 @@ export const styles = stylex.create({
 		gap: 16,
 		paddingTop: 12,
 	},
+	connectionHeaderFields: {
+		display: "grid",
+		gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 180px), 1fr))",
+		gap: 12,
+	},
 	changeVersion: {
 		minWidth: 0,
 		display: "flex",

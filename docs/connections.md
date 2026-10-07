@@ -2,7 +2,8 @@
 
 **Implemented:** project credentials in macOS Keychain, approval of selected
 connection metadata, and authenticated GET requests through an invocation-scoped
-host relay. **Planned:** binding controls and remote authenticated MCP. Saving a
+host relay, with tool connection controls in the library editor. **Planned:**
+remote authenticated MCP. Saving a
 connection does not enable an automation or give a tool the raw key.
 
 Open **Plugins → Connections** to add a named API key, replace its value or remove
@@ -81,6 +82,20 @@ then refuses execution and turns the schedule off. Deleting a referenced
 connection also refuses capture. Tools without references do not access Keychain
 while capturing inputs.
 
+## Configuring a library tool
+
+Open a library, select its `tools/<name>/tool.json`, then choose **Configure
+connections**. Add an alias, choose a saved project key, and enter the HTTPS base
+URL, header name and prefix. The URL ends in `/`; the prefix includes any required
+space, such as `Bearer `. You can remove a binding without deleting its key.
+
+The form saves the tool definition using its expected file hash. A concurrent
+edit is refused; invalid bindings leave the existing file untouched. Unsaved
+changes block Escape and backdrop dismissal; **Discard changes** leaves the file
+as it was. Saving changes invalidates dependent approvals. The subsequent approval
+review shows the key name and destination, never its value. Network permission
+still belongs to the automation and is not granted by this form.
+
 ## Credential delivery
 
 Tools receive `INFERAY_CONNECTIONS_URL`, a random loopback URL valid only for that
@@ -141,7 +156,7 @@ checks that the test credential cannot be retrieved, and confirms that Inferay
 can still read its Keychain entry. This covers that direct lookup path; it is not
 a claim about every possible credential-exfiltration technique. The browser verifier has an opt-in
 `INFERAY_VERIFY_CONNECTIONS=1` mode for adding, replacing and removing a test key
-through the dialog. Both gates pass and clean up their test credentials. The integrated renderer now
+through the dialog. It also configures a library tool, verifies invalid HTTP destinations leave the file unchanged, preserves unsaved edits on Escape, and checks the saved binding in automation review. Both gates pass and clean up their test credentials. The integrated renderer now
 builds and passes the project browser checks.
 
 The relay gates use temporary Keychain entries and disposable profiles:

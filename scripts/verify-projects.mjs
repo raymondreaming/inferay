@@ -842,21 +842,70 @@ try {
 					join(libraryRoot, "plugin.json"),
 					proposal.files["plugin.json"],
 				);
-				await writeFile(
-					toolPath,
-					JSON.stringify({
-						...JSON.parse(toolSource),
-						connections: {
-							SERVICE: {
-								id: saved.id,
-								baseUrl: "https://api.example.test/v1/",
-								header: "Authorization",
-								prefix: "Bearer ",
-							},
-						},
-					}),
-				);
 				await page.reload();
+				const libraryName = JSON.parse(proposal.files["plugin.json"]).name;
+				await navigation
+					.getByRole("button", { name: "Plugins", exact: true })
+					.click();
+				await page
+					.getByRole("article")
+					.filter({ hasText: libraryName })
+					.getByRole("button", { name: "Open library", exact: true })
+					.click();
+				const libraryDialog = page.getByRole("dialog", {
+					name: libraryName,
+					exact: true,
+				});
+				await libraryDialog
+					.getByRole("button", { name: "tools/report/tool.json", exact: true })
+					.click();
+				await libraryDialog
+					.getByRole("button", { name: "Configure connections", exact: true })
+					.click();
+				const bindingDialog = page.getByRole("dialog", {
+					name: `${JSON.parse(toolSource).name} connections`,
+					exact: true,
+				});
+				await bindingDialog
+					.getByRole("button", { name: "Add connection", exact: true })
+					.click();
+				await bindingDialog
+					.getByLabel("Alias", { exact: true })
+					.fill("SERVICE");
+				await bindingDialog
+					.getByRole("button", { name: "Saved key for SERVICE", exact: true })
+					.click();
+				await page
+					.getByRole("button", { name: "Fixture API", exact: true })
+					.click();
+				await bindingDialog
+					.getByLabel("HTTPS base URL", { exact: true })
+					.fill("http://api.example.test/v1/");
+				await bindingDialog
+					.getByRole("button", { name: "Save connections", exact: true })
+					.click();
+				await bindingDialog.getByRole("alert").waitFor();
+				assert.equal(await readFile(toolPath, "utf8"), toolSource);
+				await bindingDialog
+					.getByLabel("HTTPS base URL", { exact: true })
+					.fill("https://api.example.test/v1/");
+				await page.keyboard.press("Escape");
+				assert.equal(await bindingDialog.count(), 1);
+				await page.screenshot({ path: join(output, "tool-connections.png") });
+				await bindingDialog
+					.getByRole("button", { name: "Save connections", exact: true })
+					.click();
+				await bindingDialog.waitFor({ state: "hidden" });
+				const binding = JSON.parse(await readFile(toolPath, "utf8")).connections
+					.SERVICE;
+				assert.deepEqual(binding, {
+					id: saved.id,
+					baseUrl: "https://api.example.test/v1/",
+					header: "Authorization",
+					prefix: "Bearer ",
+				});
+				assert.ok(!(await readFile(toolPath, "utf8")).includes(testSecret));
+				await page.keyboard.press("Escape");
 				await navigation
 					.getByRole("button", { name: "Automations", exact: true })
 					.click();
