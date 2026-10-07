@@ -54,6 +54,7 @@ export function AutomationProposalCard(props: { command: Proposal }) {
 		overlapPolicy: props.command.overlapPolicy,
 		revision: props.command.expectedRevision ?? 0,
 		enabled: false,
+		inputsChanged: false,
 		nextDueAt: null,
 		archived: false,
 	});
@@ -96,7 +97,9 @@ export function AutomationProposalCard(props: { command: Proposal }) {
 						{accepted()
 							? current()?.enabled
 								? "Project automation · Schedule enabled"
-								: "Project automation · Saved, schedule off"
+								: current()?.inputsChanged
+									? "Schedule off: inputs changed. Review and enable."
+									: "Project automation · Saved, schedule off"
 							: "Project automation proposal · Not saved"}
 					</p>
 				</div>

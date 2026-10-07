@@ -57,7 +57,7 @@ impl ProjectStore {
         )?;
         let automations = rows(
             &self.db,
-            "SELECT json_object('id',id,'projectId',project_id,'name',name,'revision',revision,'execution',json(execution),'intervalSeconds',interval_seconds,'calendar',json(calendar),'enabled',json(CASE WHEN enabled=1 THEN 'true' ELSE 'false' END),'nextDueAt',next_due_at,'overlapPolicy',overlap_policy,'archived',json(CASE WHEN archived=1 THEN 'true' ELSE 'false' END)) FROM automations WHERE project_id=?1 ORDER BY name,id LIMIT 256",
+            "SELECT json_object('id',id,'projectId',project_id,'name',name,'revision',revision,'execution',json(execution),'inputsChanged',json(CASE WHEN inputs_changed=1 THEN 'true' ELSE 'false' END),'intervalSeconds',interval_seconds,'calendar',json(calendar),'enabled',json(CASE WHEN enabled=1 THEN 'true' ELSE 'false' END),'nextDueAt',next_due_at,'overlapPolicy',overlap_policy,'archived',json(CASE WHEN archived=1 THEN 'true' ELSE 'false' END)) FROM automations WHERE project_id=?1 ORDER BY name,id LIMIT 256",
             [project],
         )?;
         let (before_time, before_id) = match before {
@@ -164,7 +164,7 @@ impl ProjectStore {
         }
         let out = apply(&tx, &self.root, command, skills)?;
         if let Some(project) = invalidates {
-            tx.execute("UPDATE automations SET enabled=0,next_due_at=NULL,revision=revision+1 WHERE project_id=? AND enabled=1",[project])?;
+            tx.execute("UPDATE automations SET enabled=0,inputs_changed=1,next_due_at=NULL,revision=revision+1 WHERE project_id=? AND enabled=1",[project])?;
         }
         tx.commit()?;
         Ok(out)
@@ -197,6 +197,10 @@ CREATE TABLE IF NOT EXISTS project_migrations(name TEXT PRIMARY KEY,created_at I
 ")?;
     if version < 2 {
         db.execute_batch("ALTER TABLE automations ADD COLUMN calendar TEXT CHECK(calendar IS NULL OR json_valid(calendar)); PRAGMA user_version=2;")?;
+    }
+    let has_inputs_changed: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('automations') WHERE name='inputs_changed')", [], |r| r.get(0))?;
+    if !has_inputs_changed {
+        db.execute_batch("ALTER TABLE automations ADD COLUMN inputs_changed INTEGER NOT NULL DEFAULT 0")?;
     }
     Ok(db)
 }
@@ -535,7 +539,7 @@ fn apply(
             let key = id.unwrap_or_else(|| Uuid::new_v4().to_string());
             let text = serde_json::to_string(&execution)?;
             if let Some(rev) = expected_revision {
-                changed(db.execute("UPDATE automations SET name=?1,execution=?2,interval_seconds=?3,overlap_policy=?4,revision=revision+1,enabled=0,next_due_at=NULL WHERE id=?5 AND project_id=?6 AND revision=?7 AND archived=0",params![name,text,interval_seconds,overlap_policy,key,project_id,rev])?)?;
+                changed(db.execute("UPDATE automations SET name=?1,execution=?2,interval_seconds=?3,overlap_policy=?4,revision=revision+1,enabled=0,inputs_changed=1,next_due_at=NULL WHERE id=?5 AND project_id=?6 AND revision=?7 AND archived=0",params![name,text,interval_seconds,overlap_policy,key,project_id,rev])?)?;
             } else {
                 db.execute("INSERT INTO automations(id,project_id,name,revision,execution,interval_seconds,overlap_policy) VALUES(?1,?2,?3,1,?4,?5,?6)",params![key,project_id,name,text,interval_seconds,overlap_policy])?;
             }
@@ -551,7 +555,7 @@ fn apply(
                 let (interval, calendar): (Option<i64>, Option<String>) = db.query_row("SELECT interval_seconds,calendar FROM automations WHERE id=?", [&id], |r| Ok((r.get(0)?,r.get(1)?)))?;
                 Some(match calendar { Some(text) => serde_json::from_str::<CalendarSchedule>(&text)?.next_after(now())?, None => now() + interval.ok_or("Choose a schedule first")? * 1000 })
             } else { None };
-            changed(db.execute("UPDATE automations SET enabled=?1,next_due_at=?2,revision=revision+1 WHERE id=?3 AND revision=?4 AND archived=0 AND (NOT ?1 OR interval_seconds IS NOT NULL) AND project_id IN (SELECT id FROM projects WHERE archived=0)",params![enabled,next,id,expected_revision])?)?;
+            changed(db.execute("UPDATE automations SET enabled=?1,inputs_changed=CASE WHEN ?1 THEN 0 ELSE inputs_changed END,next_due_at=?2,revision=revision+1 WHERE id=?3 AND revision=?4 AND archived=0 AND (NOT ?1 OR interval_seconds IS NOT NULL) AND project_id IN (SELECT id FROM projects WHERE archived=0)",params![enabled,next,id,expected_revision])?)?;
             if enabled {
                 let (project, revision, text): (String, i64, String) = db.query_row(
                     "SELECT project_id,revision,execution FROM automations WHERE id=?",
@@ -751,7 +755,7 @@ pub(crate) fn prepare_run(
                 "Execution inputs changed since schedule approval. Review and enable again.".into(),
             );
             db.execute(
-                "UPDATE automations SET enabled=0,next_due_at=NULL,revision=revision+1 WHERE id=?",
+                "UPDATE automations SET enabled=0,inputs_changed=1,next_due_at=NULL,revision=revision+1 WHERE id=?",
                 [automation],
             )?;
         }

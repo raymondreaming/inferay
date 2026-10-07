@@ -292,18 +292,7 @@ export function AutomationWorkspace() {
 									busy={projects.busy()}
 									close={() => {}}
 									save={async (command) => {
-										const wasEnabled = a().enabled;
 										await saveProjectCommand(command);
-										const saved = projects
-											.catalog()
-											?.automations.find((item) => item.id === a().id);
-										if (wasEnabled && saved?.intervalSeconds)
-											await saveProjectCommand({
-												type: "enableAutomation",
-												id: saved.id,
-												expectedRevision: saved.revision,
-												enabled: true,
-											});
 									}}
 									onRun={() =>
 										void act({

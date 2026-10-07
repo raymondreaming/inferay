@@ -197,6 +197,11 @@ export function AutomationEditor(props: {
 			onSubmit={(e) => void submit(e)}
 			{...stylex.attrs(styles.automationForm)}
 		>
+			{props.automation?.inputsChanged && !props.automation.enabled && (
+				<p role="status" {...stylex.attrs(styles.muted)}>
+					Schedule off: inputs changed. Review and enable.
+				</p>
+			)}
 			<header {...stylex.attrs(styles.editorTop)}>
 				<input
 					aria-label="Name"

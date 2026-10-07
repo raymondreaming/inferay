@@ -493,3 +493,23 @@ fn automation_preview_validates_without_saving_and_accepts_four_hours() {
     drop(store);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn saving_enabled_automation_preserves_approval_and_disables_schedule() {
+    let root = tempfile::tempdir().unwrap();
+    let mut store = ProjectStore::open(root.path()).unwrap();
+    let project = project(&mut store);
+    let id = example(&mut store, &project);
+    command(&mut store, json!({"type":"enableAutomation","id":id,"expectedRevision":1,"enabled":true}));
+    let approval = |store: &ProjectStore| store.db.query_row("SELECT snapshot_hash,approved_at FROM automation_approvals WHERE automation_id=?", [&id], |r| Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?))).unwrap();
+    let before = approval(&store);
+    let automation = store.catalog(Some(&project),None).unwrap().automations.remove(0);
+    command(&mut store, json!({"type":"saveAutomation","id":id,"projectId":project,"expectedRevision":automation.revision,"name":"Changed report","execution":automation.execution,"intervalSeconds":86400,"overlapPolicy":"skip"}));
+    let saved = store.catalog(Some(&project),None).unwrap().automations.remove(0);
+    assert!(!saved.enabled);
+    assert!(saved.next_due_at.is_none());
+    assert!(saved.inputs_changed);
+    assert_eq!(approval(&store), before);
+    command(&mut store, json!({"type":"enableAutomation","id":id,"expectedRevision":saved.revision,"enabled":true}));
+    assert!(store.catalog(Some(&project),None).unwrap().automations[0].enabled);
+}

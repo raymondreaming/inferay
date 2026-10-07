@@ -89,6 +89,8 @@ pub enum ProjectExecution {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectAutomation {
+    #[serde(default)]
+    pub inputs_changed: bool,
     pub id: String,
     pub project_id: String,
     pub name: String,
