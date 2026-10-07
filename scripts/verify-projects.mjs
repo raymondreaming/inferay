@@ -387,6 +387,7 @@ try {
 		.getAttribute("data-chat-pane-id");
 	const proposalAutomationId = randomUUID();
 	const proposalPluginId = randomUUID();
+	const chatReportId = randomUUID();
 	const proposalDefinition = {
 		schema: "inferay.automation/1",
 		id: proposalAutomationId,
@@ -428,6 +429,16 @@ try {
 			}),
 			"README.md": "Reusable briefing instructions and a weekly schedule.",
 			"automations/weekly.json": JSON.stringify(proposalDefinition),
+			"tools/report/tool.json": JSON.stringify({
+				...JSON.parse(reportFiles["tools/report/tool.json"]),
+				id: randomUUID(),
+			}),
+			"tools/report/run.py": reportFiles["tools/report/run.py"],
+			"automations/report.json": JSON.stringify({
+				...JSON.parse(reportFiles["automations/report.json"]),
+				id: chatReportId,
+				name: "Chat-created report",
+			}),
 		},
 	};
 	const sendCard = () =>
@@ -509,6 +520,33 @@ try {
 		).enabled,
 		true,
 	);
+	await navigation
+		.getByRole("button", { name: "Automations", exact: true })
+		.click();
+	await page.getByRole("button", { name: /Chat-created report/ }).click();
+	await page.getByRole("button", { name: "Run now", exact: true }).click();
+	await page
+		.getByRole("button", { name: "Approve & run", exact: true })
+		.click();
+	await page
+		.getByText("succeeded", { exact: true })
+		.waitFor({ timeout: 15000 });
+	await page.getByRole("button", { name: /report.txt ·/ }).click();
+	await page
+		.getByRole("region", { name: "Run output preview" })
+		.getByText("A local project, a reusable tool, and a durable run.", {
+			exact: false,
+		})
+		.waitFor();
+	const executedCatalog = await api(
+		`/api/projects?projectId=${cardProject.id}`,
+	);
+	const executed = executedCatalog.runs.filter(
+		(run) => run.automationId === chatReportId,
+	);
+	assert.equal(executed.length, 1);
+	assert.equal(executed[0].status, "succeeded");
+	await page.screenshot({ path: join(output, "chat-plugin-run.png") });
 	await writeFile(
 		join(profile, "projects", cardProject.id, "plugins/briefing-kit/README.md"),
 		"Changed library instructions require a new review.\n",
