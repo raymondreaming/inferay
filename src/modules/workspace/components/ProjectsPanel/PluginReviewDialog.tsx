@@ -1,12 +1,12 @@
 import type { PluginReview } from "@contracts";
 import { Button } from "@shared/ui/Button/index.tsx";
-import { CardInstructions } from "@shared/ui/ChatActionCard/index.tsx";
 import { Modal } from "@shared/ui/Modal/index.tsx";
 import { Switch } from "@shared/ui/Switch/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createSignal } from "solid-js";
 import { saveProjectCommand } from "../../hooks/useProjects.tsx";
 import { automationScheduleLabel } from "../../model/automationSchedule.ts";
+import { DefinitionChanges } from "./DefinitionChanges.tsx";
 import { styles } from "./styles.ts";
 
 export function PluginReviewDialog(props: {
@@ -57,38 +57,11 @@ export function PluginReviewDialog(props: {
 						</span>
 					</div>
 				))}
-				<div {...stylex.attrs(styles.list)}>
-					{props.review.files.map((file) => (
-						<details>
-							<summary>
-								{file.path} ·{" "}
-								{file.hash === file.previousHash
-									? "Unchanged"
-									: !file.hash
-										? "Removed"
-										: !file.previousHash
-											? "Added"
-											: "Changed"}
-							</summary>
-							{file.previousHash && file.hash !== file.previousHash && (
-								<div>
-									<strong>Previously approved</strong>
-									<CardInstructions
-										text={file.previousContent ?? "Binary or large file"}
-									/>
-								</div>
-							)}
-							{file.hash && (
-								<div>
-									<strong>Current</strong>
-									<CardInstructions
-										text={file.content ?? "Binary or large file"}
-									/>
-								</div>
-							)}
-						</details>
-					))}
-				</div>
+				<DefinitionChanges
+					files={props.review.files}
+					beforeLabel="Previously approved"
+					afterLabel="Current"
+				/>
 				{props.review.automations.some(
 					(automation) => automation.trigger.kind !== "manual",
 				) && (

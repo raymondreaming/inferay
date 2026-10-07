@@ -260,6 +260,29 @@ impl ProjectRuntime {
         }
     }
 
+    pub async fn review_plugin_proposal(
+        self: &Arc<Self>,
+        command: ProjectFileCommand,
+    ) -> Result<inferay_core::project_files::PluginProposalReview> {
+        let project_id = match &command {
+            ProjectFileCommand::CreatePlugin { project_id, .. }
+            | ProjectFileCommand::UpdatePlugin { project_id, .. } => project_id.clone(),
+            _ => return Err("Expected a plugin proposal".into()),
+        };
+        let skills = self.prompts.lock().await.load()?;
+        let this = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let store = this.store.lock().map_err(|_| "Project store lock failed")?;
+            let root = store.project_dir(&project_id)?;
+            let globals = skills
+                .iter()
+                .map(|skill| format!("global:{}", skill.id))
+                .collect();
+            crate::project_proposals::review::plugin(&root, &command, &globals)
+        })
+        .await?
+    }
+
     pub async fn proposal(
         self: &Arc<Self>,
         request: inferay_core::project_files::ProjectProposalRequest,

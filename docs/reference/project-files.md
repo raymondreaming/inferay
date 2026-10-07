@@ -212,3 +212,7 @@ Designed in [ADR 0002](../adr/0002-automation-kernel.md); not in the code yet. E
 | E5 | Effects | `effect:<kind>` permissions, `effects` with budgets on automations, `effectHandlers` on plugins |
 | E6 | MCP | `mcp` server declarations on plugins |
 | E7 | Agent tools | `tools` on agent executions: which tools an agent run may call |
+
+## Plugin proposal review
+
+The chat card’s **Review changes** action validates the proposed package and compares it with the current library without writing files, decision receipts or approvals. It shows added, changed and removed files, before/after text where available, and current/proposed permissions. Binary and oversized files retain their content hashes but have no text preview. An update must still match its expected whole-library hash; outside changes reject the comparison and the eventual save. Saving files and approving execution remain separate actions.

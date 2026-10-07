@@ -9,6 +9,7 @@ use crate::{
 use inferay_core::{project_files::*, prompts::Prompt};
 use rusqlite::{OptionalExtension, params};
 use std::collections::BTreeMap;
+pub(crate) mod review;
 
 pub(crate) fn resolve(
     store: &mut FileProjectStore,

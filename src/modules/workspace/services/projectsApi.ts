@@ -1,5 +1,6 @@
 import type {
 	PluginLibrary,
+	PluginProposalReview,
 	PluginReview,
 	PluginTextFile,
 	ProjectDocument,
@@ -130,6 +131,18 @@ export function projectProposal(
 	return postJson<ProjectProposalView>(
 		"/api/projects/proposal",
 		request,
+		{ signal },
+		{ server: true },
+	);
+}
+
+export function reviewPluginProposal(
+	command: ProjectFileCommand,
+	signal?: AbortSignal,
+) {
+	return postJson<PluginProposalReview>(
+		"/api/projects/proposal-review",
+		command,
 		{ signal },
 		{ server: true },
 	);

@@ -684,3 +684,12 @@ pub struct ProjectProposalView {
     pub status: ProjectProposalStatus,
     pub entity_id: Option<String>,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginProposalReview {
+    pub name: String,
+    pub permissions: BTreeSet<Permission>,
+    pub previous_permissions: BTreeSet<Permission>,
+    pub files: Vec<PluginReviewFile>,
+}

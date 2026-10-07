@@ -1,5 +1,6 @@
 import type {
 	PluginDefinition,
+	PluginProposalReview,
 	PluginReview,
 	ProjectFileCommand,
 } from "@contracts";
@@ -7,8 +8,8 @@ import { surfaceStyles } from "@design-system/styles.stylex.ts";
 import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
 import { queryClient } from "@shared/lib/dom.tsx";
 import { Button } from "@shared/ui/Button/index.tsx";
-import { CardInstructions } from "@shared/ui/ChatActionCard/index.tsx";
 import { cardStyles } from "@shared/ui/ChatActionCard/styles.ts";
+import { Modal } from "@shared/ui/Modal/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, Show } from "solid-js";
 import { useProjectProposal } from "../../hooks/useProjectProposal.tsx";
@@ -16,9 +17,12 @@ import { selectProject, showProjectView } from "../../hooks/useProjects.tsx";
 import {
 	loadProjects,
 	readPluginLibrary,
+	reviewPluginProposal,
 	reviewProjectPlugin,
 } from "../../services/projectsApi.ts";
+import { DefinitionChanges } from "./DefinitionChanges.tsx";
 import { PluginReviewDialog } from "./PluginReviewDialog.tsx";
+import { styles } from "./styles.ts";
 
 type Bundle = Extract<
 	ProjectFileCommand,
@@ -85,6 +89,42 @@ export function PluginProposalCard(props: {
 	const [busy, setBusy] = createSignal(false);
 	const [error, setError] = createSignal("");
 	const files = () => Object.entries(props.command.files);
+	const [comparison, setComparison] = createSignal<PluginProposalReview | null>(
+		null,
+	);
+	const [comparing, setComparing] = createSignal(false);
+	async function compare() {
+		setComparing(true);
+		setError("");
+		try {
+			setComparison(await reviewPluginProposal(props.command));
+		} catch (error) {
+			setError(String(error));
+		} finally {
+			setComparing(false);
+		}
+	}
+	async function save() {
+		setBusy(true);
+		setError("");
+		try {
+			const result = await proposal.decide("save");
+			if (result?.status !== "saved" || !result.entityId) return;
+			setComparison(null);
+			props.onResult?.(
+				"Saved the plugin “" +
+					(manifest()?.name ?? props.command.slug) +
+					"”. Execution approval is separate.",
+			);
+			await catalog.refetch();
+			setReview(await reviewProjectPlugin(result.entityId));
+		} catch (error) {
+			setError(String(error));
+		} finally {
+			setBusy(false);
+		}
+	}
+
 	return (
 		<section
 			aria-label="Plugin proposal"
@@ -117,18 +157,65 @@ export function PluginProposalCard(props: {
 					<span>{removals().length} files to remove</span>
 				)}
 			</div>
-			<details>
-				<summary>Review proposed files</summary>
-				{removals().map((path) => (
-					<p>Remove {path}</p>
-				))}
-				{files().map(([path, content]) => (
-					<div>
-						<strong>{path}</strong>
-						<CardInstructions text={content} />
-					</div>
-				))}
-			</details>
+			{!saved() && !dismissed() && (
+				<Button
+					size="sm"
+					variant="ghost"
+					disabled={busy() || comparing()}
+					onClick={() => void compare()}
+				>
+					{comparing() ? "Preparing comparison…" : "Review changes"}
+				</Button>
+			)}
+			<Show when={comparison()} keyed>
+				{(value) => (
+					<Modal
+						label={`Review ${value.name}`}
+						onClose={() => setComparison(null)}
+						closeDisabled={busy()}
+						class={stylex.attrs(styles.dialog).class}
+					>
+						<div {...stylex.attrs(styles.formFields)}>
+							<h3>{value.name}</h3>
+							<div {...stylex.attrs(styles.row)}>
+								<span>
+									Current permissions:{" "}
+									{value.previousPermissions.join(", ") || "None declared"}
+								</span>
+								<span>
+									Proposed permissions:{" "}
+									{value.permissions.join(", ") || "None declared"}
+								</span>
+							</div>
+							<DefinitionChanges
+								files={value.files}
+								beforeLabel="Current"
+								afterLabel="Proposed"
+							/>
+							{(error() || proposal.error()) && (
+								<p role="alert">{error() || proposal.error()}</p>
+							)}
+							<div {...stylex.attrs(styles.row)}>
+								<Button
+									size="sm"
+									disabled={busy()}
+									onClick={() => setComparison(null)}
+								>
+									Close
+								</Button>
+								<Button
+									size="sm"
+									variant="primary"
+									disabled={busy() || unavailable() || changed()}
+									onClick={() => void save()}
+								>
+									Save proposed files
+								</Button>
+							</div>
+						</div>
+					</Modal>
+				)}
+			</Show>
 			{(error() || proposal.error() || catalog.error || library.error) && (
 				<p role="alert" {...stylex.attrs(cardStyles.feedback)}>
 					{error() ||
@@ -142,25 +229,7 @@ export function PluginProposalCard(props: {
 						<Button
 							size="sm"
 							disabled={busy() || unavailable() || changed()}
-							onClick={async () => {
-								setBusy(true);
-								setError("");
-								try {
-									const result = await proposal.decide("save");
-									if (result?.status !== "saved" || !result.entityId) return;
-									props.onResult?.(
-										"Saved the plugin “" +
-											(manifest()?.name ?? props.command.slug) +
-											"”. Execution approval is separate.",
-									);
-									await catalog.refetch();
-									setReview(await reviewProjectPlugin(result.entityId));
-								} catch (error) {
-									setError(String(error));
-								} finally {
-									setBusy(false);
-								}
-							}}
+							onClick={() => void save()}
 						>
 							{props.command.type === "updatePlugin"
 								? "Save changes"

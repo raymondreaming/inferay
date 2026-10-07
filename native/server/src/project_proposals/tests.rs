@@ -157,3 +157,72 @@ fn stale_identical_automation_is_not_recorded_as_a_successful_save() {
         0
     );
 }
+
+#[test]
+fn library_comparison_is_read_only_and_rejects_stale_inputs() {
+    let (_profile, project, mut store) = fixture();
+    let request = proposal(&project, "chat:comparison");
+    let root = store.project_dir(&project).unwrap();
+    let globals = Default::default();
+    let created = review::plugin(&root, &request.command, &globals).unwrap();
+    assert_eq!(created.files.len(), 2);
+    assert!(
+        created
+            .files
+            .iter()
+            .all(|file| file.previous_hash.is_none())
+    );
+    assert!(!root.join("plugins/render-kit").exists());
+    store.command(request.command.clone(), true, &[]).unwrap();
+    let package = root.join("plugins/render-kit");
+    std::fs::write(package.join("image.bin"), [0xff, 0x00, 0x81]).unwrap();
+    std::fs::write(package.join("keep.txt"), "Keep this").unwrap();
+    let original = files::package_files(&root, "plugins/render-kit").unwrap();
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(package.join("plugin.json")).unwrap()).unwrap();
+    manifest["may"] = json!(["network"]);
+    let command = ProjectFileCommand::UpdatePlugin {
+        project_id: project,
+        slug: "render-kit".into(),
+        expected_hash: hash(&serde_json::to_vec(&original).unwrap()),
+        files: BTreeMap::from([
+            ("plugin.json".into(), manifest.to_string()),
+            ("README.md".into(), "Updated instructions".into()),
+            ("new.txt".into(), "New file".into()),
+        ]),
+        remove: vec!["image.bin".into()],
+    };
+    let comparison = review::plugin(&root, &command, &globals).unwrap();
+    assert_eq!(comparison.files.len(), 4);
+    assert!(comparison.previous_permissions.is_empty());
+    assert!(comparison.permissions.contains(&Permission::Network));
+    let readme = comparison
+        .files
+        .iter()
+        .find(|file| file.path.ends_with("README.md"))
+        .unwrap();
+    assert_eq!(readme.previous_content.as_deref(), Some("Render a scene."));
+    assert_eq!(readme.content.as_deref(), Some("Updated instructions"));
+    let removed = comparison
+        .files
+        .iter()
+        .find(|file| file.path.ends_with("image.bin"))
+        .unwrap();
+    assert!(removed.hash.is_none());
+    assert!(removed.previous_hash.is_some());
+    assert!(removed.previous_content.is_none());
+    assert_eq!(
+        files::package_files(&root, "plugins/render-kit").unwrap(),
+        original
+    );
+    assert_eq!(
+        store
+            .db
+            .query_row("SELECT count(*) FROM project_proposals", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    std::fs::write(package.join("keep.txt"), "Outside edit").unwrap();
+    assert!(review::plugin(&root, &command, &globals).is_err());
+}

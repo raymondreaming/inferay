@@ -5,6 +5,30 @@ import {
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
+	changeFile: {
+		borderBottomWidth: 1,
+		borderBottomStyle: "solid",
+		borderBottomColor: color.borderSubtle,
+		paddingBlock: 12,
+	},
+	changeSummary: {
+		cursor: "pointer",
+		overflowWrap: "anywhere",
+		fontSize: font.size_3,
+	},
+	changeColumns: {
+		display: "grid",
+		gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 280px), 1fr))",
+		gap: 16,
+		paddingTop: 12,
+	},
+	changeVersion: {
+		minWidth: 0,
+		display: "flex",
+		flexDirection: "column",
+		gap: 8,
+	},
+
 	documentCard: { cursor: "pointer", textAlign: "left", overflow: "hidden" },
 	documentThumbnail: {
 		width: "100%",
