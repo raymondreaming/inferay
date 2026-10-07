@@ -2,7 +2,17 @@
 
 Memory is a project's long-term knowledge: things you or an agent decide are worth keeping, saved as plain files, searchable by every chat and automation in the project. It is how Inferay gets more useful the longer you use it: automations and skills draw on what the project has learned, and improvements arrive as proposals you approve.
 
-Status: **planned** (roadmap M2, after definitions become files in M1). This page is the design; sections say what each part does once built.
+Status: **notes work** (`native/core/src/memory.rs`, `native/server/src/memory_store.rs`, the Memory page and the chat Memory button). Files in Memory and records as one page come with the M2 page cleanup; until then Resources, Files and Tools remain separate pages.
+
+| Part | Status |
+|---|---|
+| Notes as Markdown files, rebuildable FTS5 index, superseded and expired ranking, `[[links]]` | works |
+| Memory page: table, search, tag filter, note view with links, New note | works |
+| Memory button on assistant chat messages (saves with an automatic title; edit afterwards) | works |
+| Codex `inferay_memory` tool (search, read, save in chats; no save in automations) | works |
+| Claude: memory guide and best matches in the prompt; searches the folder with `rg` and writes notes as files | works (no tool yet) |
+| Runs record the notes they read (`memory_read` run event) | works |
+| Title and tags sheet before saving, Memory button on your own messages, graph view, files and records on the Memory page, global memory, meaning-based search | planned |
 
 ## What it is
 
@@ -111,7 +121,7 @@ Chat ──Save to memory──►  MEMORY  ◄──Save to memory── Run re
 - **Meaning-based search**, once plain full-text search visibly misses things.
 - **Automatic suggestions**: "this answer looks worth saving" hints in chat.
 
-## Done when (M2)
+## Done when (remaining M2 work)
 
 - Save to memory on a chat message creates a note with a working link back to the message.
 - An agent saves and later finds a note through `memory.search` in a new chat, in both Codex and Claude.
