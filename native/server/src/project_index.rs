@@ -530,6 +530,13 @@ pub(crate) fn execution_inputs(
             _ => {},
         }
     }
+    let project_path = root.to_string_lossy().into_owned();
+    let git_metadata = crate::automation_sandbox::git_metadata_directories(
+        repositories.values().chain(std::iter::once(&project_path)),
+    )?;
+    if !git_metadata.is_empty() {
+        snapshot["gitMetadataPaths"] = serde_json::to_value(git_metadata)?;
+    }
     snapshot["repositoryPaths"] = json!(repositories);
     snapshot["requirements"] = json!(requirements);
     snapshot["execution"] = serde_json::to_value(execution)?;

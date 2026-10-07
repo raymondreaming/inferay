@@ -113,7 +113,7 @@ impl AutomationSandbox {
 "##,
             );
             let mut protected =
-                protected_git_directories(self.repositories.iter().chain(self.roots.iter()))?;
+                git_metadata_directories(self.repositories.iter().chain(self.roots.iter()))?;
             protected.extend(git_metadata_aliases(&protected, &writable_roots)?);
             // Seatbelt path rules do not follow a renamed ancestor. Keep each
             // containing directory in place while allowing edits to its other files.
@@ -308,7 +308,7 @@ fn git_metadata_aliases(
 
 /// Resolve worktree and separate-git-dir pointers without invoking repository
 /// hooks or inheriting Git configuration. Invalid metadata blocks execution.
-fn protected_git_directories<'a>(
+pub(crate) fn git_metadata_directories<'a>(
     roots: impl Iterator<Item = &'a String>,
 ) -> Result<BTreeSet<std::path::PathBuf>, String> {
     fn pointer(path: &Path) -> Result<String, String> {
@@ -325,8 +325,13 @@ fn protected_git_directories<'a>(
         Ok(text.trim_end_matches(['\r', '\n']).into())
     }
     fn canonical(path: &Path) -> Result<std::path::PathBuf, String> {
-        path.canonicalize()
-            .map_err(|error| format!("Cannot resolve Git metadata directory: {error}"))
+        let canonical = path
+            .canonicalize()
+            .map_err(|error| format!("Cannot resolve Git metadata directory: {error}"))?;
+        if !canonical.is_dir() {
+            return Err("Git metadata pointer must name a directory".into());
+        }
+        Ok(canonical)
     }
     let mut protected = BTreeSet::new();
     for root in roots {
@@ -457,15 +462,18 @@ print('verified')
             "x".repeat(4097),
         ] {
             std::fs::write(&marker, text).unwrap();
-            assert!(protected_git_directories(std::iter::once(&root)).is_err());
+            assert!(git_metadata_directories(std::iter::once(&root)).is_err());
         }
+        std::fs::write(temp.path().join("not-a-directory"), "data").unwrap();
+        std::fs::write(&marker, "gitdir: not-a-directory").unwrap();
+        assert!(git_metadata_directories(std::iter::once(&root)).is_err());
         std::fs::remove_file(&marker).unwrap();
         std::os::unix::fs::symlink("missing", &marker).unwrap();
-        assert!(protected_git_directories(std::iter::once(&root)).is_err());
+        assert!(git_metadata_directories(std::iter::once(&root)).is_err());
         std::fs::remove_file(&marker).unwrap();
         std::fs::create_dir(&marker).unwrap();
         std::os::unix::fs::symlink("missing", marker.join("commondir")).unwrap();
-        assert!(protected_git_directories(std::iter::once(&root)).is_err());
+        assert!(git_metadata_directories(std::iter::once(&root)).is_err());
     }
 
     #[cfg(target_os = "macos")]

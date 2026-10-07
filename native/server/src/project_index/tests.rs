@@ -782,3 +782,56 @@ fn shared_genome_edit_revokes_every_reader_but_preserves_unrelated_approval() {
     for id in &ids[..2] { assert!(approved_inputs(&db, profile.path(), id, false, &[]).is_err()); }
     assert!(approved_inputs(&db, profile.path(), &ids[2], true, &[]).is_ok());
 }
+
+#[test]
+fn changed_git_metadata_binding_invalidates_automation_approval() {
+    let (profile, project, automation) = fixture();
+    let root = profile.path().join("projects").join(&project);
+    let first = profile.path().join("git-first");
+    let second = profile.path().join("git-second");
+    let common = profile.path().join("git-common");
+    for directory in [&first, &second, &common] {
+        fs::create_dir(directory).unwrap();
+    }
+    fs::write(first.join("commondir"), "../git-common\n").unwrap();
+    fs::write(root.join(".git"), format!("gitdir: {}\n", first.display())).unwrap();
+    let mut db = Connection::open_in_memory().unwrap();
+    create_schema(&db).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
+    let before = execution_inputs(&db, profile.path(), &automation, &[]).unwrap();
+    let paths: BTreeSet<std::path::PathBuf> =
+        serde_json::from_value(before["gitMetadataPaths"].clone()).unwrap();
+    assert_eq!(
+        paths,
+        BTreeSet::from([
+            first.canonicalize().unwrap(),
+            common.canonicalize().unwrap()
+        ])
+    );
+    approve_automation(
+        &db,
+        profile.path(),
+        &automation,
+        &hash(&serde_json::to_vec(&before).unwrap()),
+        true,
+        &[],
+    )
+    .unwrap();
+    // A Git pointer is local binding state, outside the managed definition files.
+    fs::write(first.join("commondir"), "../git-second\n").unwrap();
+    let after = execution_inputs(&db, profile.path(), &automation, &[]).unwrap();
+    assert_eq!(before["files"], after["files"]);
+    assert_ne!(before["gitMetadataPaths"], after["gitMetadataPaths"]);
+    assert!(approved_inputs(&db, profile.path(), &automation, false, &[]).is_err());
+    refresh(&mut db, profile.path(), &[]).unwrap();
+    let state: (bool, bool) = db
+        .query_row(
+            "SELECT enabled,inputs_changed FROM automation_state WHERE automation_id=?",
+            [&automation],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(state, (false, true));
+    fs::write(root.join(".git"), "gitdir: missing\n").unwrap();
+    assert!(execution_inputs(&db, profile.path(), &automation, &[]).is_err());
+}
