@@ -112,10 +112,10 @@ export function PluginsPanel() {
 					Drop files or a folder to create a draft plugin library
 				</p>
 			)}
-			<Show when={library()} keyed>
+			<Show when={library()}>
 				{(value) => (
 					<PluginLibraryDialog
-						plugin={value}
+						plugin={value()}
 						close={() => setLibraryTarget(null)}
 					/>
 				)}

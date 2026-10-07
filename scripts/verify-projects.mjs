@@ -482,8 +482,122 @@ try {
 		name: "Review Briefing kit",
 		exact: true,
 	});
-	await review.getByRole("button", { name: "Cancel", exact: true }).click();
+	assert.equal(
+		await review
+			.getByRole("switch", { name: "Enable schedules after approval" })
+			.getAttribute("aria-checked"),
+		"false",
+	);
+	await review
+		.getByRole("switch", { name: "Enable schedules after approval" })
+		.click();
+	await review
+		.getByRole("button", { name: "Approve & enable", exact: true })
+		.click();
 	await review.waitFor({ state: "hidden" });
+	const approvedCatalog = await api(
+		`/api/projects?projectId=${cardProject.id}`,
+	);
+	assert.ok(
+		approvedCatalog.plugins.find(
+			(plugin) => plugin.file.id === proposalPluginId,
+		).approvedHash,
+	);
+	assert.equal(
+		approvedCatalog.automations.find(
+			(automation) => automation.id === proposalAutomationId,
+		).enabled,
+		true,
+	);
+	await writeFile(
+		join(profile, "projects", cardProject.id, "plugins/briefing-kit/README.md"),
+		"Changed library instructions require a new review.\n",
+	);
+	const changedCatalog = await api(`/api/projects?projectId=${cardProject.id}`);
+	assert.equal(
+		changedCatalog.automations.find(
+			(automation) => automation.id === proposalAutomationId,
+		).enabled,
+		false,
+	);
+	assert.equal(
+		changedCatalog.automations.find(
+			(automation) => automation.id === proposalAutomationId,
+		).inputsChanged,
+		true,
+	);
+	assert.equal(
+		changedCatalog.plugins.find((plugin) => plugin.file.id === proposalPluginId)
+			.approvedHash,
+		null,
+	);
+	await writeFile(
+		join(
+			profile,
+			"projects",
+			cardProject.id,
+			"plugins/briefing-kit/plugin.json",
+		),
+		"{broken manifest",
+	);
+	await page.reload();
+	await navigation
+		.getByRole("button", { name: "Plugins", exact: true })
+		.click();
+	const brokenLibrary = page
+		.getByRole("article")
+		.filter({ hasText: "briefing-kit" });
+	await brokenLibrary.getByText("Needs repair", { exact: true }).waitFor();
+	await brokenLibrary
+		.getByRole("button", { name: "Open library", exact: true })
+		.click();
+	const libraryDialog = page.getByRole("dialog");
+	await libraryDialog
+		.getByRole("button", { name: "Edit file", exact: true })
+		.click();
+	const manifestEditor = libraryDialog.getByRole("textbox", {
+		name: "Edit plugin.json",
+		exact: true,
+	});
+	await manifestEditor.fill(proposal.files["plugin.json"]);
+	await page.keyboard.press("Escape");
+	assert.equal(
+		await manifestEditor.count(),
+		1,
+		"Escape must preserve unsaved library edits",
+	);
+	await page.mouse.click(4, 200);
+	assert.equal(
+		await manifestEditor.count(),
+		1,
+		"Backdrop dismissal must preserve unsaved library edits",
+	);
+	await libraryDialog
+		.getByRole("button", { name: "Save file", exact: true })
+		.click();
+	await libraryDialog
+		.getByText("File saved. Review changed inputs before enabling schedules.", {
+			exact: true,
+		})
+		.waitFor();
+	await page.keyboard.press("Escape");
+	await libraryDialog.waitFor({ state: "hidden" });
+	const repaired = await api(`/api/projects?projectId=${cardProject.id}`);
+	const repairedPlugin = repaired.plugins.find(
+		(plugin) => plugin.file.id === proposalPluginId,
+	);
+	assert.equal(repairedPlugin.file.error, null);
+	assert.equal(
+		repairedPlugin.approvedHash,
+		null,
+		"Repair must not restore execution approval",
+	);
+	assert.equal(
+		repaired.automations.find(
+			(automation) => automation.id === proposalAutomationId,
+		).enabled,
+		false,
+	);
 	const runId = "run-chat-fixture";
 	const runDirectory = join(profile, "projects", cardProject.id, "runs", runId);
 	await mkdir(join(runDirectory, "logs"), { recursive: true });
@@ -875,7 +989,7 @@ try {
 	await page.screenshot({ path: join(output, "compact-overview.png") });
 	assert.deepEqual(errors, []);
 	console.log(
-		"PASS: project tabs and creation, repository membership, sidebar Git totals, standalone graph without new chats, conversation grid and first-pane deletion, automation and artifact flow.",
+		"PASS: project tabs and creation, repository membership, sidebar Git totals, standalone graph without new chats, conversation grid and first-pane deletion, automation and artifact flow, chat plugin approval/revocation, manifest repair and unsaved-edit protection.",
 	);
 } catch (e) {
 	console.log("BODY:", (await page.locator("body").innerText()).slice(0, 5000));

@@ -39,6 +39,7 @@ export function PluginLibraryDialog(props: {
 				content: draft(),
 				expectedHash: file.sourceHash,
 			});
+			setSelected(file.path);
 			setEditing(null);
 			setSaved(true);
 			await library.refetch();
@@ -98,7 +99,7 @@ export function PluginLibraryDialog(props: {
 					closeDisabled={dirty() || saving()}
 					class={stylex.attrs(styles.dialog).class}
 				>
-					<div {...stylex.attrs(styles.formFields)}>
+					<div {...stylex.attrs(styles.form)}>
 						<h3>{pluginName(props.plugin)}</h3>
 						<p {...stylex.attrs(styles.muted)}>
 							{props.plugin.file.definition?.description}

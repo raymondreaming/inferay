@@ -17,6 +17,9 @@ export function Modal(props: {
 }) {
 	let dialog: HTMLDialogElement | undefined;
 	let pressedBackdrop = false;
+	const close = () => {
+		if (!props.closeDisabled) props.onClose();
+	};
 	onSettled(() => {
 		const previousFocus = document.activeElement;
 		dialog?.showModal();
@@ -50,20 +53,20 @@ export function Modal(props: {
 			aria-label={props.label}
 			onCancel={(event) => {
 				event.preventDefault();
-				props.onClose();
+				close();
 			}}
 			onKeyDown={(event) => {
 				event.stopPropagation();
 				if (event.key === "Escape" && !event.defaultPrevented) {
 					event.preventDefault();
-					props.onClose();
+					close();
 				}
 			}}
 			onPointerDown={(event) => {
 				pressedBackdrop = outside(event);
 			}}
 			onClick={(event) => {
-				if (pressedBackdrop && outside(event)) props.onClose();
+				if (pressedBackdrop && outside(event)) close();
 				pressedBackdrop = false;
 			}}
 			class={`${APP_REGION_NO_DRAG_CLASS} ${stylex.attrs(surfaceStyles.overlay, styles.dialog).class ?? ""} ${props.class ?? ""}`}
@@ -75,7 +78,7 @@ export function Modal(props: {
 				size="sm"
 				aria-label={`Close ${props.label.toLowerCase()}`}
 				title={`Close ${props.label.toLowerCase()}`}
-				onClick={props.onClose}
+				onClick={close}
 				disabled={props.closeDisabled}
 				class={stylex.attrs(styles.close).class}
 			>
