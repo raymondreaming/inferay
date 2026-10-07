@@ -24,58 +24,41 @@ fn added_and_deleted_files_use_full_width_but_modified_files_stay_split() {
 }
 
 #[test]
-fn retained_workspaces_follow_group_membership_and_evict_only_inactive_views() {
-    let key = |group: &str, cwd: Option<&str>| json!([group, cwd]).to_string();
+fn conversation_grid_keeps_repository_contexts_together_and_isolates_projects() {
+    let key = |group: &str, scope: &str| json!([group, scope]).to_string();
     let mut input = json!({
-        "groups": [
-            {"id":"first", "panes":[{"id":"b"},{"id":"a"},{"id":"loose"}]},
-            {"id":"empty", "panes":[]},
-            {"id":"second", "panes":[{"id":"c"}]}
-        ],
-        "repositories": {
-            "workspaces":[{"cwd":"/repo", "entries":[
-                {"groupId":"first","pane":{"id":"a"}},
-                {"groupId":"second","pane":{"id":"c"}},
-                {"groupId":"first","pane":{"id":"b"}}
-            ]}],
-            "unassignedEntries":[{"groupId":"first","pane":{"id":"loose"}}]
-        },
-        "activeKey":key("first", Some("/repo")), "previous":[]
+        "scopeId":"aivre",
+        "groups":[{"id":"first", "selectedPaneId":"a", "panes":[
+            {"id":"a", "cwd":"/core"},
+            {"id":"b", "cwd":"/web"},
+            {"id":"c", "cwd":"/project"},
+            {"id":"loose", "cwd":null}
+        ]}],
+        "activeKey":key("first", "aivre"),
+        "previous":[key("first", "other-project")]
     });
-    let first = render("retainedWorkspaces", input.clone());
+    let expected = json!([{
+        "key":key("first", "aivre"), "groupIndex":0, "paneIndices":[0,1,2,3]
+    }]);
+    assert_eq!(render("retainedWorkspaces", input.clone()), expected);
+    input["groups"][0]["selectedPaneId"] = json!("b");
+    assert_eq!(render("retainedWorkspaces", input.clone()), expected);
+    input["groups"][0]["panes"]
+        .as_array_mut()
+        .unwrap()
+        .remove(1);
     assert_eq!(
-        first,
-        json!([{
-            "key":key("first", Some("/repo")), "groupIndex":0,
-            "cwd":"/repo", "paneIndices":[0,1]
-        }])
+        render("retainedWorkspaces", input.clone())[0]["paneIndices"],
+        json!([0, 1, 2])
     );
-    input["previous"] = json!([
-        key("first", Some("/repo")),
-        "deleted",
-        key("first", Some("/repo"))
-    ]);
-    input["activeKey"] = json!(key("empty", None));
-    let next = render("retainedWorkspaces", input.clone());
-    assert_eq!(next.as_array().unwrap().len(), 2);
-    assert_eq!(
-        next[1],
-        json!({"key":key("empty", None), "groupIndex":1, "cwd":null, "paneIndices":[]})
-    );
-    input["activeKey"] = json!(key("first", None));
-    assert_eq!(
-        render("retainedWorkspaces", input.clone())[1]["paneIndices"],
-        json!([2])
-    );
-    input["activeKey"] = json!(key("second", Some("/repo")));
-    assert_eq!(
-        render("retainedWorkspaces", input.clone())[1]["groupIndex"],
-        2
-    );
-    input["activeKey"] = json!("missing");
+    input["activeKey"] = json!(key("missing", "aivre"));
     assert_eq!(render("retainedWorkspaces", input), json!([]));
+}
 
-    let mut input = json!({"groups":[], "repositories":{"workspaces":[],"unassignedEntries":[]}, "previous":[]});
+#[test]
+fn retained_workspaces_evict_only_inactive_views() {
+    let key = |group: &str| json!([group, "project"]).to_string();
+    let mut input = json!({"scopeId":"project", "groups":[], "previous":[]});
     for i in 0..10 {
         let group = format!("group-{i}");
         input["groups"]
@@ -85,25 +68,18 @@ fn retained_workspaces_follow_group_membership_and_evict_only_inactive_views() {
         input["previous"]
             .as_array_mut()
             .unwrap()
-            .push(json!(key(&group, None)));
+            .push(json!(key(&group)));
     }
-    input["activeKey"] = json!(key("group-0", None));
+    input["activeKey"] = json!(key("group-0"));
     let retained = render("retainedWorkspaces", input.clone());
     assert_eq!(retained.as_array().unwrap().len(), 8);
     assert_eq!(retained[0]["groupIndex"], 3);
     assert_eq!(retained[7]["groupIndex"], 0);
-
-    // The active workspace survives even when its pane count alone exceeds the budget.
     for i in 0..25 {
-        let pane = json!({"id":format!("pane-{i}")});
         input["groups"][0]["panes"]
             .as_array_mut()
             .unwrap()
-            .push(pane.clone());
-        input["repositories"]["unassignedEntries"]
-            .as_array_mut()
-            .unwrap()
-            .push(json!({"groupId":"group-0","pane":pane}));
+            .push(json!({"id":format!("pane-{i}")}));
     }
     let retained = render("retainedWorkspaces", input);
     assert_eq!(retained.as_array().unwrap().len(), 1);

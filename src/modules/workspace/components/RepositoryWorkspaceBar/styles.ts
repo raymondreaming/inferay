@@ -7,6 +7,9 @@ import {
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
+	draggingTab: { opacity: 0.45 },
+	dropBefore: { boxShadow: "inset 2px 0 0 currentColor" },
+	dropAfter: { boxShadow: "inset -2px 0 0 currentColor" },
 	bar: {
 		alignItems: "stretch",
 		backgroundColor: color.background,
@@ -23,7 +26,7 @@ export const styles = stylex.create({
 	},
 	tabs: {
 		display: "flex",
-		flex: "0 1 auto",
+		flex: "1 1 auto",
 		minWidth: controlSize._0,
 		overflowX: "auto",
 		overflowY: "hidden",
@@ -89,12 +92,7 @@ export const styles = stylex.create({
 		borderLeftStyle: "solid",
 		borderLeftWidth: 1,
 	},
-	newMenuRoot: {
-		display: "flex",
-		flexShrink: 0,
-		position: "relative",
-	},
-	newChat: {
+	newProject: {
 		alignItems: "center",
 		backgroundColor: color.transparent,
 		borderRightColor: color.border,
@@ -112,60 +110,12 @@ export const styles = stylex.create({
 		gap: controlSize._1,
 		paddingInline: controlSize._3,
 	},
-	newMenuAnchor: {
-		left: controlSize._1,
-		paddingTop: 6,
-		position: "absolute",
-		top: "100%",
-		zIndex: layer.dropdownPopover,
-	},
-	newMenu: {
-		borderRadius: radius.lg,
-		display: "flex",
-		flexDirection: "column",
-		gap: controlSize._0_5,
-		padding: controlSize._1,
-		width: 228,
-	},
-	newMenuItem: {
-		alignItems: "center",
-		borderRadius: radius.md,
-		color: {
-			default: color.textMuted,
-			":hover": color.textMain,
-		},
-		display: "flex",
-		gap: controlSize._2_5,
-		minHeight: controlSize._12,
-		outline: "none",
-		paddingBlock: controlSize._2,
-		paddingInline: controlSize._2_5,
-		textAlign: "left",
-		width: "100%",
-	},
-	newMenuCopy: {
-		display: "flex",
-		flexDirection: "column",
-		gap: controlSize._0_5,
-		minWidth: controlSize._0,
-	},
-	newMenuLabel: {
-		color: color.textMain,
-		fontSize: font.size_2,
-		fontWeight: font.weight_6,
-	},
-	newMenuDescription: {
-		color: color.textFaint,
-		fontSize: font.size_1,
-		fontWeight: font.weightRegular,
-	},
 	tab: {
 		borderLeftWidth: 1,
 		borderLeftStyle: "solid",
 		borderLeftColor: color.border,
 		alignItems: "center",
-		cursor: "grab",
-		touchAction: "none",
+		cursor: "pointer",
 		userSelect: "none",
 		color: color.textMain,
 		display: "flex",
@@ -175,23 +125,6 @@ export const styles = stylex.create({
 		gap: controlSize._1_5,
 		maxWidth: 320,
 		paddingInline: controlSize._3,
-	},
-	closeTab: {
-		display: "flex",
-		alignItems: "center",
-		flexShrink: 0,
-		color: { default: color.textFaint, ":hover": color.textMain },
-		cursor: "pointer",
-	},
-	draggingTab: {
-		cursor: "grabbing",
-		opacity: 0.55,
-	},
-	dropBefore: {
-		boxShadow: "inset 2px 0 0 currentColor",
-	},
-	dropAfter: {
-		boxShadow: "inset -2px 0 0 currentColor",
 	},
 	tabLabel: {
 		minWidth: controlSize._0,

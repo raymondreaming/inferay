@@ -35,11 +35,13 @@ import {
 	onCleanup,
 	onSettled,
 } from "solid-js";
+import { showProjectView } from "../../hooks/useProjects.tsx";
 import {
 	mutateAgentWorkspaceState,
 	openAgentPane,
 	useWorkspaceState,
 } from "../../hooks/useWorkspaceState.tsx";
+import { ProjectNavigation } from "../ProjectsPanel/ProjectNavigation.tsx";
 import { SidebarAccountButton } from "./SidebarAccountButton.tsx";
 import type { SidebarUpdateStatus } from "./SidebarFooter.tsx";
 import { SidebarFooter } from "./SidebarFooter.tsx";
@@ -151,14 +153,15 @@ export function WorkspaceSidebar() {
 			await mutateAgentWorkspaceState({
 				type: "addWorkspace",
 			});
+			showProjectView("code");
 			navigate("/");
 			return;
 		}
 		await mutateAgentWorkspaceState({
 			type: "addPane",
 			agentKind: loadDefaultChatSettings().agentKind,
-			cwd: workspaces().repositories.activeWorkspace?.cwd,
 		});
+		showProjectView("chat");
 		navigate("/");
 	};
 	onSettled(() =>
@@ -284,6 +287,7 @@ export function WorkspaceSidebar() {
 			)}
 			{showWorkspaceSidebar() && !collapsed() ? (
 				<>
+					<ProjectNavigation />
 					<nav aria-label="Workspaces" {...stylex.attrs(styles.nav)}>
 						<SidebarWorkspacesSection
 							collapsed={collapsed()}

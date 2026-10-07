@@ -37,7 +37,7 @@ export function SidebarChatList(_props: {
 				keyed={(entry) => `${entry.groupId}:${entry.pane.id}`}
 				fallback={
 					<div {...stylex.attrs(styles.repositoryEmptyState)}>
-						No chats in this repository yet.
+						Your conversations will appear here.
 					</div>
 				}
 			>

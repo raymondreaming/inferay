@@ -1,11 +1,12 @@
 import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
-import { Explorer } from "@explorer/components/Explorer/index.tsx";
-import { ariaValue } from "@shared/lib/dom.tsx";
+import { ariaValue, dispatchCreateAgentChat } from "@shared/lib/dom.tsx";
+import { Button } from "@shared/ui/Button/index.tsx";
 import { IconButton } from "@shared/ui/IconButton/index.tsx";
 import {
 	IconLayoutGrid,
 	IconLayoutRows,
 	IconPanelLeft,
+	IconPlus,
 } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, createMemo, createSignal } from "solid-js";
@@ -38,13 +39,6 @@ export function SidebarWorkspacesSection(_props: {
 				(group) => group.id === _props.workspaces.selectedGroupId,
 			) ?? null,
 	);
-	const selectedCwd = createMemo(
-		() => _props.workspaces.repositories.activeWorkspace?.cwd,
-	);
-	const projectCwds = createMemo(() => {
-		const _selectedCwdValue = selectedCwd();
-		return _selectedCwdValue ? [_selectedCwdValue] : [];
-	});
 	createEffect(gridMenuOpen, (isOpen) => {
 		if (!isOpen) return;
 		const closeMenu = (event: MouseEvent) => {
@@ -57,12 +51,7 @@ export function SidebarWorkspacesSection(_props: {
 	});
 	return (
 		<div class={workspaceSectionProps().class}>
-			<div
-				{...stylex.attrs(
-					styles.workspaceListScroll,
-					!_props.collapsed && styles.workspaceListScrollSplit,
-				)}
-			>
+			<div {...stylex.attrs(styles.workspaceListScroll)}>
 				<div
 					{...stylex.attrs(
 						styles.workspaceSectionHeader,
@@ -71,6 +60,17 @@ export function SidebarWorkspacesSection(_props: {
 							: styles.workspaceSectionHeaderOpen,
 					)}
 				>
+					{!_props.collapsed ? (
+						<>
+							<Button
+								variant="ghost"
+								size="sm"
+								onClick={() => dispatchCreateAgentChat()}
+							>
+								<IconPlus size={iconSize.md} /> New chat
+							</Button>
+						</>
+					) : null}
 					{_props.collapsed ? (
 						<IconButton
 							type="button"
@@ -175,11 +175,6 @@ export function SidebarWorkspacesSection(_props: {
 					onSelectPane={_props.onSelectPane}
 				/>
 			</div>
-			{!_props.collapsed ? (
-				<div {...stylex.attrs(styles.sidebarExplorerSection)}>
-					<Explorer cwds={projectCwds()} />
-				</div>
-			) : null}
 		</div>
 	);
 }

@@ -83,3 +83,42 @@ fn dock_session_preserves_pending_actions_retries_and_disposal() {
         "null"
     );
 }
+
+#[test]
+fn deleting_first_grid_pane_compacts_rows_and_handles_the_last_pane() {
+    let mut input =
+        json!({"ids":["a","b","c","d"], "columns":2,"visibleColumns":2,"mode":"grid","rows":2});
+    let first = inferay_presentation::dock::project(&input).unwrap();
+    input["saved"] = first["saved"].clone();
+    input["ids"] = json!(["b", "c", "d"]);
+    let next = inferay_presentation::dock::project(&input).unwrap();
+    let tree = &next["saved"]["tree"];
+    assert_eq!(tree["first"]["first"]["id"], "b");
+    assert_eq!(tree["first"]["second"]["id"], "c");
+    assert_eq!(tree["second"]["id"], "d");
+    input["saved"] = next["saved"].clone();
+    input["ids"] = json!([]);
+    let empty = inferay_presentation::dock::project(&input).unwrap();
+    assert!(empty["tree"].is_null());
+    input["saved"] = empty["saved"].clone();
+    input["ids"] = json!(["new"]);
+    assert_eq!(
+        inferay_presentation::dock::project(&input).unwrap()["tree"]["id"],
+        "new"
+    );
+}
+
+#[test]
+fn grid_reflows_after_out_of_order_deletions_and_additions() {
+    let mut input = json!({"ids":["a","b","c","d","e","f"], "columns":3,"visibleColumns":3,"mode":"grid","rows":2});
+    for ids in [json!(["a","b","c","d","e","f"]), json!(["a","c","d","e","f"]), json!(["a","c","d","f"]), json!(["a","c","d","f","g"]), json!(["c","d","f","g"])] {
+        input["ids"] = ids;
+        let output = inferay_presentation::dock::project(&input).unwrap();
+        input["saved"] = output["saved"].clone();
+    }
+    let tree = &input["saved"]["tree"];
+    assert_eq!(tree["first"]["first"]["first"]["id"], "c");
+    assert_eq!(tree["first"]["first"]["second"]["id"], "d");
+    assert_eq!(tree["first"]["second"]["id"], "f");
+    assert_eq!(tree["second"]["id"], "g");
+}

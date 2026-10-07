@@ -5,7 +5,10 @@ import { For } from "solid-js";
 import { FolderTypeIcon } from "../FileTypeIcon/index.tsx";
 import { Directory } from "./Directory.tsx";
 import { styles } from "./styles.ts";
-export function Explorer(_props: { readonly cwds: readonly string[] }) {
+export function Explorer(_props: {
+	readonly cwds: readonly string[];
+	readonly rootLabels?: Readonly<Record<string, string>>;
+}) {
 	return (
 		<>
 			{(() => {
@@ -37,7 +40,8 @@ export function Explorer(_props: { readonly cwds: readonly string[] }) {
 										>
 											<FolderTypeIcon path={cwd()} open size={iconSize.md} />
 											<span>
-												{cwd().split("/").filter(Boolean).pop() || cwd()}
+												{_props.rootLabels?.[cwd()] ??
+													(cwd().split("/").filter(Boolean).pop() || cwd())}
 											</span>
 										</header>
 										<Directory cwd={cwd()} />

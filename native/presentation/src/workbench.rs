@@ -746,14 +746,13 @@ fn recovery_actions(operation: &str, blocked: bool) -> Vec<Value> {
 pub struct WorkspaceView<'a> {
     key: &'a str,
     group_index: usize,
-    cwd: Option<String>,
     pane_indices: Vec<usize>,
 }
 
 /// Resolve only visited views, retaining selectors into the renderer's current pane objects.
 pub fn retained_workspaces(input: &Value) -> Value {
     let active = string(&input["activeKey"]);
-    let repositories = &input["repositories"];
+    let scope = string(&input["scopeId"]);
     let mut seen = std::collections::HashSet::new();
     let mut retained = std::collections::VecDeque::new();
     for key in array(&input["previous"])
@@ -765,9 +764,12 @@ pub fn retained_workspaces(input: &Value) -> Value {
         if !seen.insert(key) {
             continue;
         }
-        let Ok((group_id, cwd)) = serde_json::from_str::<(String, Option<String>)>(key) else {
+        let Ok((group_id, scope_id)) = serde_json::from_str::<(String, String)>(key) else {
             continue;
         };
+        if scope_id != scope {
+            continue;
+        }
         let Some((group_index, group)) = array(&input["groups"])
             .iter()
             .enumerate()
@@ -775,42 +777,10 @@ pub fn retained_workspaces(input: &Value) -> Value {
         else {
             continue;
         };
-        let entries = if let Some(cwd) = &cwd {
-            let Some(workspace) = array(&repositories["workspaces"])
-                .iter()
-                .find(|workspace| workspace["cwd"] == *cwd)
-            else {
-                continue;
-            };
-            &workspace["entries"]
-        } else {
-            &repositories["unassignedEntries"]
-        };
-        let belongs = |entry: &&Value| entry["groupId"] == group_id;
-        let ids: std::collections::HashSet<_> = array(entries)
-            .iter()
-            .filter(belongs)
-            .map(|entry| string(&entry["pane"]["id"]))
-            .collect();
-        if ids.is_empty()
-            && (cwd.is_some()
-                || array(&repositories["workspaces"]).iter().any(|workspace| {
-                    array(&workspace["entries"])
-                        .iter()
-                        .any(|entry| belongs(&entry))
-                }))
-        {
-            continue;
-        }
         retained.push_back(WorkspaceView {
             key,
             group_index,
-            cwd,
-            pane_indices: array(&group["panes"])
-                .iter()
-                .enumerate()
-                .filter_map(|(index, pane)| ids.contains(string(&pane["id"])).then_some(index))
-                .collect(),
+            pane_indices: (0..array(&group["panes"]).len()).collect(),
         });
     }
     if retained.back().is_none_or(|view| view.key != active) {

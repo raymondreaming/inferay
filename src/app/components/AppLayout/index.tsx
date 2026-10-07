@@ -8,10 +8,13 @@ import { type CSSProperties, domStyle } from "@shared/lib/dom.tsx";
 import { wsClient } from "@shared/lib/native.tsx";
 import { SkillsModalHost } from "@skills/components/SkillsModal/index.tsx";
 import * as stylex from "@stylexjs/stylex";
+import { ProjectsPanel } from "@workspace/components/ProjectsPanel/index.tsx";
+import { ProjectRepositoryWorkbench } from "@workspace/components/ProjectsPanel/ProjectRepositoryWorkbench.tsx";
 import { RepositoryWorkspaceBar } from "@workspace/components/RepositoryWorkspaceBar/index.tsx";
 import { WorkspaceSidebar } from "@workspace/components/WorkspaceSidebar/index.tsx";
+import { initializeProjects, projects } from "@workspace/hooks/useProjects.tsx";
 import type { Element } from "solid-js";
-import { Loading, onSettled } from "solid-js";
+import { Loading, onSettled, Show } from "solid-js";
 import { AppHeader } from "../AppHeader/index.tsx";
 import * as inlineStyles from "./styles.ts";
 import { shellThemeProps, styles } from "./styles.ts";
@@ -19,6 +22,7 @@ export function AppLayout(props: { children: Element }) {
 	const _source = useAppAppearance();
 	onSettled(() => {
 		wsClient.connect();
+		void initializeProjects();
 	});
 	return (
 		<div
@@ -77,12 +81,26 @@ export function AppLayout(props: { children: Element }) {
 			<RepositoryWorkspaceBar />
 			<SettingsModalHost />
 			<SkillsModalHost />
-			<OnboardingLayer />
+			{projects.view() === "chat" && projects.selectedId() ? (
+				<OnboardingLayer />
+			) : null}
 			<div {...stylex.attrs(styles.appBody, styles.appBodySidebarOpen)}>
 				<WorkspaceSidebar />
 				<div {...stylex.attrs(styles.mainColumn)}>
 					<main {...stylex.attrs(styles.mainContent)}>
-						<Loading fallback={null}>{props.children}</Loading>
+						<Loading fallback={null}>
+							{projects.view() === "chat" && projects.selectedId() ? (
+								props.children
+							) : projects.view() === "code" && projects.repositoryPath() ? (
+								<Show when={projects.repositoryPath()} keyed>
+									{(path) => <ProjectRepositoryWorkbench path={path} />}
+								</Show>
+							) : (
+								<Show when={projects.selectedId() || "all"} keyed>
+									{(_projectId) => <ProjectsPanel />}
+								</Show>
+							)}
+						</Loading>
 					</main>
 				</div>
 			</div>

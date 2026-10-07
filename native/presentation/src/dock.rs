@@ -339,9 +339,27 @@ pub fn project(body: &Value) -> Result<Value, String> {
     let legacy = body.get("legacy").filter(|value| value.is_object());
     let stored = saved.map(|s| &s["tree"]).or(legacy);
     let tree = stored.and_then(|v| serde_json::from_value::<Tree>(v.clone()).ok());
-    let reset = body["mode"] == "grid" && saved.is_some_and(|s| s["preset"] != json!(preset));
+    let reset = grid && saved.is_some_and(|s| s["preset"] != json!(preset));
+    let membership_changed = grid
+        && tree
+            .as_ref()
+            .is_some_and(|tree| {
+                let present = tree.ids();
+                present.len() != ids.len() || present.iter().any(|id| !ids.contains(id))
+            });
     let mut tree = if reset {
         build(&ids, columns)
+    } else if membership_changed {
+        // Close the gap in visual order instead of expanding a surviving split
+        // across one row while leaving the other rows at their old widths.
+        let mut remaining = tree.as_ref().unwrap().ids();
+        remaining.retain(|id| ids.contains(id));
+        for id in &ids {
+            if !remaining.contains(id) {
+                remaining.push(id.clone());
+            }
+        }
+        build(&remaining, columns)
     } else {
         reconcile(tree, &ids, columns)
     };

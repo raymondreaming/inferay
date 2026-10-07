@@ -6,6 +6,7 @@ import { isChatAgentKind, readStoredValue } from "@shared/lib/native.tsx";
 import { IconAgent, IconX } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo } from "solid-js";
+import { projects } from "../../hooks/useProjects.tsx";
 import { styles } from "./styles.ts";
 export function PaneSummaryItem(_props: {
 	pane: Pane;
@@ -20,7 +21,17 @@ export function PaneSummaryItem(_props: {
 			: null,
 	);
 	const primaryLabel = createMemo(() =>
-		isChat() ? (summary() ?? _props.pane.title) : _props.pane.title,
+		isChat()
+			? (summary() ??
+				(projects
+					.list()
+					.some(
+						(p) =>
+							p.directory === _props.pane.cwd && p.id === _props.pane.title,
+					)
+					? "New conversation"
+					: _props.pane.title))
+			: _props.pane.title,
 	);
 	return (
 		<div {...stylex.attrs(styles.paneSummaryCard)}>

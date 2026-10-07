@@ -1,4 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
+import { projects } from "@workspace/hooks/useProjects.tsx";
 import { AgentWorkspaceControl } from "../AgentChatHeader/index.tsx";
 import { AgentChatStatusBar } from "../AgentChatStatusBar/index.tsx";
 import { ChatComposer } from "../ChatComposer/index.tsx";
@@ -51,11 +52,18 @@ export function AgentChatComposer(props: {
 					onMdFileClick={props.state.composer.handleMdFileClick}
 					voiceInput={props.state.voiceInput}
 					workspaceControl={
-						<AgentWorkspaceControl
-							cwd={props.state.workspace.visibleCwd}
-							onAgentContext={() => props.openContext()}
-							isAgentContextOpen={false}
-						/>
+						!projects
+							.list()
+							.some(
+								(project) =>
+									project.directory === props.state.workspace.visibleCwd,
+							) ? (
+							<AgentWorkspaceControl
+								cwd={props.state.workspace.visibleCwd}
+								onAgentContext={() => props.openContext()}
+								isAgentContextOpen={false}
+							/>
+						) : null
 					}
 				/>
 			</div>

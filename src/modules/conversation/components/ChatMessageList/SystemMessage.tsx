@@ -11,6 +11,7 @@ import {
 	SkillReadCard,
 } from "@skills/components/SkillProposalCard/index.tsx";
 import * as stylex from "@stylexjs/stylex";
+import { AutomationProposalCard } from "@workspace/components/ProjectsPanel/AutomationProposalCard.tsx";
 import { createMemo, Match, Switch } from "solid-js";
 import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
 import { styles } from "./styles.ts";
@@ -21,6 +22,9 @@ export function SystemMessage(props: {
 	onSendMessage?: (text: string) => void;
 	paneId: string;
 }) {
+	const automationProposal = createMemo(
+		() => props.message.render?.automationProposal,
+	);
 	const skillProposal = createMemo(() => props.message.render?.skillProposal);
 	const skillRead = createMemo(() => props.message.render?.skillRead);
 	const goalMessage = createMemo(() => props.message.render?.goal);
@@ -31,6 +35,14 @@ export function SystemMessage(props: {
 				<p {...stylex.attrs(styles.systemText)}>{props.message.content}</p>
 			}
 		>
+			<Match when={automationProposal()?.type === "saveAutomation"}>
+				{() => {
+					const command = automationProposal();
+					return command?.type === "saveAutomation" ? (
+						<AutomationProposalCard command={command} />
+					) : null;
+				}}
+			</Match>
 			<Match when={!!skillProposal()}>
 				<SkillProposalCard
 					proposal={skillProposal()!}

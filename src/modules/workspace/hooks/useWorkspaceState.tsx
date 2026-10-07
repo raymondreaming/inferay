@@ -14,6 +14,13 @@ import {
 	reconcile,
 	snapshot as storeSnapshot,
 } from "solid-js";
+import {
+	openProjectRepository,
+	projects,
+	refreshProjects,
+	saveProjectCommand,
+	showProjectView,
+} from "./useProjects.tsx";
 
 interface WorkspacePersistencePort {
 	initialize(): Promise<import("@contracts").AgentSavedState>;
@@ -136,8 +143,54 @@ function workspaceSession(): WorkspaceSession {
 }
 export const initializeAgentState = () => workspaceSession().initialize();
 export const loadCanonicalAgentState = () => workspaceSession().load();
-export const mutateAgentWorkspaceState = (action: AgentWorkspaceAction) =>
-	workspaceSession().mutate(action);
+export async function mutateAgentWorkspaceState(action: AgentWorkspaceAction) {
+	const projectId = projects.selectedId();
+	const project = projects.catalog()?.projects.find((p) => p.id === projectId);
+	if (action.type === "addPane" && !action.cwd && project)
+		action = { ...action, cwd: project.directory };
+	const saved = await workspaceSession().mutate(action);
+	if (saved && action.type === "selectRepository")
+		openProjectRepository(action.cwd);
+	if (
+		saved &&
+		project &&
+		["addPane", "directorySelected", "addWorkspace"].includes(action.type)
+	) {
+		const group = saved.groups.find((g) => g.id === saved.selectedGroupId);
+		const paneId =
+			action.type === "directorySelected"
+				? action.paneId
+				: group?.selectedPaneId;
+		if (paneId)
+			await saveProjectCommand({
+				type: "associateConversation",
+				projectId,
+				paneId,
+			});
+		if (
+			action.type === "directorySelected" &&
+			action.path &&
+			action.path !== project.directory &&
+			!projects.catalog()?.repositoryPaths.includes(action.path)
+		) {
+			await saveProjectCommand({
+				type: "saveResource",
+				id: null,
+				expectedRevision: null,
+				projectId,
+				typeId: "inferay.repository",
+				name: action.path.split("/").filter(Boolean).at(-1) ?? "Repository",
+				schemaVersion: 1,
+				body: {
+					location: { base: "external", path: action.path },
+					instructions: "",
+				},
+			});
+		}
+		await refreshProjects();
+	}
+	return saved;
+}
 /** Selects a chat, lets the caller reveal the workspace, then focuses its composer. */
 export const openAgentPane = async (
 	groupId: string,
@@ -145,6 +198,7 @@ export const openAgentPane = async (
 	reveal: () => void,
 ) => {
 	await mutateAgentWorkspaceState({ type: "selectPane", groupId, paneId });
+	showProjectView("chat");
 	reveal();
 	requestAnimationFrame(() =>
 		requestAnimationFrame(() => dispatchFocusAgentChatComposer(paneId)),
@@ -160,6 +214,18 @@ export const changePaneAgentKind = (
 		agentKind,
 	});
 };
+export const availableProjectRepositories = () => [
+	...new Set([
+		...(published.state?.repositories.workspaces ?? [])
+			.filter(
+				(repository) =>
+					!projects.list().some((p) => p.directory === repository.cwd),
+			)
+			.map((repository) => repository.cwd),
+		...(projects.catalog()?.repositoryPaths ?? []),
+	]),
+];
+
 export interface SidebarWorkspaceState {
 	repositories: RepositoryWorkspaceIndex;
 	groups: Group[];
@@ -172,10 +238,43 @@ export function useWorkspaceState(
 	const emptyGroups: Group[] = [];
 	const state: SidebarWorkspaceState = {
 		get groups() {
-			return published.state?.groups ?? emptyGroups;
+			const groups = published.state?.groups ?? emptyGroups;
+			if (!projects.selectedId()) return groups;
+			const catalog = projects.catalog();
+			return groups
+				.map((g) => ({
+					...g,
+					panes: g.panes.filter(
+						(p) =>
+							catalog?.conversationProjects[p.id] === projects.selectedId() ||
+							(!catalog?.conversationProjects[p.id] &&
+								!!catalog?.repositoryPaths.includes(p.cwd ?? "")),
+					),
+				}))
+				.filter((g) => g.panes.length > 0);
 		},
 		get repositories() {
-			return published.state?.repositories ?? EMPTY;
+			const repositories = published.state?.repositories ?? EMPTY;
+			if (!projects.selectedId()) return repositories;
+			const allowed = new Set([
+				...(projects.catalog()?.repositoryPaths ?? []),
+				...state.groups.flatMap((g) =>
+					g.panes.map((p) => p.cwd).filter((cwd): cwd is string => !!cwd),
+				),
+			]);
+			return {
+				...repositories,
+				workspaces: repositories.workspaces.filter((r) => allowed.has(r.cwd)),
+				activeWorkspace: allowed.has(repositories.activePath ?? "")
+					? repositories.activeWorkspace
+					: null,
+				activePath: allowed.has(repositories.activePath ?? "")
+					? repositories.activePath
+					: null,
+				visibleEntries: state.groups.flatMap((g) =>
+					g.panes.map((pane) => ({ groupId: g.id, pane })),
+				),
+			};
 		},
 		get selectedGroupId() {
 			return (

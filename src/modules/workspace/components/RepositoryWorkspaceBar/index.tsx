@@ -1,16 +1,10 @@
-import type {
-	RepositoryTabDrag,
-	RepositoryTabsSnapshot,
-	RepositoryWorkspace,
-} from "@contracts";
-import { iconSize } from "@design-system/styles.stylex.ts";
+import type { Project } from "@contracts";
+import { iconSize, selectionAppearance } from "@design-system/styles.stylex.ts";
 import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
 	ariaValue,
-	type CreateAgentChatTarget,
-	dispatchCreateAgentChat,
 	dispatchToggleActiveGitGraph,
 	dispatchToggleActiveGitSidebar,
 	listenWindowEvent,
@@ -20,205 +14,36 @@ import {
 } from "@shared/lib/dom.tsx";
 import {
 	loadSidebarCollapsed,
-	RepositoryTabs,
 	setWorkspaceSidebarCollapsed,
 } from "@shared/lib/native.tsx";
-import { IconPanelLeft } from "@shared/ui/Icons/index.tsx";
+import {
+	IconFolder,
+	IconPanelLeft,
+	IconPlus,
+	IconWrench,
+} from "@shared/ui/Icons/index.tsx";
 import { useLocation, useNavigate } from "@solidjs/router";
 import * as stylex from "@stylexjs/stylex";
 import {
 	panelQuery,
 	usePanelVisibility,
 } from "@workspace/hooks/useWorkspacePanelSession.tsx";
+import { createMemo, createSignal, onSettled } from "solid-js";
 import {
-	createEffect,
-	createMemo,
-	createSignal,
-	onCleanup,
-	onSettled,
-} from "solid-js";
+	projects,
+	reorderProject,
+	selectProject,
+	showProjectView,
+} from "../../hooks/useProjects.tsx";
 import {
-	mutateAgentWorkspaceState,
 	openAgentPane,
 	useWorkspaceState,
 } from "../../hooks/useWorkspaceState.tsx";
-import { NewWorkspaceMenu } from "./NewWorkspaceMenu.tsx";
+import { ProjectEditor } from "../ProjectsPanel/ProjectEditor.tsx";
 import { RepositoryPanelControls } from "./RepositoryPanelControls.tsx";
-import { RepositoryWorkspaceTabs } from "./RepositoryWorkspaceTabs.tsx";
 import { SidebarChatFlyout } from "./SidebarChatFlyout.tsx";
 import { styles } from "./styles.ts";
 
-type RepositoryTabMove = {
-	sequence: number;
-	cwd: string;
-	before: string | null;
-};
-
-function createRepositoryTabDrag(
-	workspaces: () => RepositoryWorkspace[],
-	persist: (cwd: string, beforeCwd: string | null) => Promise<unknown>,
-) {
-	const model = new RepositoryTabs();
-	const [state, setState] = createSignal<RepositoryTabsSnapshot>(
-		JSON.parse(model.snapshot()),
-	);
-	const ordered = createMemo(() => {
-		const rows = workspaces();
-		void state();
-		return (
-			JSON.parse(
-				model.order(JSON.stringify(rows.map((row) => row.cwd))),
-			) as number[]
-		).map((index) => rows[index]!);
-	});
-	let container: HTMLDivElement | undefined;
-	let cancel: (() => void) | undefined;
-	let disposed = false;
-	const sync = () =>
-		setState(JSON.parse(model.snapshot()) as RepositoryTabsSnapshot);
-	const persistMove = (serialized: string) => {
-		const next = JSON.parse(serialized) as RepositoryTabMove | null;
-		sync();
-		if (!next) return;
-		void persist(next.cwd, next.before)
-			.then((saved) => {
-				if (!disposed) {
-					model.settle(next.sequence, Boolean(saved));
-					sync();
-				}
-			})
-			.catch(() => {
-				if (!disposed) {
-					model.settle(next.sequence, false);
-					sync();
-				}
-			});
-	};
-	onCleanup(() => {
-		disposed = true;
-		cancel?.();
-		model.free();
-	});
-	return {
-		ordered,
-		dragging: () => state().dragging,
-		target: () => state().target,
-		error: () => state().error,
-		setContainer: (element: HTMLDivElement) => {
-			container = element;
-		},
-		consumeClick: (event: MouseEvent) => model.consume_click(event.detail),
-		onKeyDown: (event: KeyboardEvent, cwd: string) => {
-			if (!event.altKey || !event.shiftKey) return;
-			const direction =
-				event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : 0;
-			if (!direction) return;
-			event.preventDefault();
-			cancel?.();
-			persistMove(
-				model.keyboard(
-					JSON.stringify(ordered().map((row) => row.cwd)),
-					cwd,
-					direction,
-				),
-			);
-		},
-		onPointerDown: (event: PointerEvent, cwd: string) => {
-			if (event.button !== 0 || !event.isPrimary || !container) return;
-			cancel?.();
-			const tabs = container;
-			const pointerId = event.pointerId;
-			model.begin(cwd, event.clientX, event.clientY);
-			let x = event.clientX;
-			let y = event.clientY;
-			let frame = 0;
-			let lastTime = 0;
-			const update = (elapsed = 0) => {
-				const hit = JSON.parse(
-					model.hit(
-						JSON.stringify({
-							rect: tabs.getBoundingClientRect(),
-							x,
-							y,
-							cwd,
-							elapsed,
-							tabs: [
-								...tabs.querySelectorAll<HTMLButtonElement>(
-									"[data-repository-tab]",
-								),
-							].map((tab) => {
-								const rect = tab.getBoundingClientRect();
-								return {
-									cwd: tab.dataset.repositoryTab,
-									left: rect.left,
-									width: rect.width,
-								};
-							}),
-						}),
-					),
-				) as RepositoryTabDrag;
-				tabs.scrollLeft += hit.scroll;
-				sync();
-			};
-			const scroll = (time: number) => {
-				update(lastTime ? Math.min(time - lastTime, 32) : 16);
-				lastTime = time;
-				frame = requestAnimationFrame(scroll);
-			};
-			const detach = () => {
-				cancelAnimationFrame(frame);
-				window.removeEventListener("pointermove", pointerMove);
-				window.removeEventListener("pointerup", pointerUp);
-				window.removeEventListener("pointercancel", pointerCancel);
-				window.removeEventListener("keydown", onEscape);
-				window.removeEventListener("blur", cleanup);
-				cancel = undefined;
-			};
-			const cleanup = () => {
-				detach();
-				if (!disposed) {
-					model.cancel();
-					sync();
-				}
-			};
-			const pointerMove = (next: PointerEvent) => {
-				if (next.pointerId !== pointerId) return;
-				x = next.clientX;
-				y = next.clientY;
-				const dragState = model.pointer_move(x, y);
-				if (dragState === 0) return;
-				next.preventDefault();
-				if (dragState === 1) {
-					sync();
-					frame = requestAnimationFrame(scroll);
-				}
-				update();
-			};
-			const pointerUp = (next: PointerEvent) => {
-				if (next.pointerId !== pointerId) return;
-				x = next.clientX;
-				y = next.clientY;
-				if (model.active()) update();
-				detach();
-				persistMove(
-					model.drop(JSON.stringify(ordered().map((row) => row.cwd))),
-				);
-			};
-			const pointerCancel = (next: PointerEvent) => {
-				if (next.pointerId === pointerId) cleanup();
-			};
-			const onEscape = (next: KeyboardEvent) => {
-				if (next.key === "Escape") cleanup();
-			};
-			cancel = cleanup;
-			window.addEventListener("pointermove", pointerMove, { passive: false });
-			window.addEventListener("pointerup", pointerUp);
-			window.addEventListener("pointercancel", pointerCancel);
-			window.addEventListener("keydown", onEscape);
-			window.addEventListener("blur", cleanup);
-		},
-	};
-}
 export function RepositoryWorkspaceBar() {
 	const navigate = useNavigate();
 	const location = useLocation();
@@ -228,27 +53,24 @@ export function RepositoryWorkspaceBar() {
 	);
 	const [workspaceSidebarCollapsed, setWorkspaceSidebarCollapsedState] =
 		createSignal(loadSidebarCollapsed);
-	const [newMenuOpen, setNewMenuOpen] = createSignal(false);
+	const [editingProject, setEditingProject] = createSignal<
+		Project | undefined
+	>();
+	const [creatingProject, setCreatingProject] = createSignal(false);
+	const [draggedProject, setDraggedProject] = createSignal<string | null>(null);
+	const [dropBefore, setDropBefore] = createSignal<string | null | undefined>(
+		undefined,
+	);
 	const [chatFlyoutHovered, setChatFlyoutHovered] = createSignal(false);
-	const newMenuRef = {
-		current: null,
-	} as {
-		current: HTMLDivElement | null;
-	};
 	const projection = createMemo(() => state().repositories);
 	const panelVisibility = usePanelVisibility();
 	const panelState = useBackgroundQuery(
 		() => ({
-			...panelQuery(projection().activePath ?? ""),
+			...panelQuery(projects.repositoryPath() ?? ""),
 			// The workbench owns loading and transitions; this observer only reflects its cache.
 			enabled: false,
 		}),
 		() => queryClient,
-	);
-	const tabDrag = createRepositoryTabDrag(
-		() => projection().workspaces,
-		(cwd, beforeCwd) =>
-			mutateAgentWorkspaceState({ type: "reorderRepository", cwd, beforeCwd }),
 	);
 	onSettled(() => {
 		return listenWindowEvent(WORKSPACE_SIDEBAR_COLLAPSED_EVENT, (event) => {
@@ -258,34 +80,10 @@ export function RepositoryWorkspaceBar() {
 			);
 		});
 	});
-	createEffect(newMenuOpen, (isOpen) => {
-		if (!isOpen) return;
-		const closeOnOutsidePointer = (event: PointerEvent) => {
-			if (
-				event.target instanceof Node &&
-				!newMenuRef.current?.contains(event.target)
-			) {
-				setNewMenuOpen(false);
-			}
-		};
-		const closeOnEscape = (event: KeyboardEvent) => {
-			if (event.key === "Escape") setNewMenuOpen(false);
-		};
-		document.addEventListener("pointerdown", closeOnOutsidePointer);
-		window.addEventListener("keydown", closeOnEscape);
-		return () => {
-			document.removeEventListener("pointerdown", closeOnOutsidePointer);
-			window.removeEventListener("keydown", closeOnEscape);
-		};
-	});
-	const createChat = (target: CreateAgentChatTarget) => {
-		setNewMenuOpen(false);
-		dispatchCreateAgentChat(target);
-	};
 	const chatFlyoutOpen = createMemo(
 		() =>
 			chatFlyoutHovered() &&
-			!newMenuOpen() &&
+			!creatingProject() &&
 			(workspaceSidebarCollapsed() || location.pathname !== "/"),
 	);
 	const activePaneId = createMemo(
@@ -299,13 +97,6 @@ export function RepositoryWorkspaceBar() {
 			if (location.pathname !== "/") navigate("/");
 		});
 	};
-	const activateWorkspace = (workspace: RepositoryWorkspace) => {
-		void mutateAgentWorkspaceState({
-			type: "selectRepository",
-			cwd: workspace.cwd,
-		});
-		if (location.pathname !== "/") navigate("/");
-	};
 	const barProps = createMemo(() => stylex.attrs(styles.bar));
 	const workspaceSidebarToggleProps = createMemo(() =>
 		stylex.attrs(styles.panelToggle, styles.workspaceSidebarToggle),
@@ -315,7 +106,7 @@ export function RepositoryWorkspaceBar() {
 	);
 	return (
 		<header
-			aria-label="Repository bar"
+			aria-label="Workspace bar"
 			{...barProps()}
 			class={`${APP_REGION_DRAG_CLASS} ${barProps().class ?? ""}`}
 		>
@@ -323,7 +114,6 @@ export function RepositoryWorkspaceBar() {
 				{...workspaceSidebarToggleRootProps()}
 				class={`${APP_REGION_NO_DRAG_CLASS} ${workspaceSidebarToggleRootProps().class ?? ""}`}
 				onMouseEnter={() => {
-					setNewMenuOpen(false);
 					setChatFlyoutHovered(true);
 				}}
 				onMouseLeave={() => setChatFlyoutHovered(false)}
@@ -357,35 +147,177 @@ export function RepositoryWorkspaceBar() {
 					/>
 				) : null}
 			</div>
-			<NewWorkspaceMenu
-				activeWorkspace={projection().activeWorkspace}
-				menuRef={newMenuRef}
-				open={newMenuOpen()}
-				onCreateChat={createChat}
-				onHover={setNewMenuOpen}
-				onToggle={() => setNewMenuOpen((open) => !open)}
-			/>
-			<RepositoryWorkspaceTabs
-				activePath={projection().activePath}
-				hasWorkspaces={projection().workspaces.length > 0}
-				onActivate={activateWorkspace}
-				tabDrag={tabDrag}
-			/>
-			{tabDrag.error() ? (
-				<span role="alert" {...stylex.attrs(styles.emptyLabel)}>
-					{tabDrag.error()}
-				</span>
+			<button
+				type="button"
+				aria-label="New project"
+				title="New project"
+				class={`${APP_REGION_NO_DRAG_CLASS} ${stylex.attrs(styles.newProject).class ?? ""}`}
+				onClick={() => setCreatingProject(true)}
+			>
+				<span>New</span>
+				<IconPlus size={iconSize.sm} />
+			</button>
+			{creatingProject() ? (
+				<ProjectEditor close={() => setCreatingProject(false)} />
 			) : null}
-			<RepositoryPanelControls
-				hasActiveWorkspace={!!projection().activeWorkspace}
-				graphVisible={
-					panelState.data?.mainViewMode === "graph" &&
-					panelVisibility().graphVisible
-				}
-				sidebarVisible={panelVisibility().sidebarVisible}
-				onToggleGraph={dispatchToggleActiveGitGraph}
-				onToggleSidebar={dispatchToggleActiveGitSidebar}
-			/>
+			<div
+				role="tablist"
+				aria-label="Projects"
+				class={`${APP_REGION_NO_DRAG_CLASS} ${stylex.attrs(styles.tabs).class ?? ""}`}
+			>
+				{projects
+					.list()
+					.filter((p) => !p.archived)
+					.map((project) => (
+						<button
+							type="button"
+							role="tab"
+							draggable="true"
+							data-project-tab={project.id}
+							title={`${project.name} · Drag to reorder`}
+							onDragStart={(event) => {
+								setDraggedProject(project.id);
+								event.dataTransfer?.setData(
+									"application/x-inferay-project",
+									project.id,
+								);
+								if (event.dataTransfer)
+									event.dataTransfer.effectAllowed = "move";
+							}}
+							onDragOver={(event) => {
+								if (!draggedProject()) return;
+								event.preventDefault();
+								const bounds = event.currentTarget.getBoundingClientRect();
+								const ids = projects
+									.list()
+									.filter((p) => !p.archived)
+									.map((p) => p.id);
+								setDropBefore(
+									event.clientX < bounds.left + bounds.width / 2
+										? project.id
+										: (ids[ids.indexOf(project.id) + 1] ?? null),
+								);
+							}}
+							onDrop={(event) => {
+								event.preventDefault();
+								const id = draggedProject();
+								if (id && dropBefore() !== undefined)
+									reorderProject(id, dropBefore() ?? null);
+								setDraggedProject(null);
+								setDropBefore(undefined);
+							}}
+							onDragEnd={() => {
+								setDraggedProject(null);
+								setDropBefore(undefined);
+							}}
+							aria-selected={ariaValue(projects.selectedId() === project.id)}
+							tabindex={projects.selectedId() === project.id ? 0 : -1}
+							{...stylex.attrs(
+								styles.tab,
+								draggedProject() === project.id && styles.draggingTab,
+								dropBefore() === project.id && styles.dropBefore,
+								dropBefore() === null &&
+									projects
+										.list()
+										.filter((p) => !p.archived)
+										.at(-1)?.id === project.id &&
+									styles.dropAfter,
+								...selectionAppearance(
+									"repository",
+									projects.selectedId() === project.id,
+								),
+							)}
+							onClick={() => {
+								if (projects.selectedId() !== project.id)
+									void selectProject(project.id);
+								else showProjectView("chat");
+							}}
+							onKeyDown={(event) => {
+								if (
+									!["ArrowLeft", "ArrowRight", "Home", "End"].includes(
+										event.key,
+									)
+								)
+									return;
+								event.preventDefault();
+								if (
+									event.altKey &&
+									event.shiftKey &&
+									["ArrowLeft", "ArrowRight"].includes(event.key)
+								) {
+									const ids = projects
+										.list()
+										.filter((p) => !p.archived)
+										.map((p) => p.id);
+									const index = ids.indexOf(project.id);
+									if (event.key === "ArrowLeft" && index > 0)
+										reorderProject(project.id, ids[index - 1]!);
+									if (event.key === "ArrowRight" && index < ids.length - 1)
+										reorderProject(project.id, ids[index + 2] ?? null);
+									return;
+								}
+								const tabs = Array.from(
+									event.currentTarget.parentElement!.querySelectorAll<HTMLButtonElement>(
+										'[role="tab"]',
+									),
+								);
+								const index = tabs.indexOf(event.currentTarget);
+								const next =
+									event.key === "Home"
+										? 0
+										: event.key === "End"
+											? tabs.length - 1
+											: (index +
+													(event.key === "ArrowRight" ? 1 : -1) +
+													tabs.length) %
+												tabs.length;
+								tabs[next]?.focus();
+								tabs[next]?.click();
+							}}
+						>
+							<IconFolder size={iconSize.sm} />
+							<span {...stylex.attrs(styles.tabLabel)}>{project.name}</span>
+						</button>
+					))}
+			</div>
+			{projects.list().find((p) => p.id === projects.selectedId()) ? (
+				<button
+					type="button"
+					aria-label="Edit project"
+					title="Edit project"
+					class={`${APP_REGION_NO_DRAG_CLASS} ${stylex.attrs(styles.panelToggle).class ?? ""}`}
+					onClick={() =>
+						setEditingProject(
+							projects.list().find((p) => p.id === projects.selectedId()),
+						)
+					}
+				>
+					<IconWrench size={iconSize.sm} />
+				</button>
+			) : null}
+			{editingProject() ? (
+				<ProjectEditor
+					project={editingProject()}
+					close={() => setEditingProject(undefined)}
+				/>
+			) : null}
+			{projects.view() === "code" ? (
+				<>
+					<span {...stylex.attrs(styles.emptyLabel)}>
+						{projects.repositoryPath()?.split("/").at(-1)}
+					</span>
+					<RepositoryPanelControls
+						hasActiveWorkspace={!!projects.repositoryPath()}
+						graphVisible={
+							panelState.data?.mainViewMode === "graph" &&
+							panelVisibility().graphVisible
+						}
+						sidebarVisible={panelVisibility().sidebarVisible}
+						onToggleGraph={dispatchToggleActiveGitGraph}
+						onToggleSidebar={dispatchToggleActiveGitSidebar}
+					/>
+				</>
+			) : null}
 		</header>
 	);
 }

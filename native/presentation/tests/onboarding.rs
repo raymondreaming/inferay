@@ -2,7 +2,11 @@ use inferay_presentation::project;
 use serde_json::{Value, json};
 
 fn tour(progress: Value, facts: Value) -> Value {
-    project("onboardingTour", &json!({"progress":progress,"facts":facts})).unwrap()
+    project(
+        "onboardingTour",
+        &json!({"progress":progress,"facts":facts}),
+    )
+    .unwrap()
 }
 
 fn advance(progress: Value, action: &str) -> Value {
@@ -34,7 +38,10 @@ fn the_tour_runs_only_once_it_has_been_started() {
 fn a_step_waits_for_the_app_to_show_its_result_and_hands_back_on_undo() {
     let chosen = json!({"repositoryChosen":true});
     let on_repository = json!({"status":"running","step":"repository"});
-    assert_eq!(tour(on_repository.clone(), chosen.clone())["step"]["taskDone"], true);
+    assert_eq!(
+        tour(on_repository.clone(), chosen.clone())["step"]["taskDone"],
+        true
+    );
 
     let next = advance(on_repository, "next");
     assert_eq!(next["step"], "chat");
@@ -81,5 +88,8 @@ fn a_spotlight_pads_its_anchor_and_stops_at_the_window_edge() {
         spotlight(json!({"x":0,"y":0,"width":260,"height":800})),
         json!({"x":0.0,"y":0.0,"width":266.0,"height":800.0})
     );
-    assert_eq!(spotlight(json!({"x":0,"y":0,"width":0,"height":0})), Value::Null);
+    assert_eq!(
+        spotlight(json!({"x":0,"y":0,"width":0,"height":0})),
+        Value::Null
+    );
 }

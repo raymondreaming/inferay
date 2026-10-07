@@ -2,7 +2,6 @@ import type {
 	DiffRequest,
 	DiffSource,
 	DiffViewMode,
-	FileContent,
 	GitActionResponse,
 	GitCommitFile,
 	GitFileEntry,
@@ -66,7 +65,6 @@ import {
 	visibleGitFiles,
 	writeStoredValue,
 } from "@shared/lib/native.tsx";
-import type { DragProps } from "@workspace/components/WorkspaceCanvas/index.tsx";
 import { MIN_RESPONSIVE_PANE_WIDTH } from "@workspace/components/WorkspaceCanvas/index.tsx";
 import { useWorkspacePanelSession } from "@workspace/hooks/useWorkspacePanelSession.tsx";
 import {
@@ -90,11 +88,6 @@ const EMPTY_FILE_GROUPS = {
 	untracked: [],
 };
 
-let detachedFilePanelSequence = 0;
-function createDetachedFilePanelId() {
-	detachedFilePanelSequence += 1;
-	return `workspace-file-viewer:${Date.now()}:${detachedFilePanelSequence}`;
-}
 export function useRepositoryWorkbench(
 	_options: Accessor<{
 		readonly active: boolean;
@@ -690,17 +683,6 @@ export function useRepositoryWorkbench(
 		});
 		if (action) updatePanelSession(action);
 	};
-	const focusWorkbench = (repositoryCwd?: string) => {
-		const action = rustProject<PanelAction | null>("repositoryInteraction", {
-			type: "focusWorkbench",
-			cwd: repositoryCwd,
-			repositoryCwd: _options().cwd,
-			hasFocusedPanel: Boolean(panelSession().focusedAuxiliaryPanel),
-			mainViewMode: panelSession().mainViewMode,
-			diffViewerCwd: panelSession().diffViewerCwd,
-		});
-		if (action) updatePanelSession(action);
-	};
 	const focusDiffViewer = () => {
 		const action = rustProject<PanelAction | null>("repositoryInteraction", {
 			type: "focusDiff",
@@ -942,25 +924,7 @@ export function useRepositoryWorkbench(
 			},
 		);
 	};
-	const startFileDrag = (
-		drag: DragProps,
-		event: PointerEvent,
-		file: FileContent,
-		completeMove: () => void,
-	) => {
-		const id = createDetachedFilePanelId();
-		drag.onCreatePanelDragStart(event, id, () => {
-			updatePanelSession({
-				type: "detachFile",
-				id,
-				cwd: file.cwd,
-				path: file.path,
-				initialFile: file,
-			});
-			completeMove();
-		});
-	};
-	const renderAuxiliaryPanel = (id: string, drag: DragProps) => {
+	const renderAuxiliaryPanel = (id: string) => {
 		if (id === "workspace-file-viewer")
 			return (
 				<DocumentViewer
@@ -970,8 +934,6 @@ export function useRepositoryWorkbench(
 					onSessionChange={saveDocumentSession}
 					openRequest={panelSession().fileRequest}
 					onClose={closeFileViewer}
-					onFileTabDragStart={startFileDrag.bind(null, drag)}
-					{...drag}
 				/>
 			);
 		const panel = createMemo(() =>
@@ -997,8 +959,6 @@ export function useRepositoryWorkbench(
 						initialFile={retained()?.initialFile}
 						openRequest={openRequest()}
 						onClose={() => updatePanelSession({ type: "closeFile", id })}
-						onFileTabDragStart={startFileDrag.bind(null, drag)}
-						{...drag}
 					/>
 				)}
 			</Show>
@@ -1017,9 +977,8 @@ export function useRepositoryWorkbench(
 			});
 		return panels.map((panel) => ({
 			id: panel.id,
-			selected: session.focusedAuxiliaryPanel?.id === panel.id,
 			onSelect: () => updatePanelSession({ type: "focus", panel }),
-			render: (drag: DragProps) => renderAuxiliaryPanel(panel.id, drag),
+			render: () => renderAuxiliaryPanel(panel.id),
 		}));
 	});
 	const diffPanel = (
@@ -1029,7 +988,7 @@ export function useRepositoryWorkbench(
 					ref={(element) => {
 						diffRailElement = element;
 					}}
-					zenMode={zenMode()}
+					zenMode={true}
 					width={diffWidth()}
 					maxWidth={`max(0px, calc(100% - ${MIN_RESPONSIVE_PANE_WIDTH + (sidebarVisible() ? sidebarWidth() : 0)}px))`}
 					onFocus={focusDiffViewer}
@@ -1144,7 +1103,7 @@ export function useRepositoryWorkbench(
 			return auxiliaryPanels();
 		},
 		diffPanel,
-		focusWorkbench,
+		showGraph: () => changeMainViewMode("graph"),
 		sidebar,
 		get zenMode() {
 			return zenMode();

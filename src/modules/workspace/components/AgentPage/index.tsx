@@ -38,7 +38,8 @@ import {
 	merge,
 	onSettled,
 } from "solid-js";
-import { RepositorySurface } from "./RepositorySurface.tsx";
+import { projects } from "../../hooks/useProjects.tsx";
+import { ConversationSurface } from "./ConversationSurface.tsx";
 
 type AgentPaneActionsArgs = {
 	readonly chatRefs: Map<string, AgentChatHandle>;
@@ -194,15 +195,12 @@ export function AgentPage() {
 	);
 	const theme = createMemo(() => getThemeById(themeId()));
 	const activeViewKey = createMemo(() =>
-		JSON.stringify([
-			workspace().selectedGroupId ?? "",
-			workspace().repositories.activePath,
-		]),
+		JSON.stringify([workspace().selectedGroupId ?? "", projects.selectedId()]),
 	);
 	const retainedViews = createMemo<WorkspaceView[]>((previous) =>
 		project("retainedWorkspaces", {
 			groups: workspace().groups,
-			repositories: workspace().repositories,
+			scopeId: projects.selectedId(),
 			previous: previous?.map((view) => view.key) ?? [],
 			activeKey: activeViewKey(),
 		}),
@@ -248,9 +246,9 @@ export function AgentPage() {
 			{workspaceError() ? <div role="alert">{workspaceError()}</div> : null}
 			<For each={retainedViews()} keyed={(view) => view.key}>
 				{(view) => (
-					<RepositorySurface
+					<ConversationSurface
 						view={view()}
-						group={workspace().groups[view().groupIndex]!}
+						group={workspace().groups[view().groupIndex]}
 						active={view().key === activeViewKey()}
 						layoutMode={layoutMode()}
 						theme={theme()}
