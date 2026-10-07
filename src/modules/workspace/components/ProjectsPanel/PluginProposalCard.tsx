@@ -50,7 +50,7 @@ export function PluginProposalCard(props: {
 		);
 	const manifest = createMemo(() => {
 		const content = props.command.files["plugin.json"];
-		if (!content) return existing();
+		if (!content) return existing()?.file.definition;
 		try {
 			return JSON.parse(content) as PluginDefinition;
 		} catch {
@@ -59,8 +59,8 @@ export function PluginProposalCard(props: {
 	});
 	const library = useBackgroundQuery(
 		() => ({
-			queryKey: ["plugin-proposal-library", existing()?.id ?? ""],
-			queryFn: () => readPluginLibrary(existing()!.id),
+			queryKey: ["plugin-proposal-library", existing()?.file.id ?? ""],
+			queryFn: () => readPluginLibrary(existing()!.file.id),
 			enabled: props.command.type === "updatePlugin" && !!existing(),
 		}),
 		() => queryClient,
@@ -189,7 +189,7 @@ export function PluginProposalCard(props: {
 						size="sm"
 						disabled={busy()}
 						onClick={async () => {
-							const id = createdId() ?? existing()?.id;
+							const id = createdId() ?? existing()?.file.id;
 							if (!id) return;
 							setBusy(true);
 							setError("");

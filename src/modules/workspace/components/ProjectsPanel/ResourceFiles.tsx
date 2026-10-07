@@ -7,7 +7,7 @@ import {
 	saveProjectCommand,
 	showProjectView,
 } from "../../hooks/useProjects.tsx";
-import type { ProjectPlugin } from "../../model/projectFiles.ts";
+import { pluginName } from "../../model/projectFiles.ts";
 import { importPluginLibrary } from "../../services/projectsApi.ts";
 import { LibraryToolbar } from "./LibraryToolbar.tsx";
 import { PluginContentsSummary } from "./PluginContentsSummary.tsx";
@@ -17,7 +17,18 @@ import { styles } from "./styles.ts";
 
 export function ResourceFiles() {
 	const [dragging, setDragging] = createSignal(false);
-	const [library, setLibrary] = createSignal<ProjectPlugin | null>(null);
+	const [libraryTarget, setLibraryTarget] = createSignal<{
+		projectId: string;
+		path: string;
+	} | null>(null);
+	const library = () =>
+		projects
+			.catalog()
+			?.plugins.find(
+				(plugin) =>
+					plugin.file.sourcePath === libraryTarget()?.path &&
+					plugin.file.projectId === libraryTarget()?.projectId,
+			);
 	const [search, setSearch] = createSignal("");
 	const [error, setError] = createSignal("");
 	const [importing, setImporting] = createSignal(false);
@@ -56,7 +67,7 @@ export function ResourceFiles() {
 	}
 	const plugins = () =>
 		(projects.catalog()?.plugins ?? []).filter((plugin) =>
-			`${plugin.name} ${plugin.description}`
+			`${pluginName(plugin)} ${plugin.file.definition?.description ?? ""} ${plugin.file.sourcePath}`
 				.toLowerCase()
 				.includes(search().toLowerCase()),
 		);
@@ -103,7 +114,10 @@ export function ResourceFiles() {
 			)}
 			<Show when={library()} keyed>
 				{(value) => (
-					<PluginLibraryDialog plugin={value} close={() => setLibrary(null)} />
+					<PluginLibraryDialog
+						plugin={value}
+						close={() => setLibraryTarget(null)}
+					/>
 				)}
 			</Show>
 			<input
@@ -137,40 +151,65 @@ export function ResourceFiles() {
 				{plugins().map((plugin) => {
 					const automations = () =>
 						(projects.catalog()?.automations ?? []).filter(
-							(item) => item.file.pluginId === plugin.id && !item.archived,
+							(item) =>
+								item.file.sourcePath.startsWith(
+									plugin.file.sourcePath.replace(/plugin\.json$/, ""),
+								) && !item.archived,
 						);
 					const tools = () =>
-						(projects.catalog()?.tools ?? []).filter(
-							(item) => item.file.pluginId === plugin.id,
+						(projects.catalog()?.tools ?? []).filter((item) =>
+							item.file.sourcePath.startsWith(
+								plugin.file.sourcePath.replace(/plugin\.json$/, ""),
+							),
 						);
 					return (
 						<article {...stylex.attrs(styles.card)}>
-							<strong {...stylex.attrs(styles.listText)}>{plugin.name}</strong>
+							<strong {...stylex.attrs(styles.listText)}>
+								{pluginName(plugin)}
+							</strong>
 							<span {...stylex.attrs(styles.muted)}>
-								Version {plugin.version} ·{" "}
-								{(plugin.approvedAt !== null && !plugin.approvedHash) ||
-								automations().some((item) => item.inputsChanged)
-									? "Changed · Review required"
-									: automations().some((item) => item.enabled)
-										? "Running on schedule"
-										: automations().length
-											? "Schedules off"
-											: "Reusable library"}
+								{plugin.file.definition && (
+									<>Version {plugin.file.definition.version} · </>
+								)}
+								{plugin.file.error
+									? "Needs repair"
+									: (plugin.approvedAt !== null && !plugin.approvedHash) ||
+											automations().some((item) => item.inputsChanged)
+										? "Changed · Review required"
+										: automations().some((item) => item.enabled)
+											? "Running on schedule"
+											: automations().length
+												? "Schedules off"
+												: "Reusable library"}
 							</span>
 							<p {...stylex.attrs(styles.resourcePreview)}>
-								{plugin.description}
+								{plugin.file.definition?.description}
 							</p>
-							<PluginContentsSummary id={plugin.id} />
+							{plugin.file.error && (
+								<p role="alert" {...stylex.attrs(styles.muted)}>
+									{plugin.file.error}
+								</p>
+							)}
+							<PluginContentsSummary id={plugin.file.id} />
 							{tools().map((tool) => (
 								<span {...stylex.attrs(styles.muted)}>{tool.name}</span>
 							))}
 							<span {...stylex.attrs(styles.muted)}>
-								Permissions: {plugin.may.join(", ") || "None declared"}
+								Permissions:{" "}
+								{plugin.file.definition?.may.join(", ") ||
+									(plugin.file.definition
+										? "None declared"
+										: "Manifest needs repair")}
 							</span>
 							<Button
 								size="sm"
 								disabled={projects.busy()}
-								onClick={() => setLibrary(plugin)}
+								onClick={() =>
+									setLibraryTarget({
+										projectId: plugin.file.projectId,
+										path: plugin.file.sourcePath,
+									})
+								}
 							>
 								Open library
 							</Button>
@@ -182,7 +221,7 @@ export function ResourceFiles() {
 									onClick={() =>
 										void saveProjectCommand({
 											type: "disablePlugin",
-											id: plugin.id,
+											id: plugin.file.id,
 										}).catch((error) => setError(String(error)))
 									}
 								>

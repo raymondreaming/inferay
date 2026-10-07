@@ -704,3 +704,33 @@ fn memory_records_are_indexed_from_the_current_library_directory() {
     assert_eq!(view.resources[0].source_path, path);
     assert!(view.resources[0].definition.is_some());
 }
+
+#[test]
+fn broken_plugin_manifest_can_be_read_and_repaired_without_reapproval() {
+    let (profile, project, _) = fixture();
+    let root = profile.path().join("projects").join(&project);
+    let manifest_path = "plugins/daily/plugin.json";
+    let original = fs::read(root.join(manifest_path)).unwrap();
+    let original_id = serde_json::from_slice::<Value>(&original).unwrap()["id"].as_str().unwrap().to_owned();
+    fs::write(root.join(manifest_path), b"{broken").unwrap();
+    let mut db = Connection::open_in_memory().unwrap();
+    create_schema(&db).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
+    let broken = catalog(&db, Some(&project)).unwrap().plugins.remove(0);
+    assert!(broken.file.definition.is_none());
+    assert!(broken.file.error.is_some());
+    let content = crate::project_file_commands::apply(
+        &mut db, profile.path(),
+        ProjectFileCommand::ReadPlugin { id: broken.file.id.clone(), path: Some("plugin.json".into()) },
+        false, &[],
+    ).unwrap();
+    assert_eq!(content["content"], "{broken");
+    assert!(review_plugin(&db, profile.path(), &broken.file.id, &[]).is_err());
+    save_definition(&mut db, profile.path(), &project, manifest_path, &original,
+        content["sourceHash"].as_str(), &[]).unwrap();
+    let repaired = catalog(&db, Some(&project)).unwrap();
+    assert_eq!(repaired.plugins[0].file.id, original_id);
+    assert!(repaired.plugins[0].file.error.is_none());
+    assert!(repaired.plugins[0].approved_hash.is_none());
+    assert!(!repaired.automations[0].enabled);
+}

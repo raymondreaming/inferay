@@ -3,7 +3,6 @@ import type {
 	IndexedAutomation,
 	IndexedDefinition,
 	IndexedPlugin,
-	PluginDefinition,
 	ProjectDefinition,
 	ProjectWorkspace,
 	ResourceDefinition,
@@ -18,8 +17,14 @@ export type ProjectTool = ProjectFile<ToolDefinition>;
 export type ProjectResource = ProjectFile<ResourceDefinition>;
 export type ProjectAutomation = ProjectFile<AutomationDefinition> &
 	Omit<IndexedAutomation, "file">;
-export type ProjectPlugin = ProjectFile<PluginDefinition> &
-	Omit<IndexedPlugin, "file"> & { directory: string };
+export type ProjectPlugin = IndexedPlugin & { directory: string };
+export function pluginName(plugin: ProjectPlugin): string {
+	return (
+		plugin.file.definition?.name ??
+		plugin.file.sourcePath.split("/")[1] ??
+		"Plugin"
+	);
+}
 
 function defined<T>(file: IndexedDefinition<T>): ProjectFile<T>[] {
 	return file.definition && !file.error ? [{ ...file.definition, file }] : [];
@@ -45,12 +50,11 @@ export function projectWorkspaceView(workspace: ProjectWorkspace) {
 			({ file, ...state }): ProjectAutomation[] =>
 				file.definition ? [{ ...file.definition, file, ...state }] : [],
 		),
-		plugins: catalog.plugins.flatMap(({ file, ...state }): ProjectPlugin[] =>
-			defined(file).map((definition) => ({
-				...definition,
-				...state,
-				directory: `${root}/projects/${file.projectId}/${file.sourcePath.replace(/\/plugin\.json$/, "")}`,
-			})),
+		plugins: catalog.plugins.map(
+			(plugin): ProjectPlugin => ({
+				...plugin,
+				directory: `${root}/projects/${plugin.file.projectId}/${plugin.file.sourcePath.replace(/\/plugin\.json$/, "")}`,
+			}),
 		),
 	};
 }

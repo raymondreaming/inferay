@@ -7,7 +7,7 @@ import { Modal } from "@shared/ui/Modal/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createSignal, Show } from "solid-js";
 import { saveProjectCommand } from "../../hooks/useProjects.tsx";
-import type { ProjectPlugin } from "../../model/projectFiles.ts";
+import { type ProjectPlugin, pluginName } from "../../model/projectFiles.ts";
 import {
 	readPluginLibrary,
 	readPluginTextFile,
@@ -55,24 +55,25 @@ export function PluginLibraryDialog(props: {
 	const [error, setError] = createSignal("");
 	const library = useBackgroundQuery(
 		() => ({
-			queryKey: ["plugin-library", props.plugin.id],
-			queryFn: () => readPluginLibrary(props.plugin.id),
+			queryKey: ["plugin-library", props.plugin.file.id],
+			queryFn: () => readPluginLibrary(props.plugin.file.id),
 		}),
 		() => queryClient,
 	);
 	const path = () =>
 		selected() ??
+		(props.plugin.file.error ? "plugin.json" : undefined) ??
 		library.data?.files.find((file) => /^readme\.md$/i.test(file.path))?.path;
 	const content = useBackgroundQuery(
 		() => ({
 			queryKey: [
 				"plugin-library-file",
-				props.plugin.id,
+				props.plugin.file.id,
 				path(),
 				library.data?.files.find((file) => file.path === path())?.sourceHash,
 			],
 			enabled: !!path(),
-			queryFn: () => readPluginTextFile(props.plugin.id, path()!),
+			queryFn: () => readPluginTextFile(props.plugin.file.id, path()!),
 		}),
 		() => queryClient,
 	);
@@ -80,7 +81,7 @@ export function PluginLibraryDialog(props: {
 		setReviewing(true);
 		setError("");
 		try {
-			setReview(await reviewProjectPlugin(props.plugin.id));
+			setReview(await reviewProjectPlugin(props.plugin.file.id));
 		} catch (error) {
 			setError(String(error));
 		} finally {
@@ -92,14 +93,16 @@ export function PluginLibraryDialog(props: {
 			when={review()}
 			fallback={
 				<Modal
-					label={props.plugin.name}
+					label={pluginName(props.plugin)}
 					onClose={props.close}
 					closeDisabled={dirty() || saving()}
 					class={stylex.attrs(styles.dialog).class}
 				>
 					<div {...stylex.attrs(styles.formFields)}>
-						<h3>{props.plugin.name}</h3>
-						<p {...stylex.attrs(styles.muted)}>{props.plugin.description}</p>
+						<h3>{pluginName(props.plugin)}</h3>
+						<p {...stylex.attrs(styles.muted)}>
+							{props.plugin.file.definition?.description}
+						</p>
 						{props.plugin.file.error && (
 							<p role="alert">{props.plugin.file.error}</p>
 						)}
@@ -108,7 +111,9 @@ export function PluginLibraryDialog(props: {
 						<div {...stylex.attrs(styles.row)}>
 							<Button
 								size="sm"
-								disabled={reviewing() || !!editing()}
+								disabled={
+									reviewing() || !!editing() || !!props.plugin.file.error
+								}
 								onClick={() => void openReview()}
 							>
 								{reviewing()
