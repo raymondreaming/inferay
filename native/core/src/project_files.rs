@@ -654,3 +654,33 @@ pub struct PluginTextFile {
     pub source_hash: String,
     pub content: String,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProjectProposalRequest {
+    pub message_id: String,
+    pub command: ProjectFileCommand,
+    pub decision: Option<ProjectProposalDecision>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ProjectProposalDecision {
+    Save,
+    Decline,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ProjectProposalStatus {
+    Pending,
+    Saved,
+    Declined,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectProposalView {
+    pub status: ProjectProposalStatus,
+    pub entity_id: Option<String>,
+}

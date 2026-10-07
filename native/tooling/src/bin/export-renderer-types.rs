@@ -32,6 +32,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         inferay_core::project_files::PluginLibrary,
         inferay_core::project_files::PluginTextFile,
         inferay_core::project_files::ProjectFileCommand,
+        inferay_core::project_files::ProjectProposalRequest,
+        inferay_core::project_files::ProjectProposalView,
         inferay_core::project_files::ResourceDefinition,
         inferay_core::project_files::PluginDefinition,
         inferay_core::project_files::ToolDefinition,

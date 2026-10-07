@@ -76,6 +76,7 @@ mod path_resolution;
 mod project_runtime;
 mod project_runs;
 mod project_file_commands;
+mod project_proposals;
 mod project_file_store;
 mod project_store;
 mod project_definitions;
@@ -459,6 +460,7 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             }
             ("/api/projects/run-chat", "POST") => project_chat::open(&state, request).await,
             ("/api/projects/command", "POST") => project_command(&state, request).await,
+            ("/api/projects/proposal", "POST") => project_proposal(&state, request).await,
             ("/api/memory", "GET") => memory_store::http::list(&state, request).await,
             ("/api/memory/note", "GET") => memory_store::http::note(&state, request).await,
             ("/api/memory/pane", "GET") => memory_store::http::pane(&state, request).await,
@@ -3318,4 +3320,12 @@ async fn project_command(state: &ServerState, request: Request) -> ApiResult {
         .command(command, true)
         .await
         .map_err(|e| api_error(StatusCode::BAD_REQUEST, e.to_string()))
+}
+
+
+async fn project_proposal(state: &ServerState, request: Request) -> ApiResult {
+    let proposal: inferay_core::project_files::ProjectProposalRequest = api_body(request).await?;
+    state.projects.proposal(proposal).await
+        .and_then(|view| Ok(serde_json::to_value(view)?))
+        .map_err(|error| api_error(StatusCode::BAD_REQUEST, error.to_string()))
 }

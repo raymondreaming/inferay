@@ -8,16 +8,14 @@ import { CardInstructions } from "@shared/ui/ChatActionCard/index.tsx";
 import { cardStyles } from "@shared/ui/ChatActionCard/styles.ts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal } from "solid-js";
-import {
-	saveProjectCommand,
-	selectProject,
-	showProjectView,
-} from "../../hooks/useProjects.tsx";
+import { useProjectProposal } from "../../hooks/useProjectProposal.tsx";
+import { selectProject, showProjectView } from "../../hooks/useProjects.tsx";
 import { automationScheduleLabel } from "../../model/automationSchedule.ts";
 import { loadProjects } from "../../services/projectsApi.ts";
 
 export function AutomationDefinitionCard(props: {
 	command: Extract<ProjectFileCommand, { type: "saveDefinition" }>;
+	messageId: string;
 	onResult?: (message: string) => void;
 }) {
 	// The native transcript model only exposes validated automation definitions.
@@ -44,9 +42,13 @@ export function AutomationDefinitionCard(props: {
 			.filter(Boolean)
 			.join(" · ");
 	});
-	const [saved, setSaved] = createSignal(false);
-	const [declined, setDeclined] = createSignal(false);
-	const [busy, setBusy] = createSignal(false);
+	const proposal = useProjectProposal(() => ({
+		messageId: props.messageId,
+		command: props.command,
+	}));
+	const saved = () => proposal.view()?.status === "saved";
+	const declined = () => proposal.view()?.status === "declined";
+	const busy = () => proposal.busy() || proposal.loading();
 	const [error, setError] = createSignal("");
 	const catalog = useBackgroundQuery(
 		() => ({
@@ -81,7 +83,7 @@ export function AutomationDefinitionCard(props: {
 					</strong>
 					<p {...stylex.attrs(cardStyles.status)}>
 						{saved()
-							? "Saved · Schedule off"
+							? "Saved"
 							: declined()
 								? "Declined"
 								: changed()
@@ -95,33 +97,28 @@ export function AutomationDefinitionCard(props: {
 				<span>{modelLabel()}</span>
 			</div>
 			{agent() && <CardInstructions text={agent()!.instructions} />}
-			{(error() || catalog.error) && (
+			{(error() || proposal.error() || catalog.error) && (
 				<p role="alert" {...stylex.attrs(cardStyles.feedback)}>
-					{error() || String(catalog.error)}
+					{error() || proposal.error() || String(catalog.error)}
 				</p>
 			)}
 			<div {...stylex.attrs(cardStyles.footer)}>
-				{!saved() && !declined() && !changed() && (
+				{!saved() && !declined() && (
 					<>
 						<Button
 							size="sm"
-							disabled={busy() || catalog.isPending || !!catalog.error}
+							disabled={
+								busy() || catalog.isPending || !!catalog.error || changed()
+							}
 							onClick={async () => {
-								setBusy(true);
-								setError("");
-								try {
-									await saveProjectCommand(props.command);
-									setSaved(true);
+								const result = await proposal.decide("save");
+								if (result?.status === "saved") {
 									props.onResult?.(
 										"Saved the automation “" +
 											definition().name +
-											"”. Its schedule is off; execution still requires review and approval.",
+											"”. Execution approval is separate.",
 									);
 									await catalog.refetch();
-								} catch (error) {
-									setError(String(error));
-								} finally {
-									setBusy(false);
 								}
 							}}
 						>
@@ -131,13 +128,14 @@ export function AutomationDefinitionCard(props: {
 							size="sm"
 							variant="ghost"
 							disabled={busy()}
-							onClick={() => {
-								setDeclined(true);
-								props.onResult?.(
-									"Declined the proposed automation “" +
-										definition().name +
-										"”. Do not apply it.",
-								);
+							onClick={async () => {
+								const result = await proposal.decide("decline");
+								if (result?.status === "declined")
+									props.onResult?.(
+										"Declined the proposed automation “" +
+											definition().name +
+											"”. Do not apply it.",
+									);
 							}}
 						>
 							Decline

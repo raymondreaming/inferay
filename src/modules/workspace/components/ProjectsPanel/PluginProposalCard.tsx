@@ -11,11 +11,8 @@ import { CardInstructions } from "@shared/ui/ChatActionCard/index.tsx";
 import { cardStyles } from "@shared/ui/ChatActionCard/styles.ts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, Show } from "solid-js";
-import {
-	saveProjectCommand,
-	selectProject,
-	showProjectView,
-} from "../../hooks/useProjects.tsx";
+import { useProjectProposal } from "../../hooks/useProjectProposal.tsx";
+import { selectProject, showProjectView } from "../../hooks/useProjects.tsx";
 import {
 	loadProjects,
 	readPluginLibrary,
@@ -27,8 +24,17 @@ type Bundle = Extract<
 	ProjectFileCommand,
 	{ type: "createPlugin" | "updatePlugin" }
 >;
-export function PluginProposalCard(props: { command: Bundle }) {
-	const [createdId, setCreatedId] = createSignal<string | null>(null);
+export function PluginProposalCard(props: {
+	command: Bundle;
+	messageId: string;
+	onResult?: (message: string) => void;
+}) {
+	const proposal = useProjectProposal(() => ({
+		messageId: props.messageId,
+		command: props.command,
+	}));
+	const createdId = () => proposal.view()?.entityId;
+
 	const [review, setReview] = createSignal<PluginReview | null>(null);
 	const catalog = useBackgroundQuery(
 		() => ({
@@ -59,7 +65,7 @@ export function PluginProposalCard(props: { command: Bundle }) {
 		}),
 		() => queryClient,
 	);
-	const saved = () => !!createdId();
+	const saved = () => proposal.view()?.status === "saved";
 	const changed = () =>
 		props.command.type === "updatePlugin"
 			? !existing() ||
@@ -67,13 +73,15 @@ export function PluginProposalCard(props: { command: Bundle }) {
 					library.data.sourceHash !== props.command.expectedHash)
 			: !!existing();
 	const unavailable = () =>
+		proposal.loading() ||
+		proposal.busy() ||
 		catalog.isPending ||
 		!!catalog.error ||
 		(props.command.type === "updatePlugin" &&
 			(library.isPending || !!library.error));
 	const removals = () =>
 		props.command.type === "updatePlugin" ? props.command.remove : [];
-	const [dismissed, setDismissed] = createSignal(false);
+	const dismissed = () => proposal.view()?.status === "declined";
 	const [busy, setBusy] = createSignal(false);
 	const [error, setError] = createSignal("");
 	const files = () => Object.entries(props.command.files);
@@ -121,27 +129,32 @@ export function PluginProposalCard(props: { command: Bundle }) {
 					</div>
 				))}
 			</details>
-			{(error() || catalog.error || library.error) && (
+			{(error() || proposal.error() || catalog.error || library.error) && (
 				<p role="alert" {...stylex.attrs(cardStyles.feedback)}>
-					{error() || String(catalog.error || library.error)}
+					{error() ||
+						proposal.error() ||
+						String(catalog.error || library.error)}
 				</p>
 			)}
 			<div {...stylex.attrs(cardStyles.footer)}>
-				{!saved() && !dismissed() && !changed() && (
+				{!saved() && !dismissed() && (
 					<>
 						<Button
 							size="sm"
-							disabled={busy() || unavailable()}
+							disabled={busy() || unavailable() || changed()}
 							onClick={async () => {
 								setBusy(true);
 								setError("");
 								try {
-									const result = await saveProjectCommand(props.command);
-									if (!result.id)
-										throw new Error("Plugin save returned no identity");
-									setCreatedId(result.id);
+									const result = await proposal.decide("save");
+									if (result?.status !== "saved" || !result.entityId) return;
+									props.onResult?.(
+										"Saved the plugin “" +
+											(manifest()?.name ?? props.command.slug) +
+											"”. Execution approval is separate.",
+									);
 									await catalog.refetch();
-									setReview(await reviewProjectPlugin(result.id));
+									setReview(await reviewProjectPlugin(result.entityId));
 								} catch (error) {
 									setError(String(error));
 								} finally {
@@ -156,8 +169,16 @@ export function PluginProposalCard(props: { command: Bundle }) {
 						<Button
 							size="sm"
 							variant="ghost"
-							disabled={busy() || unavailable()}
-							onClick={() => setDismissed(true)}
+							disabled={busy() || proposal.loading() || proposal.busy()}
+							onClick={async () => {
+								const result = await proposal.decide("decline");
+								if (result?.status === "declined")
+									props.onResult?.(
+										"Declined the plugin proposal for “" +
+											(manifest()?.name ?? props.command.slug) +
+											"”. Do not apply it.",
+									);
+							}}
 						>
 							Decline
 						</Button>

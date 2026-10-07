@@ -195,6 +195,10 @@ pub(crate) fn create_schema(db: &Connection) -> Result<()> {
         automation_id TEXT PRIMARY KEY,enabled INTEGER NOT NULL DEFAULT 0,
         next_due_at INTEGER,approved_hash TEXT,approved_at INTEGER,
         inputs_changed INTEGER NOT NULL DEFAULT 0,error TEXT);
+        CREATE TABLE IF NOT EXISTS project_proposals(
+            message_id TEXT PRIMARY KEY,command_hash TEXT NOT NULL,project_id TEXT NOT NULL,
+            state TEXT NOT NULL CHECK(state IN ('applying','saved','declined')),
+            output_hash TEXT,entity_id TEXT);
         CREATE TABLE IF NOT EXISTS plugin_state(plugin_id TEXT PRIMARY KEY,approved_hash TEXT,approved_at INTEGER);
         CREATE TABLE IF NOT EXISTS repository_paths(project_id TEXT NOT NULL,repository_id TEXT NOT NULL,path TEXT NOT NULL,PRIMARY KEY(project_id,repository_id));
         CREATE TABLE IF NOT EXISTS definition_errors(project_id TEXT NOT NULL,source_path TEXT NOT NULL,error TEXT NOT NULL,PRIMARY KEY(project_id,source_path));")?;

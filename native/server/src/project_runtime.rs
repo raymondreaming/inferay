@@ -260,6 +260,18 @@ impl ProjectRuntime {
         }
     }
 
+    pub async fn proposal(
+        self: &Arc<Self>,
+        request: inferay_core::project_files::ProjectProposalRequest,
+    ) -> Result<inferay_core::project_files::ProjectProposalView> {
+        let skills = self.prompts.lock().await.load()?;
+        let this = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut store = this.store.lock().map_err(|_| "Project store lock failed")?;
+            crate::project_proposals::resolve(&mut store, request, &skills)
+        }).await?
+    }
+
     pub async fn command(self: &Arc<Self>, cmd: ProjectFileCommand, host: bool) -> Result<Value> {
         let skills = self.prompts.lock().await.load()?;
         let this = self.clone();

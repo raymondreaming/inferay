@@ -47,6 +47,7 @@ export function SystemMessage(props: {
 					const command = props.message.render?.automationDefinitionProposal;
 					return command?.type === "saveDefinition" ? (
 						<AutomationDefinitionCard
+							messageId={`${props.paneId}:${props.message.id}:project`}
 							command={command}
 							onResult={props.onSendMessage}
 						/>
@@ -63,7 +64,11 @@ export function SystemMessage(props: {
 					const command = props.message.render?.pluginProposal;
 					return command?.type === "createPlugin" ||
 						command?.type === "updatePlugin" ? (
-						<PluginProposalCard command={command} />
+						<PluginProposalCard
+							command={command}
+							messageId={`${props.paneId}:${props.message.id}:project`}
+							onResult={props.onSendMessage}
+						/>
 					) : null;
 				}}
 			</Match>

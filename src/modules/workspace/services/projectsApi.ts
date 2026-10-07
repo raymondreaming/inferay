@@ -4,6 +4,8 @@ import type {
 	PluginTextFile,
 	ProjectDocument,
 	ProjectFileCommand,
+	ProjectProposalRequest,
+	ProjectProposalView,
 	ProjectWorkspace,
 } from "@contracts";
 import { fetchJson, postJson, request } from "@shared/lib/native.tsx";
@@ -117,6 +119,18 @@ export function importPluginLibrary(
 	return fetchJson<{ id: string }>(
 		`/api/projects/plugin-import?${new URLSearchParams({ projectId, name })}`,
 		{ method: "POST", body },
+		{ server: true },
+	);
+}
+
+export function projectProposal(
+	request: ProjectProposalRequest,
+	signal?: AbortSignal,
+) {
+	return postJson<ProjectProposalView>(
+		"/api/projects/proposal",
+		request,
+		{ signal },
 		{ server: true },
 	);
 }
