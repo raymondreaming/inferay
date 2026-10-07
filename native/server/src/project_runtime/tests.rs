@@ -892,16 +892,28 @@ print(json.dumps(result))
 #[tokio::test]
 #[ignore = "launches a real provider and consumes account usage"]
 async fn real_claude_calls_granted_library_tool() {
-    real_provider_library_tool("claude", Some("haiku")).await;
+    real_provider_library_tool("claude", Some("haiku"), false).await;
 }
 
 #[tokio::test]
 #[ignore = "launches a real provider and consumes account usage"]
 async fn real_codex_calls_granted_library_tool() {
-    real_provider_library_tool("codex", None).await;
+    real_provider_library_tool("codex", None, false).await;
 }
 
-async fn real_provider_library_tool(provider: &str, model: Option<&str>) {
+#[tokio::test]
+#[ignore = "launches a real provider and consumes account usage"]
+async fn real_claude_calls_mcp_library_tool() {
+    real_provider_library_tool("claude", Some("haiku"), true).await;
+}
+
+#[tokio::test]
+#[ignore = "launches a real provider and consumes account usage"]
+async fn real_codex_calls_mcp_library_tool() {
+    real_provider_library_tool("codex", None, true).await;
+}
+
+async fn real_provider_library_tool(provider: &str, model: Option<&str>, mcp: bool) {
     let profile = tempfile::tempdir().unwrap();
     let (project, automation) = definition_files(profile.path(),
         "import json,sys,os\nfrom pathlib import Path\nx=json.load(sys.stdin)\n(Path(os.environ['INFERAY_RUN_OUTPUT'])/'report.md').write_text(x['text'])\nprint(json.dumps({'artifacts':['report.md']}))");
@@ -909,6 +921,12 @@ async fn real_provider_library_tool(provider: &str, model: Option<&str>) {
     let read = |path: &str| -> Value { serde_json::from_slice(&std::fs::read(root.join(path)).unwrap()).unwrap() };
     let plugin = read("plugins/report/plugin.json")["id"].clone();
     let tool = read("plugins/report/tools/report/tool.json")["id"].clone();
+    if mcp {
+        let mut definition = read("plugins/report/tools/report/tool.json");
+        definition["interface"] = json!({"mcp":{"tool":"report"}});
+        std::fs::write(root.join("plugins/report/tools/report/tool.json"), definition.to_string()).unwrap();
+        std::fs::write(root.join("plugins/report/tools/report/run.py"), include_str!("../../../../scripts/tests/fixtures/plugins/stdio-mcp/server.py")).unwrap();
+    }
     let path = root.join("plugins/report/automations/report.json");
     let mut definition = read("plugins/report/automations/report.json");
     let marker = format!("verified-library-call-{}", uuid::Uuid::new_v4());
@@ -942,6 +960,13 @@ async fn real_provider_library_tool(provider: &str, model: Option<&str>) {
     let input: Value = serde_json::from_slice(&std::fs::read(dir.join("inputs/tools").join(call).join("input.json")).unwrap()).unwrap();
     assert_eq!(input["text"], marker);
     assert!(dir.join("logs/tools").join(call).join("stdout.txt").is_file());
+    if mcp {
+        let response: Value = serde_json::from_slice(&std::fs::read(calls[0].join("mcp-response.json")).unwrap()).unwrap();
+        assert_eq!(response["structuredContent"]["title"], marker);
+        let protocol = std::fs::read_to_string(dir.join("logs/tools").join(call).join("stdout.txt")).unwrap();
+        assert!(protocol.contains("sampling/createMessage"));
+        assert!(protocol.contains("Report saved"));
+    }
     assert!(dir.join("output/response.md").is_file());
     let catalog = runtime.catalog(Some(project.clone()), None).await.unwrap();
     let artifacts: Vec<_> = catalog.history.artifacts.iter().filter(|artifact| artifact.run_id == id).collect();
