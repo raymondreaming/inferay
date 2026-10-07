@@ -123,7 +123,11 @@ export function RunHistory(props: {
 						<div {...stylex.attrs(styles.historyHeader)}>
 							<div {...stylex.attrs(styles.historyIdentity)}>
 								<span {...stylex.attrs(styles.historyStatus)}>
-									{run().status.replaceAll("_", " ")}
+									{run().status === "succeeded" &&
+									(run().snapshot as { execution?: { kind?: string } } | null)
+										?.execution?.kind === "agent"
+										? "Agent finished"
+										: run().status.replaceAll("_", " ")}
 								</span>
 								<Show
 									when={run().conversationAvailable}
