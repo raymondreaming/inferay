@@ -414,6 +414,7 @@ impl ProjectRuntime {
             dir.join("inputs/run.json"),
             serde_json::to_vec_pretty(snapshot)?,
         )?;
+        crate::project_requirements::check(snapshot, &root, &dir).await?;
         match serde_json::from_value::<ProjectExecution>(snapshot["execution"].clone())? {
             ProjectExecution::Tool { tool_id: _, input } => {
                 let tool: LocalTool = serde_json::from_value(snapshot["tool"].clone())?;

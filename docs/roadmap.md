@@ -95,7 +95,7 @@ Real Codex and Claude runs now pass disposable native-runtime filesystem probes,
   - Codex: request mapping implemented for read-only or workspace-write roots, network access, disabled escalation, and removal of ambient MCP tools. A real native-runtime automation verifies an allowed project write and a refused outside write. Network and privileged Git checks remain outstanding.
   - Claude: restricted mode, explicit tool permissions, required sandbox, no unsandboxed retry, and isolated settings are implemented. A real native-runtime automation writes its output and receives a tool-result refusal for an outside write. Network and privileged Git cases need further checks.
   - `push` and `open_pr` are only possible when declared.
-- **Requirements (E3).** Plugins and tools declare required programs and modules (`blender>=5.0`, `ffmpeg`, `python3:numpy`). A missing one blocks the run up front with a clear message.
+- **Requirements (E3): implemented.** Plugins and tools declare required programs and modules (`blender>=5.0`, `ffmpeg`, `python3:numpy`). Requirements are captured with approved inputs and checked before a provider or tool starts. Missing dependencies produce a failed run naming the requirement. Bounded version/module probes run without network in the local-tool sandbox; additional platform adapters remain needed. Native tests cover presence, minimum versions, modules, and refusal before both direct-tool and agent execution.
 - **Conformance suite.** The proof definitions (`~/Developer/inferay-proofs`) move into the repository as test fixtures, and every kernel change runs against them.
 
 **Done when**

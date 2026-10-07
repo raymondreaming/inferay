@@ -46,3 +46,4 @@ pub mod syntax;
 pub mod projects;
 
 pub mod project_files;
+pub mod project_requirements;

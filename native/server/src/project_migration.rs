@@ -386,6 +386,7 @@ fn tool(
         &prefix,
     )?;
     let value = ToolDefinition {
+        requires: vec![],
         interface: old.interface,
         schema: "inferay.tool/1".into(),
         id: id.into(),
@@ -514,7 +515,7 @@ pub(crate) fn export(db: &mut Connection, root: &Path, skills: &[Prompt]) -> Res
         for automation in automations {
             let automation_id = automation["id"].as_str().ok_or("Automation ID missing")?;
             let slug = format!("automation-{automation_id}");
-            let plugin = PluginDefinition {schema:"inferay.plugin/1".into(),id:derived_id("automation-plugin",automation_id),name:automation["name"].as_str().unwrap_or("Automation").into(),version:"1".into(),description:"Migrated capability. Review instructions and declare permissions before enabling.".into(),may:BTreeSet::new()};
+            let plugin = PluginDefinition { requires: vec![],schema:"inferay.plugin/1".into(),id:derived_id("automation-plugin",automation_id),name:automation["name"].as_str().unwrap_or("Automation").into(),version:"1".into(),description:"Migrated capability. Review instructions and declare permissions before enabling.".into(),may:BTreeSet::new()};
             definition(&directory, &format!("plugins/{slug}/plugin.json"), &plugin)?;
             let execution = match serde_json::from_value::<ProjectExecution>(
                 automation["execution"].clone(),
@@ -642,6 +643,7 @@ pub(crate) fn export(db: &mut Connection, root: &Path, skills: &[Prompt]) -> Res
             }
             let slug = format!("tool-{tool_id}");
             let plugin = PluginDefinition {
+                requires: vec![],
                 schema: "inferay.plugin/1".into(),
                 id: derived_id("tool-plugin", tool_id),
                 name: resource["name"].as_str().unwrap_or("Tool").into(),
@@ -672,6 +674,7 @@ pub(crate) fn export(db: &mut Connection, root: &Path, skills: &[Prompt]) -> Res
             }
             let slug = relative.split('/').nth(1).unwrap();
             let value = PluginDefinition {
+                requires: vec![],
                 schema: "inferay.plugin/1".into(),
                 id: plugin_id.into(),
                 name: plugin["name"].as_str().unwrap().into(),

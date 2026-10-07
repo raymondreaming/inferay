@@ -192,6 +192,8 @@ pub struct ResourceDefinition {
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct PluginDefinition {
+    #[serde(default)]
+    pub requires: Vec<String>,
     pub schema: String,
     pub id: String,
     pub name: String,
@@ -202,6 +204,8 @@ pub struct PluginDefinition {
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ToolDefinition {
+    #[serde(default)]
+    pub requires: Vec<String>,
     #[serde(default)]
     pub interface: crate::projects::ToolInterface,
     pub schema: String,
@@ -408,6 +412,7 @@ impl Definition for ProjectDefinition {
 }
 impl Definition for PluginDefinition {
     fn validate(&self) -> Result<(), String> {
+        crate::project_requirements::validate(&self.requires)?;
         identity(&self.schema, "inferay.plugin/1", &self.id, &self.name)?;
         bounded_text(&self.version, 100, true)?;
         bounded_text(&self.description, 8000, false)
@@ -415,6 +420,7 @@ impl Definition for PluginDefinition {
 }
 impl Definition for ToolDefinition {
     fn validate(&self) -> Result<(), String> {
+        crate::project_requirements::validate(&self.requires)?;
         identity(&self.schema, "inferay.tool/1", &self.id, &self.name)?;
         bounded_text(&self.program, 1024, true)?;
         // The executable is resolved locally; host-specific absolute paths are not portable.

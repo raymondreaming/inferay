@@ -765,7 +765,7 @@ pub(crate) fn import_library(
     let stage = tempfile::Builder::new()
         .prefix(".staging-")
         .tempdir_in(parent)?;
-    let manifest = PluginDefinition { schema: "inferay.plugin/1".into(), id: id.clone(), name: name.trim().into(), description: "Imported library. Organize its original files with chat and add reusable skills and tools.".into(), version: "1".into(), may: BTreeSet::new() };
+    let manifest = PluginDefinition { requires: vec![], schema: "inferay.plugin/1".into(), id: id.clone(), name: name.trim().into(), description: "Imported library. Organize its original files with chat and add reusable skills and tools.".into(), version: "1".into(), may: BTreeSet::new() };
     write(
         stage.path(),
         "plugin.json",

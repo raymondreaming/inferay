@@ -732,3 +732,34 @@ async fn real_provider_library_tool(provider: &str, model: Option<&str>) {
     assert!(artifacts.iter().any(|artifact| artifact.path.ends_with("report.md")), "Tool output missing from run history");
     assert!(artifacts.iter().any(|artifact| artifact.path.ends_with("response.md")), "Agent response missing from run history");
 }
+
+#[tokio::test]
+async fn missing_library_requirements_block_direct_and_agent_runs_before_execution() {
+    for agent in [false, true] {
+        let profile = tempfile::tempdir().unwrap();
+        let (project, automation) = definition_files(profile.path(), "raise Exception('must not execute')");
+        let root = profile.path().join("projects").join(&project);
+        let read = |path: &str| -> Value { serde_json::from_slice(&std::fs::read(root.join(path)).unwrap()).unwrap() };
+        let mut plugin = read("plugins/report/plugin.json");
+        plugin["requires"] = json!(["inferay_missing_library_dependency_90374"]);
+        std::fs::write(root.join("plugins/report/plugin.json"), plugin.to_string()).unwrap();
+        if agent {
+            let tool = read("plugins/report/tools/report/tool.json");
+            let mut definition = read("plugins/report/automations/report.json");
+            definition["execution"] = json!({"kind":"agent","provider":"codex","instructions":"Must not start","tools":[{"pluginId":plugin["id"],"toolId":tool["id"]}],"skills":[],"resources":[],"repositories":[],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":30});
+            std::fs::remove_file(root.join("plugins/report/automations/report.json")).unwrap();
+            std::fs::create_dir_all(root.join("automations").join(&automation)).unwrap();
+            std::fs::write(root.join("automations").join(&automation).join("automation.json"), definition.to_string()).unwrap();
+        }
+        let runtime = runtime(profile.path());
+        let id = approved_run(&runtime, &automation, "missing-dependency").await;
+        runtime.tick().await.unwrap();
+        let run = completed(&runtime, &project, &id).await;
+        assert_eq!(run.status, "failed");
+        assert!(run.error.as_deref().unwrap().contains("inferay_missing_library_dependency_90374"));
+        assert_eq!(run.snapshot["requirements"], json!(["inferay_missing_library_dependency_90374"]));
+        let logs = Path::new(&run.directory).join("logs");
+        assert!(!logs.join("agent.jsonl").exists());
+        assert!(!logs.join("stdout.txt").exists());
+    }
+}

@@ -489,6 +489,25 @@ pub(crate) fn execution_inputs(
             }
         }
     };
+    let mut requirements = BTreeSet::new();
+    let mut selected_tools: BTreeSet<String> = granted_tools.values()
+        .map(|grant| format!("{}/tool.json", grant.directory)).collect();
+    if let DefinitionExecution::Tool { tool, .. } = &definition.execution {
+        selected_tools.insert(format!("{prefix}/tools/{tool}/tool.json"));
+    }
+    // Only the owning library and selected tools contribute requirements.
+    for entry in &scanned {
+        match &entry.definition {
+            Some(DefinitionFile::Plugin(plugin)) if inputs.contains_key(&entry.path) => {
+                requirements.extend(plugin.requires.iter().cloned());
+            }
+            Some(DefinitionFile::Tool(tool)) if selected_tools.contains(&entry.path) => {
+                requirements.extend(tool.requires.iter().cloned());
+            }
+            _ => {},
+        }
+    }
+    snapshot["requirements"] = json!(requirements);
     snapshot["execution"] = serde_json::to_value(execution)?;
     Ok(snapshot)
 }
