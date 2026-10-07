@@ -53,16 +53,6 @@ pub(crate) async fn check(snapshot: &Value, project: &Path, run: &Path) -> Resul
         let mut command = policy.tool_command(program, &args, &scratch, &scratch)?;
         command
             .current_dir(&scratch)
-            .env_clear()
-            .envs(std::env::vars_os().filter(|(key, _)| {
-                matches!(
-                    key.to_str(),
-                    Some("PATH" | "HOME" | "LANG" | "LC_ALL" | "LC_CTYPE")
-                )
-            }))
-            .env("TMPDIR", &scratch)
-            .env("TMP", &scratch)
-            .env("TEMP", &scratch)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
