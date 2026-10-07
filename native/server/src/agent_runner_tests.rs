@@ -288,6 +288,12 @@ async fn installed_codex_refuses_native_mutation_paths_in_automation_policy() {
     std::fs::create_dir_all(&work).unwrap();
     std::fs::write(work.join("AGENTS.md"), "INFERAY_UNAPPROVED_CODEX_PROJECT_CONTEXT_41931").unwrap();
     std::fs::write(home.join("AGENTS.md"), "INFERAY_UNAPPROVED_CODEX_PERSONAL_CONTEXT_41931").unwrap();
+    #[cfg(unix)]
+    {
+        let override_target = root.path().join("personal-override.md");
+        std::fs::write(&override_target, "INFERAY_UNAPPROVED_CODEX_OVERRIDE_CONTEXT_41931").unwrap();
+        std::os::unix::fs::symlink(override_target, home.join("AGENTS.override.md")).unwrap();
+    }
     let requests = Arc::new(Mutex::new(Vec::<Value>::new()));
     async fn respond(
         State(requests): State<Arc<Mutex<Vec<Value>>>>,
@@ -412,6 +418,7 @@ supports_websockets = false
     assert!(transcript.contains("INFERAY_APPROVED_CONTEXT_41931"), "Explicit run instructions must still reach the provider");
     assert!(!transcript.contains("INFERAY_UNAPPROVED_CODEX_PROJECT_CONTEXT_41931"), "Unapproved project instructions entered the provider context");
     assert!(!transcript.contains("INFERAY_UNAPPROVED_CODEX_PERSONAL_CONTEXT_41931"), "Unapproved personal instructions entered the provider context");
+    assert!(!transcript.contains("INFERAY_UNAPPROVED_CODEX_OVERRIDE_CONTEXT_41931"), "Symlinked personal overrides entered the provider context");
     let output = requests
         .iter()
         .flat_map(|request| request["input"].as_array().into_iter().flatten())
