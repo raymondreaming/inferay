@@ -85,7 +85,9 @@ impl ProjectRuntime {
             "SELECT json_object('id',id,'projectId',project_id,'automationId',automation_id,'name',name,'status',status,'requestedAt',requested_at,'startedAt',started_at,'finishedAt',finished_at,'result',json(result),'error',error,'snapshot',json(snapshot),'directory',?2||'/projects/'||project_id||'/runs/'||id) FROM runs WHERE id=?1",
             params![id, store.root.to_string_lossy()],
         )?;
-        runs.pop().ok_or_else(|| "Run not found".into())
+        let mut run = runs.pop().ok_or("Run not found")?;
+        run.conversation_available = crate::project_runs::conversation_available(&run);
+        Ok(run)
     }
     pub async fn catalog(
         self: &Arc<Self>,

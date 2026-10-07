@@ -30,6 +30,9 @@ pub(super) async fn open(state: &ServerState, request: Request) -> ApiResult {
             "Only agent runs have a conversation",
         ));
     }
+    if !run.conversation_available {
+        return Err(api_error(StatusCode::BAD_REQUEST, "This run has no recorded agent conversation. Review its failure details in History."));
+    }
     let provider = execution["provider"].as_str().unwrap_or("codex");
     let catalog = state
         .projects

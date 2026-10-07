@@ -104,9 +104,7 @@ export function RunHistory(props: { automationId?: string } = {}) {
 								{(run.result as { message: string }).message}
 							</p>
 						) : null}
-						{(run.snapshot as { execution?: { kind?: string } } | null)
-							?.execution?.kind === "agent" &&
-						!["running", "queued"].includes(run.status) ? (
+						{run.conversationAvailable ? (
 							<Button
 								size="sm"
 								disabled={opening()}

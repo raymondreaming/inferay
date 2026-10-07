@@ -270,6 +270,7 @@ pub(crate) fn history(
     )?;
     let has_more_runs = runs.len() > 50;
     runs.truncate(50);
+    for run in &mut runs { run.conversation_available = conversation_available(run); }
     let next_run_cursor = if has_more_runs {
         runs.last()
             .map(|run| format!("{}:{}", run.requested_at, run.id))
@@ -290,4 +291,49 @@ pub(crate) fn history(
         has_more_runs,
         next_run_cursor,
     })
+}
+
+/// Shared by history projection and the continuation endpoint. A preflight failure
+/// has no transcript, even when its captured execution was an agent task.
+pub(crate) fn conversation_available(run: &inferay_core::projects::ProjectRun) -> bool {
+    if matches!(run.status.as_str(), "running" | "queued") || run.snapshot["execution"]["kind"] != "agent" {
+        return false;
+    }
+    crate::project_definitions::managed_path(std::path::Path::new(&run.directory), "logs/agent.jsonl", false)
+        .ok().and_then(|path| std::fs::metadata(path).ok())
+        .is_some_and(|metadata| metadata.is_file() && metadata.len() > 0)
+}
+
+#[cfg(test)]
+mod conversation_tests {
+    use super::*;
+    #[test]
+    fn continuation_requires_a_finished_agent_with_a_retained_log() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut run: inferay_core::projects::ProjectRun = serde_json::from_value(json!({
+            "id":"run", "projectId":"project", "automationId":"automation", "name":"Research",
+            "status":"failed", "requestedAt":0,"startedAt":0,"finishedAt":1,
+            "result":null,"error":"Missing dependency", "snapshot":{"execution":{"kind":"agent"}},
+            "directory":directory.path().to_string_lossy()
+        })).unwrap();
+        assert!(!conversation_available(&run));
+        std::fs::create_dir(directory.path().join("logs")).unwrap();
+        let log = directory.path().join("logs/agent.jsonl");
+        std::fs::write(&log, "").unwrap();
+        assert!(!conversation_available(&run));
+        std::fs::write(&log, "{\"system\":\"Provider stopped after beginning work\"}\n").unwrap();
+        assert!(conversation_available(&run));
+        for status in ["running", "queued"] {
+            run.status = status.into();
+            assert!(!conversation_available(&run));
+        }
+        for status in ["succeeded", "failed", "cancelled", "interrupted", "waiting_input"] {
+            run.status = status.into();
+            assert!(conversation_available(&run));
+        }
+        run.snapshot["execution"]["kind"] = json!("tool");
+        assert!(!conversation_available(&run));
+        run.snapshot = json!({"automation":{}});
+        assert!(!conversation_available(&run));
+    }
 }

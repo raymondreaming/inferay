@@ -192,6 +192,9 @@ pub struct ProjectAutomation {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectRun {
+    /// A finished agent run has a nonempty retained transcript available to open.
+    #[serde(default)]
+    pub conversation_available: bool,
     pub id: String,
     pub project_id: String,
     pub automation_id: String,
