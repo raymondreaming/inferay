@@ -309,7 +309,7 @@ pub(crate) fn history(
 /// Shared by history projection and the continuation endpoint. A preflight failure
 /// has no transcript, even when its captured execution was an agent task.
 pub(crate) fn conversation_available(run: &inferay_core::projects::ProjectRun) -> bool {
-    if matches!(run.status.as_str(), "running" | "queued") || run.snapshot["execution"]["kind"] != "agent" {
+    if run.snapshot["execution"]["kind"] != "agent" {
         return false;
     }
     crate::project_definitions::managed_path(std::path::Path::new(&run.directory), "logs/agent.jsonl", false)
@@ -321,7 +321,7 @@ pub(crate) fn conversation_available(run: &inferay_core::projects::ProjectRun) -
 mod conversation_tests {
     use super::*;
     #[test]
-    fn continuation_requires_a_finished_agent_with_a_retained_log() {
+    fn continuation_requires_an_agent_with_a_retained_log() {
         let directory = tempfile::tempdir().unwrap();
         let mut run: inferay_core::projects::ProjectRun = serde_json::from_value(json!({
             "id":"run", "projectId":"project", "automationId":"automation", "name":"Research",
@@ -338,7 +338,7 @@ mod conversation_tests {
         assert!(conversation_available(&run));
         for status in ["running", "queued"] {
             run.status = status.into();
-            assert!(!conversation_available(&run));
+            assert!(conversation_available(&run));
         }
         for status in ["succeeded", "failed", "cancelled", "interrupted", "waiting_input"] {
             run.status = status.into();

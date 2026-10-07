@@ -1051,7 +1051,7 @@ try {
 		"python3",
 		[
 			"-c",
-			"import sqlite3,sys,json; db=sqlite3.connect(sys.argv[1]); db.execute(\"INSERT INTO runs(id,project_id,automation_id,name,request_key,status,snapshot,input_hash,requested_at,result) VALUES(?,?,?,?,?,'succeeded',?,'fixture',1,?)\",(sys.argv[2],sys.argv[3],sys.argv[4],'Research result','fixture-run',sys.argv[5],json.dumps({'message':'Found three actionable improvements.'}))); db.execute(\"INSERT INTO run_events(run_id,sequence,kind,payload,created_at) VALUES(?,1,'provider_usage',?,1)\", (sys.argv[2],json.dumps({'provider':'claude','usage':{'input_tokens':100,'output_tokens':20,'cache_read_input_tokens':50},'reportedCostUsd':0.0123}))); db.commit()",
+			"import sqlite3,sys,json; db=sqlite3.connect(sys.argv[1]); db.execute(\"INSERT INTO runs(id,project_id,automation_id,name,request_key,status,snapshot,input_hash,requested_at,result) VALUES(?,?,?,?,?,'running',?,'fixture',1,?)\",(sys.argv[2],sys.argv[3],sys.argv[4],'Research result','fixture-run',sys.argv[5],json.dumps({'message':'Found three actionable improvements.'}))); db.execute(\"INSERT INTO run_events(run_id,sequence,kind,payload,created_at) VALUES(?,1,'provider_usage',?,1)\", (sys.argv[2],json.dumps({'provider':'claude','usage':{'input_tokens':100,'output_tokens':20,'cache_read_input_tokens':50},'reportedCostUsd':0.0123}))); db.commit()",
 			join(profile, "projects.sqlite3"),
 			runId,
 			cardProject.id,
@@ -1074,6 +1074,17 @@ try {
 		.getByRole("button", { name: "History", exact: true })
 		.last()
 		.click();
+	await page
+		.getByRole("article")
+		.filter({ hasText: "Research result" })
+		.waitFor();
+	await page.screenshot({ path: join(output, "history-compact.png") });
+	await page
+		.getByRole("article")
+		.filter({ hasText: "Research result" })
+		.locator("summary")
+		.filter({ hasText: "Run details" })
+		.click();
 	const usageRow = page.getByLabel("Provider usage");
 	await usageRow.getByText("150 input tokens", { exact: true }).waitFor();
 	await usageRow.getByText("20 output tokens", { exact: true }).waitFor();
@@ -1093,6 +1104,18 @@ try {
 		.filter({ hasText: "Research result" })
 		.waitFor();
 
+	await page
+		.getByRole("article")
+		.filter({ hasText: "Research result" })
+		.getByRole("button", { name: "Research result", exact: true })
+		.click();
+	await page.getByText("Research result", { exact: true }).waitFor();
+	await page
+		.getByText(
+			"Opened the automation's recorded progress as a separate chat.",
+			{ exact: false },
+		)
+		.waitFor();
 	const imported = await api("/api/projects/run-chat", { id: runId });
 	const reopened = await api("/api/projects/run-chat", { id: runId });
 	assert.equal(

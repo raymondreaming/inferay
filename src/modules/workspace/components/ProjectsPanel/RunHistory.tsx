@@ -3,6 +3,7 @@ import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import {
 	projects,
+	refreshProjects,
 	saveProjectCommand,
 	showProjectView,
 } from "../../hooks/useProjects.tsx";
@@ -18,11 +19,13 @@ export function RunHistory(props: {
 }) {
 	const [opening, setOpening] = createSignal(false);
 	async function continueRun(id: string) {
+		if (opening()) return;
 		setOpening(true);
 		setError("");
 		try {
 			await openRunChat(id);
 			await loadCanonicalAgentState();
+			await refreshProjects();
 			showProjectView("chat");
 		} catch (e) {
 			setError(String(e));
@@ -74,12 +77,10 @@ export function RunHistory(props: {
 			<Show when={!page() && upcoming().length > 0}>
 				<section
 					aria-label="Upcoming automations"
-					{...stylex.attrs(styles.card)}
+					{...stylex.attrs(styles.historyUpcoming)}
 				>
-					<strong>Upcoming</strong>
-					<p {...stylex.attrs(styles.muted)}>
-						Local times · Runs while Inferay is open
-					</p>
+					<strong {...stylex.attrs(styles.sectionLabel)}>Up next</strong>
+					<p {...stylex.attrs(styles.muted)}>Runs while Inferay is open</p>
 					<For each={upcoming()} keyed={(automation) => automation.id}>
 						{(automation) => (
 							<div {...stylex.attrs(styles.row)}>
@@ -118,48 +119,68 @@ export function RunHistory(props: {
 			) : null}
 			<For each={runs()} keyed={(item) => item.id}>
 				{(run) => (
-					<article {...stylex.attrs(styles.card)}>
-						<div {...stylex.attrs(styles.row)}>
-							<strong>{run().name}</strong>
-							<span {...stylex.attrs(styles.badge)}>{run().status}</span>
-						</div>
-						<span {...stylex.attrs(styles.muted)}>
-							{new Date(run().requestedAt).toLocaleString()}
-						</span>
-						<Show when={run().usage}>
-							{(usage) => (
-								<div
-									aria-label="Provider usage"
-									{...stylex.attrs(styles.row, styles.muted)}
+					<article {...stylex.attrs(styles.historyRun)}>
+						<div {...stylex.attrs(styles.historyHeader)}>
+							<div {...stylex.attrs(styles.historyIdentity)}>
+								<span {...stylex.attrs(styles.historyStatus)}>
+									{run().status.replaceAll("_", " ")}
+								</span>
+								<Show
+									when={run().conversationAvailable}
+									fallback={<strong>{run().name}</strong>}
 								>
-									<span>
-										{usage().inputTokens === null
-											? "Input unknown"
-											: `${usage().inputTokens?.toLocaleString()} input tokens`}
-									</span>
-									<span>
-										{usage().outputTokens === null
-											? "Output unknown"
-											: `${usage().outputTokens?.toLocaleString()} output tokens`}
-									</span>
-									{usage().cachedInputTokens !== null && (
-										<span>
-											{usage().cachedInputTokens?.toLocaleString()} cached input
-										</span>
-									)}
-									{usage().reportedCostUsd !== null && (
-										<span>
-											{new Intl.NumberFormat(undefined, {
-												style: "currency",
-												currency: "USD",
-												maximumFractionDigits: 4,
-											}).format(usage().reportedCostUsd!)}{" "}
-											reported cost
-										</span>
-									)}
-								</div>
-							)}
-						</Show>
+									<Button
+										size="sm"
+										variant="ghost"
+										disabled={opening()}
+										onClick={() => void continueRun(run().id)}
+										{...stylex.attrs(styles.historyTitle)}
+									>
+										<strong>{run().name}</strong>
+									</Button>
+								</Show>
+								<time
+									{...stylex.attrs(styles.muted)}
+									datetime={new Date(run().requestedAt).toISOString()}
+								>
+									{new Date(run().requestedAt).toLocaleString(undefined, {
+										dateStyle: "medium",
+										timeStyle: "short",
+									})}
+								</time>
+							</div>
+							<div {...stylex.attrs(styles.row)}>
+								{["queued", "running", "waiting_input"].includes(
+									run().status,
+								) ? (
+									<Button
+										size="sm"
+										disabled={projects.busy()}
+										onClick={() =>
+											void saveProjectCommand({
+												type: "stopRun",
+												id: run().id,
+											}).catch(() => {})
+										}
+									>
+										Stop run
+									</Button>
+								) : null}
+								{run().conversationAvailable ? (
+									<Button
+										size="sm"
+										disabled={opening()}
+										onClick={() => void continueRun(run().id)}
+									>
+										{["running", "queued", "waiting_input"].includes(
+											run().status,
+										)
+											? "Open progress in chat"
+											: "Open in chat"}
+									</Button>
+								) : null}
+							</div>
+						</div>
 						{run().error ? <p role="alert">{run().error}</p> : null}
 						{typeof (run().result as { message?: unknown } | null)?.message ===
 						"string" ? (
@@ -167,87 +188,7 @@ export function RunHistory(props: {
 								{(run().result as { message: string }).message}
 							</p>
 						) : null}
-						{run().conversationAvailable ? (
-							<Button
-								size="sm"
-								disabled={opening()}
-								onClick={() => void continueRun(run().id)}
-							>
-								Open in chat
-							</Button>
-						) : null}
-						<div {...stylex.attrs(styles.row)}>
-							{["queued", "running", "waiting_input"].includes(run().status) ? (
-								<Button
-									size="sm"
-									disabled={projects.busy()}
-									onClick={() =>
-										void saveProjectCommand({
-											type: "stopRun",
-											id: run().id,
-										}).catch(() => {})
-									}
-								>
-									Stop run
-								</Button>
-							) : null}
-							{["failed", "cancelled", "interrupted", "waiting_input"].includes(
-								run().status,
-							) ? (
-								<Button
-									size="sm"
-									disabled={projects.busy()}
-									onClick={() =>
-										void saveProjectCommand({
-											type: "retryRun",
-											id: run().id,
-											requestId: crypto.randomUUID(),
-										}).catch(() => {})
-									}
-								>
-									Retry with current inputs
-								</Button>
-							) : null}
-							<Button
-								size="sm"
-								onClick={() => void inspect(run().directory, "inputs/run.json")}
-							>
-								Captured inputs
-							</Button>
-							<Button
-								size="sm"
-								onClick={() =>
-									void inspect(
-										run().directory,
-										(run().snapshot as { execution?: { kind?: string } } | null)
-											?.execution?.kind === "agent"
-											? "logs/agent.jsonl"
-											: "logs/stdout.txt",
-									)
-								}
-							>
-								Execution log
-							</Button>
-							{(run().snapshot as { execution?: { kind?: string } } | null)
-								?.execution?.kind === "tool" ? (
-								<Button
-									size="sm"
-									onClick={() =>
-										void inspect(run().directory, "logs/stderr.txt")
-									}
-								>
-									Error log
-								</Button>
-							) : null}
-						</div>
-						{run().result ? (
-							<details>
-								<summary>Result</summary>
-								<pre {...stylex.attrs(styles.pre)}>
-									{JSON.stringify(run().result, null, 2)}
-								</pre>
-							</details>
-						) : null}
+
 						<div {...stylex.attrs(styles.row)}>
 							<For
 								each={catalog()?.artifacts.filter((a) => a.runId === run().id)}
@@ -265,7 +206,115 @@ export function RunHistory(props: {
 								)}
 							</For>
 						</div>
-						<p {...stylex.attrs(styles.muted)}>{run().directory}</p>
+						<details {...stylex.attrs(styles.historyDetails)}>
+							<summary {...stylex.attrs(styles.historyDetailsLabel)}>
+								Run details
+							</summary>
+							<div {...stylex.attrs(styles.historyDetailsBody)}>
+								<Show when={run().usage}>
+									{(usage) => (
+										<div
+											aria-label="Provider usage"
+											{...stylex.attrs(styles.row, styles.muted)}
+										>
+											<span>
+												{usage().inputTokens === null
+													? "Input unknown"
+													: `${usage().inputTokens?.toLocaleString()} input tokens`}
+											</span>
+											<span>
+												{usage().outputTokens === null
+													? "Output unknown"
+													: `${usage().outputTokens?.toLocaleString()} output tokens`}
+											</span>
+											{usage().cachedInputTokens !== null && (
+												<span>
+													{usage().cachedInputTokens?.toLocaleString()} cached
+													input
+												</span>
+											)}
+											{usage().reportedCostUsd !== null && (
+												<span>
+													{new Intl.NumberFormat(undefined, {
+														style: "currency",
+														currency: "USD",
+														maximumFractionDigits: 4,
+													}).format(usage().reportedCostUsd!)}{" "}
+													reported cost
+												</span>
+											)}
+										</div>
+									)}
+								</Show>{" "}
+								<div {...stylex.attrs(styles.row)}>
+									{[
+										"failed",
+										"cancelled",
+										"interrupted",
+										"waiting_input",
+									].includes(run().status) ? (
+										<Button
+											size="sm"
+											disabled={projects.busy()}
+											onClick={() =>
+												void saveProjectCommand({
+													type: "retryRun",
+													id: run().id,
+													requestId: crypto.randomUUID(),
+												}).catch(() => {})
+											}
+										>
+											Retry with current inputs
+										</Button>
+									) : null}
+									<Button
+										size="sm"
+										onClick={() =>
+											void inspect(run().directory, "inputs/run.json")
+										}
+									>
+										Captured inputs
+									</Button>
+									<Button
+										size="sm"
+										onClick={() =>
+											void inspect(
+												run().directory,
+												(
+													run().snapshot as {
+														execution?: { kind?: string };
+													} | null
+												)?.execution?.kind === "agent"
+													? "logs/agent.jsonl"
+													: "logs/stdout.txt",
+											)
+										}
+									>
+										Execution log
+									</Button>
+									{(run().snapshot as { execution?: { kind?: string } } | null)
+										?.execution?.kind === "tool" ? (
+										<Button
+											size="sm"
+											onClick={() =>
+												void inspect(run().directory, "logs/stderr.txt")
+											}
+										>
+											Error log
+										</Button>
+									) : null}
+								</div>
+								{run().result ? (
+									<details>
+										<summary>Result</summary>
+										<pre {...stylex.attrs(styles.pre)}>
+											{JSON.stringify(run().result, null, 2)}
+										</pre>
+									</details>
+								) : null}
+								<p {...stylex.attrs(styles.muted)}>{run().directory}</p>
+							</div>
+						</details>
 					</article>
 				)}
 			</For>

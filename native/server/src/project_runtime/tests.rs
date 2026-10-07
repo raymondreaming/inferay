@@ -1600,3 +1600,18 @@ print(json.dumps({'artifacts':['relay.json']}))
     }
     check_files(Path::new(&done.directory), &secret);
 }
+
+#[tokio::test]
+async fn finishing_a_run_preserves_its_open_chat() {
+    let profile = tempfile::tempdir().unwrap();
+    let (project, automation) = definition_files(profile.path(), "print('{}')");
+    let runtime = runtime(profile.path());
+    for (key, result) in [("success", Ok(json!({"message":"Done"}))), ("failure", Err("Failed".into()))] {
+        let id = approved_run(&runtime, &automation, key).await;
+        runtime.store.lock().unwrap().db.execute("UPDATE runs SET status='running' WHERE id=?", [&id]).unwrap();
+        runtime.attach_run_chat(&id, "existing-chat").unwrap();
+        runtime.finish(&id, &project, result).unwrap();
+        let run = runtime.run_for_chat(&id).unwrap();
+        assert_eq!(run.result.unwrap()["chatPaneId"], "existing-chat");
+    }
+}

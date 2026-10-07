@@ -9,7 +9,7 @@ The work is a sequence of milestones. Each one ends with something real running,
 - Chats with Claude and Codex side by side, attached to repositories, with diffs, history, worktrees and skills.
 - Projects independent of repositories, with linked repositories, managed files and Brand, Mind and Genome resources.
 - Automations that run an agent or a tool, manually, on an interval or at calendar times in a timezone; approvals bound to a hash of their inputs; editing turns the schedule off until you enable it again.
-- Durable runs with captured inputs, events, logs, artifacts, bounded concurrency and honest interruption states; finished agent runs open as chats.
+- Durable runs with captured inputs, events, logs, artifacts, bounded concurrency and honest interruption states; agent runs with retained transcripts open as chats. Active runs open a separate snapshot of recorded progress without resuming the running provider session; finished runs can continue their provider session. Reopening selects the existing chat.
 - Portable definition formats and validators for projects, resources, plugins, skills, tools and automations.
 
 ## Settled decisions

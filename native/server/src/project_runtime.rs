@@ -695,7 +695,7 @@ impl ProjectRuntime {
                 Err(e) => ("failed", None, Some(e.to_string())),
             }
         };
-        tx.execute("UPDATE runs SET status=?1,result=?2,error=?3,finished_at=?4 WHERE id=?5 AND status='running'",params![status,value,error,now(),id])?;
+        tx.execute("UPDATE runs SET status=?1,result=CASE WHEN json_type(result,'$.chatPaneId')='text' THEN json_set(COALESCE(?2,'{}'),'$.chatPaneId',json_extract(result,'$.chatPaneId')) ELSE ?2 END,error=?3,finished_at=?4 WHERE id=?5 AND status='running'",params![status,value,error,now(),id])?;
         event(&tx, id, status, &json!({"error":error}))?;
         tx.commit()?;
         Ok(())

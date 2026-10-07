@@ -1,4 +1,4 @@
-//! Attach a completed automation's provider session and transcript to a project pane.
+//! Attach an automation transcript to a project pane; active runs fork recorded progress.
 use super::*;
 use inferay_core::{
     chat_protocol::ChatMessageBuffer, project_files::ProjectFileCommand,
@@ -17,12 +17,7 @@ pub(super) async fn open(state: &ServerState, request: Request) -> ApiResult {
         .projects
         .run_for_chat(&input.id)
         .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
-    if ["running", "queued"].contains(&run.status.as_str()) {
-        return Err(api_error(
-            StatusCode::BAD_REQUEST,
-            "Wait for this run to finish before continuing it",
-        ));
-    }
+    let active = ["running", "queued", "waiting_input"].contains(&run.status.as_str());
     let execution = &run.snapshot["execution"];
     if execution["kind"] != "agent" {
         return Err(api_error(
@@ -84,6 +79,10 @@ pub(super) async fn open(state: &ServerState, request: Request) -> ApiResult {
                 buffer.apply_event(&value);
             }
         }
+    }
+    if active {
+        buffer.push_system("Opened the automation's recorded progress as a separate chat. The automation is still running; this chat does not receive subsequent run updates.");
+        session = None;
     }
     buffer.finalize();
     let prior_pane = run.result.as_ref().and_then(|v| v["chatPaneId"].as_str());
@@ -177,7 +176,7 @@ pub(super) async fn open(state: &ServerState, request: Request) -> ApiResult {
                 .await
                 .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
         } else {
-            state.chat_persistence.save_agent_context(&pane_id,format!("Continue this prior automation run using its captured instructions and results. Original provider session is unavailable.\n{}\n{}",execution,run.result.clone().unwrap_or(Value::Null))).await.map_err(|e|api_error(StatusCode::BAD_REQUEST,e))?;
+            state.chat_persistence.save_agent_context(&pane_id,format!("Continue this prior automation run using its captured instructions and results. This is a separate conversation from the automation; it may still be running. Do not assume the run finished or repeat its work without checking its status.\n{}\n{}",execution,run.result.clone().unwrap_or(Value::Null))).await.map_err(|e|api_error(StatusCode::BAD_REQUEST,e))?;
         }
         state
             .projects
