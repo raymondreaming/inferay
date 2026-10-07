@@ -37,7 +37,7 @@
 		"projectId": "PROJECT_ID",
 		"path": "tools/report.py",
 		"content": "...",
-		"expectedContent": null
+		"expectedHash": null
 	},
 	"saveAutomation": {
 		"type": "saveAutomation",

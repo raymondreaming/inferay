@@ -51,14 +51,15 @@ Everything lives in the profile directory, `~/Library/Application Support/Infera
 | File | Contents | Owner |
 |---|---|---|
 | `chat.sqlite3` | Pane documents (session reference, agent context, queue), transcripts with epochs and revisions, transcript messages. WAL, full sync. | `chat_persistence.rs` |
-| `projects.sqlite3` | Projects, resources and revisions, plugins and resource types, automations, approvals, runs, run events, artifacts, conversation links, migration markers; also custom skills (`inferay.skill` resources with no project) | `project_store.rs`, `prompt_store.rs` |
+| `projects.sqlite3` | Projects, resources and revisions, plugins and resource types, automations, approvals, runs, run events, artifacts, conversation links, migration markers | `project_store.rs` |
+| `skills.sqlite3` | Global custom skills and their one-time import marker | `prompt_store.rs` |
 | `projects/<id>/` | Managed project files and run directories (`runs/<run>/inputs`, `logs`, `output`) | `project_store.rs`, `project_runtime.rs` |
 | `agent-state.json` | Workspace and panes | `workspace_store.rs` |
 | `client-storage.json`, `settings.json` | UI preferences, search folders | `client_storage.rs`, `settings_store.rs` |
 | `checkpoints.json` | Checkpoint metadata; file contents go into the repository's Git object store | `checkpoint.rs` |
 | `agent-context.json`, `mcp-preferences.json`, `mcp-icons.json`, `runtime-pids.json` | Context layers, MCP overrides, icon cache, child-process cleanup | server stores |
 
-Bundled skills ship in the app (`data/prompts.json`). Custom skills moved from the profile's `prompts.json` into `projects.sqlite3` at startup (migration `skills-v1`); the old file is only read for that migration. Slash commands expand skill chains (`/name`), and `/clear` and `/exit` are handled by the chat connection.
+Bundled skills ship in the app (`data/prompts.json`). Global custom skills live in `skills.sqlite3`, independently of the project index. On first use, the Skills library imports existing global skill records from `projects.sqlite3`, or the older `prompts.json` when that migration has not happened. The import is transactional and marked once; old sources stay untouched and are never reread after import. Slash commands expand skill chains (`/name`), and `/clear` and `/exit` are handled by the chat connection.
 
 ## Projects and automations
 

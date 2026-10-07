@@ -198,9 +198,15 @@ CREATE TABLE IF NOT EXISTS project_migrations(name TEXT PRIMARY KEY,created_at I
     if version < 2 {
         db.execute_batch("ALTER TABLE automations ADD COLUMN calendar TEXT CHECK(calendar IS NULL OR json_valid(calendar)); PRAGMA user_version=2;")?;
     }
-    let has_inputs_changed: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('automations') WHERE name='inputs_changed')", [], |r| r.get(0))?;
+    let has_inputs_changed: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('automations') WHERE name='inputs_changed')",
+        [],
+        |r| r.get(0),
+    )?;
     if !has_inputs_changed {
-        db.execute_batch("ALTER TABLE automations ADD COLUMN inputs_changed INTEGER NOT NULL DEFAULT 0")?;
+        db.execute_batch(
+            "ALTER TABLE automations ADD COLUMN inputs_changed INTEGER NOT NULL DEFAULT 0",
+        )?;
     }
     Ok(db)
 }
@@ -498,11 +504,11 @@ fn apply(
             project_id,
             path,
             content,
-            expected_content,
+            expected_hash,
         } => {
             bounded_text(&content, 1_000_000, false)?;
             let dir = project_directory(db, root, &project_id)?;
-            write_file(&dir, &path, &content, expected_content.as_deref())?;
+            write_file(&dir, &path, &content, expected_hash.as_deref())?;
             Ok(json!({"path":dir.join(path)}))
         }
         ProjectCommand::SaveAutomation {
@@ -520,7 +526,13 @@ fn apply(
             validate_execution(&execution)?;
             if let Some(schedule) = &calendar {
                 schedule.next_after(now())?;
-                if interval_seconds != Some(if schedule.weekday.is_some() { 604800 } else { 86400 }) {
+                if interval_seconds
+                    != Some(if schedule.weekday.is_some() {
+                        604800
+                    } else {
+                        86400
+                    })
+                {
                     return Err("Calendar schedule must match daily or weekly frequency".into());
                 }
             }
@@ -543,7 +555,10 @@ fn apply(
             } else {
                 db.execute("INSERT INTO automations(id,project_id,name,revision,execution,interval_seconds,overlap_policy) VALUES(?1,?2,?3,1,?4,?5,?6)",params![key,project_id,name,text,interval_seconds,overlap_policy])?;
             }
-            db.execute("UPDATE automations SET calendar=? WHERE id=?",params![calendar_json,key])?;
+            db.execute(
+                "UPDATE automations SET calendar=? WHERE id=?",
+                params![calendar_json, key],
+            )?;
             Ok(json!({"id":key}))
         }
         ProjectCommand::EnableAutomation {
@@ -552,9 +567,20 @@ fn apply(
             enabled,
         } => {
             let next = if enabled {
-                let (interval, calendar): (Option<i64>, Option<String>) = db.query_row("SELECT interval_seconds,calendar FROM automations WHERE id=?", [&id], |r| Ok((r.get(0)?,r.get(1)?)))?;
-                Some(match calendar { Some(text) => serde_json::from_str::<CalendarSchedule>(&text)?.next_after(now())?, None => now() + interval.ok_or("Choose a schedule first")? * 1000 })
-            } else { None };
+                let (interval, calendar): (Option<i64>, Option<String>) = db.query_row(
+                    "SELECT interval_seconds,calendar FROM automations WHERE id=?",
+                    [&id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )?;
+                Some(match calendar {
+                    Some(text) => {
+                        serde_json::from_str::<CalendarSchedule>(&text)?.next_after(now())?
+                    }
+                    None => now() + interval.ok_or("Choose a schedule first")? * 1000,
+                })
+            } else {
+                None
+            };
             changed(db.execute("UPDATE automations SET enabled=?1,inputs_changed=CASE WHEN ?1 THEN 0 ELSE inputs_changed END,next_due_at=?2,revision=revision+1 WHERE id=?3 AND revision=?4 AND archived=0 AND (NOT ?1 OR interval_seconds IS NOT NULL) AND project_id IN (SELECT id FROM projects WHERE archived=0)",params![enabled,next,id,expected_revision])?)?;
             if enabled {
                 let (project, revision, text): (String, i64, String) = db.query_row(
@@ -622,39 +648,7 @@ pub(crate) fn write_file(
     {
         return Err("Write inside tools/, files/, or plugins/ using a relative path".into());
     }
-    let target = root.join(path);
-    let mut cursor = root.to_path_buf();
-    for component in Path::new(path)
-        .parent()
-        .ok_or("Missing file parent")?
-        .components()
-    {
-        cursor.push(component);
-        if cursor.exists() {
-            if std::fs::symlink_metadata(&cursor)?.file_type().is_symlink() {
-                return Err("Symlink directories are not writable".into());
-            }
-        } else {
-            std::fs::create_dir(&cursor)?;
-        }
-    }
-    if target
-        .symlink_metadata()
-        .is_ok_and(|m| m.file_type().is_symlink())
-    {
-        return Err("Symlink files are not writable".into());
-    }
-    if target.exists() {
-        if Some(std::fs::read_to_string(&target)?.as_str()) != expected {
-            return Err("File changed; read it before replacing".into());
-        }
-    } else if expected.is_some() {
-        return Err("Expected file is missing".into());
-    }
-    let mut temp = tempfile::NamedTempFile::new_in(target.parent().unwrap())?;
-    std::io::Write::write_all(&mut temp, content.as_bytes())?;
-    temp.as_file().sync_all()?;
-    temp.persist(target)?;
+    crate::project_definitions::write(root, path, content.as_bytes(), expected)?;
     Ok(())
 }
 fn capture_snapshot(
@@ -742,18 +736,20 @@ pub(crate) fn prepare_run(
             Some(error.to_string()),
         ),
     };
-    if occurrence.is_some() {
-        let approved: Option<String> = db
-            .query_row(
-                "SELECT snapshot_hash FROM automation_approvals WHERE automation_id=?",
-                [automation],
-                |r| r.get(0),
-            )
-            .optional()?;
+    let approved: Option<String> = db
+        .query_row(
+            "SELECT snapshot_hash FROM automation_approvals WHERE automation_id=?",
+            [automation],
+            |r| r.get(0),
+        )
+        .optional()?;
+    // Run now is not a way around invalidated approval. A new manual task can
+    // run on the user's direct request; a previously approved/changed task must
+    // first have its current inputs reviewed through the enable action.
+    if occurrence.is_some() || approved.is_some() {
         if approved.as_deref() != Some(hash(snapshot.to_string().as_bytes()).as_str()) {
-            preflight_error = Some(
-                "Execution inputs changed since schedule approval. Review and enable again.".into(),
-            );
+            preflight_error =
+                Some("Execution inputs need approval. Review and enable before running.".into());
             db.execute(
                 "UPDATE automations SET enabled=0,inputs_changed=1,next_due_at=NULL,revision=revision+1 WHERE id=?",
                 [automation],

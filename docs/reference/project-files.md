@@ -45,6 +45,7 @@ Exact formats for the files that define a project. The types and validators are 
 
 | Field | Rule |
 |---|---|
+| `archived` | optional boolean, defaults to false; preserves archive state during migration |
 | `description` | up to 8,000 bytes |
 | `instructions` | up to 64,000 bytes; given to every agent run in the project |
 | `repositories` | up to 512; each `id` a unique UUID, `name` 1–200 bytes, optional `remote` up to 2,048 bytes |
@@ -96,7 +97,7 @@ command: /daily-autobuild
 …
 ```
 
-Front matter fields: `id` (UUID), `name`, `description` (up to 8,000 bytes), optional `command` (a relative name, leading `/` allowed). Unknown or duplicate fields are refused. The body is the instructions, 1–64,000 bytes.
+Front matter fields: `id` (UUID), `name`, `description` (up to 8,000 bytes), optional `command` (a relative name, leading `/` allowed). Unknown or duplicate fields are refused. Fields occupy one line each, with either plain text or a JSON-quoted string (which preserves embedded newlines and quotes). The body is the instructions, 1–64,000 bytes.
 
 ## tools/&lt;name&gt;/tool.json
 
@@ -130,7 +131,7 @@ Execution contract: the tool receives its input as JSON on stdin and writes JSON
   "execution": {
     "kind": "agent", "provider": "codex", "model": null, "reasoningLevel": "high",
     "instructions": "Run the daily autobuild skill.",
-    "skills": ["daily-autobuild"], "resources": [], "repositories": ["49e0…"],
+    "skills": ["9d2e0000-0000-4000-8000-000000000001"], "resources": [], "repositories": ["49e0…"],
     "workingDirectory": { "base": "repository", "id": "49e0…" },
     "timeoutSeconds": 14400
   },
@@ -147,6 +148,8 @@ Execution contract: the tool receives its input as JSON on stdin and writes JSON
 | `calendar` | `timezone`, `days`, `times` | IANA timezone; `days` unique 1–7 (Monday = 1); `times` 1–24 unique `HH:MM`. The next run is the earliest day/time pair in that timezone, correct across daylight-saving changes. |
 
 `overlap`: `skip` (drop a due run while one is active) or `queue_one`.
+
+`archived` is an optional boolean, defaulting to false. It belongs to the definition; enabled state remains local.
 
 ### execution
 
@@ -165,7 +168,7 @@ Execution contract: the tool receives its input as JSON on stdin and writes JSON
 - `may` must be a subset of the plugin's `may`.
 - Every skill, tool, resource and repository it names must exist in that inventory, including a repository working directory.
 
-**To settle:** the contract tests reference skills by short name (`"daily"`) while skill files require a UUID `id`. The storage switch must decide which identifier automations use and enforce it in one place.
+Skills are referenced by their stable UUID; global Skills library entries use `global:<id>`. Short names are not references. `validate_references` checks this format and requires an exact match in the supplied inventory. Renaming a skill does not change its identity.
 
 ## Local state (never in these files)
 

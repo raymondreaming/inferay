@@ -48,7 +48,7 @@ export function ResourceFiles(props: { mode: "files" | "tools" | "plugins" }) {
 							projectId: projects.selectedId(),
 							path: filePath(),
 							content: fileContent(),
-							expectedContent: null,
+							expectedHash: null,
 						},
 			);
 			await queryClient.invalidateQueries({ queryKey: ["project-files"] });

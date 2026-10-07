@@ -103,6 +103,7 @@ impl ServerState {
         let bytes = tokio::fs::read(&file).await.map_err(map_io_error)?;
         Ok(serde_json::json!({
             "content": String::from_utf8_lossy(&bytes),
+            "hash": crate::project_store::hash(&bytes),
             "cwd": cwd.to_string_lossy(),
             "path": file.strip_prefix(&cwd).unwrap_or(&file).to_string_lossy(),
         }))

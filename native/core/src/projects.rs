@@ -203,7 +203,7 @@ pub enum ProjectCommand {
         project_id: String,
         path: String,
         content: String,
-        expected_content: Option<String>,
+        expected_hash: Option<String>,
     },
     SaveAutomation {
         id: Option<String>,

@@ -25,7 +25,7 @@ The work is a sequence of milestones. Each one ends with something real running,
 
 ## M1. Definitions are files
 
-Branch `projects-foundation`. The formats and validators exist; this milestone connects them to storage.
+Development continues directly on `main`. The formats and validators exist; this milestone connects them to storage. Managed file writes use expected hashes, and global custom skills have a separate `skills.sqlite3` store so rebuilding the project index does not remove them. The bounded filesystem scanner, validated writer, index rebuild and legacy exporter have disposable-profile tests; the schema handover is not yet connected to startup. Live catalog and command integration remain unfinished.
 
 **Storage.** `project_store.rs` and `project_runtime.rs` read definitions from files.
 
@@ -54,7 +54,7 @@ Branch `projects-foundation`. The formats and validators exist; this milestone c
 6. Every automation arrives disabled.
 7. Flag absolute paths found in instructions, with a suggested repository reference. Do not rewrite them.
 
-**Decide first:** automations name skills by their UUID or by a short name. Pick one and enforce it in `validate_references`.
+**Skill references:** automations name plugin skills by stable UUID, and global library skills by `global:<id>`. Names are display labels. `validate_references` checks the reference format and resolves it against the supplied inventory.
 
 **Done when**
 - the live profile's Rthmn automations migrate into plugins, arrive disabled and keep their run history, and a second launch changes nothing;

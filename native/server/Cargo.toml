@@ -17,13 +17,13 @@ inferay-native-diff = { path = "../diff-engine" }
 percent-encoding = "2.3.2"
 reqwest = { version = "0.13.4", default-features = false, features = ["rustls"] }
 regex = "1.12.2"
-rusqlite = { version = "0.40.2", features = ["bundled"] }
+rusqlite = { version = "0.40.2", features = ["bundled", "backup"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.49.0", features = ["fs", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-tungstenite = "0.29.0"
 url = "2.5.8"
-uuid = { version = "1.21.0", features = ["v4"] }
+uuid = { version = "1.21.0", features = ["v4", "v5"] }
 walkdir = "2.5.0"
 syntect = { version = "5.3.0", default-features = false, features = ["default-fancy"] }
 tempfile = "3.27.0"

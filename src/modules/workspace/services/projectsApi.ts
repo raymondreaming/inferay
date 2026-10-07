@@ -18,7 +18,7 @@ export function changeProject(command: ProjectCommand) {
 }
 
 export function readProjectFile(directory: string, path: string) {
-	return fetchJson<{ content: string }>(
+	return fetchJson<{ content: string; hash: string }>(
 		`/api/files/content?${new URLSearchParams({ cwd: directory, path })}`,
 		undefined,
 		{ server: true },

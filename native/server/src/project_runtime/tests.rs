@@ -152,6 +152,15 @@ fn schedule_consent_detects_changed_files_and_occurrences_deduplicate() {
         catalog.runs.iter().find(|r| r.id == next).unwrap().status,
         "failed"
     );
+    let manual = command(&mut store, json!({"type":"runAutomation","id":automation,"requestId":"manual-after-edit"}))["id"].as_str().unwrap().to_owned();
+    let catalog = store.catalog(Some(&id), None).unwrap();
+    let refused = catalog.runs.iter().find(|r| r.id == manual).unwrap();
+    assert_eq!(refused.status, "failed");
+    assert!(refused.error.as_deref().unwrap().contains("approval"));
+    let revision = catalog.automations[0].revision;
+    command(&mut store, json!({"type":"enableAutomation","id":automation,"expectedRevision":revision,"enabled":true}));
+    let accepted = command(&mut store, json!({"type":"runAutomation","id":automation,"requestId":"manual-after-review"}))["id"].as_str().unwrap().to_owned();
+    assert_eq!(store.catalog(Some(&id), None).unwrap().runs.iter().find(|r|r.id==accepted).unwrap().status, "queued");
 }
 #[test]
 fn agents_cannot_enable_execution_or_bypass_skill_approval() {
@@ -190,22 +199,6 @@ fn typed_resources_reject_cross_project_brands_and_preserve_archived_revisions()
         .remove(0);
     assert!(archived.archived);
     assert_eq!(archived.revision, 1);
-}
-#[test]
-fn managed_files_reject_traversal_symlinks_and_stale_overwrites() {
-    let root = tempfile::tempdir().unwrap();
-    let mut store = ProjectStore::open(root.path()).unwrap();
-    let id = project(&mut store);
-    let dir = store.project_dir(&id).unwrap();
-    project_store::write_file(&dir, "tools/main.py", "old", None).unwrap();
-    assert!(project_store::write_file(&dir, "../escape", "bad", None).is_err());
-    assert!(project_store::write_file(&dir, "tools/main.py", "new", None).is_err());
-    project_store::write_file(&dir, "tools/main.py", "new", Some("old")).unwrap();
-    #[cfg(unix)]
-    {
-        std::os::unix::fs::symlink(root.path(), dir.join("files/link")).unwrap();
-        assert!(project_store::write_file(&dir, "files/link/escape", "bad", None).is_err());
-    }
 }
 #[tokio::test]
 async fn real_tool_creates_artifact_with_captured_inputs_and_bounded_history() {
@@ -337,7 +330,7 @@ fn skill_migration_preserves_ids_revisions_and_approval_flow() {
     store.migrate().unwrap();
     store.migrate().unwrap();
     assert_eq!(store.load().unwrap()[0].id, "existing");
-    assert!(local.with_extension("json.pre-projects.bak").exists());
+    assert_eq!(std::fs::read_to_string(&local).unwrap(), body.to_string());
     store
         .update(
             "existing",
@@ -512,4 +505,38 @@ fn saving_enabled_automation_preserves_approval_and_disables_schedule() {
     assert_eq!(approval(&store), before);
     command(&mut store, json!({"type":"enableAutomation","id":id,"expectedRevision":saved.revision,"enabled":true}));
     assert!(store.catalog(Some(&project),None).unwrap().automations[0].enabled);
+}
+
+
+#[test]
+fn managed_file_writes_require_current_hash_and_preserve_conflicts() {
+    use crate::project_store::{hash, write_file};
+    let root = tempfile::tempdir().unwrap();
+    let path = "files/note.md";
+    write_file(root.path(), path, "original", None).unwrap();
+    assert!(write_file(root.path(), path, "overwrite", None).is_err());
+    assert!(write_file(root.path(), path, "overwrite", Some("original")).is_err());
+    write_file(root.path(), path, "updated", Some(&hash(b"original"))).unwrap();
+    assert!(write_file(root.path(), path, "stale", Some(&hash(b"original"))).is_err());
+    assert_eq!(std::fs::read_to_string(root.path().join(path)).unwrap(), "updated");
+    assert!(write_file(root.path(), "files/missing.md", "new", Some(&hash(b""))).is_err());
+    assert!(!root.path().join("files/missing.md").exists());
+    assert!(write_file(root.path(), "files/../../escape", "bad", None).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn managed_file_writes_refuse_symlink_files_and_directories() {
+    use crate::project_store::write_file;
+    use std::os::unix::fs::symlink;
+    let root = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    std::fs::write(outside.path().join("note.md"), "untouched").unwrap();
+    std::fs::create_dir(root.path().join("files")).unwrap();
+    symlink(outside.path(), root.path().join("files/linked")).unwrap();
+    symlink(outside.path().join("note.md"), root.path().join("files/note.md")).unwrap();
+    assert!(write_file(root.path(), "files/linked/new.md", "bad", None).is_err());
+    assert!(write_file(root.path(), "files/note.md", "bad", None).is_err());
+    assert_eq!(std::fs::read_to_string(outside.path().join("note.md")).unwrap(), "untouched");
+    assert!(!outside.path().join("new.md").exists());
 }

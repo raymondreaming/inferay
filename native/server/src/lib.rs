@@ -74,6 +74,9 @@ mod one_shot;
 mod path_resolution;
 mod project_runtime;
 mod project_store;
+mod project_definitions;
+mod project_migration;
+mod project_index;
 mod prompt_store;
 mod provider_history;
 mod render_jobs;
@@ -359,6 +362,13 @@ fn build_router_with_connection_reset(
     let client_storage = Arc::new(tokio::sync::Mutex::new(client_storage::ClientStorage::new(
         config.user_data_dir.join("client-storage.json"),
     )));
+    // Import global skills while the legacy definition tables still exist.
+    // Opening project storage may replace those tables during migration.
+    prompt_store
+        .try_lock()
+        .expect("skills startup lock")
+        .migrate()
+        .expect("Could not migrate local skills");
     let projects = project_runtime::ProjectRuntime::open(
         &config.user_data_dir,
         agent_command_resolver.clone(),
@@ -371,11 +381,6 @@ fn build_router_with_connection_reset(
     {
         eprintln!("Project migration: {error}");
     }
-    prompt_store
-        .try_lock()
-        .expect("skills startup lock")
-        .migrate()
-        .expect("Could not migrate local skills");
     projects.start();
     let chat_runtime = chat_runtime::ChatRuntime::new(
         chat_persistence.clone(),
