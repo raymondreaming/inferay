@@ -277,3 +277,176 @@ fn profile_lease_releases_when_an_inherited_descriptor_remains_open() {
     drop(reopened);
     FileProjectStore::open(profile.path(), &[]).unwrap();
 }
+
+/// Opt-in migration rehearsal. The source is opened read-only; every startup,
+/// migration and destructive rebuild happens in a disposable copy.
+#[test]
+#[ignore = "requires INFERAY_MIGRATION_SOURCE pointing to an existing file-backed profile"]
+fn existing_profile_migrates_and_rebuilds_in_disposable_copy() {
+    let source = PathBuf::from(
+        std::env::var_os("INFERAY_MIGRATION_SOURCE")
+            .expect("Set INFERAY_MIGRATION_SOURCE to the profile to audit"),
+    );
+    let profile = tempfile::tempdir().unwrap();
+    let source_db = Connection::open_with_flags(
+        source.join("projects.sqlite3"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let version: i64 = source_db
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    assert!(
+        version >= 3,
+        "Use the legacy migration fixtures for older databases"
+    );
+    source_db
+        .backup("main", profile.path().join("projects.sqlite3"), None)
+        .unwrap();
+    drop(source_db);
+    let mut bytes = 0_u64;
+    let mut entries = 0_usize;
+    for entry in walkdir::WalkDir::new(source.join("projects")).follow_links(false) {
+        let entry = entry.unwrap();
+        entries += 1;
+        assert!(entries <= 50_000, "Profile audit entry limit exceeded");
+        let target = profile
+            .path()
+            .join(entry.path().strip_prefix(&source).unwrap());
+        if entry.file_type().is_dir() {
+            std::fs::create_dir_all(target).unwrap();
+        } else {
+            assert!(
+                entry.file_type().is_file(),
+                "Audit refuses links and special files"
+            );
+            bytes += entry.metadata().unwrap().len();
+            assert!(
+                bytes <= 512 * 1024 * 1024,
+                "Profile audit byte limit exceeded"
+            );
+            std::fs::copy(entry.path(), target).unwrap();
+        }
+    }
+    let history = |db: &Connection| -> Vec<(String, String, String)> {
+        db.prepare("SELECT id,automation_id,status FROM runs ORDER BY id")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap()
+    };
+    let jobs = |db: &Connection| -> Vec<String> {
+        db.prepare("SELECT id FROM automations ORDER BY id")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap()
+    };
+    let definitions = |db: &Connection| -> Vec<(String, String, String, String)> {
+        let mut values = Vec::new();
+        for table in [
+            "projects",
+            "resources",
+            "plugins",
+            "tools",
+            "automations",
+            "resource_types",
+            "project_skills",
+        ] {
+            values.extend(
+                db.prepare(&format!(
+                    "SELECT id,source_path,source_hash FROM {table} ORDER BY id"
+                ))
+                .unwrap()
+                .query_map([], |row| {
+                    Ok((table.to_owned(), row.get(0)?, row.get(1)?, row.get(2)?))
+                })
+                .unwrap()
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .unwrap(),
+            );
+        }
+        values
+    };
+    let copy = Connection::open(profile.path().join("projects.sqlite3")).unwrap();
+    let original_jobs = jobs(&copy);
+    let mut expected_history = history(&copy);
+    for (_, _, status) in &mut expected_history {
+        if status == "running" {
+            *status = "interrupted".into();
+        }
+    }
+    drop(copy);
+    let store = FileProjectStore::open(profile.path(), &[]).unwrap();
+    assert_eq!(
+        jobs(&store.db),
+        original_jobs,
+        "Migration must retain every job ID"
+    );
+    // Startup legitimately recovers interrupted work; completed results remain intact.
+    let actual_history = history(&store.db);
+    for (expected, actual) in expected_history.iter().zip(&actual_history) {
+        assert_eq!((&expected.0, &expected.1), (&actual.0, &actual.1));
+        assert!(expected.2 == actual.2 || (expected.2 == "interrupted" && actual.2 == "cancelled"));
+    }
+    assert_eq!(actual_history.len(), expected_history.len());
+    assert_eq!(
+        store
+            .db
+            .query_row("SELECT count(*) FROM definition_errors", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0,
+        "Repair invalid definitions before auditing rebuild"
+    );
+    let migrated = definitions(&store.db);
+    drop(store);
+    let store = FileProjectStore::open(profile.path(), &[]).unwrap();
+    assert_eq!(
+        definitions(&store.db),
+        migrated,
+        "Second startup must be idempotent"
+    );
+    assert_eq!(history(&store.db), actual_history);
+    drop(store);
+    std::fs::remove_file(profile.path().join("projects.sqlite3")).unwrap();
+    let mut rebuilt = FileProjectStore::open(profile.path(), &[]).unwrap();
+    assert_eq!(
+        definitions(&rebuilt.db),
+        migrated,
+        "All definitions must rebuild from files"
+    );
+    let projects = rebuilt.catalog(None, &[]).unwrap().projects;
+    for project in projects {
+        let catalog = rebuilt.catalog(Some(&project.id), &[]).unwrap();
+        assert!(catalog.issues.is_empty());
+        assert!(
+            catalog
+                .automations
+                .iter()
+                .all(|job| !job.enabled && job.next_due_at.is_none())
+        );
+        assert!(
+            catalog
+                .plugins
+                .iter()
+                .all(|plugin| plugin.approved_hash.is_none())
+        );
+        assert!(
+            catalog.repository_paths.is_empty(),
+            "Machine bindings are local state"
+        );
+    }
+    assert!(
+        history(&rebuilt.db).is_empty(),
+        "Run history is local state"
+    );
+    eprintln!(
+        "Profile rehearsal passed: {} jobs, {} historical runs, {} indexed definitions; original profile untouched",
+        original_jobs.len(),
+        actual_history.len(),
+        migrated.len()
+    );
+}

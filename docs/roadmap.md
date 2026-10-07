@@ -46,7 +46,7 @@ Development continues directly on `main`. The formats and validators exist; this
 
 **Layout.** Documents move from `files/` to `memory/documents/`; typed records stay in `memory/<type>/`. Agent automations default to the project folder as their working directory.
 
-**Migration**, one-time and idempotent, covered by disposable-profile tests and applied to the live profile:
+**Migration**, one-time and idempotent, covered by disposable-profile tests. The original file export is applied to the live profile; its generated automation wrappers are converted on startup by the current code:
 
 1. Back up `projects.sqlite3` with SQLite's backup API.
 2. Write `project.json` for each project, and move repository locations into `repository_paths`.
@@ -55,6 +55,8 @@ Development continues directly on `main`. The formats and validators exist; this
 5. Convert installed plugins to the new manifest.
 6. Every automation arrives disabled.
 7. Flag absolute paths found in instructions, with a suggested repository reference. Do not rewrite them.
+
+The opt-in profile rehearsal copies the live SQLite snapshot and project files, then runs migration, reopens the copy and deletes its database to verify rebuilding. It passes against the current profile: all three job IDs and seventeen indexed definitions survive; schedules and approvals remain off after rebuilding. The live backup and current database both contain zero historical runs, so preservation of existing run results is covered by the populated migration fixtures. Applying the wrapper conversion to the running profile still requires a user-controlled restart.
 
 **Skill references:** automations name skills in their own folder by stable UUID, skills in another library by `plugin:<plugin UUID>:<skill UUID>`, and global library skills by `global:<id>`. Selected library files participate in approval hashes; reading a skill alone does not require that library’s executables. Names are display labels. `validate_references` checks the reference format and resolves it against the supplied inventory.
 
