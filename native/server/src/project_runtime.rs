@@ -658,6 +658,7 @@ impl ProjectRuntime {
                         return Err("Artifact must be a file under 50 MB".into());
                     }
                     let bytes = std::fs::read(&path)?;
+                    crate::project_effects::capture(&tx, project, id, name, &bytes)?;
                     tx.execute(
                         "INSERT INTO artifacts VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
                         params![

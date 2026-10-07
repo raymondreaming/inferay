@@ -322,8 +322,50 @@ pub struct ProjectArtifact {
 pub struct ProjectHistory {
     pub runs: Vec<ProjectRun>,
     pub artifacts: Vec<ProjectArtifact>,
+    pub effects: Vec<ProjectEffectIntent>,
     pub has_more_runs: bool,
     pub next_run_cursor: Option<String>,
+}
+
+/// A proposed external consequence. Producing this artifact never authorizes delivery.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EffectIntent {
+    pub schema: String,
+    pub key: String,
+    pub kind: String,
+    pub target: String,
+    pub payload: Value,
+    pub not_before: Option<i64>,
+}
+impl EffectIntent {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.schema != "inferay.effect/1" {
+            return Err("Unsupported effect intent schema".into());
+        }
+        for (label, value, limit) in [("key", &self.key, 128), ("kind", &self.kind, 128), ("target", &self.target, 512)] {
+            if value.trim().is_empty() || value.len() > limit || value.chars().any(char::is_control) {
+                return Err(format!("Effect {label} must be nonempty text under {limit} bytes without control characters"));
+            }
+        }
+        if !self.payload.is_object() || serde_json::to_vec(&self.payload).map_err(|e| e.to_string())?.len() > 65_536 {
+            return Err("Effect payload must be an object under 64 KiB".into());
+        }
+        if self.not_before.is_some_and(|time| time < 0) {
+            return Err("Effect notBefore must be a nonnegative Unix timestamp in milliseconds".into());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectEffectIntent {
+    pub id: String,
+    pub run_id: String,
+    pub artifact: String,
+    pub intent: EffectIntent,
+    pub created_at: i64,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

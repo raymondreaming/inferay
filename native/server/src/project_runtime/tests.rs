@@ -1615,3 +1615,40 @@ async fn finishing_a_run_preserves_its_open_chat() {
         assert_eq!(run.result.unwrap()["chatPaneId"], "existing-chat");
     }
 }
+
+#[tokio::test]
+async fn effect_artifacts_are_durable_deduplicated_and_conflict_safe() {
+    let profile = tempfile::tempdir().unwrap();
+    let (project, automation) = definition_files(profile.path(), "print('{}')");
+    let runtime = runtime(profile.path());
+    let mut first = String::new();
+    for (key, text, expected_status) in [("original", "Hello", "succeeded"), ("retry", "Hello", "succeeded"), ("conflict", "Changed", "failed")] {
+        let id = approved_run(&runtime, &automation, key).await;
+        if first.is_empty() { first.clone_from(&id); }
+        runtime.store.lock().unwrap().db.execute("UPDATE runs SET status='running' WHERE id=?", [&id]).unwrap();
+        let output = profile.path().join("projects").join(&project).join("runs").join(&id).join("output");
+        std::fs::create_dir_all(&output).unwrap();
+        let intent = json!({"schema":"inferay.effect/1","key":"daily-message","kind":"fixture.send","target":"test-account","payload":{"text":text},"notBefore":null});
+        std::fs::write(output.join("intent.json"), intent.to_string()).unwrap();
+        let artifacts = if key == "conflict" {
+            let mut first_intent = intent.clone();
+            first_intent["key"] = json!("must-roll-back");
+            std::fs::write(output.join("first.json"), first_intent.to_string()).unwrap();
+            json!(["first.json", "intent.json"])
+        } else { json!(["intent.json"]) };
+        runtime.finish(&id, &project, Ok(json!({"artifacts":artifacts}))).unwrap();
+        assert_eq!(runtime.run_for_chat(&id).unwrap().status, expected_status);
+        let history = runtime.store.lock().unwrap().history(&project,None).unwrap();
+        assert_eq!(history.effects.len(), 1);
+        assert_eq!(history.effects[0].run_id, first);
+        assert_eq!(history.effects[0].intent.payload["text"], "Hello");
+        if expected_status == "failed" {
+            assert!(!history.artifacts.iter().any(|artifact| artifact.run_id == id));
+        }
+    }
+    drop(runtime);
+    let reopened = self::runtime(profile.path());
+    let history = reopened.store.lock().unwrap().history(&project,None).unwrap();
+    assert_eq!(history.effects.len(), 1);
+    assert_eq!(history.effects[0].artifact, "intent.json");
+}

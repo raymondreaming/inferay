@@ -156,6 +156,7 @@ impl FileProjectStore {
             project_migration::replace_definition_tables(&mut db)?;
         }
         project_index::create_schema(&db)?;
+        crate::project_effects::create_schema(&db)?;
         project_migration::memory_directories(&db, &root)?;
         project_migration::standalone::migrate(&db, &root)?;
         project_index::refresh(&mut db, &root, skills)?;

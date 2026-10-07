@@ -384,3 +384,35 @@ limited to 1 MiB, a nonblank title of at most 512 bytes, nonblank text, and at m
 32 details with nonblank labels of at most 128 bytes and values of at most 4096
 bytes. Draft text renders literally, including HTML and Markdown punctuation.
 Ordinary JSON files keep their existing source or table views.
+
+## Effect intent artifacts
+
+A tool or agent can propose an external action with a retained `.json` artifact:
+
+```json
+{
+  "schema": "inferay.effect/1",
+  "key": "weekly-update-2026-10-12",
+  "kind": "message.publish",
+  "target": "test-account",
+  "payload": { "text": "Draft update" },
+  "notBefore": null
+}
+```
+
+`kind` and `target` are opaque to the core. `key` identifies one intended action
+within a project. Keys and kinds have a 128-byte limit; targets have a 512-byte
+limit. They must be nonempty and contain no control characters. `payload` is an
+object up to 64 KiB; the complete artifact is limited to 70,000 bytes.
+`notBefore` is optional and uses nonnegative Unix milliseconds. It does not start
+a timer or authorize delivery.
+
+Successful run completion validates these artifacts and records immutable intent
+bodies in SQLite's operational `effect_intents` table, in the same transaction as
+artifact indexing. Identical retries reuse the original intent. Different contents
+under the same project/key fail the run and roll back its new artifact/intent rows.
+History shows the original run's intents as **Pending review · Not sent**.
+
+This is proposal capture only. Budgets, approval controls, delivery handlers,
+receipts and crash reconciliation remain planned. No external request is made by
+capturing or viewing an intent. Never include credentials in an intent payload.

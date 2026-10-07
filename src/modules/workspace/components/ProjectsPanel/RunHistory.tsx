@@ -210,6 +210,32 @@ export function RunHistory(props: {
 								)}
 							</For>
 						</div>
+						<For
+							each={catalog()?.effects.filter(
+								(effect) => effect.runId === run().id,
+							)}
+							keyed={(effect) => effect.id}
+						>
+							{(effect) => (
+								<div {...stylex.attrs(styles.historyHeader)}>
+									<div {...stylex.attrs(styles.historyIdentity)}>
+										<strong>{effect().intent.kind}</strong>
+										<span {...stylex.attrs(styles.muted)}>
+											{effect().intent.target} · Pending review · Not sent
+										</span>
+									</div>
+									<Button
+										size="sm"
+										variant="ghost"
+										onClick={() =>
+											inspect(run().directory, `output/${effect().artifact}`)
+										}
+									>
+										View intent
+									</Button>
+								</div>
+							)}
+						</For>
 						<details {...stylex.attrs(styles.historyDetails)}>
 							<summary {...stylex.attrs(styles.historyDetailsLabel)}>
 								Run details

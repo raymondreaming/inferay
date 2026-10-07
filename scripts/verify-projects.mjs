@@ -283,7 +283,7 @@ try {
 			inputSchema: { type: "object" },
 			outputSchema: { type: "object" },
 		}),
-		"tools/report/run.py": `import os,json,base64\nfrom pathlib import Path\nout=Path(os.environ['INFERAY_RUN_OUTPUT'])\n(out/'report.md').write_text('# Run report\\n\\nA local project, a reusable tool, and a durable run.\\n\\n**Verified output**')\n(out/'preview.webm').write_bytes(base64.b64decode('${videoFixture}'))\n(out/'metrics.csv').write_bytes(base64.b64decode('${tableFixture}'))\n(out/'rows.json').write_text(json.dumps([{'name':'Research','count':7},{'name':'Build','count':0}]))\n(out/'launch.draft.json').write_bytes(base64.b64decode('${draftFixture}'))\nprint(json.dumps({'artifacts':['report.md','preview.webm','metrics.csv','rows.json','launch.draft.json']}))\n`,
+		"tools/report/run.py": `import os,json,base64\nfrom pathlib import Path\nout=Path(os.environ['INFERAY_RUN_OUTPUT'])\n(out/'report.md').write_text('# Run report\\n\\nA local project, a reusable tool, and a durable run.\\n\\n**Verified output**')\n(out/'preview.webm').write_bytes(base64.b64decode('${videoFixture}'))\n(out/'metrics.csv').write_bytes(base64.b64decode('${tableFixture}'))\n(out/'rows.json').write_text(json.dumps([{'name':'Research','count':7},{'name':'Build','count':0}]))\n(out/'launch.draft.json').write_bytes(base64.b64decode('${draftFixture}'))\n(out/'send-intent.json').write_text(json.dumps({'schema':'inferay.effect/1','key':'fixture-message','kind':'fixture.send','target':'test-account','payload':{'text':'Review before sending'}}))\nprint(json.dumps({'artifacts':['report.md','preview.webm','metrics.csv','rows.json','launch.draft.json','send-intent.json']}))\n`,
 		"automations/report.json": JSON.stringify({
 			schema: "inferay.automation/1",
 			id: reportAutomationId,
@@ -386,6 +386,13 @@ try {
 	await page
 		.getByText("succeeded", { exact: true })
 		.waitFor({ timeout: 15000 });
+	await page
+		.getByText("test-account · Pending review · Not sent", { exact: true })
+		.waitFor();
+	assert.equal(
+		(await api(`/api/projects?projectId=${fixtureProject.id}`)).effects.length,
+		1,
+	);
 	await page.getByRole("button", { name: /report.md ·/ }).click();
 	await page
 		.getByText("A local project, a reusable tool, and a durable run.", {

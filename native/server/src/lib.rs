@@ -63,6 +63,7 @@ mod agent_mcp;
 mod atomic_write;
 pub mod chat_persistence;
 mod project_chat;
+mod project_effects;
 mod chat_runtime;
 pub mod checkpoint;
 mod client_storage;

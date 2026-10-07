@@ -299,6 +299,9 @@ pub(crate) fn history(
         ],
     )?;
     Ok(inferay_core::projects::ProjectHistory {
+        effects: rows(db,
+            "SELECT json_object('id',id,'runId',run_id,'artifact',artifact,'intent',json(intent),'createdAt',created_at) FROM effect_intents WHERE project_id=?1 AND run_id IN (SELECT value FROM json_each(?2)) ORDER BY created_at DESC,id LIMIT 5000",
+            params![project,serde_json::to_string(&runs.iter().map(|r| &r.id).collect::<Vec<_>>())?])?,
         runs,
         artifacts,
         has_more_runs,
