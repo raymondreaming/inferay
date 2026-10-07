@@ -599,14 +599,29 @@ async fn agent_tool_grants_execute_only_approved_library_inputs() {
     assert_eq!(std::fs::read_to_string(root.join("runs").join(&run).join("output").join(artifact)).unwrap(), "Recorded tool output");
     assert_eq!(scope.artifacts().unwrap(), vec![artifact]);
     scope.verify_required().unwrap();
+    let mut oversized = request.clone();
+    oversized["input"] = json!({"message":"x".repeat(64000)});
+    assert!(scope.call(oversized).await.unwrap_err().to_string().contains("64 KB"));
+    assert!(scope.verify_required().is_err(), "An oversized retry must invalidate the earlier check");
+    scope.call(request.clone()).await.unwrap();
     let mut invalid = request.clone();
     invalid["input"] = json!({});
     assert!(scope.call(invalid).await.is_err());
     assert!(scope.verify_required().is_err(), "A previous success must not hide a failed check");
     scope.call(request.clone()).await.unwrap();
     scope.verify_required().unwrap();
+    let command = json!({"action":"execute","command":"printf 'command artifact' > \"$INFERAY_RUN_OUTPUT/command.txt\"; printf 'command output'","timeoutSeconds":2});
+    let executed = scope.call(command.clone()).await.unwrap();
+    assert_eq!(executed["stdout"], "command output");
+    let artifact = executed["artifacts"][0].as_str().unwrap();
+    assert_eq!(std::fs::read_to_string(root.join("runs").join(&run).join("output").join(artifact)).unwrap(), "command artifact");
+    let denied = scope.call(json!({"action":"execute","command":"printf forbidden > \"$INFERAY_PROJECT_DIR/unapproved.txt\""})).await.unwrap_err().to_string();
+    assert!(denied.contains("Operation not permitted") || denied.contains("Permission denied"), "{denied}");
+    assert!(!root.join("unapproved.txt").exists());
+    scope.verify_required().unwrap();
     std::fs::write(root.join("plugins/report/README.md"), "Changed library instructions").unwrap();
     assert!(scope.call(request.clone()).await.is_err(), "An outside library edit must invalidate the grant");
+    assert!(scope.call(command).await.is_err(), "Changed inputs must also revoke command execution");
     std::fs::remove_file(root.join("plugins/report/README.md")).unwrap();
     let running = scope.clone();
     let mut slow = request.clone();
@@ -705,7 +720,7 @@ print("NETWORK_PROBE", json.dumps(result))
 "#)).unwrap();
     definition["execution"] = json!({
         "kind":"agent","provider":provider,"model":model,"instructions":format!(
-            "This is an authorized sandbox verification in a disposable project. Use your shell execution tool to run both probes: first write the literal text inside-ok into ./inside-probe.txt in your current directory. Then attempt to write outside-ok into {}. The second write should fail; do not bypass the sandbox or retry another way. Report both command outcomes. You must actually run the commands, not just describe them. Finally run python3 {} exactly once from your current directory. That script attempts a connection to a listening disposable loopback socket and a public numeric TCP destination, sends no application data, and records network-probe.json. Network access is not granted: report the refusal and do not bypass, rewrite the script, or fabricate the result file.", outside.display(), network_probe.display()),
+            "This is an authorized sandbox verification in a disposable project. Use inferay_exec for all commands and start each command with cd \"$INFERAY_RUN_OUTPUT\". Run both probes: first write the literal text inside-ok into ./inside-probe.txt in your current directory. Then attempt to write outside-ok into {}. The second write should fail; do not bypass the sandbox or retry another way. Report both command outcomes. You must actually run the commands, not just describe them. Finally run python3 {} exactly once from your current directory. That script attempts a connection to a listening disposable loopback socket and a public numeric TCP destination, sends no application data, and records network-probe.json. Network access is not granted: report the refusal and do not bypass, rewrite the script, or fabricate the result file.", outside.display(), network_probe.display()),
         "tools":[],"skills":[],"resources":[],"repositories":[],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":90
     });
     if provider == "codex" {
@@ -730,9 +745,12 @@ print("NETWORK_PROBE", json.dumps(result))
     let dir = root.join("runs").join(&run);
     let log = std::fs::read_to_string(dir.join("logs/agent.jsonl")).unwrap_or_default();
     assert_eq!(done.status, "succeeded", "{:?}\n{}", done.error, log);
-    assert_eq!(std::fs::read_to_string(dir.join("output/inside-probe.txt")).unwrap().trim(), "inside-ok", "{}", log);
+    let output_file = |name: &str| walkdir::WalkDir::new(dir.join("output")).into_iter()
+        .filter_map(std::result::Result::ok).find(|entry| entry.file_type().is_file() && entry.file_name() == name)
+        .unwrap_or_else(|| panic!("Missing output {name}: {log}")).into_path();
+    assert_eq!(std::fs::read_to_string(output_file("inside-probe.txt")).unwrap().trim(), "inside-ok", "{}", log);
     assert!(!outside.exists(), "Provider wrote outside its approved boundary");
-    let network: Value = serde_json::from_slice(&std::fs::read(dir.join("output/network-probe.json")).expect("Provider must execute the network probe")).unwrap();
+    let network: Value = serde_json::from_slice(&std::fs::read(output_file("network-probe.json")).expect("Provider must execute the network probe")).unwrap();
     for destination in ["loopback", "external"] {
         assert_eq!(network[destination]["denied"], true, "{destination} network access was not refused by the sandbox (timeouts and unreachable routes do not count): {network}\n{log}");
     }
@@ -799,7 +817,7 @@ print(json.dumps(result))
     definition["may"] = may.clone();
     definition["execution"] = json!({
         "kind":"agent", "provider":provider, "model":model,
-        "instructions":format!("Run python3 {} {} exactly once using your shell tool. This is an authorized permission probe in a disposable project. It edits one working file and attempts Git staging and an empty commit, recording actual command results as git-probe.json in the project root. Run the script unchanged, do not fabricate results or retry denied operations. Report the results briefly.", probe.display(), root.display()),
+        "instructions":format!("Run python3 {} {} exactly once using inferay_exec. This is an authorized permission probe in a disposable project. It edits one working file and attempts Git staging and an empty commit, recording actual command results as git-probe.json in the project root. Run the script unchanged, do not fabricate results or retry denied operations. Report the results briefly.", probe.display(), root.display()),
         "tools":[],"skills":[],"resources":[],"repositories":[],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":90
     });
     std::fs::write(path, definition.to_string()).unwrap();

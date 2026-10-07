@@ -39,84 +39,23 @@ impl AutomationSandbox {
                 .unwrap_or_default(),
         }
     }
-    pub(crate) fn claude(&self, arguments: &mut Vec<String>, output: &Path) -> Result<(), String> {
-        // Permission patterns are glob syntax. Reject paths that would widen a literal grant.
-        let output = output.to_string_lossy().into_owned();
-        let roots = self.roots.iter().chain(std::iter::once(&output));
-        let mut allow = vec![
-            "Bash".to_owned(),
-            "Read".into(),
-            "Glob".into(),
-            "Grep".into(),
-            "mcp__inferay__*".into(),
-        ];
-        for root in roots {
-            if root.contains(['*', '?', '[', ']', '(', ')', '\n', '\r']) {
-                return Err(
-                    "Automation path contains unsupported permission-pattern characters".into(),
-                );
-            }
-            allow.push(format!("Edit(/{root}/**)"));
-        }
-        if self.network {
-            allow.extend(["WebFetch".into(), "WebSearch".into()]);
-        }
-        let mut settings_index = None;
-        for (index, argument) in arguments.iter().enumerate() {
-            if argument == "--settings" {
-                settings_index = Some(index + 1);
-            }
-        }
-        let index = settings_index.ok_or("Missing Claude settings argument")?;
+    pub(crate) fn claude(&self, arguments: &mut Vec<String>) -> Result<(), String> {
+        let index = arguments
+            .iter()
+            .rposition(|argument| argument == "--settings")
+            .map(|index| index + 1)
+            .ok_or("Missing Claude settings argument")?;
         let mut settings: Value =
             serde_json::from_str(arguments.get(index).ok_or("Missing Claude settings")?)
-                .map_err(|e| format!("Invalid Claude settings: {e}"))?;
-        let mut deny = if self.network {
-            Vec::<String>::new()
-        } else {
-            vec!["WebFetch".into(), "WebSearch".into()]
-        };
-        let mut denied_writes = BTreeSet::new();
-        if !self.commit {
-            let roots = self
-                .repositories
-                .iter()
-                .chain(self.roots.iter())
-                .chain(std::iter::once(&output));
-            denied_writes = protected_git_directories(roots.clone())?;
-            #[cfg(target_os = "macos")]
-            if !denied_writes.is_empty() {
-                let writable = self
-                    .roots
-                    .iter()
-                    .chain(std::iter::once(&output))
-                    .map(|root| {
-                        Path::new(root).canonicalize().map_err(|error| {
-                            format!("Sandbox write directory is unavailable: {error}")
-                        })
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                denied_writes.extend(git_metadata_aliases(&denied_writes, &writable)?);
-            }
-            denied_writes.extend(roots.map(|root| Path::new(root).join(".git")));
-            for path in &denied_writes {
-                let path = path.to_string_lossy();
-                if path.contains(['*', '?', '[', ']', '(', ')', '\n', '\r']) {
-                    return Err(
-                        "Git metadata path contains unsupported permission-pattern characters"
-                            .into(),
-                    );
-                }
-                deny.extend([format!("Edit(/{path})"), format!("Edit(/{path}/**)")]);
-            }
-        }
+                .map_err(|error| format!("Invalid Claude settings: {error}"))?;
         settings["disableAllHooks"] = json!(true);
-        settings["permissions"] = json!({"allow":allow,"deny":deny});
+        // Mutations and shell commands share Inferay's bounded process runner.
+        settings["permissions"] = json!({"allow":["Read","Glob","Grep","mcp__inferay__*"],"deny":["Bash","Edit","Write","WebFetch","WebSearch"]});
         settings["sandbox"] = json!({
-            "enabled":true,"failIfUnavailable":true,"autoAllowBashIfSandboxed":true,
+            "enabled":true,"failIfUnavailable":true,"autoAllowBashIfSandboxed":false,
             "allowUnsandboxedCommands":false,"excludedCommands":[],
-            "filesystem":{"allowWrite":self.roots,"denyWrite":denied_writes},
-            "network":{"allowedDomains":if self.network {vec!["*"]} else {vec![]},"strictAllowlist":true,"allowLocalBinding":false}
+            "filesystem":{"allowWrite":[]},
+            "network":{"allowedDomains":[],"strictAllowlist":true,"allowLocalBinding":false}
         });
         arguments[index] = settings.to_string();
         arguments.retain(|arg| arg != "--dangerously-skip-permissions");
@@ -129,16 +68,8 @@ impl AutomationSandbox {
             "--setting-sources".into(),
             "".into(),
             "--tools".into(),
-            if self.network {
-                "Bash,Read,Glob,Grep,Edit,Write,WebFetch,WebSearch"
-            } else {
-                "Bash,Read,Glob,Grep,Edit,Write"
-            }
-            .into(),
+            "Read,Glob,Grep".into(),
         ]);
-        for root in &self.roots {
-            arguments.extend(["--add-dir".into(), root.clone()]);
-        }
         Ok(())
     }
     /// Local tools and their children share an OS boundary; never silently run unsandboxed.
@@ -250,63 +181,37 @@ impl AutomationSandbox {
         )
     }
 
-    pub(crate) fn mode(&self) -> &'static str {
-        if self.roots.is_empty() {
-            "read-only"
-        } else {
-            "workspace-write"
-        }
-    }
-    fn codex_write_roots(&self) -> Result<Vec<String>, String> {
-        let mut roots = self.roots.clone();
-        if self.commit {
-            // Codex protects Git metadata under workspace roots by default.
-            // Explicit metadata grants must remain within approved write roots:
-            // a changed .git pointer must not authorize an unrelated directory.
-            let metadata = protected_git_directories(self.roots.iter())?;
-            if !metadata.is_empty() {
-                let writable = self
-                    .roots
-                    .iter()
-                    .map(|root| {
-                        Path::new(root).canonicalize().map_err(|error| {
-                            format!("Sandbox write directory is unavailable: {error}")
-                        })
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                for path in metadata {
-                    if !writable.iter().any(|root| path.starts_with(root)) {
-                        return Err("Git metadata is outside approved writable roots; authorize its location before running a committing automation".into());
-                    }
-                    roots.push(path.to_string_lossy().into_owned());
-                }
-            }
-            roots.sort();
-            roots.dedup();
-        }
-        Ok(roots)
-    }
-    pub(crate) fn turn(&self) -> Result<Value, String> {
-        let roots = self.codex_write_roots()?;
-        Ok(if roots.is_empty() {
-            json!({"type":"readOnly","networkAccess":self.network})
-        } else {
-            json!({"type":"workspaceWrite","writableRoots":roots,"networkAccess":self.network,"excludeSlashTmp":true,"excludeTmpdirEnvVar":true})
-        })
+    pub(crate) fn turn(&self) -> Value {
+        json!({"type":"readOnly","networkAccess":false})
     }
     /// Applied after user configuration translation so ambient permissions cannot widen this run.
-    pub(crate) fn thread(&self, params: &mut Value, config: &Value) -> Result<(), String> {
-        let roots = self.codex_write_roots()?;
-        params["sandbox"] = json!(self.mode());
+    pub(crate) fn thread(&self, params: &mut Value, config: &Value) {
+        params["sandbox"] = json!("read-only");
         params["experimentalRawEvents"] = json!(true);
         params["approvalPolicy"] = json!("never");
-        params["config"]["sandbox_mode"] = json!(self.mode());
+        params["config"]["sandbox_mode"] = json!("read-only");
         if let Some(overrides) = params["config"].as_object_mut() {
             overrides.retain(|key, _| !key.starts_with("mcp_servers."));
         }
-        params["config"]["sandbox_workspace_write"] = json!({"writable_roots":roots,"network_access":self.network,"exclude_slash_tmp":true,"exclude_tmpdir_env_var":true});
-        if !self.network {
-            params["config"]["web_search"] = json!("disabled");
+        params["config"]["sandbox_workspace_write"] = json!({"writable_roots":[],"network_access":false,"exclude_slash_tmp":true,"exclude_tmpdir_env_var":true});
+        params["config"]["web_search"] = json!("disabled");
+        // Ambient optional executors must not add authority outside the run's tools.
+        for feature in [
+            "shell_tool",
+            "js_repl",
+            "js_repl_tools_only",
+            "apps",
+            "plugins",
+            "hooks",
+            "multi_agent",
+            "multi_agent_v2",
+            "browser_use",
+            "browser_use_external",
+            "computer_use",
+            "image_generation",
+            "request_permissions_tool",
+        ] {
+            params["config"]["features"][feature] = json!(false);
         }
         // Automation MCP capabilities are supplied through the run's explicit dynamic tools.
         if let Some(servers) = config["mcp_servers"].as_object() {
@@ -316,7 +221,6 @@ impl AutomationSandbox {
                 .collect();
             params["config"]["mcp_servers"] = json!(disabled);
         }
-        Ok(())
     }
 }
 
@@ -705,15 +609,24 @@ print('verified')
     }
 
     #[test]
-    fn claude_automation_requires_sandbox_without_ambient_permission_bypass() {
-        let policy = AutomationSandbox::new(&BTreeSet::new(), &json!({}), Path::new("/project"));
+    fn automation_providers_cannot_bypass_native_execution() {
+        let policy = AutomationSandbox::new(
+            &BTreeSet::from([
+                Permission::WriteRepositories,
+                Permission::WriteProjectFiles,
+                Permission::Commit,
+                Permission::Network,
+            ]),
+            &json!({"repo":"/work/repo"}),
+            Path::new("/project"),
+        );
         let mut args = vec![
             "claude".into(),
             "--dangerously-skip-permissions".into(),
             "--settings".into(),
             "{}".into(),
         ];
-        policy.claude(&mut args, Path::new("/run/output")).unwrap();
+        policy.claude(&mut args).unwrap();
         assert!(
             !args
                 .iter()
@@ -721,105 +634,44 @@ print('verified')
         );
         assert!(
             args.windows(2)
-                .any(|pair| pair == ["--permission-prompts", "none"])
+                .any(|pair| pair == ["--tools", "Read,Glob,Grep"])
         );
         let settings: Value = serde_json::from_str(
             &args[args.iter().position(|arg| arg == "--settings").unwrap() + 1],
         )
         .unwrap();
-        assert_eq!(settings["sandbox"]["failIfUnavailable"], true);
-        assert_eq!(settings["sandbox"]["allowUnsandboxedCommands"], false);
-        assert_eq!(settings["sandbox"]["network"]["allowedDomains"], json!([]));
+        assert_eq!(
+            settings["permissions"]["deny"],
+            json!(["Bash", "Edit", "Write", "WebFetch", "WebSearch"])
+        );
         assert_eq!(settings["disableAllHooks"], true);
+        assert_eq!(settings["sandbox"]["allowUnsandboxedCommands"], false);
         assert_eq!(
-            settings["sandbox"]["filesystem"]["denyWrite"],
-            json!(["/run/output/.git"])
-        );
-        assert!(
-            settings["permissions"]["deny"]
-                .as_array()
-                .unwrap()
-                .contains(&json!("Edit(//run/output/.git/**)"))
-        );
-        assert!(
-            policy
-                .claude(&mut args, Path::new("/run/unsafe*/output"))
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn codex_commit_grant_adds_only_resolved_git_metadata() {
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().canonicalize().unwrap();
-        let checkout = root.join("checkout");
-        let metadata = checkout.join("admin/worktree");
-        let common = checkout.join("admin/common");
-        for path in [&checkout, &metadata, &common] {
-            std::fs::create_dir_all(path).unwrap();
-        }
-        std::fs::write(checkout.join(".git"), "gitdir: admin/worktree\n").unwrap();
-        std::fs::write(metadata.join("commondir"), "../common\n").unwrap();
-        let bindings = json!({"repo": checkout});
-        let mut may = BTreeSet::from([Permission::WriteRepositories]);
-        let policy = AutomationSandbox::new(&may, &bindings, &root);
-        assert_eq!(policy.turn().unwrap()["writableRoots"], json!([checkout]));
-
-        may.insert(Permission::Commit);
-        let policy = AutomationSandbox::new(&may, &bindings, &root);
-        let expected = json!([checkout, common, metadata]);
-        let turn = policy.turn().unwrap();
-        assert_eq!(turn["writableRoots"], expected);
-        assert_eq!(turn["networkAccess"], false);
-        let mut thread = json!({"config":{}});
-        policy.thread(&mut thread, &json!({})).unwrap();
-        assert_eq!(
-            thread["config"]["sandbox_workspace_write"]["writable_roots"],
-            expected
-        );
-
-        let policy =
-            AutomationSandbox::new(&BTreeSet::from([Permission::Commit]), &bindings, &root);
-        assert_eq!(
-            policy.turn().unwrap(),
-            json!({"type":"readOnly","networkAccess":false})
-        );
-
-        // Even a syntactically valid pointer cannot widen the write boundary.
-        std::fs::create_dir(root.join("outside")).unwrap();
-        std::fs::write(checkout.join(".git"), "gitdir: ../outside\n").unwrap();
-        let policy = AutomationSandbox::new(&may, &bindings, &root);
-        assert!(
-            policy
-                .turn()
-                .unwrap_err()
-                .contains("outside approved writable roots")
-        );
-        assert!(policy.thread(&mut thread, &json!({})).is_err());
-
-        std::fs::write(checkout.join(".git"), "invalid pointer\n").unwrap();
-        let policy = AutomationSandbox::new(&may, &bindings, &root);
-        assert!(policy.turn().is_err());
-        assert!(policy.thread(&mut thread, &json!({})).is_err());
-    }
-
-    #[test]
-    fn codex_automation_limits_override_ambient_access() {
-        let policy = AutomationSandbox::new(
-            &BTreeSet::new(),
-            &json!({"repo":"/work/repo"}),
-            Path::new("/work/project"),
-        );
-        assert_eq!(
-            policy.turn().unwrap(),
+            policy.turn(),
             json!({"type":"readOnly","networkAccess":false})
         );
         let mut thread = json!({"sandbox":"danger-full-access","config":{"mcp_servers.ambient.enabled":true},"approvalPolicy":"on-request"});
         policy.thread(
             &mut thread,
-            &json!({"mcp_servers":{"ambient":{"command":"unsafe","enabled":true,"tool_timeout_sec":null}}}),
-        ).unwrap();
+            &json!({"mcp_servers":{"ambient":{"command":"unsafe"}}}),
+        );
         assert_eq!(thread["sandbox"], "read-only");
+        assert_eq!(thread["approvalPolicy"], "never");
+        assert_eq!(thread["config"]["features"]["shell_tool"], false);
+        for feature in [
+            "js_repl",
+            "apps",
+            "plugins",
+            "hooks",
+            "multi_agent",
+            "multi_agent_v2",
+            "browser_use",
+            "computer_use",
+            "image_generation",
+        ] {
+            assert_eq!(thread["config"]["features"][feature], false);
+        }
+        assert_eq!(thread["config"]["web_search"], "disabled");
         assert!(
             thread["config"]
                 .get("mcp_servers.ambient.enabled")
@@ -829,17 +681,5 @@ print('verified')
             thread["config"]["mcp_servers"]["ambient"],
             json!({"enabled":false})
         );
-        assert_eq!(thread["config"]["web_search"], "disabled");
-        let policy = AutomationSandbox::new(
-            &BTreeSet::from([Permission::WriteRepositories]),
-            &json!({"repo":"/work/repo"}),
-            Path::new("/work/project"),
-        );
-        assert_eq!(
-            policy.turn().unwrap()["writableRoots"],
-            json!(["/work/repo"])
-        );
-        assert_eq!(policy.turn().unwrap()["networkAccess"], false);
-        assert_eq!(policy.turn().unwrap()["excludeSlashTmp"], true);
     }
 }

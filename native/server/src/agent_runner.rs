@@ -114,6 +114,9 @@ impl AgentProcessHandle {
 
     pub(crate) fn tool_definitions(&self) -> Value {
         let mut definitions = inferay_core::prompts::tools::tool_definitions();
+        if self.tools.is_some() {
+            definitions.as_array_mut().unwrap().push(crate::project_tools::ToolScope::execution_definition());
+        }
         if self.tools.as_ref().is_some_and(|tools| tools.available()) {
             definitions.as_array_mut().unwrap().push(crate::project_tools::ToolScope::definition());
         }
@@ -136,6 +139,12 @@ impl AgentProcessHandle {
         tool: &str,
         args: Value,
     ) -> Result<(Value, Option<Value>), String> {
+        if tool == "inferay_exec" {
+            let scope = self.tools.as_ref().ok_or("No automation execution scope")?;
+            let mut args = args.as_object().cloned().ok_or("Command arguments must be an object")?;
+            args.insert("action".into(), json!("execute"));
+            return scope.call(json!(args)).await.map(|result| (result, None)).map_err(|error| error.to_string());
+        }
         if tool == "inferay_tools" {
             let scope = self.tools.as_ref().ok_or("No library tools are granted to this run")?;
             return scope.call(args).await.map(|result| (result, None)).map_err(|error| error.to_string());
@@ -341,7 +350,7 @@ pub async fn run_claude(
         ]);
     }
     if let Some(policy) = &handle.sandbox {
-        if let Err(error) = policy.claude(&mut arguments, run.cwd) {
+        if let Err(error) = policy.claude(&mut arguments) {
             emit_error(context, error);
             flush_emissions(context, emissions);
             return String::new();
@@ -530,12 +539,12 @@ pub async fn run_codex(
             .await?;
         let mut start_params = codex_thread_params(run.invocation);
         configure_codex_session(&mut start_params, &config["config"], run.env);
-        if let Some(policy) = &handle.sandbox { policy.thread(&mut start_params, &config["config"])?; }
+        if let Some(policy) = &handle.sandbox { policy.thread(&mut start_params, &config["config"]); }
         start_params["dynamicTools"] = handle.tool_definitions();
         let thread_response = if let Some(thread_id) = &run.invocation.session_id {
             let mut params = codex_thread_params(run.invocation);
             configure_codex_session(&mut params, &config["config"], run.env);
-            if let Some(policy) = &handle.sandbox { policy.thread(&mut params, &config["config"])?; }
+            if let Some(policy) = &handle.sandbox { policy.thread(&mut params, &config["config"]); }
             params["threadId"] = json!(thread_id);
             rpc.request(
                 "thread/resume",
@@ -585,7 +594,7 @@ pub async fn run_codex(
             }
         }
         let mut turn_params = codex_turn_params(&thread_id, run.prompt, run.invocation);
-        if let Some(policy) = &handle.sandbox { turn_params["sandboxPolicy"] = policy.turn()?; }
+        if let Some(policy) = &handle.sandbox { turn_params["sandboxPolicy"] = policy.turn(); }
         let turn_response = rpc
             .request(
                 "turn/start",

@@ -467,7 +467,7 @@ impl ProjectRuntime {
                 let binary = self.resolver.resolve_agent_binary(kind);
                 let env = self.resolver.create_agent_env(kind);
                 let prompt = format!(
-                    "{}\n\n{}\n\nPinned resources:\n{}\n\nPinned skill instructions (use these captured versions for this run):\n{}\n\nManaged project files: {}\nConfigured working directory: {}\nWrite intended outputs under {}. Report the outcome accurately; ask for input if blocked.",
+                    "{}\n\n{}\n\nPinned resources:\n{}\n\nPinned skill instructions (use these captured versions for this run):\n{}\n\nManaged project files: {}\nConfigured working directory: {}\nUse inferay_exec for commands and file edits; the provider shell is disabled and direct provider writes are blocked. Each command receives INFERAY_RUN_OUTPUT for artifacts. Write intended outputs there. The run output root is {}. Report the outcome accurately; ask for input if blocked.",
                     snapshot["projectInstructions"].as_str().unwrap_or(""),
                     instructions,
                     snapshot["resources"],

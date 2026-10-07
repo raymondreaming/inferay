@@ -1,11 +1,11 @@
-//! Per-run grants for reusable library tools. Provider transports share this owner.
+//! Per-run command execution and library tool grants. Provider transports share this owner.
 use crate::{
     project_runtime::{ProjectRuntime, tool},
     project_store::{Result, event, resolve_path},
 };
 use inferay_core::{
     project_files::{AgentToolGrant, ToolDefinition},
-    projects::{LocalTool, ProjectPath, validate_json},
+    projects::{LocalTool, ProjectPath, ToolArgument, ToolInterface, validate_json},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -55,6 +55,11 @@ impl Drop for ToolLease {
 enum Request {
     List,
     #[serde(rename_all = "camelCase")]
+    Execute {
+        command: String,
+        timeout_seconds: Option<u64>,
+    },
+    #[serde(rename_all = "camelCase")]
     Call {
         plugin_id: String,
         tool_id: String,
@@ -91,17 +96,30 @@ impl ToolScope {
     pub(crate) fn definition() -> Value {
         json!({"type":"function","name":"inferay_tools","description":"List or call the reusable library tools explicitly granted to this automation. Use list to discover names, pluginId, toolId and input schemas, then call with those IDs and input. Undeclared tools are refused. Tools marked required must be called and pass before the run can succeed. Their latest attempt must succeed; repair failures and retry. Optional tool failures may be recovered.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["list","call"]},"pluginId":{"type":"string"},"toolId":{"type":"string"},"input":{}},"required":["action"],"additionalProperties":false}})
     }
+    pub(crate) fn execution_definition() -> Value {
+        json!({"type":"function","name":"inferay_exec","description":"Execute a shell command for this automation through Inferay's permission boundary. Use this for reading files, editing, Git and local commands. The working directory is the automation's configured directory. Outputs intended as artifacts belong in $INFERAY_RUN_OUTPUT. Commands, stdout/stderr and artifacts are retained with the run. Calls are serial, bounded and cancelled with the automation. Do not use provider shell or file-edit tools.","inputSchema":{"type":"object","properties":{"command":{"type":"string","maxLength":64000},"timeoutSeconds":{"type":"integer","minimum":1,"maximum":600}},"required":["command"],"additionalProperties":false}})
+    }
     pub(crate) async fn close(&self) {
         self.active.store(false, Ordering::Release);
         let _permit = self.serial.acquire().await;
     }
     pub(crate) fn verify_required(&self) -> Result<()> {
-        let outcomes = self.outcomes.lock().map_err(|_| "Tool outcome lock failed")?;
-        let missing: Vec<_> = self.tools.iter()
+        let outcomes = self
+            .outcomes
+            .lock()
+            .map_err(|_| "Tool outcome lock failed")?;
+        let missing: Vec<_> = self
+            .tools
+            .iter()
             .filter(|(key, tool)| tool.grant.required && outcomes.get(*key) != Some(&true))
-            .map(|(_, tool)| tool.definition.name.as_str()).collect();
+            .map(|(_, tool)| tool.definition.name.as_str())
+            .collect();
         if !missing.is_empty() {
-            return Err(format!("Required tools did not pass: {}. Inspect tool logs and retry.", missing.join(", ")).into());
+            return Err(format!(
+                "Required tools did not pass: {}. Inspect tool logs and retry.",
+                missing.join(", ")
+            )
+            .into());
         }
         Ok(())
     }
@@ -116,50 +134,43 @@ impl ToolScope {
         if !self.active.load(Ordering::Acquire) || self.runtime.stopped(&self.run) {
             return Err("Automation tool grants are closed".into());
         }
+        let oversized = args.to_string().len() > 64000;
         let request: Request = serde_json::from_value(args)?;
-        let Request::Call {
-            plugin_id,
-            tool_id,
-            input,
-        } = request
-        else {
+        if matches!(request, Request::List) {
             return Ok(
                 json!({"tools":self.tools.values().map(|tool| json!({"pluginId":tool.grant.plugin_id,"toolId":tool.grant.tool_id,"name":tool.definition.name,"required":tool.grant.required,"inputSchema":tool.definition.input_schema})).collect::<Vec<_>>() }),
             );
-        };
-        let grant = AgentToolGrant { plugin_id, tool_id, required: false };
-        let captured = self
-            .tools
-            .get(&grant.key())
-            .ok_or("This tool is not granted to the automation")?;
-        let grant = captured.grant.clone();
+        }
         let _permit = self
             .serial
             .try_acquire()
             .map_err(|_| "Another tool is running; wait for its result before calling again")?;
-        // Invalidate the previous result before validating or executing this attempt.
-        // A later successful retry restores it; an ignored failure cannot count as a pass.
-        self.outcomes.lock().map_err(|_| "Tool outcome lock failed")?.insert(grant.key(), false);
-        if input.to_string().len() > 64000 {
+        let grant = if let Request::Call {
+            plugin_id, tool_id, ..
+        } = &request
+        {
+            let key = AgentToolGrant {
+                plugin_id: plugin_id.clone(),
+                tool_id: tool_id.clone(),
+                required: false,
+            }
+            .key();
+            let captured = self
+                .tools
+                .get(&key)
+                .ok_or("This tool is not granted to the automation")?;
+            // A later failure cannot preserve an earlier successful quality gate.
+            self.outcomes
+                .lock()
+                .map_err(|_| "Tool outcome lock failed")?
+                .insert(key, false);
+            Some(captured.grant.clone())
+        } else {
+            None
+        };
+        if oversized {
             return Err("Tool input exceeds 64 KB".into());
         }
-        validate_json(&captured.definition.input_schema, &input)?;
-        let entrypoint = resolve_path(&self.root, &captured.entrypoint)?;
-        let definition = &captured.definition;
-        let tool = LocalTool {
-            interface: definition.interface,
-            program: definition.program.clone(),
-            entrypoint: captured.entrypoint.clone(),
-            arguments: definition.interface.arguments(
-                &definition.args,
-                &input,
-                &entrypoint.to_string_lossy(),
-            )?,
-            working_directory: captured.working_directory.clone(),
-            timeout_seconds: definition.timeout_seconds,
-            input_schema: definition.input_schema.clone(),
-            output_schema: definition.output_schema.clone(),
-        };
         let skills = self.runtime.prompts.lock().await.load()?;
         {
             let store = self
@@ -197,6 +208,66 @@ impl ToolScope {
             return Err("Automation reached its limit of 64 tool calls".into());
         }
         let call = uuid::Uuid::new_v4().to_string();
+        let (tool, input, entrypoint_hash) = match request {
+            Request::Call { input, .. } => {
+                let captured = &self.tools[&grant.as_ref().unwrap().key()];
+                let definition = &captured.definition;
+                validate_json(&definition.input_schema, &input)?;
+                let entrypoint = resolve_path(&self.root, &captured.entrypoint)?;
+                let tool = LocalTool {
+                    interface: definition.interface,
+                    program: definition.program.clone(),
+                    entrypoint: captured.entrypoint.clone(),
+                    arguments: definition.interface.arguments(
+                        &definition.args,
+                        &input,
+                        &entrypoint.to_string_lossy(),
+                    )?,
+                    working_directory: captured.working_directory.clone(),
+                    timeout_seconds: definition.timeout_seconds,
+                    input_schema: definition.input_schema.clone(),
+                    output_schema: definition.output_schema.clone(),
+                };
+                (tool, input, captured.entrypoint_hash.clone())
+            }
+            Request::Execute {
+                command,
+                timeout_seconds,
+            } => {
+                if self.snapshot["execution"]["kind"] != "agent" {
+                    return Err("Only agent automations can execute commands".into());
+                }
+                if command.trim().is_empty() || command.contains('\0') {
+                    return Err("Command must be nonempty text without NUL bytes".into());
+                }
+                let timeout = timeout_seconds.unwrap_or(60);
+                if !(1..=600).contains(&timeout) {
+                    return Err("Command timeout must be 1–600 seconds".into());
+                }
+                let path = format!("runs/{}/inputs/commands/{call}.sh", self.run);
+                let source = crate::project_definitions::managed_path(&self.root, &path, true)?;
+                std::fs::write(&source, command.as_bytes())?;
+                let tool = LocalTool {
+                    interface: ToolInterface::Cli,
+                    program: "/bin/sh".into(),
+                    entrypoint: ProjectPath::Project { path },
+                    arguments: vec![ToolArgument::Literal(source.to_string_lossy().into_owned())],
+                    working_directory: serde_json::from_value(
+                        self.snapshot["execution"]["workingDirectory"].clone(),
+                    )?,
+                    timeout_seconds: timeout,
+                    input_schema: json!({"type":"object"}),
+                    output_schema: json!({"type":"object"}),
+                };
+                let hash = crate::project_store::hash(command.as_bytes());
+                (
+                    tool,
+                    json!({"command":command,"timeoutSeconds":timeout}),
+                    hash,
+                )
+            }
+            Request::List => unreachable!(),
+        };
         {
             let store = self
                 .runtime
@@ -220,7 +291,7 @@ impl ToolScope {
                 tool,
                 input,
                 snapshot: &self.snapshot,
-                entrypoint_hash: &captured.entrypoint_hash,
+                entrypoint_hash: &entrypoint_hash,
                 active: Some(&self.active),
             },
         )
@@ -273,8 +344,13 @@ impl ToolScope {
             },
             &outcome,
         )?;
-        if result.is_ok() {
-            self.outcomes.lock().map_err(|_| "Tool outcome lock failed")?.insert(grant.key(), true);
+        if result.is_ok()
+            && let Some(grant) = grant
+        {
+            self.outcomes
+                .lock()
+                .map_err(|_| "Tool outcome lock failed")?
+                .insert(grant.key(), true);
         }
         result
     }

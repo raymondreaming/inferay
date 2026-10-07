@@ -35,14 +35,20 @@ Plugins contribute through these extension points only: skills, callables (tools
 
 ### Execution authority: remaining boundary
 
-**Planned:** privileged operations use Inferay-owned callables. A provider shell
+Automation shell commands use the Inferay-owned `inferay_exec` callable, sharing
+the library-tool runner, approval checks, process sandbox and retained evidence.
+Codex native tools run read-only with its shell disabled; Claude exposes only
+read-only built-ins and Inferay MCP. Provider-native mutation bypass checks remain
+part of the release gate.
+
+**Planned:** external consequences use approved effects. A provider shell
 command is not an authorization record. Matching `git push` in a command string
 cannot enforce `push`: a script, another Git client, or a direct API call can do
 the same work. Likewise, allowing general network access does not distinguish
 research from publication. Credentials and consequence-bearing requests must
 stay behind the connections and effects boundary.
 
-The provider adapters must preserve working-file edits while withholding Git
+The native runner preserves approved working-file edits while withholding Git
 metadata mutation unless `commit` is approved. Tests must cover direct file
 writes, linked worktrees, separate Git directories, existing aliases and renamed
 ancestors, as the local-tool checks do. An ordinary `git commit` refusal alone is
