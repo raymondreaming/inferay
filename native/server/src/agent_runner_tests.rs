@@ -276,3 +276,169 @@ async fn notifications_do_not_reset_the_rpc_deadline() {
         matches!(event, ProtocolEmission::System(message) if message.contains("response timed out"))));
     assert!(handle.pid().is_none());
 }
+
+#[tokio::test]
+#[ignore = "Uses the installed Codex binary with a local Responses fixture; no provider request"]
+async fn installed_codex_refuses_native_mutation_paths_in_automation_policy() {
+    use axum::{Json, Router, extract::State, routing::post};
+    let root = tempfile::tempdir().unwrap();
+    let home = root.path().join("codex-home");
+    let work = root.path().join("work");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&work).unwrap();
+    let requests = Arc::new(Mutex::new(Vec::<Value>::new()));
+    async fn respond(
+        State(requests): State<Arc<Mutex<Vec<Value>>>>,
+        Json(body): Json<Value>,
+    ) -> impl axum::response::IntoResponse {
+        let mut requests = requests.lock().unwrap();
+        requests.push(body);
+        let item = if requests.len() == 1 {
+            json!({"type":"custom_tool_call","name":"apply_patch","call_id":"native-patch-probe","input":"*** Begin Patch\n*** Add File: forbidden.txt\n+native-write\n*** End Patch"})
+        } else if requests.len() == 2 {
+            json!({"type":"function_call","name":"exec_command","call_id":"native-shell-probe","arguments":json!({"cmd":"printf native-write > shell-forbidden.txt"}).to_string()})
+        } else {
+            json!({"type":"message","id":"done","role":"assistant","content":[{"type":"output_text","text":"PROBE_COMPLETE"}]})
+        };
+        let events = [
+            json!({"type":"response.created","response":{"id":"fixture-response"}}),
+            json!({"type":"response.output_item.done","item":item}),
+            json!({"type":"response.completed","response":{"id":"fixture-response","status":"completed","usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}),
+        ];
+        let body = events
+            .iter()
+            .map(|event| {
+                format!(
+                    "event: {}\ndata: {event}\n\n",
+                    event["type"].as_str().unwrap()
+                )
+            })
+            .collect::<String>();
+        ([("content-type", "text/event-stream")], body)
+    }
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let router = Router::new()
+        .route("/responses", post(respond))
+        .with_state(requests.clone());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router).await.unwrap();
+    });
+    std::fs::write(
+        home.join("config.toml"),
+        format!(
+            r#"model = "gpt-5.4"
+model_provider = "fixture"
+[model_providers.fixture]
+name = "Local permission fixture"
+base_url = "http://{address}"
+wire_api = "responses"
+requires_openai_auth = false
+supports_websockets = false
+"#
+        ),
+    )
+    .unwrap();
+    let resolver =
+        crate::agent_command::AgentCommandResolver::new(root.path(), root.path().join("mcp.json"));
+    let binary = resolver.resolve_agent_binary(inferay_core::agent_kind::AgentKind::Codex);
+    let mut env = resolver.create_agent_env(inferay_core::agent_kind::AgentKind::Codex);
+    env.insert("CODEX_HOME".into(), home.as_os_str().to_owned());
+    let handle =
+        AgentProcessHandle::with_skills(Arc::new(tokio::sync::Mutex::new(PromptStore::new(
+            root.path().join("bundled.json"),
+            root.path().join("skills.json"),
+        ))))
+        .with_sandbox(crate::automation_sandbox::AutomationSandbox::new(
+            &[inferay_core::project_files::Permission::WriteProjectFiles]
+                .into_iter()
+                .collect(),
+            &json!({}),
+            &work,
+        ));
+    let invocation = CodexInvocationContext {
+        cwd: work.clone(),
+        reference_paths: vec![],
+        images: vec![],
+        model: Some("gpt-5.4".into()),
+        reasoning_level: None,
+        developer_instructions: None,
+        session_id: None,
+        mcp_servers: None,
+    };
+    let tracker = RuntimePidTracker::new(root.path().join("pids.json"));
+    let mut context = AgentProtocolContext::new(work.clone());
+    let mut state = CodexProtocolState::default();
+    let (sender, mut receiver) = mpsc::unbounded_channel();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(60),
+        run_codex(
+            CodexRun {
+                binary: &binary,
+                prompt: "Execute the supplied tool probe.",
+                invocation: &invocation,
+                env: &env,
+            },
+            &handle,
+            &tracker,
+            &mut context,
+            &mut state,
+            &sender,
+        ),
+    )
+    .await;
+    if result.is_err() {
+        handle.kill();
+    }
+    server.abort();
+    let mut emissions = Vec::new();
+    while let Ok(emission) = receiver.try_recv() {
+        if let ProtocolEmission::Chat(value) = emission {
+            emissions.push(value);
+        }
+    }
+    assert!(
+        result.is_ok(),
+        "Installed Codex probe timed out: {emissions:?}"
+    );
+    assert!(
+        !work.join("forbidden.txt").exists(),
+        "Native apply_patch bypassed automation policy"
+    );
+    let requests = requests.lock().unwrap();
+    let output = requests
+        .iter()
+        .flat_map(|request| request["input"].as_array().into_iter().flatten())
+        .find(|item| {
+            item["call_id"] == "native-patch-probe" && item["type"] == "custom_tool_call_output"
+        });
+    let output = output.unwrap_or_else(|| {
+        panic!("Missing actual native patch result; emissions={emissions:?}; requests={requests:?}")
+    })["output"]
+        .to_string()
+        .to_ascii_lowercase();
+    assert!(
+        output.contains("reject") || output.contains("denied") || output.contains("not permitted"),
+        "Unexpected patch result: {output}"
+    );
+    assert!(
+        !work.join("shell-forbidden.txt").exists(),
+        "Native shell bypassed automation policy"
+    );
+    let shell = requests
+        .iter()
+        .flat_map(|request| request["input"].as_array().into_iter().flatten())
+        .find(|item| {
+            item["call_id"] == "native-shell-probe" && item["type"] == "function_call_output"
+        });
+    let shell =
+        shell.unwrap_or_else(|| panic!("Missing native shell refusal: {requests:?}"))["output"]
+            .to_string()
+            .to_ascii_lowercase();
+    assert!(
+        shell.contains("unknown")
+            || shell.contains("unsupported")
+            || shell.contains("unrecognized"),
+        "Native shell remained callable: {shell}"
+    );
+}

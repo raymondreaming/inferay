@@ -38,8 +38,9 @@ Plugins contribute through these extension points only: skills, callables (tools
 Automation shell commands use the Inferay-owned `inferay_exec` callable, sharing
 the library-tool runner, approval checks, process sandbox and retained evidence.
 Codex native tools run read-only with its shell disabled; Claude exposes only
-read-only built-ins and Inferay MCP. Provider-native mutation bypass checks remain
-part of the release gate.
+read-only built-ins and Inferay MCP. An installed-Codex check supplies patch and
+shell calls from a local Responses fixture and verifies actual tool refusals and
+absent target files. Further native-tool bypass coverage remains a release gate.
 
 **Planned:** external consequences use approved effects. A provider shell
 command is not an authorization record. Matching `git push` in a command string
