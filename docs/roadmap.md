@@ -16,6 +16,7 @@ The work is a sequence of milestones. Each one ends with something real running,
 
 - Files own definitions; SQLite holds local state and a rebuildable index, never a second editable copy. Deleting `projects.sqlite3` loses only run history, approvals and schedule state.
 - Local by design. Definitions live in `<profile>/projects/<id>/`; linked repositories are never written to by the store. Sharing is copying a plugin folder; Git on a project folder is optional.
+- The Plugins page shows referencing workflows, including standalone automations that select its tools or skills, and their latest run.
 - A plugin is a reusable library: one folder of code, documentation and assets, optionally including skills, tools and automations. It is reviewed and shared as a whole; a schedule is not required.
 - Anything written by a chat, a migration or by hand starts disabled. Enabling records a hash of every input; any change disables it again.
 - Definitions name repositories by ID and files by relative path; each Mac's checkout path is local state.
@@ -141,7 +142,6 @@ Build an automation for a domain nobody designed for (for example a weekly finan
 
 ## Known gaps
 
-- The Solid principles audit still finds three reactive collections rendered with `.map` in the plugin library page (still named `ResourceFiles.tsx`). Automation, plugin, history and project-navigation lists use stable identities.
 
 
 - Permission enforcement is partial: Codex requests scoped filesystem/network limits; Claude requests restricted tool access and a required Bash sandbox; macOS local tools enforce approved write roots and network access through an OS sandbox, including subprocesses. Other platforms refuse local tools. Push/PR/commit isolation, read isolation, provider network checks and additional platform adapters remain open in M3.

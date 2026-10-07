@@ -5,8 +5,8 @@ import { createSignal, onSettled, Show } from "solid-js";
 import { projects, refreshProjects } from "../../hooks/useProjects.tsx";
 import { AutomationWorkspace } from "./AutomationWorkspace.tsx";
 import { MemoryPanel } from "./MemoryPanel/index.tsx";
+import { PluginsPanel } from "./PluginsPanel.tsx";
 import { ProjectEditor } from "./ProjectEditor.tsx";
-import { ResourceFiles } from "./ResourceFiles.tsx";
 import { styles } from "./styles.ts";
 
 export function ProjectsPanel() {
@@ -60,7 +60,7 @@ export function ProjectsPanel() {
 			<Show when={projects.view() === "memory" && current()?.id} keyed>
 				{(id) => <MemoryPanel projectId={id} />}
 			</Show>
-			{current() && projects.view() === "plugins" ? <ResourceFiles /> : null}
+			{current() && projects.view() === "plugins" ? <PluginsPanel /> : null}
 			{current() && projects.view() === "automations" ? (
 				<AutomationWorkspace />
 			) : null}
