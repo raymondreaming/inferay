@@ -208,7 +208,7 @@ pub struct PluginDefinition {
 pub struct ToolDefinition {
     /// Logical credential aliases mapped to local, project-scoped connection IDs.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub connections: BTreeMap<String, String>,
+    pub connections: BTreeMap<String, crate::connections::ToolConnection>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pack: Option<RepositoryPack>,
     #[serde(default)]
@@ -440,11 +440,11 @@ impl Definition for PluginDefinition {
 impl Definition for ToolDefinition {
     fn validate(&self) -> Result<(), String> {
         if self.connections.len() > 16 { return Err("A tool can request at most 16 connections".into()); }
-        for (alias, id) in &self.connections {
+        for (alias, connection) in &self.connections {
             if alias.is_empty() || alias.len() > 64 || !alias.as_bytes()[0].is_ascii_uppercase() || !alias.bytes().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == b'_') {
                 return Err("Connection aliases use 1–64 uppercase letters, digits or underscores, starting with a letter".into());
             }
-            uuid::Uuid::parse_str(id).map_err(|_| "Connection IDs must be UUIDs")?;
+            connection.validate()?;
         }
         crate::project_requirements::validate(&self.requires)?;
         identity(&self.schema, "inferay.tool/1", &self.id, &self.name)?;

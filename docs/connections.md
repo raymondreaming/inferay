@@ -50,7 +50,24 @@ through agent project tools.
 
 ## Tool references and approval
 
-A tool definition may contain `connections: {"SERVICE": "connection-uuid"}`.
+A tool definition declares the credential and its request destination together:
+
+```json
+"connections": {
+  "SERVICE": {
+    "id": "connection-uuid",
+    "baseUrl": "https://api.example.com/v1/",
+    "header": "Authorization",
+    "prefix": "Bearer "
+  }
+}
+```
+
+`baseUrl` must use HTTPS, end in `/`, and contain no embedded credentials, query
+or fragment. `header` is a bounded header name; routing, framing, proxy and cookie
+headers are refused. `prefix` defines formatting such as `Bearer ` or an
+empty string for `X-Api-Key`, never a place to store a key. It is required in the
+format and limited to 64 printable ASCII characters.
 Aliases use 1–64 uppercase letters, digits or underscores, starting with a
 letter; a tool may select at most 16 connections. IDs resolve only within the
 current project and profile. Copying a library does not copy its credentials;
@@ -60,7 +77,7 @@ Only tools selected by the automation contribute connections. Input capture
 reads selected metadata under the connection-store lock and includes the alias,
 ID, display name, project ID and revision in the approval hash. It never captures
 credential values. Automation and plugin review dialogs list each requested
-connection by name, tool and alias. Replacement changes the revision. The existing approval check
+connection by name, tool and alias, alongside its request destination and header. Replacement changes the revision. The existing approval check
 then refuses execution and turns the schedule off. Deleting a referenced
 connection also refuses capture. Tools without references do not access Keychain
 while capturing inputs.
@@ -70,6 +87,22 @@ credential delivery is not implemented. Capturing metadata does not grant raw ke
 access. The remaining work is user-facing binding controls, invocation-only
 credential resolution and output protection before logs, artifacts or provider
 responses are retained.
+
+## Delivery boundary being built
+
+Keys stay in the host. Tools will request authenticated HTTP through a local,
+invocation-scoped endpoint; the host attaches the selected credential. Raw keys
+will not be placed in process arguments, environment variables, stdin or provider
+context. A script with a raw key could persist it before any output scan, including
+just before a crash, so log redaction alone cannot establish this boundary.
+
+The relay must check the current project, connection ID and approved revision,
+require the automation's network permission, and limit requests to the reviewed
+HTTPS destination. Redirects must not forward credentials. Access ends with the
+invocation. Responses still require output protection because a remote service
+can echo request credentials. Publishing and other effects require the separate
+outbox and authorization work; declaring an endpoint does not implement those
+features. The relay is not implemented yet.
 
 ## Verification
 

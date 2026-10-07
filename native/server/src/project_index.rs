@@ -515,6 +515,7 @@ pub(crate) fn execution_inputs(
     let mut requirements = BTreeSet::new();
     let mut connections = BTreeMap::new();
     let mut connection_tool_names = BTreeMap::new();
+    let mut connection_requests = BTreeMap::new();
     let mut selected_tools: BTreeSet<String> = granted_tools.values()
         .map(|grant| format!("{}/tool.json", grant.directory)).collect();
     if let DefinitionExecution::Tool { tool, .. } = &definition.execution {
@@ -528,13 +529,14 @@ pub(crate) fn execution_inputs(
             }
             Some(DefinitionFile::Tool(tool)) if selected_tools.contains(&entry.path) => {
                 requirements.extend(tool.requires.iter().cloned());
-                if !tool.connections.is_empty() { connections.insert(tool.id.clone(), tool.connections.clone()); connection_tool_names.insert(tool.id.clone(), tool.name.clone()); }
+                if !tool.connections.is_empty() { connections.insert(tool.id.clone(), tool.connections.iter().map(|(alias, connection)| (alias.clone(), connection.id.clone())).collect()); connection_tool_names.insert(tool.id.clone(), tool.name.clone()); connection_requests.insert(tool.id.clone(), tool.connections.clone()); }
             }
             _ => {},
         }
     }
     if !connections.is_empty() {
         snapshot["connectionToolNames"] = json!(connection_tool_names);
+        snapshot["connectionRequests"] = json!(connection_requests);
         snapshot["connections"] = serde_json::to_value(crate::connections::Store::open(profile)?.capture(&project, &connections)?)?;
     }
     let project_path = root.to_string_lossy().into_owned();

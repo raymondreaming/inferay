@@ -148,14 +148,36 @@ fn required_tool_grants_preserve_optional_defaults_and_reject_duplicate_identity
 
 #[test]
 fn tool_connection_references_require_bounded_aliases_and_local_ids() {
-    let mut value = json!({"schema":"inferay.tool/1","id":ID,"name":"Connected tool","program":"python3","entrypoint":"run.py","args":[],"timeoutSeconds":30,"inputSchema":{},"outputSchema":{},"connections":{"SERVICE":ID}});
+    let mut value = json!({"schema":"inferay.tool/1","id":ID,"name":"Connected tool","program":"python3","entrypoint":"run.py","args":[],"timeoutSeconds":30,"inputSchema":{},"outputSchema":{},"connections":{"SERVICE":{"id":ID,"baseUrl":"https://api.example.test/v1/","header":"Authorization","prefix":"Bearer "}}});
     assert!(parse::<ToolDefinition>("tools/read/tool.json", value.to_string().as_bytes()).is_ok());
+    let binding = value["connections"]["SERVICE"].clone();
     for alias in ["", "lowercase", "0START", "WITH SPACE", "WITH=EQUALS"] {
-        value["connections"] = json!({alias:ID});
+        value["connections"] = json!({alias:binding});
         assert!(parse::<ToolDefinition>("tools/read/tool.json", value.to_string().as_bytes()).is_err());
     }
     value["connections"] = json!({"SERVICE":"secret-value"});
     assert!(parse::<ToolDefinition>("tools/read/tool.json", value.to_string().as_bytes()).is_err());
-    value["connections"] = (0..17).map(|i| (format!("SERVICE_{i}"), json!(ID))).collect::<serde_json::Map<_,_>>().into();
+    value["connections"] = (0..17).map(|i| (format!("SERVICE_{i}"), binding.clone())).collect::<serde_json::Map<_,_>>().into();
     assert!(parse::<ToolDefinition>("tools/read/tool.json", value.to_string().as_bytes()).is_err());
+}
+
+#[test]
+fn connection_request_targets_reject_ambient_authority_and_header_injection() {
+    use inferay_core::connections::ToolConnection;
+    let mut connection = ToolConnection { id: ID.into(), base_url:"https://api.example.test/v1/".into(), header:"Authorization".into(), prefix:"Bearer ".into() };
+    assert!(connection.validate().is_ok());
+    for url in ["http://api.example.test/", "https://user:pass@api.example.test/", "https://api.example.test/v1", "https://api.example.test/?key=value", "https://api.example.test/#fragment"] {
+        connection.base_url = url.into();
+        assert!(connection.validate().is_err(), "{url}");
+    }
+    connection.base_url = "https://api.example.test/v1/".into();
+    for header in ["Host", "Cookie", "Content-Length", "Proxy-Authorization", "Authorization\r\nOther", ""] {
+        connection.header = header.into();
+        assert!(connection.validate().is_err(), "{header}");
+    }
+    connection.header = "X-Api-Key".into();
+    connection.prefix.clear();
+    assert!(connection.validate().is_ok());
+    connection.prefix = "Bearer\r\nInjected: value".into();
+    assert!(connection.validate().is_err());
 }

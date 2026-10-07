@@ -619,6 +619,7 @@ export const styles = stylex.create({
 		fontSize: font.size_3,
 		overflowWrap: "anywhere",
 	},
+	connectionReview: { display: "flex", flexDirection: "column", gap: 12 },
 	draftPreview: {
 		display: "flex",
 		flexDirection: "column",

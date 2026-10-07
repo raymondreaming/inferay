@@ -328,7 +328,7 @@ mod tests {
         std::fs::create_dir_all(&tool_dir).unwrap();
         std::fs::write(root.join("project.json"), json!({"schema":"inferay.project/1","id":project,"name":"Connections","description":"","instructions":"","repositories":[]}).to_string()).unwrap();
         std::fs::write(package.join("automation.json"), json!({"schema":"inferay.automation/1","id":automation,"name":"Read","trigger":{"kind":"interval","seconds":86400},"overlap":"skip","may":[],"execution":{"kind":"tool","tool":"read","input":{}}}).to_string()).unwrap();
-        std::fs::write(tool_dir.join("tool.json"), json!({"schema":"inferay.tool/1","id":tool,"name":"Read","program":"python3","entrypoint":"run.py","args":[],"timeoutSeconds":60,"inputSchema":{"type":"object"},"outputSchema":{"type":"object"},"connections":{"SERVICE":saved.id}}).to_string()).unwrap();
+        std::fs::write(tool_dir.join("tool.json"), json!({"schema":"inferay.tool/1","id":tool,"name":"Read","program":"python3","entrypoint":"run.py","args":[],"timeoutSeconds":60,"inputSchema":{"type":"object"},"outputSchema":{"type":"object"},"connections":{"SERVICE":{"id":saved.id,"baseUrl":"https://api.example.test/v1/","header":"Authorization","prefix":"Bearer "}}}).to_string()).unwrap();
         std::fs::write(tool_dir.join("run.py"), "print('{}')").unwrap();
         let store = crate::project_file_store::FileProjectStore::open(profile.path(), &[]).unwrap();
         let before =

@@ -8,16 +8,22 @@ export function ConnectionReview(props: { connections: ConnectionAccess[] }) {
 		<Show when={props.connections.length > 0}>
 			<section
 				aria-label="Requested connections"
-				{...stylex.attrs(styles.form)}
+				{...stylex.attrs(styles.connectionReview)}
 			>
 				<strong>Requested connections</strong>
 				<For each={props.connections}>
 					{(access) => (
-						<div {...stylex.attrs(styles.row)}>
-							<strong>{access.connection.name}</strong>
-							<span {...stylex.attrs(styles.muted)}>
-								{access.toolName} · {access.alias}
-							</span>
+						<div>
+							<div {...stylex.attrs(styles.row)}>
+								<strong>{access.connection.name}</strong>
+								<span {...stylex.attrs(styles.muted)}>
+									{access.toolName} · {access.alias}
+								</span>
+							</div>
+							<p {...stylex.attrs(styles.muted)}>{access.request.baseUrl}</p>
+							<code>
+								{access.request.header}: {access.request.prefix}[key]
+							</code>
 						</div>
 					)}
 				</For>

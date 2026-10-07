@@ -43,6 +43,7 @@ impl ConnectionCommand {
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionAccess {
+    pub request: ToolConnection,
     pub tool_id: String,
     pub tool_name: String,
     pub alias: String,
@@ -65,6 +66,9 @@ impl ConnectionAccess {
                 .to_owned();
             for (alias, connection) in aliases {
                 access.push(Self {
+                    request: serde_json::from_value(
+                        snapshot["connectionRequests"][&tool_id][&alias].clone(),
+                    )?,
                     tool_id: tool_id.clone(),
                     tool_name: tool_name.clone(),
                     alias,
@@ -73,5 +77,60 @@ impl ConnectionAccess {
             }
         }
         Ok(access)
+    }
+}
+
+/// A credential may only be attached to requests below this reviewed HTTPS base.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ToolConnection {
+    pub id: String,
+    pub base_url: String,
+    pub header: String,
+    pub prefix: String,
+}
+impl ToolConnection {
+    pub fn validate(&self) -> Result<(), String> {
+        uuid::Uuid::parse_str(&self.id).map_err(|_| "Connection IDs must be UUIDs")?;
+        let url = url::Url::parse(&self.base_url)
+            .map_err(|_| "Connection baseUrl must be an absolute HTTPS URL")?;
+        if self.base_url.len() > 2048
+            || url.scheme() != "https"
+            || url.host_str().is_none()
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.query().is_some()
+            || url.fragment().is_some()
+            || !url.path().ends_with('/')
+        {
+            return Err("Connection baseUrl must use HTTPS, end in /, and contain no credentials, query or fragment".into());
+        }
+        if self.header.is_empty()
+            || self.header.len() > 64
+            || !self
+                .header
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || c == b'-')
+        {
+            return Err("Connection header must be a bounded HTTP header name".into());
+        }
+        if [
+            "host",
+            "content-length",
+            "transfer-encoding",
+            "connection",
+            "proxy-authorization",
+            "cookie",
+        ]
+        .contains(&self.header.to_ascii_lowercase().as_str())
+        {
+            return Err("This header cannot carry a connection credential".into());
+        }
+        if self.prefix.len() > 64 || !self.prefix.bytes().all(|c| (b' '..=b'~').contains(&c)) {
+            return Err(
+                "Connection prefix must contain at most 64 printable ASCII characters".into(),
+            );
+        }
+        Ok(())
     }
 }

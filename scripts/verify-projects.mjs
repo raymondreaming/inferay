@@ -846,7 +846,14 @@ try {
 					toolPath,
 					JSON.stringify({
 						...JSON.parse(toolSource),
-						connections: { SERVICE: saved.id },
+						connections: {
+							SERVICE: {
+								id: saved.id,
+								baseUrl: "https://api.example.test/v1/",
+								header: "Authorization",
+								prefix: "Bearer ",
+							},
+						},
 					}),
 				);
 				await page.reload();
@@ -866,6 +873,12 @@ try {
 				});
 				await access.getByText("Fixture API", { exact: true }).waitFor();
 				assert.ok((await access.innerText()).includes("SERVICE"));
+				assert.ok(
+					(await access.innerText()).includes("https://api.example.test/v1/"),
+				);
+				assert.ok(
+					(await access.innerText()).includes("Authorization: Bearer [key]"),
+				);
 				assert.ok(
 					(await access.innerText()).includes(JSON.parse(toolSource).name),
 				);
