@@ -43,3 +43,5 @@ pub fn utf16_slice(value: &str, start: usize, end: usize) -> String {
 pub mod syntax;
 
 pub mod projects;
+
+pub mod project_files;

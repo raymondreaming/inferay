@@ -24,6 +24,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     macro_rules! export { ($($ty:ty),* $(,)?) => { $(<$ty>::export_all(&cfg)?;)* }; }
     export!(
         inferay_core::projects::ProjectCatalog,
+        inferay_core::project_files::ProjectDefinition,
+        inferay_core::project_files::ResourceDefinition,
+        inferay_core::project_files::PluginDefinition,
+        inferay_core::project_files::ToolDefinition,
+        inferay_core::project_files::AutomationDefinition,
+        inferay_core::project_files::SkillDefinition,
         inferay_core::projects::ProjectCommand,
         inferay_core::projects::LocalTool,
         inferay_presentation::documents::DocumentView,
