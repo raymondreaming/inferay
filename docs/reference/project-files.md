@@ -342,7 +342,7 @@ Run states: `queued`, `running`, `succeeded`, `failed`, `waiting_input`, `cancel
 
 ## Extension status
 
-Designed in [ADR 0002](../adr/0002-automation-kernel.md). E2 is implemented above; the remaining extensions are planned.
+Designed in [ADR 0002](../adr/0002-automation-kernel.md). E1–E3, E4 (authenticated GET relay), E6 (local stdio) and E7 are implemented; E5 covers intent capture, review and handler declarations, while delivery is planned. See the [roadmap](../roadmap.md) for per-extension status.
 
 | | Extension | Adds |
 |---|---|---|
@@ -422,6 +422,6 @@ preserves the original timestamp, and dismissal survives restart. Dismissed inte
 remain visible as **Dismissed · Not sent** and cannot be replaced by retrying the
 same key.
 
-This supports proposal capture, viewing and dismissal. Budgets, approval controls, delivery handlers,
-receipts and crash reconciliation remain planned. No external request is made by
+This supports proposal capture, viewing and dismissal. Outbox, receipt and recovery storage exists, but handler
+binding, budgets, approval controls and the delivery/reconciliation worker remain planned. No external request is made by
 capturing or viewing an intent. Never include credentials in an intent payload.

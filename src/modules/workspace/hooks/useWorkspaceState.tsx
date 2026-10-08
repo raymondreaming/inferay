@@ -197,7 +197,6 @@ export const openAgentPane = async (
 		requestAnimationFrame(() => dispatchFocusAgentChatComposer(paneId)),
 	);
 };
-/** The chat with this pane id and the group it belongs to, if it still exists. */
 export const findAgentPane = (paneId: string) => {
 	for (const group of published.state?.groups ?? []) {
 		const pane = group.panes.find((p) => p.id === paneId);
@@ -205,7 +204,6 @@ export const findAgentPane = (paneId: string) => {
 	}
 	return undefined;
 };
-/** Starts a chat in the current project with its composer pre-filled, so the user reviews before sending. */
 export const startAgentChatWithDraft = async (
 	draft: string,
 	reveal: () => void,

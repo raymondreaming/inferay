@@ -7,8 +7,6 @@ import * as stylex from "@stylexjs/stylex";
 import { createSignal } from "solid-js";
 import { selectProject, showProjectView } from "../../hooks/useProjects.tsx";
 
-// Persisted chats can contain proposals from before plugin bundles. Their
-// revision numbers cannot authorize edits to today's files.
 export function AutomationProposalCard(props: {
 	command: Extract<LegacyAutomationProposal, { type: "saveAutomation" }>;
 }) {

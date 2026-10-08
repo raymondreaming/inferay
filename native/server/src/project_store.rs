@@ -1,4 +1,3 @@
-//! Shared durable run storage primitives and legacy schema bootstrap for migration.
 use inferay_core::projects::ProjectPath;
 use rusqlite::{Connection, params};
 use serde_json::Value;

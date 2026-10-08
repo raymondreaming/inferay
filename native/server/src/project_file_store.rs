@@ -1,5 +1,3 @@
-//! File-backed project persistence. SQLite owns local state and a rebuildable
-//! index; definition commands publish files through the validated writer.
 use crate::{
     project_file_commands, project_index, project_migration,
     project_store::{Result, now},
@@ -20,8 +18,6 @@ pub(crate) struct FileProjectStore {
     _lease: ProfileLease,
 }
 
-// Kept after the database field so SQLite closes before the profile unlocks.
-// Closing the descriptor alone can leave a flock held by a concurrent fork.
 struct ProfileLease(File);
 
 impl Drop for ProfileLease {
@@ -60,8 +56,6 @@ impl FileProjectStore {
         crate::project_runs::history(&self.db, &self.root, project, before)
     }
 
-    /// Resolve chat ownership from its explicit association first. Repository
-    /// fallback is only safe when exactly one active project owns the folder.
     pub fn context(
         &mut self,
         pane: &str,
@@ -161,8 +155,6 @@ impl FileProjectStore {
         project_migration::memory_directories(&db, &root)?;
         project_migration::standalone::migrate(&db, &root)?;
         project_index::refresh(&mut db, &root, skills)?;
-        // Restart recovery changes execution state, never definition files or
-        // approval. Queued work is rechecked against approval when claimed.
         db.execute("UPDATE runs SET status=CASE WHEN stop_requested_at IS NULL THEN 'interrupted' ELSE 'cancelled' END,finished_at=?,error='Execution interrupted; inspect its output before retrying' WHERE status='running'",[now()])?;
         Ok(Self {
             db,

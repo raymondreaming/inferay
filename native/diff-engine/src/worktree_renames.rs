@@ -1,8 +1,6 @@
 use super::{git_exec, run_git, GitFileEntry};
 use std::time::Duration;
 
-/// Intent-to-add entries expose untracked destinations to Git's own rename
-/// detector. Only this disposable index is changed, never the user's index.
 pub(super) struct WorktreeRenames {
     directory: tempfile::TempDir,
     pub pairs: Vec<(String, String)>,
@@ -154,7 +152,6 @@ mod tests {
             format!("0\n{content}edited after move\n"),
         )
         .unwrap();
-        // A separately staged edit must survive every read and per-file operation.
         git(root.path(), &["add", "file18.txt"]);
         let index_before = std::fs::read(root.path().join(".git/index")).unwrap();
         let status = get_git_status(cwd).unwrap();

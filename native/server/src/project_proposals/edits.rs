@@ -1,4 +1,3 @@
-//! User edits keep the card's target and concurrency precondition unchanged.
 use super::*;
 
 pub(super) fn validate(original: &ProjectFileCommand, edited: &ProjectFileCommand) -> Result<()> {

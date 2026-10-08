@@ -4,7 +4,6 @@ import * as stylex from "@stylexjs/stylex";
 import { readPluginLibrary } from "../../services/projectsApi.ts";
 import { styles } from "./styles.ts";
 
-/** Inventory describes the library itself; schedules appear separately. */
 export function PluginContentsSummary(props: { id: string }) {
 	const library = useBackgroundQuery(
 		() => ({

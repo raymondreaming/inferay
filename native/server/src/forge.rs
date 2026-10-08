@@ -418,12 +418,11 @@ async fn resolve_commit_avatars(
             .and_then(|repo| repo.pointer(&format!("/c{index}/author/user/avatarUrl")))
             .and_then(Value::as_str)
             .map(str::to_string);
-        if host == "github.com" {
-            if let Some(author) =
+        if host == "github.com"
+            && let Some(author) =
                 repository_data.and_then(|repo| repo.pointer(&format!("/c{index}/author")))
-            {
-                remember_author_identity(&mut authors, author);
-            }
+        {
+            remember_author_identity(&mut authors, author);
         }
         if avatar.is_some() {
             cache.insert(format!("{prefix}{hash}"), avatar.clone());
@@ -440,64 +439,10 @@ fn remember_author_identity(cache: &mut HashMap<String, Value>, author: &Value) 
     if let (Some(login), Some(avatar)) = (
         author["user"]["login"].as_str(),
         author["user"]["avatarUrl"].as_str(),
-    ) {
-        if !email.is_empty() && !avatar.is_empty() {
-            cache.insert(email, json!({"login": login, "avatarUrl": avatar}));
-        }
-    }
-}
-
-#[cfg(test)]
-mod avatar_tests {
-    use super::*;
-
-    #[test]
-    fn account_fallback_requires_matching_email() {
-        let accounts = vec![ForgeAccount {
-            provider: "github",
-            host: "github.com".into(),
-            login: "similar-name".into(),
-            name: Some("Similar Name".into()),
-            avatar_url: Some("https://example.com/wrong.png".into()),
-            email: Some("someone-else@example.com".into()),
-            active: true,
-        }];
-        let author = AuthorIdentityRequest {
-            hash: None,
-            email: Some("similar-name@example.com".into()),
-        };
-        assert!(resolve_author_identity(&accounts, &author).is_null());
-        let matching = AuthorIdentityRequest {
-            email: Some("someone-else@example.com".into()),
-            ..author
-        };
-        assert_eq!(
-            resolve_author_identity(&accounts, &matching)["avatarUrl"],
-            "https://example.com/wrong.png"
-        );
-    }
-
-    #[test]
-    fn verified_author_identity_is_reused_across_commits_and_missing_results() {
-        let mut cache = HashMap::new();
-        remember_author_identity(
-            &mut cache,
-            &json!({"email":" Person@Example.com ", "user":{"login":"person", "avatarUrl":"https://example.com/avatar"}}),
-        );
-        remember_author_identity(
-            &mut cache,
-            &json!({"email":"person@example.com", "user":null}),
-        );
-        assert_eq!(cache["person@example.com"]["login"], "person");
-        assert_eq!(
-            cache["person@example.com"]["avatarUrl"],
-            "https://example.com/avatar"
-        );
-        remember_author_identity(
-            &mut cache,
-            &json!({"email":"", "user":{"login":"other", "avatarUrl":"other"}}),
-        );
-        assert_eq!(cache.len(), 1);
+    ) && !email.is_empty()
+        && !avatar.is_empty()
+    {
+        cache.insert(email, json!({"login": login, "avatarUrl": avatar}));
     }
 }
 
@@ -885,5 +830,59 @@ fn parse_error(error: impl ToString) -> CommandError {
     CommandError {
         message: error.to_string(),
         stderr: String::new(),
+    }
+}
+
+#[cfg(test)]
+mod avatar_tests {
+    use super::*;
+
+    #[test]
+    fn account_fallback_requires_matching_email() {
+        let accounts = vec![ForgeAccount {
+            provider: "github",
+            host: "github.com".into(),
+            login: "similar-name".into(),
+            name: Some("Similar Name".into()),
+            avatar_url: Some("https://example.com/wrong.png".into()),
+            email: Some("someone-else@example.com".into()),
+            active: true,
+        }];
+        let author = AuthorIdentityRequest {
+            hash: None,
+            email: Some("similar-name@example.com".into()),
+        };
+        assert!(resolve_author_identity(&accounts, &author).is_null());
+        let matching = AuthorIdentityRequest {
+            email: Some("someone-else@example.com".into()),
+            ..author
+        };
+        assert_eq!(
+            resolve_author_identity(&accounts, &matching)["avatarUrl"],
+            "https://example.com/wrong.png"
+        );
+    }
+
+    #[test]
+    fn verified_author_identity_is_reused_across_commits_and_missing_results() {
+        let mut cache = HashMap::new();
+        remember_author_identity(
+            &mut cache,
+            &json!({"email":" Person@Example.com ", "user":{"login":"person", "avatarUrl":"https://example.com/avatar"}}),
+        );
+        remember_author_identity(
+            &mut cache,
+            &json!({"email":"person@example.com", "user":null}),
+        );
+        assert_eq!(cache["person@example.com"]["login"], "person");
+        assert_eq!(
+            cache["person@example.com"]["avatarUrl"],
+            "https://example.com/avatar"
+        );
+        remember_author_identity(
+            &mut cache,
+            &json!({"email":"", "user":{"login":"other", "avatarUrl":"other"}}),
+        );
+        assert_eq!(cache.len(), 1);
     }
 }

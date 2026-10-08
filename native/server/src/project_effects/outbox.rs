@@ -1,9 +1,13 @@
-//! Durable delivery admission. Handler execution belongs to the existing callable runner.
 use crate::project_store::Result;
+#[cfg(test)]
 use inferay_core::projects::EffectReceipt as Receipt;
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+#[cfg(test)]
+use rusqlite::OptionalExtension;
+use rusqlite::{Connection, TransactionBehavior, params};
+#[cfg(test)]
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct Limit {
@@ -14,6 +18,7 @@ pub(super) struct Limit {
     pub window_ms: i64,
     pub handler_hash: String,
 }
+#[cfg(test)]
 impl Limit {
     fn validate(&self) -> Result<()> {
         if self.maximum == 0
@@ -60,8 +65,7 @@ pub(super) fn create_schema(db: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Host review owns calling this; a copied definition never grants local authority.
-/// Every approval gets a fresh revision, even if the values equal an earlier approval.
+#[cfg(test)]
 pub(super) fn approve_limit(
     db: &mut Connection,
     limit: &Limit,
@@ -87,7 +91,7 @@ pub(super) fn approve_limit(
     Ok(revision)
 }
 
-/// Queue an already-reviewed intent; no invocation or reservation happens here.
+#[cfg(test)]
 pub(super) fn enqueue(
     db: &mut Connection,
     effect: &str,
@@ -143,8 +147,7 @@ pub(super) fn enqueue(
     Ok(id)
 }
 
-/// The caller must recompute handler inputs before admission. Counts are shared by
-/// exact project/kind/target, including across approval revisions and automations.
+#[cfg(test)]
 pub(super) fn claim(
     db: &mut Connection,
     id: &str,
@@ -191,7 +194,6 @@ pub(super) fn claim(
     Ok(true)
 }
 
-/// Lost replies and startup recovery preserve reservations and never resend.
 pub(crate) fn recover(db: &Connection) -> Result<usize> {
     Ok(db.execute(
         "UPDATE effect_outbox SET state='uncertain' WHERE state='in_flight'",
@@ -199,7 +201,7 @@ pub(crate) fn recover(db: &Connection) -> Result<usize> {
     )?)
 }
 
-/// Only an invoked/reconciled handler may supply this evidence, never a chat claim.
+#[cfg(test)]
 pub(super) fn complete(db: &mut Connection, receipt: &Receipt) -> Result<()> {
     if receipt.completed_at < 0
         || receipt.destination_id.is_empty()
@@ -296,7 +298,6 @@ mod tests {
         assert_eq!(recover(&db).unwrap(), 2);
         assert_eq!(recover(&db).unwrap(), 0);
         assert!(!claim(&mut db, &id, &rule.handler_hash, 200).unwrap());
-        // Uncertainty retains capacity even after the rolling window has elapsed.
         assert!(!claim(&mut db, &third, &rule.handler_hash, 86_400_200).unwrap());
         let receipt = Receipt {
             delivery_id: id.clone(),
@@ -526,7 +527,6 @@ mod recovery_tests {
                 .unwrap(),
             1
         );
-        // The destination itself rejects a retry with a changed payload.
         let conflict = invoke(
             serde_json::json!({"operation":"deliver","deliveryId":id,"intentHash":digest,"payload":{"message":"different"},"time":200}),
         );
@@ -605,8 +605,6 @@ mod admission_tests {
     }
 }
 
-/// Cancellation is serialized with claim: before launch it prevents dispatch;
-/// after launch the outcome stays unknown and the reservation remains charged.
 pub(super) fn cancel(
     db: &mut Connection,
     request: &inferay_core::projects::EffectReviewRequest,

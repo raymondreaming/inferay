@@ -72,7 +72,6 @@ fn invalid_and_deleted_files_replace_index_without_erasing_history_or_approval()
             .unwrap(),
     );
     approve_automation(&db, profile.path(), &automation, &digest, true, &[]).unwrap();
-    // Merely opening/refreshing does not change permission or scheduling state.
     refresh(&mut db, profile.path(), &[]).unwrap();
     assert!(
         db.query_row("SELECT enabled FROM automation_state", [], |r| r
@@ -397,7 +396,6 @@ fn refresh_checks_selected_inputs_without_disabling_for_unrelated_resources() {
             .unwrap(),
     );
     approve_automation(&db, profile.path(), &automation, &digest, true, &skills).unwrap();
-    // Another resource is not an input to this automation.
     let resource = json!({"schema":"inferay.resource/1","id":uuid::Uuid::new_v4().to_string(),"type":"brand.brand","typeVersion":1,"name":"Unrelated","body":{"name":"Other","description":"Other project context"}});
     files::write(
         &root,
@@ -422,7 +420,6 @@ fn refresh_checks_selected_inputs_without_disabling_for_unrelated_resources() {
         )
         .unwrap();
     assert_eq!(state, (false, true, None));
-    // Reverting the source never silently grants approval again.
     skills[0].prompt_template = "Read the original sources".into();
     refresh(&mut db, profile.path(), &skills).unwrap();
     assert!(approved_inputs(&db, profile.path(), &automation, false, &skills).is_err());
@@ -597,7 +594,6 @@ fn agents_can_discover_and_read_library_files_without_approval_or_execution() {
     )
     .unwrap();
     files::write(&root, "plugins/daily/assets/raw.bin", &[255, 0], None).unwrap();
-    // A missing checkout blocks approval, but must not hide reusable files.
     let repository = uuid::Uuid::new_v4().to_string();
     let mut project_file: Value =
         serde_json::from_slice(&fs::read(root.join("project.json")).unwrap()).unwrap();
@@ -711,7 +707,10 @@ fn broken_plugin_manifest_can_be_read_and_repaired_without_reapproval() {
     let root = profile.path().join("projects").join(&project);
     let manifest_path = "plugins/daily/plugin.json";
     let original = fs::read(root.join(manifest_path)).unwrap();
-    let original_id = serde_json::from_slice::<Value>(&original).unwrap()["id"].as_str().unwrap().to_owned();
+    let original_id = serde_json::from_slice::<Value>(&original).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
     fs::write(root.join(manifest_path), b"{broken").unwrap();
     let mut db = Connection::open_in_memory().unwrap();
     create_schema(&db).unwrap();
@@ -720,14 +719,28 @@ fn broken_plugin_manifest_can_be_read_and_repaired_without_reapproval() {
     assert!(broken.file.definition.is_none());
     assert!(broken.file.error.is_some());
     let content = crate::project_file_commands::apply(
-        &mut db, profile.path(),
-        ProjectFileCommand::ReadPlugin { id: broken.file.id.clone(), path: Some("plugin.json".into()) },
-        false, &[],
-    ).unwrap();
+        &mut db,
+        profile.path(),
+        ProjectFileCommand::ReadPlugin {
+            id: broken.file.id.clone(),
+            path: Some("plugin.json".into()),
+        },
+        false,
+        &[],
+    )
+    .unwrap();
     assert_eq!(content["content"], "{broken");
     assert!(review_plugin(&db, profile.path(), &broken.file.id, &[]).is_err());
-    save_definition(&mut db, profile.path(), &project, manifest_path, &original,
-        content["sourceHash"].as_str(), &[]).unwrap();
+    save_definition(
+        &mut db,
+        profile.path(),
+        &project,
+        manifest_path,
+        &original,
+        content["sourceHash"].as_str(),
+        &[],
+    )
+    .unwrap();
     let repaired = catalog(&db, Some(&project)).unwrap();
     assert_eq!(repaired.plugins[0].file.id, original_id);
     assert!(repaired.plugins[0].file.error.is_none());
@@ -739,19 +752,36 @@ fn broken_plugin_manifest_can_be_read_and_repaired_without_reapproval() {
 fn shared_genome_edit_revokes_every_reader_but_preserves_unrelated_approval() {
     let (profile, project, original) = fixture();
     let root = profile.path().join("projects").join(&project);
-    let template: Value = serde_json::from_slice(&fs::read(root.join("plugins/daily/automations/daily.json")).unwrap()).unwrap();
+    let template: Value = serde_json::from_slice(
+        &fs::read(root.join("plugins/daily/automations/daily.json")).unwrap(),
+    )
+    .unwrap();
     fs::remove_file(root.join("plugins/daily/automations/daily.json")).unwrap();
     let record = uuid::Uuid::new_v4().to_string();
     let record_path = format!("memory/brand.genome/{record}.json");
     let genome = json!({"schema":"inferay.resource/1","id":record,"type":"brand.genome","typeVersion":1,"name":"Shared identity","archived":false,"body":{"brandId":"brand","rules":["Cite sources"]}});
     files::write(&root, &record_path, genome.to_string().as_bytes(), None).unwrap();
-    let ids = [original, uuid::Uuid::new_v4().to_string(), uuid::Uuid::new_v4().to_string()];
+    let ids = [
+        original,
+        uuid::Uuid::new_v4().to_string(),
+        uuid::Uuid::new_v4().to_string(),
+    ];
     for (index, id) in ids.iter().enumerate() {
         let mut definition = template.clone();
         definition["id"] = json!(id);
         definition["name"] = json!(format!("Job {index}"));
-        definition["execution"]["resources"] = if index < 2 { json!([record]) } else { json!([]) };
-        files::write(&root, &format!("automations/{id}/automation.json"), definition.to_string().as_bytes(), None).unwrap();
+        definition["execution"]["resources"] = if index < 2 {
+            json!([record])
+        } else {
+            json!([])
+        };
+        files::write(
+            &root,
+            &format!("automations/{id}/automation.json"),
+            definition.to_string().as_bytes(),
+            None,
+        )
+        .unwrap();
     }
     let mut db = Connection::open_in_memory().unwrap();
     create_schema(&db).unwrap();
@@ -765,10 +795,15 @@ fn shared_genome_edit_revokes_every_reader_but_preserves_unrelated_approval() {
     let mut edited = genome.clone();
     edited["body"]["rules"] = json!(["Cite sources", "Review financial claims"]);
     fs::write(root.join(&record_path), edited.to_string()).unwrap();
-    // Admission must notice an outside edit even before the next index refresh.
     assert!(approved_inputs(&db, profile.path(), &ids[0], true, &[]).is_err());
-    // The other reader is still enabled until refresh independently rechecks it.
-    assert!(db.query_row("SELECT enabled FROM automation_state WHERE automation_id=?", [&ids[1]], |r| r.get::<_, bool>(0)).unwrap());
+    assert!(
+        db.query_row(
+            "SELECT enabled FROM automation_state WHERE automation_id=?",
+            [&ids[1]],
+            |r| r.get::<_, bool>(0)
+        )
+        .unwrap()
+    );
     assert!(approved_inputs(&db, profile.path(), &ids[2], true, &[]).is_ok());
     refresh(&mut db, profile.path(), &[]).unwrap();
     for (index, id) in ids.iter().enumerate() {
@@ -779,7 +814,9 @@ fn shared_genome_edit_revokes_every_reader_but_preserves_unrelated_approval() {
     }
     fs::write(root.join(&record_path), genome.to_string()).unwrap();
     refresh(&mut db, profile.path(), &[]).unwrap();
-    for id in &ids[..2] { assert!(approved_inputs(&db, profile.path(), id, false, &[]).is_err()); }
+    for id in &ids[..2] {
+        assert!(approved_inputs(&db, profile.path(), id, false, &[]).is_err());
+    }
     assert!(approved_inputs(&db, profile.path(), &ids[2], true, &[]).is_ok());
 }
 
@@ -799,7 +836,10 @@ fn changed_git_metadata_binding_invalidates_automation_approval() {
     }
     fs::write(first.join("commondir"), "../git-common\n").unwrap();
     fs::write(root.join(".git"), format!("gitdir: {}\n", first.display())).unwrap();
-    for path in ["plugins/daily/plugin.json", "plugins/daily/automations/daily.json"] {
+    for path in [
+        "plugins/daily/plugin.json",
+        "plugins/daily/automations/daily.json",
+    ] {
         let path = root.join(path);
         let mut definition: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
         definition["may"] = json!(["write_project_files", "commit"]);
@@ -810,7 +850,8 @@ fn changed_git_metadata_binding_invalidates_automation_approval() {
     refresh(&mut db, profile.path(), &[]).unwrap();
     let before = execution_inputs(&db, profile.path(), &automation, &[]).unwrap();
     assert_eq!(before["gitWritePaths"], before["gitMetadataPaths"]);
-    let plugin: Value = serde_json::from_slice(&fs::read(root.join("plugins/daily/plugin.json")).unwrap()).unwrap();
+    let plugin: Value =
+        serde_json::from_slice(&fs::read(root.join("plugins/daily/plugin.json")).unwrap()).unwrap();
     let review = review_plugin(&db, profile.path(), plugin["id"].as_str().unwrap(), &[]).unwrap();
     assert_eq!(json!(review.git_write_paths), before["gitWritePaths"]);
     let paths: BTreeSet<std::path::PathBuf> =
@@ -831,7 +872,6 @@ fn changed_git_metadata_binding_invalidates_automation_approval() {
         &[],
     )
     .unwrap();
-    // A Git pointer is local binding state, outside the managed definition files.
     fs::write(first.join("commondir"), "../git-second\n").unwrap();
     let after = execution_inputs(&db, profile.path(), &automation, &[]).unwrap();
     assert_eq!(before["files"], after["files"]);

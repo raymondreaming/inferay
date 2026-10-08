@@ -56,7 +56,6 @@ export function ProjectsPanel() {
 					) : null}
 				</div>
 			) : null}
-			{/* Keyed by id, not the project object: catalog refreshes replace the object every few seconds. */}
 			<Show when={projects.view() === "memory" && current()?.id} keyed>
 				{(id) => <MemoryPanel projectId={id} />}
 			</Show>

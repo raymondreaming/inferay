@@ -195,7 +195,6 @@ pub struct ChatRuntime {
 }
 
 impl ChatRuntime {
-    // These are distinct process/persistence owners, not interchangeable options.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         persistence: ChatPersistence,

@@ -1,5 +1,3 @@
-//! Remove only the wrappers produced by the legacy automation exporter.
-//! Moving the whole folder preserves its private skills and tool implementation.
 use super::*;
 
 pub(crate) fn migrate(db: &Connection, root: &Path) -> Result<()> {
@@ -16,7 +14,6 @@ pub(crate) fn migrate(db: &Connection, root: &Path) -> Result<()> {
         if !directory.join("project.json").is_file() {
             continue;
         }
-        // Include destinations so an interrupted rename finishes on the next open.
         for container in ["plugins", "automations"] {
             let parent = directory.join(container);
             if !parent.exists() {
@@ -64,7 +61,6 @@ pub(crate) fn migrate(db: &Connection, root: &Path) -> Result<()> {
                 if definition.id != id {
                     return Err("Migrated automation identity does not match its folder".into());
                 }
-                // Revocation happens before any file move; history is keyed by the unchanged ID.
                 db.execute("UPDATE automation_state SET enabled=0,next_due_at=NULL,approved_hash=NULL,inputs_changed=1 WHERE automation_id=?", [id])?;
                 db.execute(
                     "UPDATE plugin_state SET approved_hash=NULL WHERE plugin_id=?",
@@ -77,14 +73,12 @@ pub(crate) fn migrate(db: &Connection, root: &Path) -> Result<()> {
                 let old_file = destination.join("automations").join(format!("{id}.json"));
                 let new_file = destination.join("automation.json");
                 if old_file.exists() {
-                    // Preserve both files and stop if a conflicting destination exists.
                     if new_file.exists() {
                         return Err("Automation migration destination already exists".into());
                     }
                     fs::rename(&old_file, &new_file)?;
                     let _ = fs::remove_dir(destination.join("automations"));
                 }
-                // Keep the old manifest as a local recovery record, outside the scanner.
                 if destination.join(".migrated-plugin.json").exists() {
                     return Err("Automation migration recovery record already exists".into());
                 }

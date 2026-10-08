@@ -18,7 +18,6 @@ const requiredBindings = [
 	"ChatSessionRetention",
 	"ChatViewportRetention",
 	"DockSession",
-	"RepositoryTabs",
 	"ChatReplica",
 	"PanelReplica",
 	"DocumentReplica",

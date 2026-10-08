@@ -12,15 +12,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .truncate(false)
         .open(presentation_path.join(".contracts.lock"))?;
     export_lock.lock()?;
-    // Generate a complete replacement before exposing it to Vite or tsc.
-    // The exporter lock serializes writers; readers never take that lock.
     let stage = tempfile::Builder::new()
         .prefix(".contracts-")
         .tempdir_in(&presentation_path)?;
     let root = stage.path();
     let cfg = Config::new()
         .with_large_int("number")
-        .with_out_dir(&root)
+        .with_out_dir(root)
         .with_import_extension(Some("ts"));
     macro_rules! export { ($($ty:ty),* $(,)?) => { $(<$ty>::export_all(&cfg)?;)* }; }
     export!(
@@ -67,7 +65,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         inferay_presentation::appearance::DropdownPosition,
         inferay_presentation::ui_performance::UiTiming,
         inferay_presentation::composer::ChatKeyAction,
-        inferay_presentation::repository_tabs::RepositoryTabsSnapshot,
         GitFileEntry,
         PreparedEditDiff,
         SequentialEdit,
@@ -206,8 +203,6 @@ fn publish_contracts(stage: &std::path::Path, target: &std::path::Path) -> std::
     {
         let from = std::ffi::CString::new(stage.as_os_str().as_encoded_bytes())?;
         let to = std::ffi::CString::new(target.as_os_str().as_encoded_bytes())?;
-        // Exchange completed directories without ever removing the live path.
-        // The tempfile owner cleans up the old output at the staging path.
         #[cfg(target_os = "macos")]
         let result = unsafe {
             libc::renameatx_np(
@@ -234,8 +229,6 @@ fn publish_contracts(stage: &std::path::Path, target: &std::path::Path) -> std::
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
-        // Platforms without directory exchange still retain their live output.
-        // Replace files atomically, publish the barrel last, then prune obsolete types.
         for entry in std::fs::read_dir(stage)? {
             let entry = entry?;
             if entry.file_name() != "index.ts" {

@@ -93,7 +93,6 @@ fn interrupted_receipt_recovers_published_bytes_without_reapplying() {
     let mut request = proposal(&project, "chat:recover");
     request.decision = Some(ProjectProposalDecision::Save);
     let saved = resolve(&mut store, request.clone(), &[]).unwrap();
-    // Model process death after the directory rename, before the final DB update.
     store
         .db
         .execute(
@@ -253,8 +252,6 @@ fn edited_library_save_keeps_card_identity_and_recovers_exact_contents() {
         std::fs::read_to_string(package.join("README.md")).unwrap(),
         "Instructions edited by the user"
     );
-    // A persisted intent must carry the edited payload even if publication has
-    // not happened and the original chat card is all the renderer reloaded.
     store
         .db
         .execute(

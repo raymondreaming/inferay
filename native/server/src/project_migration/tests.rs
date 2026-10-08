@@ -3,8 +3,6 @@ use rusqlite::params;
 use serde_json::json;
 use std::path::PathBuf;
 
-// Seed the persisted legacy format directly: migration tests must not retain
-// the retired command implementation or use it as their expected behavior.
 struct LegacyFixture {
     db: Connection,
     root: PathBuf,
@@ -110,8 +108,6 @@ fn file_scheduler_deduplicates_due_runs_and_rechecks_waiting_inputs() {
             .unwrap()
             > time
     );
-    // Turning off a schedule also prevents its already queued occurrence from
-    // starting. A later direct Run now remains a separate user action.
     crate::project_index::disable_automation(&store.db, &automation).unwrap();
     assert!(
         crate::project_runs::claim_next(&mut store.db, root.path(), &[])
@@ -291,7 +287,6 @@ fn handover_removes_definition_ownership_and_preserves_runtime_relations() {
         )
         .unwrap();
     assert_eq!(persisted, ("queued".into(), run.clone(), inputs));
-    // Deleting every definition must leave evidence and conversation links intact.
     fs::remove_dir_all(root.path().join("projects").join(&project)).unwrap();
     crate::project_index::refresh(&mut store.db, root.path(), &[]).unwrap();
     for (table, expected) in [
@@ -345,8 +340,6 @@ fn failed_handover_rolls_back_schema_and_restores_foreign_keys() {
     let root = tempfile::tempdir().unwrap();
     let mut store = LegacyFixture::open(root.path());
     export(&mut store.db, root.path(), &[]).unwrap();
-    // Simulate old corrupt evidence: the migration must refuse it without
-    // leaving half the schema converted or foreign-key checks disabled.
     store.db.pragma_update(None, "foreign_keys", false).unwrap();
     store
         .db
@@ -476,7 +469,6 @@ fn export_preserves_ids_history_and_documents_and_disables_schedules() {
             .iter()
             .any(|f| f.definition.as_ref().is_some_and(|d| d.id() == automation))
     );
-    // Removing the marker simulates interruption after file publication but before commit.
     store
         .db
         .execute(
@@ -633,7 +625,6 @@ fn workspace_chats_migrate_once_and_keep_existing_associations() {
     );
     workspace_projects(&mut store.db, profile.path(), &state, &[]).unwrap();
     assert_eq!(store.catalog(None, &[]).unwrap().projects.len(), 1);
-    // Replay after an interrupted marker write reuses definitions and bindings.
     store
         .db
         .execute(
@@ -723,9 +714,22 @@ fn legacy_repository_context_migrates_as_repository_not_missing_resource() {
     let project = legacy.project("Research", "");
     let repository = uuid::Uuid::new_v4().to_string();
     let automation = uuid::Uuid::new_v4().to_string();
-    let body = json!({"location":{"base":"external","path":repo.path()},"instructions":""}).to_string();
-    legacy.db.execute("INSERT INTO resources VALUES(?,?,'inferay.repository','Research repository',1,NULL,0)", params![repository, project]).unwrap();
-    legacy.db.execute("INSERT INTO resource_revisions VALUES(?,1,1,?,?,1)", params![repository, body, hash(body.as_bytes())]).unwrap();
+    let body =
+        json!({"location":{"base":"external","path":repo.path()},"instructions":""}).to_string();
+    legacy
+        .db
+        .execute(
+            "INSERT INTO resources VALUES(?,?,'inferay.repository','Research repository',1,NULL,0)",
+            params![repository, project],
+        )
+        .unwrap();
+    legacy
+        .db
+        .execute(
+            "INSERT INTO resource_revisions VALUES(?,1,1,?,?,1)",
+            params![repository, body, hash(body.as_bytes())],
+        )
+        .unwrap();
     let execution = json!({"kind":"agent","instructions":"Review recent changes","provider":"codex","model":null,"resourceIds":[repository],"workingDirectory":{"base":"external","path":repo.path()},"timeoutSeconds":300}).to_string();
     legacy.db.execute("INSERT INTO automations(id,project_id,name,revision,execution,interval_seconds,overlap_policy) VALUES(?,?,'Daily research',1,?,86400,'skip')",params![automation,project,execution]).unwrap();
     export(&mut legacy.db, root.path(), &[]).unwrap();
@@ -738,8 +742,18 @@ fn legacy_repository_context_migrates_as_repository_not_missing_resource() {
     assert!(migrated.file.error.is_none());
     let definition = migrated.file.definition.as_ref().unwrap();
     assert_eq!(definition.id, automation);
-    let DefinitionExecution::Agent { resources, repositories, working_directory, .. } = &definition.execution else { panic!("expected agent") };
+    let DefinitionExecution::Agent {
+        resources,
+        repositories,
+        working_directory,
+        ..
+    } = &definition.execution
+    else {
+        panic!("expected agent")
+    };
     assert!(resources.is_empty());
-    assert_eq!(repositories, &[repository.clone()]);
-    assert!(matches!(working_directory, DefinitionDirectory::Repository { id } if id == &repository));
+    assert_eq!(repositories, std::slice::from_ref(&repository));
+    assert!(
+        matches!(working_directory, DefinitionDirectory::Repository { id } if id == &repository)
+    );
 }

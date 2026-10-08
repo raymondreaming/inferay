@@ -10,7 +10,6 @@ export type MemoryDot = {
 	index: number;
 	x: number;
 	y: number;
-	/** Half height of the tile. */
 	r: number;
 	w: number;
 	active: boolean;
@@ -18,7 +17,6 @@ export type MemoryDot = {
 	chosen: boolean;
 };
 
-/** One memory on the graph: an image thumbnail, or a tile with its kind's icon, plus its name below. */
 export function MemoryNode(props: {
 	dot: MemoryDot;
 	projectId: string;

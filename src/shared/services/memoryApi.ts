@@ -46,7 +46,6 @@ export function saveMemoryNote(scope: MemoryScope, note: MemoryNoteInput) {
 	);
 }
 
-/** A first line, trimmed of Markdown markers, as a note title. */
 export function memoryTitle(text: string) {
 	const line =
 		text
@@ -92,7 +91,6 @@ export function loadMemoryGraph(projectId: string) {
 	);
 }
 
-/** Removes a note (by id) or a dropped document (by its memory/documents path). */
 export function deleteMemoryItem(
 	projectId: string,
 	item: { id?: string; path?: string },

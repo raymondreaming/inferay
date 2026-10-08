@@ -1,4 +1,3 @@
-//! Durable project vocabulary. Storage, clocks and processes belong to the server.
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
@@ -39,17 +38,16 @@ impl Default for ProjectPath {
         Self::Project { path: ".".into() }
     }
 }
-/// Invocation protocol for reusable local programs. No mode invokes a shell.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum ToolInterface {
     #[default]
     JsonStdin,
     Cli,
-    Mcp { tool: String },
+    Mcp {
+        tool: String,
+    },
 }
-/// Resolved literals stay literal, including strings supplied by a tool caller.
-/// Runtime paths are represented separately until the run directory exists.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(untagged)]
 pub enum ToolArgument {
@@ -79,13 +77,17 @@ impl ToolArgument {
 }
 impl ToolInterface {
     pub fn validate_arguments(&self, args: &[String]) -> Result<(), String> {
-        if let Self::Mcp { tool } = self {
-            if tool.is_empty()
+        if let Self::Mcp { tool } = self
+            && (tool.is_empty()
                 || tool.len() > 128
-                || !tool.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(&byte))
-            {
-                return Err("MCP tool name must contain 1–128 letters, digits, underscores, dots or hyphens".into());
-            }
+                || !tool
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(&byte)))
+        {
+            return Err(
+                "MCP tool name must contain 1–128 letters, digits, underscores, dots or hyphens"
+                    .into(),
+            );
         }
         if args.len() > 64 {
             return Err("Tool supports at most 64 arguments".into());
@@ -251,7 +253,6 @@ pub struct ProjectAutomation {
     pub overlap_policy: String,
     pub archived: bool,
 }
-/// Provider-reported consumption. Absent values are unknown, never estimated.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct RunUsage {
@@ -263,27 +264,47 @@ pub struct RunUsage {
 impl RunUsage {
     pub fn from_provider(event: &Value) -> Option<Self> {
         let usage = &event["usage"];
-        let (input_tokens, output_tokens, cached_input_tokens, cost) = match event["provider"].as_str()? {
-            "codex" => (
-                usage.pointer("/total/inputTokens").and_then(Value::as_u64),
-                usage.pointer("/total/outputTokens").and_then(Value::as_u64),
-                usage.pointer("/total/cachedInputTokens").and_then(Value::as_u64),
-                None,
-            ),
-            "claude" => (
-                // Claude reports uncached input separately from cache reads/writes.
-                usage["input_tokens"].as_u64().and_then(|input| {
-                    input.checked_add(usage.get("cache_read_input_tokens").map_or(Some(0), Value::as_u64)?)?
-                        .checked_add(usage.get("cache_creation_input_tokens").map_or(Some(0), Value::as_u64)?)
-                }),
-                usage["output_tokens"].as_u64(),
-                usage["cache_read_input_tokens"].as_u64(),
-                event["reportedCostUsd"].as_f64().filter(|value| value.is_finite() && *value >= 0.0),
-            ),
-            _ => return None,
-        };
-        if input_tokens.is_none() && output_tokens.is_none() && cost.is_none() { return None; }
-        Some(Self { input_tokens, output_tokens, cached_input_tokens, reported_cost_usd: cost })
+        let (input_tokens, output_tokens, cached_input_tokens, cost) =
+            match event["provider"].as_str()? {
+                "codex" => (
+                    usage.pointer("/total/inputTokens").and_then(Value::as_u64),
+                    usage.pointer("/total/outputTokens").and_then(Value::as_u64),
+                    usage
+                        .pointer("/total/cachedInputTokens")
+                        .and_then(Value::as_u64),
+                    None,
+                ),
+                "claude" => (
+                    usage["input_tokens"].as_u64().and_then(|input| {
+                        input
+                            .checked_add(
+                                usage
+                                    .get("cache_read_input_tokens")
+                                    .map_or(Some(0), Value::as_u64)?,
+                            )?
+                            .checked_add(
+                                usage
+                                    .get("cache_creation_input_tokens")
+                                    .map_or(Some(0), Value::as_u64)?,
+                            )
+                    }),
+                    usage["output_tokens"].as_u64(),
+                    usage["cache_read_input_tokens"].as_u64(),
+                    event["reportedCostUsd"]
+                        .as_f64()
+                        .filter(|value| value.is_finite() && *value >= 0.0),
+                ),
+                _ => return None,
+            };
+        if input_tokens.is_none() && output_tokens.is_none() && cost.is_none() {
+            return None;
+        }
+        Some(Self {
+            input_tokens,
+            output_tokens,
+            cached_input_tokens,
+            reported_cost_usd: cost,
+        })
     }
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
@@ -291,7 +312,6 @@ impl RunUsage {
 pub struct ProjectRun {
     #[serde(default)]
     pub usage: Option<RunUsage>,
-    /// A finished agent run has a nonempty retained transcript available to open.
     #[serde(default)]
     pub conversation_available: bool,
     pub id: String,
@@ -316,7 +336,6 @@ pub struct ProjectArtifact {
     pub path: String,
     pub byte_size: i64,
 }
-/// Durable execution history, independent of definition storage.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectHistory {
@@ -327,7 +346,6 @@ pub struct ProjectHistory {
     pub next_run_cursor: Option<String>,
 }
 
-/// A proposed external consequence. Producing this artifact never authorizes delivery.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EffectIntent {
@@ -343,16 +361,30 @@ impl EffectIntent {
         if self.schema != "inferay.effect/1" {
             return Err("Unsupported effect intent schema".into());
         }
-        for (label, value, limit) in [("key", &self.key, 128), ("kind", &self.kind, 128), ("target", &self.target, 512)] {
-            if value.trim().is_empty() || value.len() > limit || value.chars().any(char::is_control) {
-                return Err(format!("Effect {label} must be nonempty text under {limit} bytes without control characters"));
+        for (label, value, limit) in [
+            ("key", &self.key, 128),
+            ("kind", &self.kind, 128),
+            ("target", &self.target, 512),
+        ] {
+            if value.trim().is_empty() || value.len() > limit || value.chars().any(char::is_control)
+            {
+                return Err(format!(
+                    "Effect {label} must be nonempty text under {limit} bytes without control characters"
+                ));
             }
         }
-        if !self.payload.is_object() || serde_json::to_vec(&self.payload).map_err(|e| e.to_string())?.len() > 65_536 {
+        if !self.payload.is_object()
+            || serde_json::to_vec(&self.payload)
+                .map_err(|e| e.to_string())?
+                .len()
+                > 65_536
+        {
             return Err("Effect payload must be an object under 64 KiB".into());
         }
         if self.not_before.is_some_and(|time| time < 0) {
-            return Err("Effect notBefore must be a nonnegative Unix timestamp in milliseconds".into());
+            return Err(
+                "Effect notBefore must be a nonnegative Unix timestamp in milliseconds".into(),
+            );
         }
         Ok(())
     }
@@ -374,7 +406,13 @@ pub struct ProjectEffectIntent {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
-pub enum EffectDeliveryState { Queued, InFlight, Uncertain, Delivered, Cancelled }
+pub enum EffectDeliveryState {
+    Queued,
+    InFlight,
+    Uncertain,
+    Delivered,
+    Cancelled,
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -426,7 +464,6 @@ pub struct ProjectResourceType {
     pub enabled: bool,
 }
 
-/// Read-only payload retained for automation cards in persisted older chats.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(
     tag = "type",
@@ -458,8 +495,6 @@ pub fn bounded_text(value: &str, max: usize, required: bool) -> Result<(), Strin
         Ok(())
     }
 }
-/// Deliberately small, offline JSON Schema subset. Unsupported keywords are rejected at registration.
-/// No remote refs, executable validators or implicit network access.
 pub fn validate_schema_definition(schema: &Value, depth: usize) -> Result<(), String> {
     if schema.is_null() || schema.is_boolean() {
         return Ok(());
@@ -603,7 +638,6 @@ fn validate_json_at(schema: &Value, value: &Value, path: &str, depth: usize) -> 
     Ok(())
 }
 
-/// Wall-clock recurrence; weekday is Monday=0 through Sunday=6, or daily when absent.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CalendarSchedule {
@@ -612,8 +646,6 @@ pub struct CalendarSchedule {
     pub weekday: Option<u32>,
 }
 impl CalendarSchedule {
-    /// Spring gaps run at the first valid minute after the requested time.
-    /// Fall overlaps run once, at the earlier occurrence.
     pub fn next_after(&self, after_ms: i64) -> Result<i64, String> {
         use chrono::{Datelike, TimeZone};
         let zone: chrono_tz::Tz = self

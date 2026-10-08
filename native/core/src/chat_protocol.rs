@@ -377,23 +377,21 @@ impl ChatMessageBuffer {
                 if message.role == "system" {
                     if let Ok(value) = serde_json::from_str::<Value>(&message.content) {
                         prepare_system_card(&value, &mut render);
-                        if value["type"] == "inferay.automation-proposal" {
-                            if let Ok(
+                        if value["type"] == "inferay.automation-proposal"
+                            && let Ok(
                                 command @ crate::projects::LegacyAutomationProposal::SaveAutomation { .. },
                             ) = serde_json::from_value(value["command"].clone())
                             {
                                 render.automation_proposal = Some(command);
                             }
+                        if value["type"] == "inferay.automation-definition-proposal"
+                            && let Ok(command) = serde_json::from_value(value["command"].clone())
+                            && crate::project_files::proposed_automation(&command).is_ok()
+                        {
+                            render.automation_definition_proposal = Some(command);
                         }
-                        if value["type"] == "inferay.automation-definition-proposal" {
-                            if let Ok(command) = serde_json::from_value(value["command"].clone()) {
-                                if crate::project_files::proposed_automation(&command).is_ok() {
-                                    render.automation_definition_proposal = Some(command);
-                                }
-                            }
-                        }
-                        if value["type"] == "inferay.plugin-proposal" {
-                            if let Ok(
+                        if value["type"] == "inferay.plugin-proposal"
+                            && let Ok(
                                 command @ (crate::project_files::ProjectFileCommand::CreatePlugin {
                                     ..
                                 }
@@ -401,9 +399,8 @@ impl ChatMessageBuffer {
                                     ..
                                 }),
                             ) = serde_json::from_value(value["command"].clone())
-                            {
-                                render.plugin_proposal = Some(command);
-                            }
+                        {
+                            render.plugin_proposal = Some(command);
                         }
                         render.skill_proposal = crate::prompts::cards::chat_skill_proposal(&value);
                         render.skill_read = crate::prompts::cards::chat_skill_read(&value);

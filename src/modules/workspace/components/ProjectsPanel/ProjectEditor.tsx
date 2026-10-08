@@ -83,9 +83,7 @@ export function ProjectEditor(props: { project?: Project; close: () => void }) {
 			}
 			await selectProject(id);
 			props.close();
-		} catch {
-			/* The shared mutation owner displays the error. */
-		}
+		} catch {}
 	}
 	return (
 		<Modal

@@ -327,7 +327,7 @@ No app-server restart or external delivery was performed for this batch.
 - [ ] Add event-driven triggers and observations.
 - [ ] Verify an unfamiliar-domain workflow built from chat without changing the core.
 - [ ] Finish native desktop interaction and visual-polish checks.
-- [ ] Reconcile older documentation status statements with newer implementation.
+- [x] Reconcile older documentation status statements with newer implementation.
 - [ ] Background execution while Inferay is closed remains future work.
 
 The foundation now includes file-backed projects, reusable libraries, approved

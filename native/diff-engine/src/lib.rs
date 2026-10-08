@@ -2766,8 +2766,6 @@ pub fn prepare_git_graph(cwd: &str) -> GitGraphInput {
                 get_graph_refs_with_worktrees(cwd, worktrees_for_refs)
             })
         });
-        // Each worktree has its own index. Read their status concurrently so
-        // linked worktrees do not add their Git and filesystem latency in series.
         let mut statuses = Vec::with_capacity(worktrees.len());
         for chunk in worktrees.chunks(4) {
             let tasks = chunk
@@ -2812,8 +2810,6 @@ pub fn prepare_git_graph(cwd: &str) -> GitGraphInput {
         worktree.status = status;
         if let Some(status) = &worktree.status {
             for file in &status.files {
-                // Status letters/counts alone do not identify edits to an
-                // already-modified file. Include its filesystem generation.
                 let path = std::path::Path::new(&worktree.path).join(&file.path);
                 parts.push(format!(
                     "{}:{:?}",

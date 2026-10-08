@@ -1,4 +1,3 @@
-//! Per-run command execution and library tool grants. Provider transports share this owner.
 use crate::{
     project_runtime::{ProjectRuntime, tool},
     project_store::{Result, event, resolve_path},
@@ -43,7 +42,6 @@ pub(crate) struct ToolScope {
     artifacts: Mutex<Vec<String>>,
     outcomes: Mutex<BTreeMap<String, bool>>,
 }
-/// Closes grants even when the provider future is dropped or errors early.
 pub(crate) struct ToolLease(pub Arc<ToolScope>);
 impl Drop for ToolLease {
     fn drop(&mut self) {
@@ -159,7 +157,6 @@ impl ToolScope {
                 .tools
                 .get(&key)
                 .ok_or("This tool is not granted to the automation")?;
-            // A later failure cannot preserve an earlier successful quality gate.
             self.outcomes
                 .lock()
                 .map_err(|_| "Tool outcome lock failed")?

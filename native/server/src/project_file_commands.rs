@@ -1,5 +1,3 @@
-//! File-definition commands and local execution state. The index is never the
-//! source of a saved definition; all definition edits pass through its writer.
 use crate::{
     project_definitions as files, project_index as index, project_runs,
     project_store::{Result, event, hash, now},
@@ -163,8 +161,6 @@ pub(crate) fn apply(
                     skills,
                 )?;
             }
-            // Recheck the entire bundle after writing approvals; any conflict rolls
-            // back every approval and schedule in this transaction.
             if index::plugin_inputs(&tx, profile, &id, skills)? != inputs {
                 return Err("Plugin inputs changed while approving".into());
             }
@@ -185,8 +181,15 @@ pub(crate) fn apply(
             )?;
             serde_json::to_value(AutomationReview {
                 connections: inferay_core::connections::ConnectionAccess::from_snapshot(&inputs)?,
-                id, inputs_hash: fingerprint, approved,
-                git_write_paths: serde_json::from_value(inputs.get("gitWritePaths").cloned().unwrap_or_else(|| json!([])))?,
+                id,
+                inputs_hash: fingerprint,
+                approved,
+                git_write_paths: serde_json::from_value(
+                    inputs
+                        .get("gitWritePaths")
+                        .cloned()
+                        .unwrap_or_else(|| json!([])),
+                )?,
                 inputs,
             })?
         }

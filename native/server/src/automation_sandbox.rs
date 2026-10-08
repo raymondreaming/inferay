@@ -1,4 +1,3 @@
-//! Provider request policy for approved automation inputs. Interactive chats do not use it.
 use inferay_core::project_files::Permission;
 use serde_json::{Value, json};
 use std::{collections::BTreeSet, path::Path};
@@ -14,34 +13,47 @@ pub(crate) struct AutomationSandbox {
     git_writes: BTreeSet<std::path::PathBuf>,
 }
 impl AutomationSandbox {
-    /// Keep authentication in the provider's own home, but exclude its personal
-    /// instruction files from this automation process and its descendants.
     #[cfg(target_os = "macos")]
     pub(crate) fn codex_command(
         &self,
         binary: &Path,
         env: &std::collections::HashMap<std::ffi::OsString, std::ffi::OsString>,
     ) -> Result<tokio::process::Command, String> {
-        let home = env.get(std::ffi::OsStr::new("CODEX_HOME"))
+        let home = env
+            .get(std::ffi::OsStr::new("CODEX_HOME"))
             .filter(|value| !value.is_empty())
             .map(std::path::PathBuf::from)
-            .or_else(|| env.get(std::ffi::OsStr::new("HOME")).map(|home| std::path::PathBuf::from(home).join(".codex")))
+            .or_else(|| {
+                env.get(std::ffi::OsStr::new("HOME"))
+                    .map(|home| std::path::PathBuf::from(home).join(".codex"))
+            })
             .ok_or("Cannot locate Codex home for automation context isolation")?;
-        let home = home.canonicalize().map_err(|error| format!("Cannot resolve Codex home: {error}"))?;
+        let home = home
+            .canonicalize()
+            .map_err(|error| format!("Cannot resolve Codex home: {error}"))?;
         let mut paths = BTreeSet::new();
         for name in ["AGENTS.md", "AGENTS.override.md"] {
             let path = home.join(name);
             match path.canonicalize() {
-                Ok(target) => { paths.insert(target); }
+                Ok(target) => {
+                    paths.insert(target);
+                }
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => return Err(format!("Cannot resolve personal instruction path: {error}")),
+                Err(error) => {
+                    return Err(format!("Cannot resolve personal instruction path: {error}"));
+                }
             }
             paths.insert(path);
         }
         let mut profile = String::from("(version 1)\n(allow default)\n");
         for path in paths {
-            let path = path.to_str().ok_or("Codex instruction path must be UTF-8")?;
-            profile.push_str(&format!("(deny file-read-data (literal {}))\n", serde_json::to_string(path).map_err(|error| error.to_string())?));
+            let path = path
+                .to_str()
+                .ok_or("Codex instruction path must be UTF-8")?;
+            profile.push_str(&format!(
+                "(deny file-read-data (literal {}))\n",
+                serde_json::to_string(path).map_err(|error| error.to_string())?
+            ));
         }
         let mut command = tokio::process::Command::new("/usr/bin/sandbox-exec");
         command.args(["-p", &profile, "--"]).arg(binary);
@@ -57,10 +69,10 @@ impl AutomationSandbox {
     }
     pub(crate) fn new(may: &BTreeSet<Permission>, repositories: &Value, project: &Path) -> Self {
         let mut roots = BTreeSet::new();
-        if may.contains(&Permission::WriteRepositories) {
-            if let Some(paths) = repositories.as_object() {
-                roots.extend(paths.values().filter_map(Value::as_str).map(str::to_owned));
-            }
+        if may.contains(&Permission::WriteRepositories)
+            && let Some(paths) = repositories.as_object()
+        {
+            roots.extend(paths.values().filter_map(Value::as_str).map(str::to_owned));
         }
         if may.contains(&Permission::WriteProjectFiles) {
             roots.insert(project.to_string_lossy().into_owned());
@@ -139,7 +151,6 @@ impl AutomationSandbox {
             serde_json::from_str(arguments.get(index).ok_or("Missing Claude settings")?)
                 .map_err(|error| format!("Invalid Claude settings: {error}"))?;
         settings["disableAllHooks"] = json!(true);
-        // Mutations and shell commands share Inferay's bounded process runner.
         settings["permissions"] = json!({"allow":["mcp__inferay__*"],"deny":["Bash","Edit","Write","Read","Glob","Grep","WebFetch","WebSearch"]});
         settings["sandbox"] = json!({
             "enabled":true,"failIfUnavailable":true,"autoAllowBashIfSandboxed":false,
@@ -162,7 +173,6 @@ impl AutomationSandbox {
         ]);
         Ok(())
     }
-    /// Local tools and their children share an OS boundary; never silently run unsandboxed.
     #[cfg(target_os = "macos")]
     pub(crate) fn tool_command(
         &self,
@@ -171,8 +181,6 @@ impl AutomationSandbox {
         output: &Path,
         scratch: &Path,
     ) -> Result<tokio::process::Command, String> {
-        // Tool subprocesses never inherit the operator's home or automatic user config.
-        // Provider credentials stay with the provider process, outside this environment.
         let home = scratch.join("home");
         for path in [
             &home,
@@ -198,9 +206,9 @@ impl AutomationSandbox {
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_TERMINAL_PROMPT", "0")
-            .env("TMPDIR", &scratch)
-            .env("TMP", &scratch)
-            .env("TEMP", &scratch);
+            .env("TMPDIR", scratch)
+            .env("TMP", scratch)
+            .env("TEMP", scratch);
         let mut profile = String::from(
             "(version 1)\n(deny default)\n(allow file-read-metadata)\n(allow process-exec process-fork sysctl-read)\n(allow signal (target same-sandbox))\n(allow process-info* (target same-sandbox))\n(allow file-write-data (literal \"/dev/null\"))\n",
         );
@@ -229,8 +237,6 @@ impl AutomationSandbox {
                 .arg(format!("RUNTIME_BUNDLE={}", bundle.display()));
             profile.push_str("(allow file-read-data (subpath (param \"RUNTIME_BUNDLE\")))\n");
         }
-        // Runtime code is readable; user data is limited to the approved project
-        // and explicitly selected repositories. Metadata access supports path lookup.
         let mut reads = self.reads.clone();
         reads.extend([output.to_path_buf(), scratch.to_path_buf()]);
         reads.extend(git_metadata_directories(self.reads.iter())?);
@@ -324,8 +330,6 @@ impl AutomationSandbox {
             ));
         }
         if !self.commit {
-            // Git's ordinary metadata stays protected even when a tool creates
-            // another checkout inside an approved writable directory.
             profile.push_str(
                 r##"(deny file-write* (regex #"(^|/)\.git(/|$)"))
 "##,
@@ -333,8 +337,6 @@ impl AutomationSandbox {
             let mut protected =
                 git_metadata_directories(self.repositories.iter().chain(self.roots.iter()))?;
             protected.extend(git_metadata_aliases(&protected, &writable_roots)?);
-            // Seatbelt path rules do not follow a renamed ancestor. Keep each
-            // containing directory in place while allowing edits to its other files.
             let ancestors = protected
                 .iter()
                 .flat_map(|path| path.ancestors().skip(1))
@@ -358,8 +360,6 @@ impl AutomationSandbox {
             profile.push_str("(allow network*)\n(allow mach-lookup (global-name \"com.apple.system.opendirectoryd.libinfo\") (global-name \"com.apple.SystemConfiguration.configd\"))\n");
         }
         if self.gpu {
-            // Apple Silicon graphics device/surface access and the application
-            // registration required by Metal's AppKit-backed context creation.
             profile.push_str(
                 r#"(allow iokit-open
     (iokit-user-client-class "AGXDeviceUserClient")
@@ -398,7 +398,6 @@ impl AutomationSandbox {
     pub(crate) fn turn(&self) -> Value {
         json!({"type":"readOnly","networkAccess":false})
     }
-    /// Applied after user configuration translation so ambient permissions cannot widen this run.
     pub(crate) fn thread(&self, params: &mut Value, config: &Value) {
         params["sandbox"] = json!("read-only");
         params["experimentalRawEvents"] = json!(true);
@@ -409,13 +408,12 @@ impl AutomationSandbox {
         }
         params["config"]["sandbox_workspace_write"] = json!({"writable_roots":[],"network_access":false,"exclude_slash_tmp":true,"exclude_tmpdir_env_var":true});
         params["config"]["web_search"] = json!("disabled");
-        // Instructions are supplied from the approved run snapshot. Repository
-        // documents remain available through the scoped native reader.
         params["config"]["project_doc_max_bytes"] = json!(0);
-        params["config"]["skills"] = json!({"include_instructions":false,"bundled":{"enabled":false}});
+        params["config"]["skills"] =
+            json!({"include_instructions":false,"bundled":{"enabled":false}});
         params["config"]["cloud"] = json!({"skills":{"enabled":false}});
-        params["config"]["memories"] = json!({"use_memories":false,"generate_memories":false,"dedicated_tools":false});
-        // Ambient optional executors must not add authority outside the run's tools.
+        params["config"]["memories"] =
+            json!({"use_memories":false,"generate_memories":false,"dedicated_tools":false});
         for feature in [
             "shell_tool",
             "skill_search",
@@ -436,7 +434,6 @@ impl AutomationSandbox {
         ] {
             params["config"]["features"][feature] = json!(false);
         }
-        // Automation MCP capabilities are supplied through the run's explicit dynamic tools.
         if let Some(servers) = config["mcp_servers"].as_object() {
             let disabled: serde_json::Map<String, Value> = servers
                 .keys()
@@ -447,8 +444,6 @@ impl AutomationSandbox {
     }
 }
 
-/// Seatbelt rules name paths, not inodes. Include existing writable hard-link
-/// aliases and metadata symlink targets before granting broad working-file writes.
 #[cfg(target_os = "macos")]
 fn git_metadata_aliases(
     directories: &BTreeSet<std::path::PathBuf>,
@@ -500,8 +495,6 @@ fn git_metadata_aliases(
         {
             continue;
         }
-        // Targets outside these canonical write roots are already read-only.
-        // Metadata directories and ordinary .git paths are already protected.
         for entry in walkdir::WalkDir::new(root)
             .follow_links(false)
             .into_iter()
@@ -529,8 +522,6 @@ fn git_metadata_aliases(
     Ok(aliases)
 }
 
-/// Resolve worktree and separate-git-dir pointers without invoking repository
-/// hooks or inheriting Git configuration. Invalid metadata blocks execution.
 pub(crate) fn git_metadata_directories<'a, P: AsRef<Path> + 'a>(
     roots: impl Iterator<Item = &'a P>,
 ) -> Result<BTreeSet<std::path::PathBuf>, String> {
@@ -800,7 +791,6 @@ else: raise AssertionError('unapproved parent became writable')
                     String::from_utf8_lossy(&result.stderr)
                 );
             }
-            // Approval of one binding cannot follow a replaced pointer.
             let other = temp.path().join("other-metadata");
             std::fs::create_dir(&other).unwrap();
             let reviewed = AutomationSandbox::new(&may, &repositories, &project)

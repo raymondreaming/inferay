@@ -1,4 +1,3 @@
-//! Resolve approved tool code in place; never fetch, checkout or copy a repository.
 use crate::{
     project_definitions as files,
     project_store::{Result, hash},
@@ -69,8 +68,6 @@ fn git(root: &Path, args: &[&str]) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-// Directory aliases are useful in existing kits. Every resolved target must still
-// be represented by the pinned tree; Git metadata and outside paths are not code.
 fn validate_links(repository: &Path) -> Result<()> {
     let tree = git(repository, &["ls-tree", "-r", "-z", "HEAD"])?;
     let mut tracked = BTreeSet::new();

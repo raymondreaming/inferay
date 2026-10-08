@@ -1,4 +1,3 @@
-//! Portable machine requirement syntax; discovery and process execution belong to the server.
 #[derive(Debug, PartialEq)]
 pub enum Requirement<'a> {
     Program {

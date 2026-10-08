@@ -56,8 +56,6 @@ async function fetchGitDiff(
 ): Promise<HunkDiff> {
 	const diff = await loadGitDiff(input, signal);
 	signal.throwIfAborted();
-	// Start the priority preview before the mounted panel requests the full file.
-	// The diff itself can resolve while classification continues.
 	void prefetchDiffSyntax(input, diff);
 	return diff;
 }

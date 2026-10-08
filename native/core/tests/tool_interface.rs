@@ -57,7 +57,6 @@ fn cli_inputs_are_single_literal_arguments_with_bounded_scalar_values() {
                 .is_err()
         );
     }
-    // Existing JSON-stdin tools keep literal argument strings unchanged.
     assert_eq!(
         ToolInterface::JsonStdin
             .arguments(&args, &input, "script.py")

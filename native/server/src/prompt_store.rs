@@ -1,4 +1,3 @@
-//! Local persistence adapter for the pure skill library, command expansion, and agent tools.
 use inferay_core::prompts::{
     Prompt, PromptError, SkillProposalView,
     commands::{self, ChainStep},
@@ -127,7 +126,6 @@ impl PromptStore {
             [],
             |r| r.get::<_, bool>(0),
         )? {
-            // The old source remains untouched. Once the marker is committed, it is never read again.
             let mut imported: Option<Vec<Prompt>> = None;
             if root.join("projects.sqlite3").exists() {
                 let legacy = rusqlite::Connection::open_with_flags(

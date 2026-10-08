@@ -1,4 +1,3 @@
-//! Attach an automation transcript to a project pane; active runs fork recorded progress.
 use super::*;
 use inferay_core::{
     chat_protocol::ChatMessageBuffer, project_files::ProjectFileCommand,
@@ -26,7 +25,10 @@ pub(super) async fn open(state: &ServerState, request: Request) -> ApiResult {
         ));
     }
     if !run.conversation_available {
-        return Err(api_error(StatusCode::BAD_REQUEST, "This run has no recorded agent conversation. Review its failure details in History."));
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "This run has no recorded agent conversation. Review its failure details in History.",
+        ));
     }
     let provider = execution["provider"].as_str().unwrap_or("codex");
     let catalog = state
@@ -153,10 +155,14 @@ pub(super) async fn open(state: &ServerState, request: Request) -> ApiResult {
         }
     };
     if !existing {
-        save_provider_configuration(state, json!({
-            "paneId":pane_id, "agentKind":provider,
-            "model":execution["model"], "reasoningLevel":execution["reasoningLevel"]
-        })).await?;
+        save_provider_configuration(
+            state,
+            json!({
+                "paneId":pane_id, "agentKind":provider,
+                "model":execution["model"], "reasoningLevel":execution["reasoningLevel"]
+            }),
+        )
+        .await?;
         if let Some(update) = buffer.take_update() {
             state
                 .chat_persistence

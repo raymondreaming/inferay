@@ -9,8 +9,6 @@ import type {
 	ToolDefinition,
 } from "@contracts";
 
-// Renderer views retain their source file for conflict-safe edits. Invalid
-// definitions retain their current parsed value so users can repair them.
 export type ProjectFile<T> = T & { file: IndexedDefinition<T> };
 export type Project = ProjectFile<ProjectDefinition> & { directory: string };
 export type ProjectTool = ProjectFile<ToolDefinition>;

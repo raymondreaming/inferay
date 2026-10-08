@@ -1,4 +1,3 @@
-//! Explicit draft artifacts supplied by tools, with no publishing behavior.
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize, ts_rs::TS)]
@@ -18,7 +17,6 @@ pub struct DraftDetail {
 }
 
 impl DraftPreview {
-    /// Opt-in by filename so ordinary JSON never acquires draft semantics.
     pub fn from_content(filename: &str, content: &str) -> Result<Option<Self>, String> {
         if !filename.to_ascii_lowercase().ends_with(".draft.json") {
             return Ok(None);

@@ -1,6 +1,3 @@
-/** Force layout for the Memory graph: linked items pull together, everything else pushes apart.
- * Deterministic for the same input (positions are seeded from ids) and bounded: repulsion uses a
- * spatial grid, and large graphs run fewer iterations. Pure; no DOM or Solid. */
 export type GraphInputNode = { id: string; kind: string };
 export type GraphInputEdge = { from: string; to: string };
 export type GraphPoint = { x: number; y: number };
@@ -96,7 +93,6 @@ export function layoutMemoryGraph(
 	return new Map(nodes.map((node, i) => [node.id, { x: x[i], y: y[i] }]));
 }
 
-/** What the graph shows for each memory: the kind of item, how to draw it, and how to describe it. */
 export type MemoryItem = {
 	id: string;
 	kind: "note" | "image" | "file" | "source";
@@ -122,7 +118,6 @@ export const memoryCategory = (
 			: item.kind === "image"
 				? "images"
 				: "files";
-/** The icon drawn for each kind of memory (24×24 stroke paths). */
 export const memoryIconPath = (item: MemoryItem) => {
 	if (item.kind === "source")
 		return item.source.startsWith("run:")
@@ -162,7 +157,6 @@ export const formatBytes = (size: number) =>
 		? `${(size / 1_000_000).toFixed(1)} MB`
 		: `${Math.max(1, Math.round(size / 1000))} KB`;
 export const clampZoom = (k: number) => Math.min(4, Math.max(0.2, k));
-/** First message for a chat that continues from a session, carrying what was saved from it. */
 export const continuationDraft = (
 	chat: string,
 	notes: string[],

@@ -1,5 +1,3 @@
-//! Explicit provider MCP selection. An unavailable selection never widens to
-//! ambient servers; an omitted selection keeps the provider's normal inventory.
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
@@ -62,8 +60,6 @@ pub(crate) fn codex(
                 overrides.get(name).copied()
             };
             if let Some(enabled) = enabled {
-                // A nested object preserves literal server names, including dots.
-                // Codex merges it into the effective configuration for this thread.
                 scoped.insert(name.clone(), json!({"enabled": enabled}));
             }
         }
@@ -80,7 +76,6 @@ pub(crate) fn claude(
     cwd: &Path,
 ) -> Result<tempfile::NamedTempFile, String> {
     let mut scoped = serde_json::Map::new();
-    // An explicitly empty selection must work without any personal config.
     if !wanted.is_empty() {
         let home = env
             .get(OsStr::new("CLAUDE_CONFIG_DIR"))
@@ -89,7 +84,6 @@ pub(crate) fn claude(
             .ok_or("Cannot resolve Claude configuration for the requested MCP servers")?;
         let file = std::fs::File::open(cwd.join(home).join(".claude.json"))
             .map_err(|_| "Cannot read Claude configuration for the requested MCP servers")?;
-        // Do not include file contents or parser diagnostics: config can contain credentials.
         let config: Value =
             serde_json::from_reader(file).map_err(|_| "Claude configuration is not valid JSON")?;
         let overrides = overrides(env);

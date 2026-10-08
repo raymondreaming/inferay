@@ -1,5 +1,3 @@
-//! Project memory: Markdown notes under each project's `memory/notes`, with a rebuildable local index.
-//! The files are the source of truth; `memory.sqlite3` can be deleted and is rebuilt on the next read.
 use crate::{atomic_write, project_store::Result};
 use inferay_core::memory::{
     MemoryHit, MemoryNote, MemoryNoteInput, NOTES_DIR, NOTES_PER_PROJECT, slug,
@@ -36,7 +34,6 @@ pub(crate) struct MemoryNoteView {
     pub links_in: Vec<MemoryHit>,
 }
 
-/// What a prompt receives up front: a short guide and the best matches, never whole notes.
 pub(crate) struct PromptMemory {
     pub text: String,
     pub read: Vec<Value>,
@@ -55,7 +52,6 @@ fn now_seconds() -> i64 {
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
 }
-/// RFC 3339 UTC without a date library (days-from-civil inverse).
 fn utc(seconds: i64) -> String {
     let (days, rem) = (seconds.div_euclid(86_400), seconds.rem_euclid(86_400));
     let z = days + 719_468;
@@ -75,8 +71,6 @@ fn utc(seconds: i64) -> String {
     )
 }
 
-/// Full-text query from free text: every word must match as a prefix. Punctuation never reaches FTS syntax.
-/// `all` requires every word (precise); otherwise any word matches (recall for natural questions).
 fn fts_query(text: &str, all: bool) -> Option<String> {
     let words: Vec<String> = text
         .split(|c: char| !c.is_alphanumeric())
@@ -105,7 +99,6 @@ impl MemoryStore {
         Ok(Self { db: Mutex::new(db) })
     }
 
-    /// Bring the index in line with the project's note files. Unchanged files (same size and mtime) are not reread.
     fn sync(&self, db: &Connection, project: &str, dir: &Path) -> Result<()> {
         let folder = dir.join(NOTES_DIR);
         let mut seen: HashMap<String, String> = HashMap::new();
@@ -248,7 +241,6 @@ impl MemoryStore {
         })
     }
 
-    /// Ranked hits: matching text first, then newest; superseded and expired notes always last.
     pub fn search(
         &self,
         project: &str,
@@ -391,7 +383,6 @@ impl MemoryStore {
         Ok(note)
     }
 
-    /// Guidance plus the top matches for this request, so agents start with relevant memory without loading all of it.
     pub fn prompt(&self, project: &str, dir: &Path, request: &str, tool: bool) -> PromptMemory {
         let hits = self
             .search(project, dir, request, None, 5)
@@ -430,7 +421,6 @@ impl MemoryStore {
         PromptMemory { text, read }
     }
 
-    /// The agent tool: search, read, links and (for chats only) save.
     pub fn tool(
         &self,
         project: &str,
@@ -466,7 +456,6 @@ impl MemoryStore {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct GraphNode {
     pub id: String,
-    /// `note`, `image`, `file` or `source` (a chat or run that items came from).
     pub kind: String,
     pub title: String,
     pub source: String,
@@ -482,7 +471,6 @@ pub(crate) struct GraphNode {
 pub(crate) struct GraphEdge {
     pub from: String,
     pub to: String,
-    /// `source` (item to the chat or run it came from), `link` (`[[Title]]`) or `supersedes`.
     pub kind: String,
 }
 
@@ -497,15 +485,12 @@ pub(crate) struct MemoryGraph {
 pub(crate) const GRAPH_LIMIT: usize = 2000;
 const DOCUMENTS_DIR: &str = "memory/documents";
 
-/// The chat or run an item came from: `chat:<pane>` or `run:<id>`, without the message part.
 fn source_group(source: &str) -> Option<String> {
     let head = source.split('/').next().unwrap_or("");
     (head.starts_with("chat:") || head.starts_with("run:")).then(|| head.to_owned())
 }
 
 impl MemoryStore {
-    /// Everything in a project's memory as a bounded graph: notes, documents, the chats and runs they came from,
-    /// `[[links]]` and supersedes edges. Positions are a view concern and are not stored here.
     pub fn graph(&self, project: &str, dir: &Path) -> Result<MemoryGraph> {
         let db = self.db.lock().map_err(|_| "Memory lock failed")?;
         self.sync(&db, project, dir)?;
@@ -526,7 +511,11 @@ impl MemoryStore {
             titles.insert(hit.title.clone(), hit.id.clone());
             if let Some(group) = source_group(&hit.source) {
                 *groups.entry(group.clone()).or_default() += 1;
-                edges.push(GraphEdge { from: hit.id.clone(), to: format!("source:{group}"), kind: "source".into() });
+                edges.push(GraphEdge {
+                    from: hit.id.clone(),
+                    to: format!("source:{group}"),
+                    kind: "source".into(),
+                });
             }
             nodes.push(GraphNode {
                 id: hit.id,
@@ -544,21 +533,33 @@ impl MemoryStore {
         truncated |= notes >= GRAPH_LIMIT;
         for (id, target) in db
             .prepare("SELECT id,target FROM links WHERE project=?")?
-            .query_map([project], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+            .query_map([project], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })?
             .flatten()
         {
             if let Some(to) = titles.get(&target)
                 && to != &id
             {
-                edges.push(GraphEdge { from: id, to: to.clone(), kind: "link".into() });
+                edges.push(GraphEdge {
+                    from: id,
+                    to: to.clone(),
+                    kind: "link".into(),
+                });
             }
         }
         for (id, old) in db
             .prepare("SELECT id,supersedes FROM notes WHERE project=? AND supersedes IS NOT NULL")?
-            .query_map([project], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+            .query_map([project], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })?
             .flatten()
         {
-            edges.push(GraphEdge { from: id, to: old, kind: "supersedes".into() });
+            edges.push(GraphEdge {
+                from: id,
+                to: old,
+                kind: "supersedes".into(),
+            });
         }
         let documents = dir.join(DOCUMENTS_DIR);
         if documents.is_dir() {
@@ -594,7 +595,11 @@ impl MemoryStore {
             }
         }
         for (group, count) in groups {
-            let kind = if group.starts_with("chat:") { "Chat" } else { "Run" };
+            let kind = if group.starts_with("chat:") {
+                "Chat"
+            } else {
+                "Run"
+            };
             nodes.push(GraphNode {
                 id: format!("source:{group}"),
                 kind: "source".into(),
@@ -607,20 +612,35 @@ impl MemoryStore {
                 size: count as u64,
             });
         }
-        Ok(MemoryGraph { nodes, edges, truncated })
+        Ok(MemoryGraph {
+            nodes,
+            edges,
+            truncated,
+        })
     }
 
-    /// Remove one memory item: a note by id, or a dropped document by its `memory/documents/…` path.
-    pub fn delete(&self, project: &str, dir: &Path, id: Option<&str>, path: Option<&str>) -> Result<()> {
+    pub fn delete(
+        &self,
+        project: &str,
+        dir: &Path,
+        id: Option<&str>,
+        path: Option<&str>,
+    ) -> Result<()> {
         let db = self.db.lock().map_err(|_| "Memory lock failed")?;
         self.sync(&db, project, dir)?;
         let relative = match (id, path) {
             (Some(id), _) if !id.is_empty() => db
-                .query_row("SELECT path FROM notes WHERE project=? AND id=?", params![project, id], |r| r.get::<_, String>(0))
+                .query_row(
+                    "SELECT path FROM notes WHERE project=? AND id=?",
+                    params![project, id],
+                    |r| r.get::<_, String>(0),
+                )
                 .optional()?
                 .ok_or("Note not found")?,
             (_, Some(path)) => {
-                let name = path.strip_prefix(&format!("{DOCUMENTS_DIR}/")).ok_or("Only memory documents can be deleted this way")?;
+                let name = path
+                    .strip_prefix(&format!("{DOCUMENTS_DIR}/"))
+                    .ok_or("Only memory documents can be deleted this way")?;
                 if name.is_empty() || name.contains(['/', '\\', '\0']) || name.starts_with('.') {
                     return Err("Invalid document path".into());
                 }
@@ -631,7 +651,8 @@ impl MemoryStore {
         let file = dir.join(&relative);
         let canonical = file.canonicalize()?;
         let root = dir.canonicalize()?;
-        let allowed = [Path::new(NOTES_DIR), Path::new(DOCUMENTS_DIR)].map(|folder| root.join(folder));
+        let allowed =
+            [Path::new(NOTES_DIR), Path::new(DOCUMENTS_DIR)].map(|folder| root.join(folder));
         if !allowed.iter().any(|folder| canonical.starts_with(folder)) || !canonical.is_file() {
             return Err("That item is not in this project's memory".into());
         }
@@ -645,7 +666,6 @@ impl MemoryStore {
     }
 }
 
-/// Memory belongs to a project; a chat reaches it only once the chat is associated with that project.
 impl crate::project_runtime::ProjectRuntime {
     pub fn memory_project(
         &self,
@@ -695,7 +715,6 @@ pub(crate) mod http {
             })
     }
 
-    /// `GET /api/memory?projectId|paneId&q&tag&limit`: ranked hits, or the newest notes without a query.
     pub(crate) async fn list(state: &ServerState, request: Request) -> ApiResult {
         let (project, dir) = scope(
             state,
@@ -719,7 +738,6 @@ pub(crate) mod http {
         Ok(json!({"projectId": project, "listing": listing}))
     }
 
-    /// `GET /api/memory/note?projectId&id`
     pub(crate) async fn note(state: &ServerState, request: Request) -> ApiResult {
         let (project, dir) = scope(
             state,
@@ -735,35 +753,38 @@ pub(crate) mod http {
         serde_json::to_value(view).map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, e))
     }
 
-    /// `GET /api/memory/graph?projectId`: every note and document with the chats, runs and links that connect them.
     pub(crate) async fn graph(state: &ServerState, request: Request) -> ApiResult {
-        let (project, dir) = scope(state, query_value(&request, "projectId"), query_value(&request, "paneId"))?;
-        let graph = state.projects.memory.graph(&project, &dir).map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
+        let (project, dir) = scope(
+            state,
+            query_value(&request, "projectId"),
+            query_value(&request, "paneId"),
+        )?;
+        let graph = state
+            .projects
+            .memory
+            .graph(&project, &dir)
+            .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
         serde_json::to_value(graph).map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, e))
     }
 
-    /// `POST /api/memory/delete {projectId, id?, path?}`: remove one note or dropped document from memory.
     pub(crate) async fn delete(state: &ServerState, request: Request) -> ApiResult {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
-        struct Input { project_id: String, id: Option<String>, path: Option<String> }
+        struct Input {
+            project_id: String,
+            id: Option<String>,
+            path: Option<String>,
+        }
         let input: Input = api_body(request).await?;
         let (project, dir) = scope(state, Some(input.project_id), None)?;
-        state.projects.memory.delete(&project, &dir, input.id.as_deref(), input.path.as_deref()).map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
+        state
+            .projects
+            .memory
+            .delete(&project, &dir, input.id.as_deref(), input.path.as_deref())
+            .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
         Ok(json!({"deleted": true}))
     }
 
-    /// `GET /api/memory/pane?paneId`: which project a chat saves into, or null.
-    pub(crate) async fn pane(state: &ServerState, request: Request) -> ApiResult {
-        let pane = query_value(&request, "paneId");
-        let project = state
-            .projects
-            .memory_project(None, pane.as_deref())
-            .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
-        Ok(json!({"projectId": project.map(|(id, _)| id)}))
-    }
-
-    /// `POST /api/memory/save {projectId?, paneId?, note}`
     pub(crate) async fn save(state: &ServerState, request: Request) -> ApiResult {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
@@ -888,23 +909,61 @@ mod tests {
             source: Some("chat:pane-1/message:4".into()),
             ..input(title, body, &[])
         };
-        let a = store.save("p", project.path(), chat("Scanner", "See [[Rules]].")).unwrap();
-        let b = store.save("p", project.path(), chat("Rules", "Boxes alternate.")).unwrap();
+        let a = store
+            .save("p", project.path(), chat("Scanner", "See [[Rules]]."))
+            .unwrap();
+        let b = store
+            .save("p", project.path(), chat("Rules", "Boxes alternate."))
+            .unwrap();
         std::fs::create_dir_all(project.path().join("memory/documents")).unwrap();
         std::fs::write(project.path().join("memory/documents/shot.png"), b"png").unwrap();
-        std::fs::write(project.path().join("memory/documents/.shot.png.json"), b"{}").unwrap();
+        std::fs::write(
+            project.path().join("memory/documents/.shot.png.json"),
+            b"{}",
+        )
+        .unwrap();
 
         let graph = store.graph("p", project.path()).unwrap();
         let kinds: Vec<&str> = graph.nodes.iter().map(|n| n.kind.as_str()).collect();
         assert_eq!(kinds.iter().filter(|k| **k == "note").count(), 2);
         assert!(kinds.contains(&"image") && kinds.contains(&"source"));
-        assert!(graph.edges.iter().any(|e| e.kind == "link" && e.from == a.id && e.to == b.id));
-        assert_eq!(graph.edges.iter().filter(|e| e.to == "source:chat:pane-1").count(), 2);
+        assert!(
+            graph
+                .edges
+                .iter()
+                .any(|e| e.kind == "link" && e.from == a.id && e.to == b.id)
+        );
+        assert_eq!(
+            graph
+                .edges
+                .iter()
+                .filter(|e| e.to == "source:chat:pane-1")
+                .count(),
+            2
+        );
 
-        assert!(store.delete("p", project.path(), None, Some("memory/documents/../../escape")).is_err());
-        store.delete("p", project.path(), None, Some("memory/documents/shot.png")).unwrap();
-        assert!(!project.path().join("memory/documents/.shot.png.json").exists());
-        store.delete("p", project.path(), Some(&a.id), None).unwrap();
+        assert!(
+            store
+                .delete(
+                    "p",
+                    project.path(),
+                    None,
+                    Some("memory/documents/../../escape")
+                )
+                .is_err()
+        );
+        store
+            .delete("p", project.path(), None, Some("memory/documents/shot.png"))
+            .unwrap();
+        assert!(
+            !project
+                .path()
+                .join("memory/documents/.shot.png.json")
+                .exists()
+        );
+        store
+            .delete("p", project.path(), Some(&a.id), None)
+            .unwrap();
         let graph = store.graph("p", project.path()).unwrap();
         assert_eq!(graph.nodes.iter().filter(|n| n.kind != "source").count(), 1);
     }
@@ -930,11 +989,7 @@ mod tests {
                 .id,
             note.id
         );
-        std::fs::write(
-            project.path().join("memory/notes/broken.md"),
-            "no header",
-        )
-        .unwrap();
+        std::fs::write(project.path().join("memory/notes/broken.md"), "no header").unwrap();
         let listing = store.search("p", project.path(), "", None, 10).unwrap();
         assert_eq!(listing.errors.len(), 1);
         assert_eq!(listing.total, 1);

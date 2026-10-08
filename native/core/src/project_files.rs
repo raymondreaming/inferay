@@ -1,4 +1,3 @@
-//! Portable project definitions. Filesystem inspection belongs to the server.
 use crate::projects::{CalendarSchedule, bounded_text, validate_json, validate_schema_definition};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -85,8 +84,6 @@ pub enum ProjectFileCommand {
     },
 }
 
-/// A file observed by the index. Invalid files remain visible and editable;
-/// their last valid definition is never silently substituted.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct IndexedDefinition<T> {
@@ -208,7 +205,6 @@ pub struct PluginDefinition {
 pub struct ToolDefinition {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effect_handler: Option<EffectHandler>,
-    /// Logical credential aliases mapped to local, project-scoped connection IDs.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub connections: BTreeMap<String, crate::connections::ToolConnection>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -227,7 +223,6 @@ pub struct ToolDefinition {
     pub input_schema: Value,
     pub output_schema: Value,
 }
-/// Explicit delivery protocol support. This declaration grants no execution authority.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EffectHandler {
@@ -236,9 +231,11 @@ pub struct EffectHandler {
 }
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
-pub enum EffectRetrySafety { Idempotent, Never }
+pub enum EffectRetrySafety {
+    Idempotent,
+    Never,
+}
 
-/// A tool executes directly from this linked checkout, at an exact reviewed revision.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RepositoryPack {
@@ -319,10 +316,14 @@ pub struct AgentToolGrant {
     #[serde(default, skip_serializing_if = "is_false")]
     pub required: bool,
 }
-fn is_false(value: &bool) -> bool { !value }
+fn is_false(value: &bool) -> bool {
+    !value
+}
 
 impl AgentToolGrant {
-    pub fn key(&self) -> String { format!("{}/{}", self.plugin_id, self.tool_id) }
+    pub fn key(&self) -> String {
+        format!("{}/{}", self.plugin_id, self.tool_id)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -400,7 +401,6 @@ fn identity(schema: &str, expected: &str, id: &str, name: &str) -> Result<(), St
 pub trait Definition: serde::de::DeserializeOwned {
     fn validate(&self) -> Result<(), String>;
 }
-/// Only canonical standalone automation writes become automation proposal cards.
 pub fn proposed_automation(command: &ProjectFileCommand) -> Result<AutomationDefinition, String> {
     let ProjectFileCommand::SaveDefinition { path, content, .. } = command else {
         return Err("Expected an automation definition".into());
@@ -453,17 +453,31 @@ impl Definition for PluginDefinition {
 impl Definition for ToolDefinition {
     fn validate(&self) -> Result<(), String> {
         if let Some(handler) = &self.effect_handler {
-            if self.interface != crate::projects::ToolInterface::JsonStdin { return Err("Effect handlers use the JSON stdin interface".into()); }
-            if handler.kinds.is_empty() || handler.kinds.len()>32 { return Err("Effect handlers declare 1–32 effect kinds".into()); }
+            if self.interface != crate::projects::ToolInterface::JsonStdin {
+                return Err("Effect handlers use the JSON stdin interface".into());
+            }
+            if handler.kinds.is_empty() || handler.kinds.len() > 32 {
+                return Err("Effect handlers declare 1–32 effect kinds".into());
+            }
             for kind in &handler.kinds {
-                bounded_text(kind,128,true)?;
-                if kind.chars().any(char::is_control) { return Err("Effect kinds cannot contain control characters".into()); }
+                bounded_text(kind, 128, true)?;
+                if kind.chars().any(char::is_control) {
+                    return Err("Effect kinds cannot contain control characters".into());
+                }
             }
         }
 
-        if self.connections.len() > 16 { return Err("A tool can request at most 16 connections".into()); }
+        if self.connections.len() > 16 {
+            return Err("A tool can request at most 16 connections".into());
+        }
         for (alias, connection) in &self.connections {
-            if alias.is_empty() || alias.len() > 64 || !alias.as_bytes()[0].is_ascii_uppercase() || !alias.bytes().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == b'_') {
+            if alias.is_empty()
+                || alias.len() > 64
+                || !alias.as_bytes()[0].is_ascii_uppercase()
+                || !alias
+                    .bytes()
+                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == b'_')
+            {
                 return Err("Connection aliases use 1–64 uppercase letters, digits or underscores, starting with a letter".into());
             }
             connection.validate()?;
@@ -471,12 +485,14 @@ impl Definition for ToolDefinition {
         crate::project_requirements::validate(&self.requires)?;
         identity(&self.schema, "inferay.tool/1", &self.id, &self.name)?;
         bounded_text(&self.program, 1024, true)?;
-        // The executable is resolved locally; host-specific absolute paths are not portable.
         relative_path(&self.program)?;
         relative_path(&self.entrypoint)?;
         if let Some(pack) = &self.pack {
-            uuid::Uuid::parse_str(&pack.repository_id).map_err(|_| "pack.repositoryId must be a UUID")?;
-            if !matches!(pack.commit.len(), 40 | 64) || !pack.commit.bytes().all(|c| c.is_ascii_hexdigit()) {
+            uuid::Uuid::parse_str(&pack.repository_id)
+                .map_err(|_| "pack.repositoryId must be a UUID")?;
+            if !matches!(pack.commit.len(), 40 | 64)
+                || !pack.commit.bytes().all(|c| c.is_ascii_hexdigit())
+            {
                 return Err("pack.commit must be a full Git commit hash".into());
             }
             if pack.sha256.len() != 64 || !pack.sha256.bytes().all(|c| c.is_ascii_hexdigit()) {
@@ -546,7 +562,12 @@ impl Definition for AutomationDefinition {
                 bounded_text(instructions, 64000, true)?;
                 if !(1..=86400).contains(timeout_seconds)
                     || tools.len() > 32
-                    || tools.iter().map(AgentToolGrant::key).collect::<BTreeSet<_>>().len() != tools.len()
+                    || tools
+                        .iter()
+                        .map(AgentToolGrant::key)
+                        .collect::<BTreeSet<_>>()
+                        .len()
+                        != tools.len()
                     || skills.len() > 20
                     || resources.len() > 32
                     || repositories.len() > 512
@@ -554,8 +575,10 @@ impl Definition for AutomationDefinition {
                     return Err("execution limits exceeded".into());
                 }
                 for grant in tools {
-                    uuid::Uuid::parse_str(&grant.plugin_id).map_err(|_| "tools.pluginId must be a UUID")?;
-                    uuid::Uuid::parse_str(&grant.tool_id).map_err(|_| "tools.toolId must be a UUID")?;
+                    uuid::Uuid::parse_str(&grant.plugin_id)
+                        .map_err(|_| "tools.pluginId must be a UUID")?;
+                    uuid::Uuid::parse_str(&grant.tool_id)
+                        .map_err(|_| "tools.toolId must be a UUID")?;
                 }
                 match working_directory {
                     DefinitionDirectory::Repository { id } => {
@@ -570,7 +593,6 @@ impl Definition for AutomationDefinition {
         Ok(())
     }
 }
-/// References are resolved against a caller-supplied inventory, never the filesystem.
 pub fn validate_references(
     automation: &AutomationDefinition,
     plugin: Option<&PluginDefinition>,
@@ -599,15 +621,21 @@ pub fn validate_references(
             working_directory,
             ..
         } => {
-            for grant in grants { check("tool", &grant.key(), tools)?; }
+            for grant in grants {
+                check("tool", &grant.key(), tools)?;
+            }
             for id in selected {
                 if let Some(global_id) = id.strip_prefix("global:") {
                     bounded_text(global_id, 200, true)
                         .map_err(|_| format!("invalid global skill reference: {id}"))?;
                 } else if let Some(reference) = id.strip_prefix("plugin:") {
-                    let (plugin, skill) = reference.split_once(':').ok_or("Plugin skill reference needs plugin and skill UUIDs")?;
-                    uuid::Uuid::parse_str(plugin).map_err(|_| "Plugin skill reference has an invalid plugin UUID")?;
-                    uuid::Uuid::parse_str(skill).map_err(|_| "Plugin skill reference has an invalid skill UUID")?;
+                    let (plugin, skill) = reference
+                        .split_once(':')
+                        .ok_or("Plugin skill reference needs plugin and skill UUIDs")?;
+                    uuid::Uuid::parse_str(plugin)
+                        .map_err(|_| "Plugin skill reference has an invalid plugin UUID")?;
+                    uuid::Uuid::parse_str(skill)
+                        .map_err(|_| "Plugin skill reference has an invalid skill UUID")?;
                 } else {
                     uuid::Uuid::parse_str(id).map_err(|_| {
                         format!("skill reference must be a UUID, global:<id>, or plugin:<plugin UUID>:<skill UUID>: {id}")
@@ -674,7 +702,6 @@ pub fn parse_skill(path: &str, text: &str) -> Result<SkillDefinition, String> {
     Ok(value)
 }
 
-/// Rebuildable document metadata; original bytes remain in memory/documents.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectDocument {
@@ -733,7 +760,6 @@ pub struct PluginReviewFile {
     pub previous_content: Option<String>,
 }
 
-/// Read-only inventory and text access, independent of execution approval.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginLibrary {
@@ -759,7 +785,6 @@ pub struct PluginTextFile {
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProjectProposalRequest {
-    /// Host-reviewed replacement; the original command remains the card identity.
     #[serde(default)]
     #[ts(optional)]
     pub edited_command: Option<ProjectFileCommand>,

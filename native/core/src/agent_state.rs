@@ -283,7 +283,6 @@ impl Workspace {
             return Ok(());
         }
 
-        // Conversations in the current grid take priority over repository navigation.
         if !group.panes.is_empty() {
             self.compact();
             return Ok(());

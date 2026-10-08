@@ -1,7 +1,7 @@
 mod agent_tools_mcp;
 use inferay_presentation::appearance::normalize_background_settings;
-mod files;
 mod connections;
+mod files;
 mod local_video;
 mod mcp_connections;
 mod mcp_icons;
@@ -57,13 +57,12 @@ use uuid::Uuid;
 
 mod agent_account;
 mod agent_command;
+mod agent_mcp;
 mod agent_protocol;
 mod agent_runner;
-mod agent_mcp;
 mod atomic_write;
+mod automation_sandbox;
 pub mod chat_persistence;
-mod project_chat;
-mod project_effects;
 mod chat_runtime;
 pub mod checkpoint;
 mod client_storage;
@@ -77,19 +76,20 @@ mod native_app;
 pub mod native_git;
 mod one_shot;
 mod path_resolution;
-mod project_runtime;
-mod project_tools;
-mod automation_sandbox;
-mod project_requirements;
-mod project_packs;
-mod project_runs;
-mod project_file_commands;
-mod project_proposals;
-mod project_file_store;
-mod project_store;
+mod project_chat;
 mod project_definitions;
-mod project_migration;
+mod project_effects;
+mod project_file_commands;
+mod project_file_store;
 mod project_index;
+mod project_migration;
+mod project_packs;
+mod project_proposals;
+mod project_requirements;
+mod project_runs;
+mod project_runtime;
+mod project_store;
+mod project_tools;
 mod prompt_store;
 mod provider_history;
 mod render_jobs;
@@ -375,8 +375,6 @@ fn build_router_with_connection_reset(
     let client_storage = Arc::new(tokio::sync::Mutex::new(client_storage::ClientStorage::new(
         config.user_data_dir.join("client-storage.json"),
     )));
-    // Import global skills while the legacy definition tables still exist.
-    // Opening project storage may replace those tables during migration.
     prompt_store
         .try_lock()
         .expect("skills startup lock")
@@ -389,10 +387,10 @@ fn build_router_with_connection_reset(
         pid_tracker.clone(),
     )
     .expect("Could not open local projects: close other instances using this profile");
-    if let Ok(saved) = agent_state_store.lock().expect("workspace lock").read() {
-        if let Err(error) = projects.migrate_workspace(&saved) {
-            eprintln!("Project workspace migration: {error}");
-        }
+    if let Ok(saved) = agent_state_store.lock().expect("workspace lock").read()
+        && let Err(error) = projects.migrate_workspace(&saved)
+    {
+        eprintln!("Project workspace migration: {error}");
     }
     projects.start();
     let chat_runtime = chat_runtime::ChatRuntime::new(
@@ -466,17 +464,24 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
                             .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, e))
                     })
             }
-            ("/api/projects/connections", "GET" | "POST") => connections::http(&state, request).await,
+            ("/api/projects/connections", "GET" | "POST") => {
+                connections::http(&state, request).await
+            }
             ("/api/projects/run-chat", "POST") => project_chat::open(&state, request).await,
             ("/api/projects/effects", "GET") => project_effects::inbox_http(&state, request).await,
-            ("/api/projects/effects/cancel", "POST") => project_effects::cancel_http(&state, request).await,
-            ("/api/projects/effects/dismiss", "POST") => project_effects::dismiss_http(&state, request).await,
+            ("/api/projects/effects/cancel", "POST") => {
+                project_effects::cancel_http(&state, request).await
+            }
+            ("/api/projects/effects/dismiss", "POST") => {
+                project_effects::dismiss_http(&state, request).await
+            }
             ("/api/projects/command", "POST") => project_command(&state, request).await,
             ("/api/projects/proposal", "POST") => project_proposal(&state, request).await,
-            ("/api/projects/proposal-review", "POST") => project_proposal_review(&state, request).await,
+            ("/api/projects/proposal-review", "POST") => {
+                project_proposal_review(&state, request).await
+            }
             ("/api/memory", "GET") => memory_store::http::list(&state, request).await,
             ("/api/memory/note", "GET") => memory_store::http::note(&state, request).await,
-            ("/api/memory/pane", "GET") => memory_store::http::pane(&state, request).await,
             ("/api/memory/graph", "GET") => memory_store::http::graph(&state, request).await,
             ("/api/memory/delete", "POST") => memory_store::http::delete(&state, request).await,
             ("/api/memory/save", "POST") => memory_store::http::save(&state, request).await,
@@ -649,14 +654,25 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             ("/api/projects/plugin-import", "POST") => upload_plugin_library(&state, request).await,
             ("/api/projects/documents", "GET") => {
                 let id = query_value(&request, "projectId").unwrap_or_default();
-                state.projects.documents(id).await.map(|v|json!(v)).map_err(|e|api_error(StatusCode::BAD_REQUEST,e.to_string()))
+                state
+                    .projects
+                    .documents(id)
+                    .await
+                    .map(|v| json!(v))
+                    .map_err(|e| api_error(StatusCode::BAD_REQUEST, e.to_string()))
             }
             ("/api/projects/document", "GET") => {
-                return api_http_response(serve_project_document(&state, request).await, &request_headers);
+                return api_http_response(
+                    serve_project_document(&state, request).await,
+                    &request_headers,
+                );
             }
 
             ("/api/video", "GET" | "HEAD") => {
-                return api_http_response(local_video::serve(&state, request).await, &request_headers);
+                return api_http_response(
+                    local_video::serve(&state, request).await,
+                    &request_headers,
+                );
             }
             ("/api/file", "GET") => {
                 return api_http_response(
@@ -1592,49 +1608,87 @@ async fn uploaded_file(
 async fn serve_project_document(state: &ServerState, request: Request) -> ApiResult<Response> {
     let id = query_value(&request, "projectId").unwrap_or_default();
     let path = query_value(&request, "path").unwrap_or_default();
-    let bytes = state.projects.document_bytes(id, path.clone()).await
-        .map_err(|e|api_error(StatusCode::BAD_REQUEST,e.to_string()))?;
+    let bytes = state
+        .projects
+        .document_bytes(id, path.clone())
+        .await
+        .map_err(|e| api_error(StatusCode::BAD_REQUEST, e.to_string()))?;
     let extension = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
     let mime = match extension.as_str() {
-        "png" => "image/png", "jpg" | "jpeg" => "image/jpeg", "gif" => "image/gif",
-        "webp" => "image/webp", "bmp" => "image/bmp", "avif" => "image/avif",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        "avif" => "image/avif",
         _ => "application/octet-stream",
     };
     let mut response = Response::new(axum::body::Body::from(bytes));
-    response.headers_mut().insert("content-type", mime.parse().unwrap());
-    response.headers_mut().insert("x-content-type-options", "nosniff".parse().unwrap());
-    response.headers_mut().insert("cache-control", "no-store".parse().unwrap());
+    response
+        .headers_mut()
+        .insert("content-type", mime.parse().unwrap());
+    response
+        .headers_mut()
+        .insert("x-content-type-options", "nosniff".parse().unwrap());
+    response
+        .headers_mut()
+        .insert("cache-control", "no-store".parse().unwrap());
     if mime == "application/octet-stream" {
-        response.headers_mut().insert("content-disposition", "attachment".parse().unwrap());
+        response
+            .headers_mut()
+            .insert("content-disposition", "attachment".parse().unwrap());
     }
     Ok(response)
 }
 
 async fn upload_plugin_library(state: &ServerState, mut request: Request) -> ApiResult {
-    request.extensions_mut().insert(DefaultBodyLimit::max(inferay_core::project_files::PLUGIN_BYTE_LIMIT + 1024 * 1024));
-    let project_id = query_value(&request, "projectId").ok_or_else(|| api_error(StatusCode::BAD_REQUEST, "Project is required"))?;
-    let name = query_value(&request, "name").ok_or_else(|| api_error(StatusCode::BAD_REQUEST, "Library name is required"))?;
-    let mut multipart = Multipart::from_request(request, &()).await.map_err(|e| e.to_string())?;
+    request.extensions_mut().insert(DefaultBodyLimit::max(
+        inferay_core::project_files::PLUGIN_BYTE_LIMIT + 1024 * 1024,
+    ));
+    let project_id = query_value(&request, "projectId")
+        .ok_or_else(|| api_error(StatusCode::BAD_REQUEST, "Project is required"))?;
+    let name = query_value(&request, "name")
+        .ok_or_else(|| api_error(StatusCode::BAD_REQUEST, "Library name is required"))?;
+    let mut multipart = Multipart::from_request(request, &())
+        .await
+        .map_err(|e| e.to_string())?;
     let mut originals = std::collections::BTreeMap::new();
     let mut total = 0usize;
     while let Some(field) = multipart.next_field().await.map_err(|e| e.to_string())? {
-        let path = field.name().ok_or_else(|| api_error(StatusCode::BAD_REQUEST, "File path is required"))?.to_owned();
+        let path = field
+            .name()
+            .ok_or_else(|| api_error(StatusCode::BAD_REQUEST, "File path is required"))?
+            .to_owned();
         inferay_core::project_files::relative_path(&path)?;
         let bytes = field.bytes().await.map_err(|e| e.to_string())?;
         total += bytes.len();
-        if total > inferay_core::project_files::PLUGIN_BYTE_LIMIT || originals.len() >= inferay_core::project_files::PLUGIN_ENTRY_LIMIT {
-            return Err(api_error(StatusCode::BAD_REQUEST, "Library exceeds 1,000 entries or 50 MB"));
+        if total > inferay_core::project_files::PLUGIN_BYTE_LIMIT
+            || originals.len() >= inferay_core::project_files::PLUGIN_ENTRY_LIMIT
+        {
+            return Err(api_error(
+                StatusCode::BAD_REQUEST,
+                "Library exceeds 1,000 entries or 50 MB",
+            ));
         }
-        if originals.insert(path, bytes.to_vec()).is_some() { return Err(api_error(StatusCode::BAD_REQUEST, "Duplicate file path")); }
+        if originals.insert(path, bytes.to_vec()).is_some() {
+            return Err(api_error(StatusCode::BAD_REQUEST, "Duplicate file path"));
+        }
     }
-    state.projects.import_library(project_id, name, originals).await.map_err(|e| api_error(StatusCode::BAD_REQUEST, e.to_string()))
+    state
+        .projects
+        .import_library(project_id, name, originals)
+        .await
+        .map_err(|e| api_error(StatusCode::BAD_REQUEST, e.to_string()))
 }
 
 async fn upload_project_document(state: &ServerState, request: Request) -> ApiResult {
     let project_id = query_value(&request, "projectId")
         .ok_or_else(|| api_error(StatusCode::BAD_REQUEST, "Project is required"))?;
     let (name, _, bytes) = uploaded_file(request, "Choose a document").await?;
-    state.projects.import_document(project_id, name, bytes.to_vec()).await
+    state
+        .projects
+        .import_document(project_id, name, bytes.to_vec())
+        .await
         .map_err(|e| api_error(StatusCode::BAD_REQUEST, e.to_string()))
 }
 
@@ -3130,7 +3184,10 @@ mod file_http_tests {
         let artifact_response = get(&artifact, false).send().await.unwrap();
         assert_eq!(artifact_response.status(), StatusCode::OK);
         assert_eq!(artifact_response.headers()["content-type"], "image/png");
-        assert_eq!(artifact_response.bytes().await.unwrap().as_ref(), original.as_slice());
+        assert_eq!(
+            artifact_response.bytes().await.unwrap().as_ref(),
+            original.as_slice()
+        );
         let response = get(&path, true).send().await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         let etag = response.headers()["etag"].clone();
@@ -3348,10 +3405,12 @@ async fn project_command(state: &ServerState, request: Request) -> ApiResult {
         .map_err(|e| api_error(StatusCode::BAD_REQUEST, e.to_string()))
 }
 
-
 async fn project_proposal(state: &ServerState, request: Request) -> ApiResult {
     let proposal: inferay_core::project_files::ProjectProposalRequest = api_body(request).await?;
-    state.projects.proposal(proposal).await
+    state
+        .projects
+        .proposal(proposal)
+        .await
         .and_then(|view| Ok(serde_json::to_value(view)?))
         .map_err(|error| api_error(StatusCode::BAD_REQUEST, error.to_string()))
 }

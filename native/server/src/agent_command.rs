@@ -6,13 +6,8 @@ use std::sync::Mutex;
 
 use inferay_core::agent_kind::AgentKind;
 
-/// Resolve local tools on PATH while preserving virtual-environment launcher paths.
-/// macOS app bundles discover resources beside their real executable, so aliases
-/// into a bundle must be expanded before handing the path to sandbox-exec.
 pub(crate) fn resolve_local_program(program: &str, search_path: &OsStr) -> Result<PathBuf, String> {
     let requested = Path::new(program);
-    // Relative paths are interpreted in the invocation's working directory,
-    // which is set on the command after this resolver runs.
     if requested.is_relative() && requested.components().count() > 1 {
         return Ok(requested.to_path_buf());
     }
@@ -293,8 +288,7 @@ fn mcp_controls_persist_per_provider_and_feed_agent_launches() {
         Some(&true)
     );
     assert_eq!(
-        crate::agent_mcp::overrides(&restored.create_agent_env(AgentKind::Codex))
-            .get("linear"),
+        crate::agent_mcp::overrides(&restored.create_agent_env(AgentKind::Codex)).get("linear"),
         Some(&false)
     );
 }

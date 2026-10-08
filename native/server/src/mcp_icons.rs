@@ -24,8 +24,12 @@ fn registry() -> &'static Mutex<Registry> {
 
 pub fn initialize(cache_path: PathBuf) {
     let mut registry = registry().lock().unwrap();
-    registry.servers = crate::json_file::read_lossy(&cache_path);
-    registry.servers.retain(|_, src| supported_source(src));
+    let cached: HashMap<String, String> = crate::json_file::read_lossy(&cache_path);
+    for (server, src) in cached {
+        if supported_source(&src) {
+            registry.servers.entry(server).or_insert(src);
+        }
+    }
     registry.cache_path = Some(cache_path);
 }
 

@@ -1,5 +1,3 @@
-//! One-time export of database-owned definitions. Sources are preserved until the
-//! index schema replaces them; exported files are never overwritten on retry.
 pub(crate) mod standalone;
 use crate::{
     project_definitions as files,
@@ -15,57 +13,88 @@ use serde_json::Value;
 use std::{collections::BTreeSet, fs, path::Path};
 use uuid::Uuid;
 
-/// Rename the former library directory without copying, dropping, or replacing
-/// user content. A conflict stops startup and leaves both directories intact.
 pub(crate) fn memory_directories(db: &Connection, root: &Path) -> Result<()> {
-    if db.query_row("SELECT count(*) FROM project_migrations WHERE name='memory-directory-v1'", [], |r| r.get::<_, i64>(0))? != 0 {
+    if db.query_row(
+        "SELECT count(*) FROM project_migrations WHERE name='memory-directory-v1'",
+        [],
+        |r| r.get::<_, i64>(0),
+    )? != 0
+    {
         return Ok(());
     }
     let projects = root.join("projects");
     if projects.exists() {
         for entry in fs::read_dir(&projects)? {
             let entry = entry?;
-            if !entry.file_type()?.is_dir() { continue; }
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
             let directory = entry.path();
-            if !directory.join("project.json").is_file() { continue; }
+            if !directory.join("project.json").is_file() {
+                continue;
+            }
             let source = directory.join("resources");
             if let Ok(meta) = fs::symlink_metadata(&source) {
                 if !meta.is_dir() || meta.file_type().is_symlink() {
-                    return Err(format!("Cannot migrate library at {}: expected a directory", source.display()).into());
+                    return Err(format!(
+                        "Cannot migrate library at {}: expected a directory",
+                        source.display()
+                    )
+                    .into());
                 }
                 let target = directory.join("memory");
                 files::rename_directory(&source, &target)?;
                 fs::File::open(&directory)?.sync_all()?;
             }
-            // Only structural project paths are rewritten. Instructions, note
-            // bodies, historical run snapshots and arbitrary record data stay exact.
             for file in files::scan(&directory, &BTreeSet::new())? {
-                if !matches!(file.definition, Some(files::DefinitionFile::Automation(_) | files::DefinitionFile::Tool(_))) { continue; }
+                if !matches!(
+                    file.definition,
+                    Some(files::DefinitionFile::Automation(_) | files::DefinitionFile::Tool(_))
+                ) {
+                    continue;
+                }
                 let bytes = files::read(&directory, &file.path, MANIFEST_LIMIT)?;
                 let mut body: Value = serde_json::from_slice(&bytes)?;
                 let mut changed = false;
-                for pointer in ["/execution/workingDirectory", "/workingDirectory", "/entrypoint"] {
-                    if let Some(value) = body.pointer_mut(pointer) {
-                        if value["base"] == "project" {
-                            if let Some(path) = value["path"].as_str() {
-                                let replacement = if path == "resources" { Some("memory".to_owned()) } else { path.strip_prefix("resources/").map(|suffix| format!("memory/{suffix}")) };
-                                if let Some(path) = replacement { value["path"] = path.into(); changed = true; }
-                            }
+                for pointer in [
+                    "/execution/workingDirectory",
+                    "/workingDirectory",
+                    "/entrypoint",
+                ] {
+                    if let Some(value) = body.pointer_mut(pointer)
+                        && value["base"] == "project"
+                        && let Some(path) = value["path"].as_str()
+                    {
+                        let replacement = if path == "resources" {
+                            Some("memory".to_owned())
+                        } else {
+                            path.strip_prefix("resources/")
+                                .map(|suffix| format!("memory/{suffix}"))
+                        };
+                        if let Some(path) = replacement {
+                            value["path"] = path.into();
+                            changed = true;
                         }
                     }
                 }
                 if changed {
-                    files::write(&directory, &file.path, &serde_json::to_vec_pretty(&body)?, Some(&hash(&bytes)))?;
+                    files::write(
+                        &directory,
+                        &file.path,
+                        &serde_json::to_vec_pretty(&body)?,
+                        Some(&hash(&bytes)),
+                    )?;
                 }
             }
         }
     }
-    db.execute("INSERT INTO project_migrations VALUES('memory-directory-v1',?)", [now()])?;
+    db.execute(
+        "INSERT INTO project_migrations VALUES('memory-directory-v1',?)",
+        [now()],
+    )?;
     Ok(())
 }
 
-/// Bring pre-project workspace chats into file-backed projects once. Stable
-/// IDs and conflict-safe publication make retries after a crash idempotent.
 pub(crate) fn workspace_projects(
     db: &mut Connection,
     root: &Path,
@@ -196,8 +225,6 @@ pub(crate) fn workspace_projects(
     Ok(())
 }
 
-/// Commit the ownership handover only after the export completed. Runtime IDs
-/// deliberately have no foreign keys to the rebuildable definition index.
 pub(crate) fn replace_definition_tables(db: &mut Connection) -> Result<()> {
     if !db.is_autocommit() {
         return Err("Definition migration requires its own transaction".into());
@@ -217,9 +244,6 @@ pub(crate) fn replace_definition_tables(db: &mut Connection) -> Result<()> {
     db.pragma_update(None, "foreign_keys", false)?;
     let result = (|| -> Result<()> {
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        // Preserve column definitions, checks, indexes and every row while
-        // removing only references to definition tables. Child references to
-        // runs remain intact because the original table is never renamed.
         for table in ["runs", "artifacts", "project_conversations"] {
             let sql: String = tx.query_row(
                 "SELECT sql FROM sqlite_schema WHERE type='table' AND name=?",
@@ -256,8 +280,6 @@ pub(crate) fn replace_definition_tables(db: &mut Connection) -> Result<()> {
             DROP TABLE projects;",
         )?;
         crate::project_index::create_schema(&tx)?;
-        // Old queued work was admitted against database definitions. It must
-        // not execute after migration without review of the exported files.
         let pending: Vec<(String, bool)> = tx.prepare("SELECT id,stop_requested_at IS NOT NULL FROM runs WHERE status IN ('queued','running','waiting_input')")?
             .query_map([], |r|Ok((r.get(0)?,r.get(1)?)))?.collect::<std::result::Result<_,_>>()?;
         for (id, stopped) in pending {
@@ -379,7 +401,6 @@ fn tool(
         .and_then(|v| v.to_str())
         .ok_or("Tool entrypoint filename missing")?;
     let prefix = format!("plugins/{plugin}/tools/{id}");
-    // Copy companion scripts/assets, with the same bundle limits as plugin installation.
     copy_tree(
         source.parent().ok_or("Tool parent missing")?,
         project,
@@ -396,10 +417,14 @@ fn tool(
         name,
         program: old.program,
         entrypoint: filename.into(),
-        args: old.arguments.into_iter().map(|arg| match arg {
-            inferay_core::projects::ToolArgument::Literal(value) => Ok(value),
-            _ => Err("Legacy tool arguments must be literal strings"),
-        }).collect::<std::result::Result<Vec<_>, _>>()?,
+        args: old
+            .arguments
+            .into_iter()
+            .map(|arg| match arg {
+                inferay_core::projects::ToolArgument::Literal(value) => Ok(value),
+                _ => Err("Legacy tool arguments must be literal strings"),
+            })
+            .collect::<std::result::Result<Vec<_>, _>>()?,
         timeout_seconds: old.timeout_seconds,
         input_schema: old.input_schema,
         output_schema: old.output_schema,
@@ -411,8 +436,6 @@ fn tool(
     Ok(())
 }
 
-/// Called before replacing the legacy schema, never by normal definition writes.
-/// A backup made through SQLite includes committed WAL contents.
 pub(crate) fn export(db: &mut Connection, root: &Path, skills: &[Prompt]) -> Result<()> {
     let canonical_root = root.canonicalize()?;
     let root = canonical_root.as_path();
@@ -510,7 +533,6 @@ pub(crate) fn export(db: &mut Connection, root: &Path, skills: &[Prompt]) -> Res
                 &value,
             )?;
         }
-        // Copy first; removal happens only after successful schema handover.
         copy_tree(&directory.join("files"), &directory, "memory/documents")?;
         let automations: Vec<Value> = rows(
             &tx,
@@ -598,7 +620,12 @@ pub(crate) fn export(db: &mut Connection, root: &Path, skills: &[Prompt]) -> Res
                         reasoning_level,
                         instructions,
                         skills: selected,
-                        resources: resource_ids.into_iter().filter(|id| !repositories.iter().any(|repository| &repository.id == id)).collect(),
+                        resources: resource_ids
+                            .into_iter()
+                            .filter(|id| {
+                                !repositories.iter().any(|repository| &repository.id == id)
+                            })
+                            .collect(),
                         repositories: repositories.iter().map(|r| r.id.clone()).collect(),
                         working_directory,
                         timeout_seconds,
@@ -641,7 +668,6 @@ pub(crate) fn export(db: &mut Connection, root: &Path, skills: &[Prompt]) -> Res
                 &value,
             )?;
         }
-        // Preserve standalone tools as capabilities too.
         for resource in &resources {
             let tool_id = resource["id"].as_str().unwrap();
             if resource["type"] != "inferay.tool" || migrated_tools.contains(tool_id) {
@@ -729,7 +755,6 @@ pub(crate) fn export(db: &mut Connection, root: &Path, skills: &[Prompt]) -> Res
             )?;
         }
     }
-    // Export never carries authorization forward. Old approvals remain only in the backup.
     tx.execute_batch("UPDATE automations SET enabled=0,next_due_at=NULL,inputs_changed=1; DELETE FROM automation_approvals; UPDATE plugins SET enabled=0;")?;
     tx.execute(
         "INSERT INTO project_migrations VALUES('file-definitions-export-v1',?)",

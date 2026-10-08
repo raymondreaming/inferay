@@ -1,5 +1,3 @@
-//! Bounded local video streaming. Byte ranges allow native players to seek
-//! without loading an entire render into server memory.
 use super::{ApiResult, ServerState, api_error, query_value, resolve_serveable_local_path};
 use axum::{
     body::Body,
@@ -32,7 +30,6 @@ pub(super) async fn serve(state: &ServerState, request: Request) -> ApiResult<Re
     };
     let mut options = tokio::fs::OpenOptions::new();
     options.read(true);
-    // Refuse special files below without blocking on an agent-created FIFO.
     #[cfg(unix)]
     options.custom_flags(libc::O_NONBLOCK);
     let mut file = options.open(path).await?;
@@ -47,8 +44,6 @@ pub(super) async fn serve(state: &ServerState, request: Request) -> ApiResult<Re
             "Video exceeds the 50 MB preview limit",
         ));
     }
-    // We do not issue a stable validator for mutable local outputs. An If-Range
-    // request therefore receives the full representation instead of stale bytes.
     let range = if request.method() != Method::GET || request.headers().contains_key("if-range") {
         None
     } else {
@@ -119,7 +114,6 @@ pub(super) async fn serve(state: &ServerState, request: Request) -> ApiResult<Re
     Ok(response)
 }
 
-/// Inclusive HTTP range to exclusive Rust bounds; only one range is served.
 fn byte_range(value: &str, length: u64) -> Option<(u64, u64)> {
     let (start, end) = value.strip_prefix("bytes=")?.split_once('-')?;
     let number = |value: &str| {

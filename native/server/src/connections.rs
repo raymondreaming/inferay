@@ -1,4 +1,3 @@
-//! Local credential management. Only metadata leaves the Keychain boundary.
 pub(crate) mod relay;
 use crate::project_store::{Result, hash};
 use inferay_core::connections::{ConnectionCommand as Command, ConnectionInfo};
@@ -36,7 +35,6 @@ impl Store {
             .lock
             .lock()
             .map_err(|_| "Connection store lock failed")?;
-        // Separate Inferay processes using the same profile must not lose each other's updates.
         let _file = profile_lock(&self.profile)?;
         let mut entries: Vec<Credential> = match read_keychain(&self.service)? {
             Some(bytes) => {
@@ -74,7 +72,6 @@ impl Store {
             ))
         })
     }
-    /// Capture only selected metadata under one lock. Values never enter a run snapshot.
     pub(crate) fn capture(
         &self,
         project: &str,
@@ -405,8 +402,6 @@ mod tests {
             })
             .unwrap()
             .unwrap();
-        // Native tools must not bypass future per-connection grants by querying
-        // the credential service directly, even with network/project writes.
         let work = tempfile::tempdir().unwrap();
         let output = work.path().join("output");
         let scratch = work.path().join("scratch");
@@ -448,7 +443,6 @@ mod tests {
         );
         assert!(!String::from_utf8_lossy(&result.stdout).contains(&secret));
         assert!(!String::from_utf8_lossy(&result.stderr).contains(&secret));
-        // The credential still exists: refusal was not caused by deleting it.
         assert!(read_keychain(&store.service).unwrap().is_some());
         let requested = std::collections::BTreeMap::from([(
             "tool-id".into(),

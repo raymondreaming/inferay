@@ -19,7 +19,6 @@ import {
 import { projectDocumentUrl } from "../../../services/projectsApi.ts";
 import { styles } from "./styles.ts";
 
-/** Right-hand panel for the selected memory: its content, where it came from, what it connects to, and actions. */
 export function MemoryDetails(props: {
 	projectId: string;
 	item: MemoryGraphNode | undefined;
@@ -35,7 +34,6 @@ export function MemoryDetails(props: {
 	const [confirming, setConfirming] = createSignal(false);
 	const [problem, setProblem] = createSignal("");
 	const [starting, setStarting] = createSignal(false);
-	// Note text loads outside the render tree: an async read inside it would remount the panel.
 	createEffect(
 		() => (props.item?.kind === "note" ? props.item.id : null),
 		(id) => {
@@ -64,7 +62,6 @@ export function MemoryDetails(props: {
 			setProblem(error instanceof Error ? error.message : "Could not delete");
 		}
 	};
-	/** A new chat whose first message carries every memory saved from this session, for the user to review. */
 	const continueWithMemories = async (item: MemoryGraphNode) => {
 		setStarting(true);
 		try {

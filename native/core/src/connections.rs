@@ -1,4 +1,3 @@
-//! Public connection metadata. Credential values are never part of project definitions.
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -8,11 +7,9 @@ pub struct ConnectionInfo {
     pub id: String,
     pub project_id: String,
     pub name: String,
-    /// Changes whenever a credential is replaced; approvals can bind to this value.
     pub revision: String,
 }
 
-// Deliberately no Debug/Serialize: request bodies must not enter diagnostics or snapshots.
 #[derive(Deserialize, TS)]
 #[serde(tag = "action", rename_all = "camelCase", deny_unknown_fields)]
 pub enum ConnectionCommand {
@@ -39,7 +36,6 @@ impl ConnectionCommand {
     }
 }
 
-/// Metadata shown when reviewing the exact credential inputs of an automation.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionAccess {
@@ -80,7 +76,6 @@ impl ConnectionAccess {
     }
 }
 
-/// A credential may only be attached to requests below this reviewed HTTPS base.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ToolConnection {

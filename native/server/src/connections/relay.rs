@@ -1,4 +1,3 @@
-//! Invocation-scoped, read-only HTTP access. Credentials never enter the tool process.
 use super::*;
 use axum::{
     Router,

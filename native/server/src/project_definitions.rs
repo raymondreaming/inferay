@@ -1,5 +1,3 @@
-//! Managed definition files: bounded reads, validation, and conflict-safe publication.
-//! SQLite indexes these bytes; it is never an alternate definition writer.
 use crate::project_store::{Result, hash};
 use inferay_core::project_files::{self as format, *};
 use std::{
@@ -40,7 +38,6 @@ pub(crate) struct IndexedFile {
     pub error: Option<String>,
 }
 
-/// Never follow a symlink, including a dangling link, at any managed component.
 pub(crate) fn managed_path(root: &Path, relative: &str, create_parents: bool) -> Result<PathBuf> {
     format::relative_path(relative)?;
     if relative == "." {
@@ -88,8 +85,6 @@ pub(crate) fn read(root: &Path, relative: &str, limit: usize) -> Result<Vec<u8>>
     Ok(bytes)
 }
 
-/// A missing expected hash means create-only. Existing bytes must match exactly.
-/// Callers serialize app writes under the profile lease and validate definitions first.
 pub(crate) fn write(
     root: &Path,
     relative: &str,
@@ -122,7 +117,6 @@ pub(crate) fn write(
     let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
     temporary.write_all(bytes)?;
     temporary.as_file().sync_all()?;
-    // Recheck after staging to catch edits made during the write.
     compare()?;
     if expected.is_none() {
         temporary.persist_noclobber(&path)?;
@@ -183,13 +177,10 @@ fn is_definition(path: &str) -> bool {
     }
 }
 
-/// Index malformed definitions with their error instead of silently retaining stale data.
-/// Ignore documents and run output: they are not executable definitions.
 pub(crate) fn scan(root: &Path, globals: &BTreeSet<String>) -> Result<Vec<IndexedFile>> {
     scan_candidate(root, globals, &Default::default(), None)
 }
 
-/// Validate against the resulting project without publishing a preview to disk.
 pub(crate) fn validate_write(
     root: &Path,
     path: &str,
@@ -200,8 +191,6 @@ pub(crate) fn validate_write(
     if is_definition(path) {
         decode(path, bytes)?;
     } else {
-        // Supporting code/assets belong to an existing plugin. They participate
-        // in its size limits and approval hash just like executable definitions.
         let parts: Vec<_> = path.split('/').collect();
         if parts.first() != Some(&"plugins")
             || parts.len() < 3
@@ -229,7 +218,6 @@ pub(crate) fn validate_write(
     Ok(())
 }
 
-/// Preview a complete plugin before its staging directory is published.
 pub(crate) fn validate_bundle(
     root: &Path,
     slug: &str,
@@ -288,16 +276,15 @@ pub(crate) fn validate_bundle(
     let before = scan(root, globals)?;
     let after = scan_candidate(root, globals, &overlay, Some(&prefix))?;
     for entry in after {
-        if let Some(error) = entry.error {
-            if entry.path.starts_with(&format!("{prefix}/"))
+        if let Some(error) = entry.error
+            && (entry.path.starts_with(&format!("{prefix}/"))
                 || before
                     .iter()
                     .find(|old| old.path == entry.path)
                     .and_then(|old| old.error.as_ref())
-                    != Some(&error)
-            {
-                return Err(format!("{}: {error}", entry.path).into());
-            }
+                    != Some(&error))
+        {
+            return Err(format!("{}: {error}", entry.path).into());
         }
     }
     Ok(())
@@ -419,14 +406,14 @@ fn scan_candidate(
         Some(DefinitionFile::Project(p)) => Some(p.clone()),
         _ => None,
     });
-    if let Some(project) = &project {
-        if root.file_name().and_then(|s| s.to_str()) != Some(project.id.as_str()) {
-            indexed
-                .iter_mut()
-                .find(|v| v.path == "project.json")
-                .unwrap()
-                .error = Some("Project ID must match its directory".into());
-        }
+    if let Some(project) = &project
+        && root.file_name().and_then(|s| s.to_str()) != Some(project.id.as_str())
+    {
+        indexed
+            .iter_mut()
+            .find(|v| v.path == "project.json")
+            .unwrap()
+            .error = Some("Project ID must match its directory".into());
     }
     let repositories = project
         .as_ref()
@@ -463,20 +450,45 @@ fn scan_candidate(
         } else if standalone || plugin.is_some() {
             if let Some(DefinitionFile::Automation(automation)) = &indexed[i].definition {
                 let mut skills = globals.clone();
-                let mut tools: BTreeSet<String> = indexed.iter().filter_map(|entry| {
-                    if !matches!(&entry.definition, Some(DefinitionFile::Tool(_) | DefinitionFile::Skill(_))) { return None; }
-                    let owner = entry.path.split('/').take(2).collect::<Vec<_>>().join("/");
-                    if !owner.starts_with("plugins/") { return None; }
-                    let plugin = indexed.iter().find_map(|entry| {
-                        if entry.path != format!("{owner}/plugin.json") { return None; }
-                        match &entry.definition { Some(DefinitionFile::Plugin(plugin)) => Some(plugin), _ => None }
-                    })?;
-                    match &entry.definition {
-                        Some(DefinitionFile::Tool(tool)) => Some(AgentToolGrant { plugin_id: plugin.id.clone(), tool_id: tool.id.clone(), required: false }.key()),
-                        Some(DefinitionFile::Skill(skill)) => { skills.insert(format!("plugin:{}:{}", plugin.id, skill.id)); None },
-                        _ => None,
-                    }
-                }).collect();
+                let mut tools: BTreeSet<String> = indexed
+                    .iter()
+                    .filter_map(|entry| {
+                        if !matches!(
+                            &entry.definition,
+                            Some(DefinitionFile::Tool(_) | DefinitionFile::Skill(_))
+                        ) {
+                            return None;
+                        }
+                        let owner = entry.path.split('/').take(2).collect::<Vec<_>>().join("/");
+                        if !owner.starts_with("plugins/") {
+                            return None;
+                        }
+                        let plugin = indexed.iter().find_map(|entry| {
+                            if entry.path != format!("{owner}/plugin.json") {
+                                return None;
+                            }
+                            match &entry.definition {
+                                Some(DefinitionFile::Plugin(plugin)) => Some(plugin),
+                                _ => None,
+                            }
+                        })?;
+                        match &entry.definition {
+                            Some(DefinitionFile::Tool(tool)) => Some(
+                                AgentToolGrant {
+                                    plugin_id: plugin.id.clone(),
+                                    tool_id: tool.id.clone(),
+                                    required: false,
+                                }
+                                .key(),
+                            ),
+                            Some(DefinitionFile::Skill(skill)) => {
+                                skills.insert(format!("plugin:{}:{}", plugin.id, skill.id));
+                                None
+                            }
+                            _ => None,
+                        }
+                    })
+                    .collect();
                 for entry in indexed.iter().filter(|e| e.path.starts_with(&prefix)) {
                     match &entry.definition {
                         Some(DefinitionFile::Skill(skill)) => {
@@ -508,34 +520,36 @@ fn scan_candidate(
         }
     }
     for entry in &mut indexed {
-        if entry.error.is_none() {
-            if let Some(DefinitionFile::Tool(tool)) = &entry.definition {
-                if let Some(pack) = &tool.pack {
-                    if !repositories.contains(&pack.repository_id) { entry.error = Some("Tool pack repository is not declared in this project".into()); }
-                    continue;
+        if entry.error.is_none()
+            && let Some(DefinitionFile::Tool(tool)) = &entry.definition
+        {
+            if let Some(pack) = &tool.pack {
+                if !repositories.contains(&pack.repository_id) {
+                    entry.error =
+                        Some("Tool pack repository is not declared in this project".into());
                 }
-                let parent = entry.path.rsplit_once('/').unwrap().0;
-                let entrypoint = format!("{parent}/{}", tool.entrypoint);
-                let result = if let Some(bytes) = overlay.get(entrypoint.as_str()) {
-                    if bytes.len() <= ENTRYPOINT_LIMIT {
-                        Ok(())
-                    } else {
-                        Err("Tool entrypoint exceeds size limit".into())
-                    }
-                } else if replace_prefix
-                    .is_some_and(|prefix| entrypoint.starts_with(&format!("{prefix}/")))
-                {
-                    Err("Tool entrypoint is missing from the bundle".into())
+                continue;
+            }
+            let parent = entry.path.rsplit_once('/').unwrap().0;
+            let entrypoint = format!("{parent}/{}", tool.entrypoint);
+            let result = if let Some(bytes) = overlay.get(entrypoint.as_str()) {
+                if bytes.len() <= ENTRYPOINT_LIMIT {
+                    Ok(())
                 } else {
-                    read(root, &entrypoint, ENTRYPOINT_LIMIT).map(|_| ())
-                };
-                if let Err(error) = result {
-                    entry.error = Some(format!("Tool entrypoint: {error}"));
+                    Err("Tool entrypoint exceeds size limit".into())
                 }
+            } else if replace_prefix
+                .is_some_and(|prefix| entrypoint.starts_with(&format!("{prefix}/")))
+            {
+                Err("Tool entrypoint is missing from the bundle".into())
+            } else {
+                read(root, &entrypoint, ENTRYPOINT_LIMIT).map(|_| ())
+            };
+            if let Err(error) = result {
+                entry.error = Some(format!("Tool entrypoint: {error}"));
             }
         }
     }
-    // IDs may be reused by skills/tools copied into different plugins, but never within one scope.
     let mut ids = std::collections::BTreeMap::new();
     for i in 0..indexed.len() {
         if let Some(definition) = &indexed[i].definition {
@@ -651,10 +665,9 @@ fn scan_candidate(
             execution: DefinitionExecution::Agent { resources, .. },
             ..
         })) = &entry.definition
+            && resources.iter().any(|id| broken_resources.contains(id))
         {
-            if resources.iter().any(|id| broken_resources.contains(id)) {
-                entry.error = Some("Referenced resource is invalid".into());
-            }
+            entry.error = Some("Referenced resource is invalid".into());
         }
     }
     Ok(indexed)
@@ -663,8 +676,6 @@ fn scan_candidate(
 #[cfg(test)]
 mod tests;
 
-/// Publish a new package with one directory rename. Readers see the entire
-/// validated package or none of it; an existing folder is never overwritten.
 pub(crate) fn create_plugin(
     root: &Path,
     slug: &str,
@@ -688,14 +699,11 @@ pub(crate) fn create_plugin(
     Ok(manifest.id)
 }
 
-/// Atomically move a directory without replacing an existing destination.
 pub(crate) fn rename_directory(source: &Path, target: &Path) -> Result<()> {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         let from = std::ffi::CString::new(source.as_os_str().as_encoded_bytes())?;
         let to = std::ffi::CString::new(target.as_os_str().as_encoded_bytes())?;
-        // Both C strings remain alive for the call. Exclusive rename makes the
-        // absence check atomic, including when another process creates target.
         #[cfg(target_os = "macos")]
         let result = unsafe {
             libc::renameatx_np(
@@ -727,8 +735,6 @@ pub(crate) fn rename_directory(source: &Path, target: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Raw intake preserves original bytes under source/ without interpreting them as
-/// executable definitions. Only explicit later edits introduce tools or jobs.
 pub(crate) fn import_library(
     root: &Path,
     name: &str,
@@ -752,7 +758,6 @@ pub(crate) fn import_library(
             .checked_add(bytes.len())
             .ok_or("Import size overflow")?;
     }
-    // Reserve room for the manifest, guide and source directory.
     if entries.len() + 3 > PLUGIN_ENTRY_LIMIT || total > PLUGIN_BYTE_LIMIT - MANIFEST_LIMIT {
         return Err("Library exceeds 1,000 entries or 50 MB".into());
     }
@@ -821,8 +826,6 @@ pub(crate) fn package_files(root: &Path, prefix: &str) -> Result<BTreeMap<String
     Ok(hashes)
 }
 
-/// Build a complete candidate in memory. Unmentioned files, including binary
-/// assets, retain their exact bytes. Previewing never stages or publishes files.
 pub(crate) fn prepare_plugin_update(
     root: &Path,
     slug: &str,
@@ -922,23 +925,20 @@ pub(crate) fn prepare_plugin_update(
         .collect();
     let before = scan(root, globals)?;
     for entry in scan_candidate(root, globals, &overlay, Some(&prefix))? {
-        if let Some(error) = entry.error {
-            if entry.path.starts_with(&format!("{prefix}/"))
+        if let Some(error) = entry.error
+            && (entry.path.starts_with(&format!("{prefix}/"))
                 || before
                     .iter()
                     .find(|old| old.path == entry.path)
                     .and_then(|old| old.error.as_ref())
-                    != Some(&error)
-            {
-                return Err(format!("{}: {error}", entry.path).into());
-            }
+                    != Some(&error))
+        {
+            return Err(format!("{}: {error}", entry.path).into());
         }
     }
     Ok(candidate)
 }
 
-/// Publish all additions, replacements and removals together. The old package
-/// occupies the hidden staging path after the swap and is cleaned up on return.
 pub(crate) fn update_plugin(
     root: &Path,
     slug: &str,
@@ -982,7 +982,6 @@ fn exchange_directories(source: &Path, target: &Path) -> Result<()> {
     {
         let from = std::ffi::CString::new(source.as_os_str().as_encoded_bytes())?;
         let to = std::ffi::CString::new(target.as_os_str().as_encoded_bytes())?;
-        // Both directories stay present. Readers see either complete package.
         #[cfg(target_os = "macos")]
         let result = unsafe {
             libc::renameatx_np(

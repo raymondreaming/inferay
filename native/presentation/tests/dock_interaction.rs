@@ -111,7 +111,13 @@ fn deleting_first_grid_pane_compacts_rows_and_handles_the_last_pane() {
 #[test]
 fn grid_reflows_after_out_of_order_deletions_and_additions() {
     let mut input = json!({"ids":["a","b","c","d","e","f"], "columns":3,"visibleColumns":3,"mode":"grid","rows":2});
-    for ids in [json!(["a","b","c","d","e","f"]), json!(["a","c","d","e","f"]), json!(["a","c","d","f"]), json!(["a","c","d","f","g"]), json!(["c","d","f","g"])] {
+    for ids in [
+        json!(["a", "b", "c", "d", "e", "f"]),
+        json!(["a", "c", "d", "e", "f"]),
+        json!(["a", "c", "d", "f"]),
+        json!(["a", "c", "d", "f", "g"]),
+        json!(["c", "d", "f", "g"]),
+    ] {
         input["ids"] = ids;
         let output = inferay_presentation::dock::project(&input).unwrap();
         input["saved"] = output["saved"].clone();

@@ -1,4 +1,3 @@
-//! Bounded stdio MCP calls inside the normal approved tool process boundary.
 use super::*;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
@@ -52,7 +51,7 @@ pub(super) async fn execute(
                 }
             }
         }
-    }; // Close stdin before waiting for normal MCP shutdown.
+    };
     let status = tokio::time::timeout(Duration::from_millis(250), child.wait()).await;
     if let Ok(Ok(status)) = &status {
         process.exited = true;
@@ -117,7 +116,6 @@ impl Client {
             }
             if let Some(method) = message["method"].as_str() {
                 if let Some(id) = message.get("id") {
-                    // Servers cannot acquire model, user-input or filesystem authority.
                     let reply = if method == "ping" {
                         json!({"result":{}})
                     } else {

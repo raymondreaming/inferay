@@ -108,7 +108,6 @@ export function useGitAuthorAvatars(
 		try {
 			const resolved = await resolveGitCommitAvatars(cwd, missing);
 			if (Object.values(resolved).some(Boolean)) {
-				// Keep successful results across scrolling and repository switches.
 				setAvatars((previous) => {
 					const authors = { ...previous.authors };
 					const hashes = { ...previous.commits };

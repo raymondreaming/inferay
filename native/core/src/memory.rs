@@ -1,4 +1,3 @@
-//! Project memory notes: Markdown with a small header. Pure format rules; file access belongs to the server.
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -6,7 +5,6 @@ pub const NOTE_LIMIT: usize = 65_536;
 pub const TITLE_LIMIT: usize = 200;
 pub const TAG_LIMIT: usize = 30;
 pub const NOTES_PER_PROJECT: usize = 10_000;
-/// Notes live beside project records; the definition indexer ignores Markdown here.
 pub const NOTES_DIR: &str = "memory/notes";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
@@ -22,7 +20,6 @@ pub struct MemoryNote {
     pub body: String,
 }
 
-/// A search result: enough to decide whether to read the note, never the whole body.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryHit {
@@ -177,7 +174,6 @@ impl MemoryNote {
         Ok(note)
     }
 
-    /// `[[Title]]` references in the body, in order, without duplicates.
     pub fn links(&self) -> Vec<String> {
         let mut out = Vec::new();
         let mut rest = self.body.as_str();
@@ -199,7 +195,6 @@ impl MemoryNote {
     }
 }
 
-/// A file name for a title: lowercase words joined by dashes, bounded, never empty.
 pub fn slug(title: &str) -> String {
     let mut out = String::new();
     for c in title.chars().flat_map(char::to_lowercase) {

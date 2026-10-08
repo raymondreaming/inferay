@@ -59,7 +59,6 @@ export function AutomationContext(props: {
 			];
 		});
 		const available = [...globals, ...local];
-		// Keep missing references visible and removable instead of silently dropping them.
 		return [
 			...available,
 			...selected()

@@ -29,7 +29,6 @@ impl AllowedPaths {
         })
     }
 
-    /// The native host supplies its managed project directory, which may live outside home in an isolated profile.
     pub fn with_managed_root(mut self, root: impl AsRef<Path>) -> Result<Self, &'static str> {
         self.managed_root = Some(resolve_lexically(root.as_ref(), &self.working_directory)?);
         Ok(self)

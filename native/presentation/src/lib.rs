@@ -15,7 +15,6 @@ pub mod image;
 pub mod markdown;
 pub mod onboarding;
 pub mod panels;
-pub mod repository_tabs;
 pub mod shortcuts;
 /// Renderer compatibility facade for repository contracts owned by the core.
 pub mod repository {
@@ -101,7 +100,6 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
         "repositoryWorkbenchContext" => workbench::context(input),
         "repositorySelectedWorktree" => workbench::selected_worktree(input),
         "repositoryInteraction" => json!(workbench::interaction(input)),
-        "repositoryShortcut" => json!(shortcuts::resolve(input)),
         "repositoryKeyboardAction" => workbench::keyboard_action(input),
         "repositoryResizeStart" => workbench::resize_start(input),
         "retainedGraphSelection" => json!(workbench::retained_graph_selection(input)),

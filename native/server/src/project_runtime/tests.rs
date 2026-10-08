@@ -325,22 +325,52 @@ async fn standalone_automation_proposal_is_read_only_and_conflict_checked() {
         "overlap":"skip","execution":{"kind":"agent","provider":"codex","instructions":"Summarize recent work",
         "skills":[],"resources":[],"repositories":[],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":300},"may":[]}).to_string();
     let mut command = ProjectFileCommand::SaveDefinition {
-        project_id: project, path: path.clone(), content, expected_hash: None,
+        project_id: project,
+        path: path.clone(),
+        content,
+        expected_hash: None,
     };
     runtime.preview_automation(&command).await.unwrap();
     assert!(!root.join(&path).exists(), "Preview must not write");
-    assert!(runtime.command(command.clone(), false).await.is_err(), "Agent cannot bypass the card");
+    assert!(
+        runtime.command(command.clone(), false).await.is_err(),
+        "Agent cannot bypass the card"
+    );
     let result = runtime.command(command.clone(), true).await.unwrap();
-    assert!(runtime.preview_automation(&command).await.is_err(), "Create cannot replace an existing file");
-    if let ProjectFileCommand::SaveDefinition { expected_hash, content, .. } = &mut command {
+    assert!(
+        runtime.preview_automation(&command).await.is_err(),
+        "Create cannot replace an existing file"
+    );
+    if let ProjectFileCommand::SaveDefinition {
+        expected_hash,
+        content,
+        ..
+    } = &mut command
+    {
         *expected_hash = result["sourceHash"].as_str().map(str::to_owned);
         *content = content.replace("Daily briefing", "Updated briefing");
     }
     runtime.preview_automation(&command).await.unwrap();
-    std::fs::write(root.join(&path), std::fs::read_to_string(root.join(&path)).unwrap().replace("Daily briefing", "Outside edit")).unwrap();
-    assert!(runtime.preview_automation(&command).await.is_err(), "Outside edit must invalidate proposal");
-    assert!(runtime.command(command, true).await.is_err(), "Approval click must recheck the hash");
-    assert!(std::fs::read_to_string(root.join(path)).unwrap().contains("Outside edit"));
+    std::fs::write(
+        root.join(&path),
+        std::fs::read_to_string(root.join(&path))
+            .unwrap()
+            .replace("Daily briefing", "Outside edit"),
+    )
+    .unwrap();
+    assert!(
+        runtime.preview_automation(&command).await.is_err(),
+        "Outside edit must invalidate proposal"
+    );
+    assert!(
+        runtime.command(command, true).await.is_err(),
+        "Approval click must recheck the hash"
+    );
+    assert!(
+        std::fs::read_to_string(root.join(path))
+            .unwrap()
+            .contains("Outside edit")
+    );
 }
 
 #[tokio::test]
@@ -349,17 +379,42 @@ async fn library_update_proposal_requires_user_save_and_revokes_approval() {
     let (project, _) = definition_files(profile.path(), "print('{}')");
     let runtime = runtime(profile.path());
     let root = profile.path().join("projects").join(&project);
-    let manifest: Value = serde_json::from_slice(&std::fs::read(root.join("plugins/report/plugin.json")).unwrap()).unwrap();
+    let manifest: Value =
+        serde_json::from_slice(&std::fs::read(root.join("plugins/report/plugin.json")).unwrap())
+            .unwrap();
     let id = manifest["id"].as_str().unwrap().to_owned();
-    let review = runtime.command(ProjectFileCommand::ReviewPlugin { id: id.clone() }, false).await.unwrap();
-    runtime.command(ProjectFileCommand::ApprovePlugin {
-        id: id.clone(), expected_inputs_hash: review["inputsHash"].as_str().unwrap().into(), enable: true,
-    }, true).await.unwrap();
-    let library = runtime.command(ProjectFileCommand::ReadPlugin { id: id.clone(), path: None }, false).await.unwrap();
+    let review = runtime
+        .command(ProjectFileCommand::ReviewPlugin { id: id.clone() }, false)
+        .await
+        .unwrap();
+    runtime
+        .command(
+            ProjectFileCommand::ApprovePlugin {
+                id: id.clone(),
+                expected_inputs_hash: review["inputsHash"].as_str().unwrap().into(),
+                enable: true,
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    let library = runtime
+        .command(
+            ProjectFileCommand::ReadPlugin {
+                id: id.clone(),
+                path: None,
+            },
+            false,
+        )
+        .await
+        .unwrap();
     let command = ProjectFileCommand::UpdatePlugin {
-        project_id: project.clone(), slug: "report".into(),
+        project_id: project.clone(),
+        slug: "report".into(),
         expected_hash: library["sourceHash"].as_str().unwrap().into(),
-        files: [("README.md".into(), "Reusable reporting tools.".into())].into_iter().collect(),
+        files: [("README.md".into(), "Reusable reporting tools.".into())]
+            .into_iter()
+            .collect(),
         remove: vec![],
     };
     runtime.preview_plugin(&command).await.unwrap();
@@ -598,7 +653,10 @@ async fn cli_tools_use_literal_arguments_and_exit_status_with_durable_logs() {
             let result = run.result.unwrap();
             assert_eq!(result["exitCode"], 0);
             assert_eq!(result["stdout"], "--title|two words; $(touch unwanted)|3\n");
-            assert_eq!(result["stderr"], std::fs::read_to_string(logs.join("stderr.txt")).unwrap());
+            assert_eq!(
+                result["stderr"],
+                std::fs::read_to_string(logs.join("stderr.txt")).unwrap()
+            );
         }
     }
 }
@@ -606,10 +664,19 @@ async fn cli_tools_use_literal_arguments_and_exit_status_with_durable_logs() {
 #[tokio::test]
 async fn agent_tool_grants_execute_only_approved_library_inputs() {
     let profile = tempfile::tempdir().unwrap();
-    let (project, automation) = definition_files(profile.path(),
-        "import json,sys,os\nfrom pathlib import Path\nx=json.load(sys.stdin)\nimport time\ntime.sleep(10 if x.get('slow') else 0)\n(Path(os.environ['INFERAY_RUN_OUTPUT'])/'report.md').write_text(x['text'])\nprint(json.dumps({'artifacts':['report.md']}))");
-    let root = profile.path().join("projects").join(&project).canonicalize().unwrap();
-    let read = |path: &str| -> Value { serde_json::from_slice(&std::fs::read(root.join(path)).unwrap()).unwrap() };
+    let (project, automation) = definition_files(
+        profile.path(),
+        "import json,sys,os\nfrom pathlib import Path\nx=json.load(sys.stdin)\nimport time\ntime.sleep(10 if x.get('slow') else 0)\n(Path(os.environ['INFERAY_RUN_OUTPUT'])/'report.md').write_text(x['text'])\nprint(json.dumps({'artifacts':['report.md']}))",
+    );
+    let root = profile
+        .path()
+        .join("projects")
+        .join(&project)
+        .canonicalize()
+        .unwrap();
+    let read = |path: &str| -> Value {
+        serde_json::from_slice(&std::fs::read(root.join(path)).unwrap()).unwrap()
+    };
     let plugin = read("plugins/report/plugin.json")["id"].clone();
     let tool = read("plugins/report/tools/report/tool.json")["id"].clone();
     let path = root.join("plugins/report/automations/report.json");
@@ -623,50 +690,118 @@ async fn agent_tool_grants_execute_only_approved_library_inputs() {
     let run = approved_run(&runtime, &automation, "grants").await;
     let snapshot = {
         let mut store = runtime.store.lock().unwrap();
-        crate::project_runs::claim_next(&mut store.db, profile.path(), &[]).unwrap().unwrap().2
+        crate::project_runs::claim_next(&mut store.db, profile.path(), &[])
+            .unwrap()
+            .unwrap()
+            .2
     };
-    let scope = crate::project_tools::ToolScope::new(runtime.clone(), &run, root.clone(), root.join("runs").join(&run), snapshot).unwrap();
-    assert!(scope.verify_required().unwrap_err().to_string().contains("Report"));
-    assert_eq!(scope.call(json!({"action":"list"})).await.unwrap()["tools"].as_array().unwrap().len(), 1);
+    let scope = crate::project_tools::ToolScope::new(
+        runtime.clone(),
+        &run,
+        root.clone(),
+        root.join("runs").join(&run),
+        snapshot,
+    )
+    .unwrap();
+    assert!(
+        scope
+            .verify_required()
+            .unwrap_err()
+            .to_string()
+            .contains("Report")
+    );
+    assert_eq!(
+        scope.call(json!({"action":"list"})).await.unwrap()["tools"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
     assert!(scope.call(json!({"action":"call","pluginId":plugin,"toolId":uuid::Uuid::new_v4().to_string(),"input":{}})).await.unwrap_err().to_string().contains("not granted"));
     let request = json!({"action":"call","pluginId":plugin,"toolId":tool,"input":{"text":"Recorded tool output"}});
     let result = scope.call(request.clone()).await.unwrap();
     let artifact = result["artifacts"][0].as_str().unwrap();
-    assert_eq!(std::fs::read_to_string(root.join("runs").join(&run).join("output").join(artifact)).unwrap(), "Recorded tool output");
+    assert_eq!(
+        std::fs::read_to_string(root.join("runs").join(&run).join("output").join(artifact))
+            .unwrap(),
+        "Recorded tool output"
+    );
     assert_eq!(scope.artifacts().unwrap(), vec![artifact]);
     scope.verify_required().unwrap();
     let mut oversized = request.clone();
     oversized["input"] = json!({"message":"x".repeat(64000)});
-    assert!(scope.call(oversized).await.unwrap_err().to_string().contains("64 KB"));
-    assert!(scope.verify_required().is_err(), "An oversized retry must invalidate the earlier check");
+    assert!(
+        scope
+            .call(oversized)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("64 KB")
+    );
+    assert!(
+        scope.verify_required().is_err(),
+        "An oversized retry must invalidate the earlier check"
+    );
     scope.call(request.clone()).await.unwrap();
     let mut invalid = request.clone();
     invalid["input"] = json!({});
     assert!(scope.call(invalid).await.is_err());
-    assert!(scope.verify_required().is_err(), "A previous success must not hide a failed check");
+    assert!(
+        scope.verify_required().is_err(),
+        "A previous success must not hide a failed check"
+    );
     scope.call(request.clone()).await.unwrap();
     scope.verify_required().unwrap();
     let command = json!({"action":"execute","command":"printf 'command artifact' > \"$INFERAY_RUN_OUTPUT/command.txt\"; printf 'command output'","timeoutSeconds":2});
     let executed = scope.call(command.clone()).await.unwrap();
     assert_eq!(executed["stdout"], "command output");
     let artifact = executed["artifacts"][0].as_str().unwrap();
-    assert_eq!(std::fs::read_to_string(root.join("runs").join(&run).join("output").join(artifact)).unwrap(), "command artifact");
+    assert_eq!(
+        std::fs::read_to_string(root.join("runs").join(&run).join("output").join(artifact))
+            .unwrap(),
+        "command artifact"
+    );
     let denied = scope.call(json!({"action":"execute","command":"printf forbidden > \"$INFERAY_PROJECT_DIR/unapproved.txt\""})).await.unwrap_err().to_string();
-    assert!(denied.contains("Operation not permitted") || denied.contains("Permission denied"), "{denied}");
+    assert!(
+        denied.contains("Operation not permitted") || denied.contains("Permission denied"),
+        "{denied}"
+    );
     assert!(!root.join("unapproved.txt").exists());
     scope.verify_required().unwrap();
-    std::fs::write(root.join("plugins/report/README.md"), "Changed library instructions").unwrap();
-    assert!(scope.call(request.clone()).await.is_err(), "An outside library edit must invalidate the grant");
-    assert!(scope.call(command).await.is_err(), "Changed inputs must also revoke command execution");
+    std::fs::write(
+        root.join("plugins/report/README.md"),
+        "Changed library instructions",
+    )
+    .unwrap();
+    assert!(
+        scope.call(request.clone()).await.is_err(),
+        "An outside library edit must invalidate the grant"
+    );
+    assert!(
+        scope.call(command).await.is_err(),
+        "Changed inputs must also revoke command execution"
+    );
     std::fs::remove_file(root.join("plugins/report/README.md")).unwrap();
     let running = scope.clone();
     let mut slow = request.clone();
     slow["input"]["slow"] = json!(true);
     let task = tokio::spawn(async move { running.call(slow).await });
     tokio::time::sleep(Duration::from_millis(200)).await;
-    tokio::time::timeout(Duration::from_secs(5), scope.close()).await.unwrap();
-    assert!(task.await.unwrap().is_err(), "Closing the agent must stop its helper");
-    assert!(scope.call(request).await.unwrap_err().to_string().contains("closed"));
+    tokio::time::timeout(Duration::from_secs(5), scope.close())
+        .await
+        .unwrap();
+    assert!(
+        task.await.unwrap().is_err(),
+        "Closing the agent must stop its helper"
+    );
+    assert!(
+        scope
+            .call(request)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("closed")
+    );
 }
 
 #[cfg(target_os = "macos")]
@@ -684,20 +819,37 @@ time.sleep(60)
     let id = approved_run(&runtime, &automation, "drop-execution").await;
     let snapshot = {
         let mut store = runtime.store.lock().unwrap();
-        crate::project_runs::claim_next(&mut store.db, profile.path(), &[]).unwrap().unwrap().2
+        crate::project_runs::claim_next(&mut store.db, profile.path(), &[])
+            .unwrap()
+            .unwrap()
+            .2
     };
-    let marker = profile.path().join("projects").join(&project).join("runs").join(&id).join("output/child.pid");
+    let marker = profile
+        .path()
+        .join("projects")
+        .join(&project)
+        .join("runs")
+        .join(&id)
+        .join("output/child.pid");
     let running = runtime.clone();
     let task = tokio::spawn(async move { running.execute(&id, &project, &snapshot).await });
     let pid: u32 = tokio::time::timeout(Duration::from_secs(15), async {
         loop {
             if let Ok(text) = std::fs::read_to_string(&marker)
-                && let Ok(pid) = text.parse() { break pid; }
+                && let Ok(pid) = text.parse()
+            {
+                break pid;
+            }
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
-    }).await.unwrap();
+    })
+    .await
+    .unwrap();
     let alive = || {
-        let state = std::process::Command::new("ps").args(["-p", &pid.to_string(), "-o", "stat="]).output().unwrap();
+        let state = std::process::Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "stat="])
+            .output()
+            .unwrap();
         let text = String::from_utf8_lossy(&state.stdout);
         !text.trim().is_empty() && !text.trim().starts_with('Z')
     };
@@ -705,16 +857,23 @@ time.sleep(60)
     task.abort();
     assert!(task.await.unwrap_err().is_cancelled());
     let stopped = tokio::time::timeout(Duration::from_secs(3), async {
-        while alive() { tokio::time::sleep(Duration::from_millis(25)).await; }
-    }).await.is_ok();
-    // A failing regression must not leave its disposable helper running.
+        while alive() {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .is_ok();
     if !stopped {
-        let _ = std::process::Command::new("/bin/kill").args(["-KILL", &pid.to_string()]).status();
+        let _ = std::process::Command::new("/bin/kill")
+            .args(["-KILL", &pid.to_string()])
+            .status();
     }
-    assert!(stopped, "Dropping execution left a SIGTERM-resistant helper running");
+    assert!(
+        stopped,
+        "Dropping execution left a SIGTERM-resistant helper running"
+    );
 }
 
-/// Opt-in native provider gate; uses an isolated profile and harmless write probes.
 #[tokio::test]
 #[ignore = "launches a real provider and consumes account usage"]
 async fn real_claude_automation_uses_sandbox_and_records_a_run() {
@@ -730,10 +889,19 @@ async fn real_codex_automation_uses_sandbox_and_records_a_run() {
 async fn real_provider_sandbox(provider: &str, model: Option<&str>) {
     let profile = tempfile::tempdir().unwrap();
     let (project, automation) = definition_files(profile.path(), "print('{}')");
-    let root = profile.path().join("projects").join(&project).canonicalize().unwrap();
+    let root = profile
+        .path()
+        .join("projects")
+        .join(&project)
+        .canonicalize()
+        .unwrap();
     let path = root.join("plugins/report/automations/report.json");
     let mut definition: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    let outside = profile.path().canonicalize().unwrap().join("outside-probe.txt");
+    let outside = profile
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("outside-probe.txt");
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -762,7 +930,8 @@ print("NETWORK_PROBE", json.dumps(result))
     if provider == "codex" {
         definition["may"] = json!(["write_project_files"]);
         let plugin_path = root.join("plugins/report/plugin.json");
-        let mut plugin: Value = serde_json::from_slice(&std::fs::read(&plugin_path).unwrap()).unwrap();
+        let mut plugin: Value =
+            serde_json::from_slice(&std::fs::read(&plugin_path).unwrap()).unwrap();
         plugin["may"] = json!(["write_project_files"]);
         std::fs::write(plugin_path, plugin.to_string()).unwrap();
     }
@@ -773,43 +942,118 @@ print("NETWORK_PROBE", json.dumps(result))
     let done = tokio::time::timeout(Duration::from_secs(110), async {
         loop {
             let catalog = runtime.catalog(Some(project.clone()), None).await.unwrap();
-            let run = catalog.history.runs.into_iter().find(|candidate| candidate.id == run).unwrap();
-            if !["queued", "running"].contains(&run.status.as_str()) { break run; }
+            let run = catalog
+                .history
+                .runs
+                .into_iter()
+                .find(|candidate| candidate.id == run)
+                .unwrap();
+            if !["queued", "running"].contains(&run.status.as_str()) {
+                break run;
+            }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-    }).await.unwrap();
+    })
+    .await
+    .unwrap();
     let dir = root.join("runs").join(&run);
     let log = std::fs::read_to_string(dir.join("logs/agent.jsonl")).unwrap_or_default();
     assert_eq!(done.status, "succeeded", "{:?}\n{}", done.error, log);
-    let output_file = |name: &str| walkdir::WalkDir::new(dir.join("output")).into_iter()
-        .filter_map(std::result::Result::ok).find(|entry| entry.file_type().is_file() && entry.file_name() == name)
-        .unwrap_or_else(|| panic!("Missing output {name}: {log}")).into_path();
-    assert_eq!(std::fs::read_to_string(output_file("inside-probe.txt")).unwrap().trim(), "inside-ok", "{}", log);
-    assert!(!outside.exists(), "Provider wrote outside its approved boundary");
-    let network: Value = serde_json::from_slice(&std::fs::read(output_file("network-probe.json")).expect("Provider must execute the network probe")).unwrap();
+    let output_file = |name: &str| {
+        walkdir::WalkDir::new(dir.join("output"))
+            .into_iter()
+            .filter_map(std::result::Result::ok)
+            .find(|entry| entry.file_type().is_file() && entry.file_name() == name)
+            .unwrap_or_else(|| panic!("Missing output {name}: {log}"))
+            .into_path()
+    };
+    assert_eq!(
+        std::fs::read_to_string(output_file("inside-probe.txt"))
+            .unwrap()
+            .trim(),
+        "inside-ok",
+        "{}",
+        log
+    );
+    assert!(
+        !outside.exists(),
+        "Provider wrote outside its approved boundary"
+    );
+    let network: Value = serde_json::from_slice(
+        &std::fs::read(output_file("network-probe.json"))
+            .expect("Provider must execute the network probe"),
+    )
+    .unwrap();
     for destination in ["loopback", "external"] {
-        assert_eq!(network[destination]["denied"], true, "{destination} network access was not refused by the sandbox (timeouts and unreachable routes do not count): {network}\n{log}");
+        assert_eq!(
+            network[destination]["denied"], true,
+            "{destination} network access was not refused by the sandbox (timeouts and unreachable routes do not count): {network}\n{log}"
+        );
     }
-    assert!(matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock), "An undeclared network connection reached the listener");
-    let refused = log.lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()).any(|event| {
-        event["type"] == "user" && event.pointer("/message/content").and_then(Value::as_array).is_some_and(|blocks| blocks.iter().any(|block| {
-            let content = block["content"].to_string().to_ascii_lowercase();
-            block["type"] == "tool_result" && (content.contains("operation not permitted") || content.contains("permission denied"))
-        }))
-    });
-    if provider == "claude" { assert!(refused, "Missing tool-result evidence of refused shell write: {}", log); }
-    else {
-        let output: String = log.lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()).filter(|event| event.pointer("/delta/type").and_then(Value::as_str) == Some("input_json_delta")).filter_map(|event| event.pointer("/delta/partial_json").and_then(Value::as_str).map(str::to_owned)).collect();
+    assert!(
+        matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
+        "An undeclared network connection reached the listener"
+    );
+    let refused = log
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .any(|event| {
+            event["type"] == "user"
+                && event
+                    .pointer("/message/content")
+                    .and_then(Value::as_array)
+                    .is_some_and(|blocks| {
+                        blocks.iter().any(|block| {
+                            let content = block["content"].to_string().to_ascii_lowercase();
+                            block["type"] == "tool_result"
+                                && (content.contains("operation not permitted")
+                                    || content.contains("permission denied"))
+                        })
+                    })
+        });
+    if provider == "claude" {
+        assert!(
+            refused,
+            "Missing tool-result evidence of refused shell write: {}",
+            log
+        );
+    } else {
+        let output: String = log
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .filter(|event| {
+                event.pointer("/delta/type").and_then(Value::as_str) == Some("input_json_delta")
+            })
+            .filter_map(|event| {
+                event
+                    .pointer("/delta/partial_json")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .collect();
         let output = output.to_ascii_lowercase();
-        assert!(refused || output.contains("operation not permitted") || output.contains("permission denied"), "Missing refused command output: {}", log);
+        assert!(
+            refused
+                || output.contains("operation not permitted")
+                || output.contains("permission denied"),
+            "Missing refused command output: {}",
+            log
+        );
     }
     assert!(dir.join("output/response.md").is_file());
     let store = runtime.store.lock().unwrap();
     let usage: String = store.db.query_row("SELECT payload FROM run_events WHERE run_id=? AND kind='provider_usage' ORDER BY sequence DESC LIMIT 1", [&run], |row| row.get(0)).expect("Real provider must report usage");
     let usage: Value = serde_json::from_str(&usage).unwrap();
     assert_eq!(usage["provider"], provider);
-    let input = if provider == "codex" { usage.pointer("/usage/total/inputTokens") } else { usage.pointer("/usage/input_tokens") };
-    assert!(input.and_then(Value::as_u64).is_some(), "Missing reported token totals: {usage}");
+    let input = if provider == "codex" {
+        usage.pointer("/usage/total/inputTokens")
+    } else {
+        usage.pointer("/usage/input_tokens")
+    };
+    assert!(
+        input.and_then(Value::as_u64).is_some(),
+        "Missing reported token totals: {usage}"
+    );
 }
 
 #[tokio::test]
@@ -829,9 +1073,22 @@ async fn real_codex_honors_git_commit_permission() {
 async fn real_provider_git_permission(provider: &str, model: Option<&str>, commit: bool) {
     let profile = tempfile::tempdir().unwrap();
     let (project, automation) = definition_files(profile.path(), "print('{}')");
-    let root = profile.path().join("projects").join(&project).canonicalize().unwrap();
-    let result = std::process::Command::new("git").args(["init", "-q"]).arg(&root).output().unwrap();
-    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+    let root = profile
+        .path()
+        .join("projects")
+        .join(&project)
+        .canonicalize()
+        .unwrap();
+    let result = std::process::Command::new("git")
+        .args(["init", "-q"])
+        .arg(&root)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
     let probe = root.join("plugins/report/git_probe.py");
     std::fs::write(&probe, r#"import json, os, subprocess, sys
 from pathlib import Path
@@ -849,7 +1106,11 @@ print(json.dumps(result))
 "#).unwrap();
     let path = root.join("plugins/report/automations/report.json");
     let mut definition: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    let may = if commit { json!(["write_project_files", "commit"]) } else { json!(["write_project_files"]) };
+    let may = if commit {
+        json!(["write_project_files", "commit"])
+    } else {
+        json!(["write_project_files"])
+    };
     definition["may"] = may.clone();
     definition["execution"] = json!({
         "kind":"agent", "provider":provider, "model":model,
@@ -866,27 +1127,73 @@ print(json.dumps(result))
     runtime.tick().await.unwrap();
     let done = tokio::time::timeout(Duration::from_secs(110), async {
         loop {
-            let run = runtime.catalog(Some(project.clone()), None).await.unwrap().history.runs.into_iter().find(|run| run.id == id).unwrap();
-            if !["queued", "running"].contains(&run.status.as_str()) { break run; }
+            let run = runtime
+                .catalog(Some(project.clone()), None)
+                .await
+                .unwrap()
+                .history
+                .runs
+                .into_iter()
+                .find(|run| run.id == id)
+                .unwrap();
+            if !["queued", "running"].contains(&run.status.as_str()) {
+                break run;
+            }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-    }).await.unwrap();
+    })
+    .await
+    .unwrap();
     let dir = root.join("runs").join(&id);
     let log = std::fs::read_to_string(dir.join("logs/agent.jsonl")).unwrap_or_default();
     assert_eq!(done.status, "succeeded", "{:?}\n{log}", done.error);
-    assert_eq!(std::fs::read_to_string(root.join("working-file.txt")).unwrap(), "ordinary edit allowed");
-    let result: Value = serde_json::from_slice(&std::fs::read(root.join("git-probe.json")).unwrap_or_else(|error| panic!("Provider must execute the Git probe: {error}\n{log}"))).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(root.join("working-file.txt")).unwrap(),
+        "ordinary edit allowed"
+    );
+    let result: Value = serde_json::from_slice(
+        &std::fs::read(root.join("git-probe.json"))
+            .unwrap_or_else(|error| panic!("Provider must execute the Git probe: {error}\n{log}")),
+    )
+    .unwrap();
     for operation in ["stage", "commit"] {
         if commit {
-            assert_eq!(result[operation]["code"], 0, "Approved Git mutation failed: {result}\n{log}");
+            assert_eq!(
+                result[operation]["code"], 0,
+                "Approved Git mutation failed: {result}\n{log}"
+            );
             continue;
         }
-        assert_ne!(result[operation]["code"], 0, "Unapproved Git mutation: {result}\n{log}");
-        let error = result[operation]["stderr"].as_str().unwrap().to_ascii_lowercase();
-        assert!(error.contains("operation not permitted") || error.contains("permission denied"), "Git failed without permission evidence: {result}\n{log}");
+        assert_ne!(
+            result[operation]["code"], 0,
+            "Unapproved Git mutation: {result}\n{log}"
+        );
+        let error = result[operation]["stderr"]
+            .as_str()
+            .unwrap()
+            .to_ascii_lowercase();
+        assert!(
+            error.contains("operation not permitted") || error.contains("permission denied"),
+            "Git failed without permission evidence: {result}\n{log}"
+        );
     }
-    assert_eq!(root.join(".git/index").exists(), commit, "Unexpected Git index state");
-    assert_eq!(std::process::Command::new("git").arg("-C").arg(&root).args(["rev-parse", "--verify", "HEAD"]).output().unwrap().status.success(), commit, "Unexpected commit state");
+    assert_eq!(
+        root.join(".git/index").exists(),
+        commit,
+        "Unexpected Git index state"
+    );
+    assert_eq!(
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["rev-parse", "--verify", "HEAD"])
+            .output()
+            .unwrap()
+            .status
+            .success(),
+        commit,
+        "Unexpected commit state"
+    );
 }
 
 #[tokio::test]
@@ -915,20 +1222,41 @@ async fn real_codex_calls_mcp_library_tool() {
 
 async fn real_provider_library_tool(provider: &str, model: Option<&str>, mcp: bool) {
     let profile = tempfile::tempdir().unwrap();
-    let (project, automation) = definition_files(profile.path(),
-        "import json,sys,os\nfrom pathlib import Path\nx=json.load(sys.stdin)\n(Path(os.environ['INFERAY_RUN_OUTPUT'])/'report.md').write_text(x['text'])\nprint(json.dumps({'artifacts':['report.md']}))");
-    let root = profile.path().join("projects").join(&project).canonicalize().unwrap();
-    let read = |path: &str| -> Value { serde_json::from_slice(&std::fs::read(root.join(path)).unwrap()).unwrap() };
+    let (project, automation) = definition_files(
+        profile.path(),
+        "import json,sys,os\nfrom pathlib import Path\nx=json.load(sys.stdin)\n(Path(os.environ['INFERAY_RUN_OUTPUT'])/'report.md').write_text(x['text'])\nprint(json.dumps({'artifacts':['report.md']}))",
+    );
+    let root = profile
+        .path()
+        .join("projects")
+        .join(&project)
+        .canonicalize()
+        .unwrap();
+    let read = |path: &str| -> Value {
+        serde_json::from_slice(&std::fs::read(root.join(path)).unwrap()).unwrap()
+    };
     let plugin = read("plugins/report/plugin.json")["id"].clone();
     let tool = read("plugins/report/tools/report/tool.json")["id"].clone();
     let mut tool_definition = read("plugins/report/tools/report/tool.json");
     tool_definition["inputSchema"] = json!({"type":"object","properties":{"text":{"type":"string"}},"required":["text"],"additionalProperties":false});
-    std::fs::write(root.join("plugins/report/tools/report/tool.json"), tool_definition.to_string()).unwrap();
+    std::fs::write(
+        root.join("plugins/report/tools/report/tool.json"),
+        tool_definition.to_string(),
+    )
+    .unwrap();
     if mcp {
         let mut definition = read("plugins/report/tools/report/tool.json");
         definition["interface"] = json!({"mcp":{"tool":"report"}});
-        std::fs::write(root.join("plugins/report/tools/report/tool.json"), definition.to_string()).unwrap();
-        std::fs::write(root.join("plugins/report/tools/report/run.py"), include_str!("../../../../scripts/tests/fixtures/plugins/stdio-mcp/server.py")).unwrap();
+        std::fs::write(
+            root.join("plugins/report/tools/report/tool.json"),
+            definition.to_string(),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("plugins/report/tools/report/run.py"),
+            include_str!("../../../../scripts/tests/fixtures/plugins/stdio-mcp/server.py"),
+        )
+        .unwrap();
     }
     let path = root.join("plugins/report/automations/report.json");
     let mut definition = read("plugins/report/automations/report.json");
@@ -947,43 +1275,92 @@ async fn real_provider_library_tool(provider: &str, model: Option<&str>, mcp: bo
     let run = tokio::time::timeout(Duration::from_secs(110), async {
         loop {
             let catalog = runtime.catalog(Some(project.clone()), None).await.unwrap();
-            let run = catalog.history.runs.into_iter().find(|run| run.id == id).unwrap();
-            if !["queued", "running"].contains(&run.status.as_str()) { break run; }
+            let run = catalog
+                .history
+                .runs
+                .into_iter()
+                .find(|run| run.id == id)
+                .unwrap();
+            if !["queued", "running"].contains(&run.status.as_str()) {
+                break run;
+            }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-    }).await.unwrap();
+    })
+    .await
+    .unwrap();
     let dir = root.join("runs").join(&id);
     let log = std::fs::read_to_string(dir.join("logs/agent.jsonl")).unwrap_or_default();
     assert_eq!(run.status, "succeeded", "{:?}\n{}", run.error, log);
     let output = dir.join("output/tools");
-    let calls: Vec<_> = std::fs::read_dir(&output).expect(&log).map(|entry| entry.unwrap().path()).filter(|path| path.join("report.md").is_file()).collect();
-    assert_eq!(calls.len(), 1, "Expected exactly one real library execution: {log}");
-    assert_eq!(std::fs::read_to_string(calls[0].join("report.md")).unwrap(), marker);
+    let calls: Vec<_> = std::fs::read_dir(&output)
+        .expect(&log)
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.join("report.md").is_file())
+        .collect();
+    assert_eq!(
+        calls.len(),
+        1,
+        "Expected exactly one real library execution: {log}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(calls[0].join("report.md")).unwrap(),
+        marker
+    );
     let call = calls[0].file_name().unwrap();
-    let input: Value = serde_json::from_slice(&std::fs::read(dir.join("inputs/tools").join(call).join("input.json")).unwrap()).unwrap();
+    let input: Value = serde_json::from_slice(
+        &std::fs::read(dir.join("inputs/tools").join(call).join("input.json")).unwrap(),
+    )
+    .unwrap();
     assert_eq!(input["text"], marker);
-    assert!(dir.join("logs/tools").join(call).join("stdout.txt").is_file());
+    assert!(
+        dir.join("logs/tools")
+            .join(call)
+            .join("stdout.txt")
+            .is_file()
+    );
     if mcp {
-        let response: Value = serde_json::from_slice(&std::fs::read(calls[0].join("mcp-response.json")).unwrap()).unwrap();
+        let response: Value =
+            serde_json::from_slice(&std::fs::read(calls[0].join("mcp-response.json")).unwrap())
+                .unwrap();
         assert_eq!(response["structuredContent"]["title"], marker);
-        let protocol = std::fs::read_to_string(dir.join("logs/tools").join(call).join("stdout.txt")).unwrap();
+        let protocol =
+            std::fs::read_to_string(dir.join("logs/tools").join(call).join("stdout.txt")).unwrap();
         assert!(protocol.contains("sampling/createMessage"));
         assert!(protocol.contains("Report saved"));
     }
     assert!(dir.join("output/response.md").is_file());
     let catalog = runtime.catalog(Some(project.clone()), None).await.unwrap();
-    let artifacts: Vec<_> = catalog.history.artifacts.iter().filter(|artifact| artifact.run_id == id).collect();
-    assert!(artifacts.iter().any(|artifact| artifact.path.ends_with("report.md")), "Tool output missing from run history");
-    assert!(artifacts.iter().any(|artifact| artifact.path.ends_with("response.md")), "Agent response missing from run history");
+    let artifacts: Vec<_> = catalog
+        .history
+        .artifacts
+        .iter()
+        .filter(|artifact| artifact.run_id == id)
+        .collect();
+    assert!(
+        artifacts
+            .iter()
+            .any(|artifact| artifact.path.ends_with("report.md")),
+        "Tool output missing from run history"
+    );
+    assert!(
+        artifacts
+            .iter()
+            .any(|artifact| artifact.path.ends_with("response.md")),
+        "Agent response missing from run history"
+    );
 }
 
 #[tokio::test]
 async fn missing_library_requirements_block_direct_and_agent_runs_before_execution() {
     for agent in [false, true] {
         let profile = tempfile::tempdir().unwrap();
-        let (project, automation) = definition_files(profile.path(), "raise Exception('must not execute')");
+        let (project, automation) =
+            definition_files(profile.path(), "raise Exception('must not execute')");
         let root = profile.path().join("projects").join(&project);
-        let read = |path: &str| -> Value { serde_json::from_slice(&std::fs::read(root.join(path)).unwrap()).unwrap() };
+        let read = |path: &str| -> Value {
+            serde_json::from_slice(&std::fs::read(root.join(path)).unwrap()).unwrap()
+        };
         let mut plugin = read("plugins/report/plugin.json");
         plugin["requires"] = json!(["inferay_missing_library_dependency_90374"]);
         std::fs::write(root.join("plugins/report/plugin.json"), plugin.to_string()).unwrap();
@@ -993,15 +1370,29 @@ async fn missing_library_requirements_block_direct_and_agent_runs_before_executi
             definition["execution"] = json!({"kind":"agent","provider":"codex","instructions":"Must not start","tools":[{"pluginId":plugin["id"],"toolId":tool["id"]}],"skills":[],"resources":[],"repositories":[],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":30});
             std::fs::remove_file(root.join("plugins/report/automations/report.json")).unwrap();
             std::fs::create_dir_all(root.join("automations").join(&automation)).unwrap();
-            std::fs::write(root.join("automations").join(&automation).join("automation.json"), definition.to_string()).unwrap();
+            std::fs::write(
+                root.join("automations")
+                    .join(&automation)
+                    .join("automation.json"),
+                definition.to_string(),
+            )
+            .unwrap();
         }
         let runtime = runtime(profile.path());
         let id = approved_run(&runtime, &automation, "missing-dependency").await;
         runtime.tick().await.unwrap();
         let run = completed(&runtime, &project, &id).await;
         assert_eq!(run.status, "failed");
-        assert!(run.error.as_deref().unwrap().contains("inferay_missing_library_dependency_90374"));
-        assert_eq!(run.snapshot["requirements"], json!(["inferay_missing_library_dependency_90374"]));
+        assert!(
+            run.error
+                .as_deref()
+                .unwrap()
+                .contains("inferay_missing_library_dependency_90374")
+        );
+        assert_eq!(
+            run.snapshot["requirements"],
+            json!(["inferay_missing_library_dependency_90374"])
+        );
         let logs = Path::new(&run.directory).join("logs");
         assert!(!logs.join("agent.jsonl").exists());
         assert!(!logs.join("stdout.txt").exists());
@@ -1016,12 +1407,37 @@ async fn repository_tool_executes_in_place_and_dirty_checkout_revokes_approval()
     let checkout = tempfile::tempdir().unwrap();
     let script = "import json,os\nfrom pathlib import Path\n(Path(os.environ['INFERAY_RUN_OUTPUT'])/'report.md').write_text(str(Path.cwd()))\nprint(json.dumps({'artifacts':['report.md']}))\n";
     std::fs::write(checkout.path().join("report.py"), script).unwrap();
-    let git = |args: &[&str]| { let result = std::process::Command::new("git").arg("-C").arg(checkout.path()).args(args).output().unwrap(); assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr)); String::from_utf8(result.stdout).unwrap().trim().to_owned() };
-    git(&["init", "-q"]); git(&["add", "report.py"]);
-    git(&["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgSign=false", "commit", "-qm", "fixture"]);
+    let git = |args: &[&str]| {
+        let result = std::process::Command::new("git")
+            .arg("-C")
+            .arg(checkout.path())
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        String::from_utf8(result.stdout).unwrap().trim().to_owned()
+    };
+    git(&["init", "-q"]);
+    git(&["add", "report.py"]);
+    git(&[
+        "-c",
+        "user.name=Fixture",
+        "-c",
+        "user.email=fixture@example.invalid",
+        "-c",
+        "commit.gpgSign=false",
+        "commit",
+        "-qm",
+        "fixture",
+    ]);
     let revision = git(&["rev-parse", "HEAD"]);
     let repository = uuid::Uuid::new_v4().to_string();
-    let mut definition: Value = serde_json::from_slice(&std::fs::read(root.join("project.json")).unwrap()).unwrap();
+    let mut definition: Value =
+        serde_json::from_slice(&std::fs::read(root.join("project.json")).unwrap()).unwrap();
     definition["repositories"] = json!([{"id":repository,"name":"Kit"}]);
     std::fs::write(root.join("project.json"), definition.to_string()).unwrap();
     let path = root.join("plugins/report/tools/report/tool.json");
@@ -1030,52 +1446,118 @@ async fn repository_tool_executes_in_place_and_dirty_checkout_revokes_approval()
     tool["pack"] = json!({"repositoryId":repository,"commit":revision,"sha256":project_store::hash(script.as_bytes())});
     std::fs::write(path, tool.to_string()).unwrap();
     std::fs::remove_file(root.join("plugins/report/tools/report/run.py")).unwrap();
-    for path in ["plugins/report/plugin.json", "plugins/report/automations/report.json"] {
+    for path in [
+        "plugins/report/plugin.json",
+        "plugins/report/automations/report.json",
+    ] {
         let file = root.join(path);
         let mut definition: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
         definition["may"] = json!(["read_repositories"]);
         std::fs::write(file, definition.to_string()).unwrap();
     }
     let runtime = runtime(profile.path());
-    runtime.command(ProjectFileCommand::LinkRepository { project_id:project.clone(),repository_id:repository,expected_project_hash:project_store::hash(&std::fs::read(root.join("project.json")).unwrap()),path:checkout.path().display().to_string() },true).await.unwrap();
+    runtime
+        .command(
+            ProjectFileCommand::LinkRepository {
+                project_id: project.clone(),
+                repository_id: repository,
+                expected_project_hash: project_store::hash(
+                    &std::fs::read(root.join("project.json")).unwrap(),
+                ),
+                path: checkout.path().display().to_string(),
+            },
+            true,
+        )
+        .await
+        .unwrap();
     let id = approved_run(&runtime, &automation, "pack").await;
     runtime.tick().await.unwrap();
     let run = completed(&runtime, &project, &id).await;
-    assert_eq!(run.status,"succeeded","{:?}",run.error);
-    assert_eq!(std::fs::read_to_string(Path::new(&run.directory).join("output/report.md")).unwrap(), checkout.path().canonicalize().unwrap().display().to_string());
+    assert_eq!(run.status, "succeeded", "{:?}", run.error);
+    assert_eq!(
+        std::fs::read_to_string(Path::new(&run.directory).join("output/report.md")).unwrap(),
+        checkout
+            .path()
+            .canonicalize()
+            .unwrap()
+            .display()
+            .to_string()
+    );
     assert!(!root.join("plugins/report/tools/report/report.py").exists());
     std::fs::write(checkout.path().join("report.py"), "print('changed')").unwrap();
-    let result = runtime.command(ProjectFileCommand::RunAutomation { id:automation,request_id:"changed-pack".into() },true).await.unwrap();
+    let result = runtime
+        .command(
+            ProjectFileCommand::RunAutomation {
+                id: automation,
+                request_id: "changed-pack".into(),
+            },
+            true,
+        )
+        .await
+        .unwrap();
     let refused = completed(&runtime, &project, result["id"].as_str().unwrap()).await;
-    assert_eq!(refused.status,"failed");
+    assert_eq!(refused.status, "failed");
     assert!(refused.error.as_deref().unwrap().contains("clean checkout"));
 }
 
 fn clone_origin_kit() -> (tempfile::TempDir, String) {
-    let source = std::env::var("INFERAY_ORIGIN_KIT_REPOSITORY").expect("Set INFERAY_ORIGIN_KIT_REPOSITORY");
+    let source =
+        std::env::var("INFERAY_ORIGIN_KIT_REPOSITORY").expect("Set INFERAY_ORIGIN_KIT_REPOSITORY");
     let checkout = tempfile::tempdir().unwrap();
     let clone = std::process::Command::new("git")
-        .args(["-c", "core.hooksPath=/dev/null", "clone", "--local", "--no-hardlinks", "--quiet", "--"])
-        .arg(&source).arg(checkout.path()).output().unwrap();
-    assert!(clone.status.success(), "{}", String::from_utf8_lossy(&clone.stderr));
-    let revision = std::process::Command::new("git").arg("-C").arg(checkout.path())
-        .args(["rev-parse", "HEAD"]).output().unwrap();
+        .args([
+            "-c",
+            "core.hooksPath=/dev/null",
+            "clone",
+            "--local",
+            "--no-hardlinks",
+            "--quiet",
+            "--",
+        ])
+        .arg(&source)
+        .arg(checkout.path())
+        .output()
+        .unwrap();
+    assert!(
+        clone.status.success(),
+        "{}",
+        String::from_utf8_lossy(&clone.stderr)
+    );
+    let revision = std::process::Command::new("git")
+        .arg("-C")
+        .arg(checkout.path())
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
     assert!(revision.status.success());
-    let revision = String::from_utf8(revision.stdout).unwrap().trim().to_owned();
+    let revision = String::from_utf8(revision.stdout)
+        .unwrap()
+        .trim()
+        .to_owned();
     (checkout, revision)
 }
 
-/// Opt-in real kit check. Only a disposable clone/profile is changed.
 #[tokio::test]
 #[ignore = "Requires INFERAY_ORIGIN_KIT_REPOSITORY pointing to a local Origin checkout"]
 async fn real_origin_copy_gate_runs_as_a_repository_tool() {
     let (checkout, revision) = clone_origin_kit();
     let entrypoint = "Plugins/design-blender/content/scripts/copy_check.py";
     let bytes = std::fs::read(checkout.path().join(entrypoint)).unwrap();
-    eprintln!("Origin copy gate: commit {revision}, SHA-256 {}", project_store::hash(&bytes));
+    eprintln!(
+        "Origin copy gate: commit {revision}, SHA-256 {}",
+        project_store::hash(&bytes)
+    );
     for (key, text, passes) in [
-        ("pass", "The Blender scene contains 3 objects. Each mesh uses the same blue material.", true),
-        ("fail", "Unlock game-changing innovation and revolutionize your workflow!", false),
+        (
+            "pass",
+            "The Blender scene contains 3 objects. Each mesh uses the same blue material.",
+            true,
+        ),
+        (
+            "fail",
+            "Unlock game-changing innovation and revolutionize your workflow!",
+            false,
+        ),
     ] {
         let profile = tempfile::tempdir().unwrap();
         let (project, automation) = definition_files(profile.path(), "unused");
@@ -1091,7 +1573,17 @@ async fn real_origin_copy_gate_runs_as_a_repository_tool() {
         tool["interface"] = json!("cli");
         tool["entrypoint"] = json!(entrypoint);
         tool["requires"] = json!(["python3"]);
-        tool["args"] = json!(["-B", "{entrypoint}", "--text", "{input.text}", "--platform", "instagram", "--cta-allowed", "no", "--json"]);
+        tool["args"] = json!([
+            "-B",
+            "{entrypoint}",
+            "--text",
+            "{input.text}",
+            "--platform",
+            "instagram",
+            "--cta-allowed",
+            "no",
+            "--json"
+        ]);
         tool["pack"] = json!({"repositoryId":repository,"commit":revision,"sha256":project_store::hash(&bytes)});
         std::fs::write(path, tool.to_string()).unwrap();
         std::fs::remove_file(root.join("plugins/report/tools/report/run.py")).unwrap();
@@ -1100,30 +1592,67 @@ async fn real_origin_copy_gate_runs_as_a_repository_tool() {
         definition["execution"]["input"] = json!({"text":text});
         std::fs::write(path, definition.to_string()).unwrap();
         let runtime = runtime(profile.path());
-        runtime.command(ProjectFileCommand::LinkRepository {
-            project_id: project.clone(), repository_id: repository,
-            expected_project_hash: project_store::hash(&std::fs::read(root.join("project.json")).unwrap()),
-            path: checkout.path().display().to_string(),
-        }, true).await.unwrap();
+        runtime
+            .command(
+                ProjectFileCommand::LinkRepository {
+                    project_id: project.clone(),
+                    repository_id: repository,
+                    expected_project_hash: project_store::hash(
+                        &std::fs::read(root.join("project.json")).unwrap(),
+                    ),
+                    path: checkout.path().display().to_string(),
+                },
+                true,
+            )
+            .await
+            .unwrap();
         let id = approved_run(&runtime, &automation, key).await;
         runtime.tick().await.unwrap();
         let run = completed(&runtime, &project, &id).await;
-        let stdout = std::fs::read_to_string(Path::new(&run.directory).join("logs/stdout.txt")).unwrap();
-        assert_eq!(run.status, if passes {"succeeded"} else {"failed"}, "{:?}\n{stdout}", run.error);
+        let stdout =
+            std::fs::read_to_string(Path::new(&run.directory).join("logs/stdout.txt")).unwrap();
+        assert_eq!(
+            run.status,
+            if passes { "succeeded" } else { "failed" },
+            "{:?}\n{stdout}",
+            run.error
+        );
         let report: Value = serde_json::from_str(&stdout).unwrap();
         assert_eq!(report["ok"], passes);
         if passes {
             assert_eq!(run.result.unwrap()["exitCode"], 0);
         } else {
-            assert!(report["findings"].as_array().unwrap().iter().any(|finding| finding["level"] == "fail"));
+            assert!(
+                report["findings"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|finding| finding["level"] == "fail")
+            );
             assert!(run.result.is_none());
         }
-        assert!(!root.join("plugins/report/tools/report/copy_check.py").exists());
+        assert!(
+            !root
+                .join("plugins/report/tools/report/copy_check.py")
+                .exists()
+        );
     }
-    let status = std::process::Command::new("git").arg("-C").arg(checkout.path())
-        .args(["status", "--porcelain", "--untracked-files=all", "--ignored=matching"]).output().unwrap();
+    let status = std::process::Command::new("git")
+        .arg("-C")
+        .arg(checkout.path())
+        .args([
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+            "--ignored=matching",
+        ])
+        .output()
+        .unwrap();
     assert!(status.status.success());
-    assert!(status.stdout.is_empty(), "The quality gate changed its source checkout");
+    assert!(
+        status.stdout.is_empty(),
+        "The quality gate changed its source checkout"
+    );
 }
 
 #[tokio::test]
@@ -1151,7 +1680,12 @@ async fn cli_outputs_are_indexed_and_output_links_fail_the_run() {
         runtime.tick().await.unwrap();
         let run = completed(&runtime, &project, &id).await;
         let catalog = runtime.catalog(Some(project), None).await.unwrap();
-        let artifacts: Vec<_> = catalog.history.artifacts.iter().filter(|artifact| artifact.run_id == id).collect();
+        let artifacts: Vec<_> = catalog
+            .history
+            .artifacts
+            .iter()
+            .filter(|artifact| artifact.run_id == id)
+            .collect();
         if symlink {
             assert_eq!(run.status, "failed");
             assert!(run.error.unwrap().contains("regular files"));
@@ -1160,7 +1694,11 @@ async fn cli_outputs_are_indexed_and_output_links_fail_the_run() {
             assert_eq!(run.status, "succeeded", "{:?}", run.error);
             assert_eq!(artifacts.len(), 1);
             assert_eq!(artifacts[0].name, "images/report.md");
-            assert_eq!(std::fs::read_to_string(Path::new(&run.directory).join("output/images/report.md")).unwrap(), "actual output");
+            assert_eq!(
+                std::fs::read_to_string(Path::new(&run.directory).join("output/images/report.md"))
+                    .unwrap(),
+                "actual output"
+            );
         }
     }
 }
@@ -1174,7 +1712,10 @@ async fn real_origin_blender_render_retains_image_artifacts() {
     let profile = tempfile::tempdir().unwrap();
     let (project, automation) = definition_files(profile.path(), "unused");
     let root = profile.path().join("projects").join(&project);
-    for path in ["plugins/report/plugin.json", "plugins/report/automations/report.json"] {
+    for path in [
+        "plugins/report/plugin.json",
+        "plugins/report/automations/report.json",
+    ] {
         let path = root.join(path);
         let mut definition: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         definition["may"] = json!(["gpu"]);
@@ -1192,33 +1733,86 @@ async fn real_origin_blender_render_retains_image_artifacts() {
     tool["entrypoint"] = json!(entrypoint);
     tool["requires"] = json!(["blender>=5.0"]);
     tool["timeoutSeconds"] = json!(180);
-    tool["args"] = json!(["--factory-startup", "--background", "-noaudio", "--python-exit-code", "1", "--python", "{entrypoint}", "--", "--family", "pillar-stack", "--seed", "3", "--out", "{output}/proof", "--scale", "0.1", "--samples", "2"]);
-    tool["pack"] = json!({"repositoryId":repository,"commit":revision,"sha256":project_store::hash(&bytes)});
+    tool["args"] = json!([
+        "--factory-startup",
+        "--background",
+        "-noaudio",
+        "--python-exit-code",
+        "1",
+        "--python",
+        "{entrypoint}",
+        "--",
+        "--family",
+        "pillar-stack",
+        "--seed",
+        "3",
+        "--out",
+        "{output}/proof",
+        "--scale",
+        "0.1",
+        "--samples",
+        "2"
+    ]);
+    tool["pack"] =
+        json!({"repositoryId":repository,"commit":revision,"sha256":project_store::hash(&bytes)});
     std::fs::write(path, tool.to_string()).unwrap();
     std::fs::remove_file(root.join("plugins/report/tools/report/run.py")).unwrap();
     let runtime = runtime(profile.path());
-    runtime.command(ProjectFileCommand::LinkRepository {
-        project_id: project.clone(), repository_id: repository,
-        expected_project_hash: project_store::hash(&std::fs::read(root.join("project.json")).unwrap()),
-        path: checkout.path().display().to_string(),
-    }, true).await.unwrap();
+    runtime
+        .command(
+            ProjectFileCommand::LinkRepository {
+                project_id: project.clone(),
+                repository_id: repository,
+                expected_project_hash: project_store::hash(
+                    &std::fs::read(root.join("project.json")).unwrap(),
+                ),
+                path: checkout.path().display().to_string(),
+            },
+            true,
+        )
+        .await
+        .unwrap();
     let id = approved_run(&runtime, &automation, "real-render").await;
     runtime.tick().await.unwrap();
     let run = tokio::time::timeout(Duration::from_secs(200), async {
         loop {
             let catalog = runtime.catalog(Some(project.clone()), None).await.unwrap();
-            let run = catalog.history.runs.into_iter().find(|run| run.id == id).unwrap();
-            if !["queued", "running"].contains(&run.status.as_str()) { break run; }
+            let run = catalog
+                .history
+                .runs
+                .into_iter()
+                .find(|run| run.id == id)
+                .unwrap();
+            if !["queued", "running"].contains(&run.status.as_str()) {
+                break run;
+            }
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
-    }).await.unwrap();
+    })
+    .await
+    .unwrap();
     for name in ["stdout.txt", "stderr.txt"] {
-        let log = std::fs::read_to_string(Path::new(&run.directory).join("logs").join(name)).unwrap_or_default();
-        eprintln!("{name}: {}", log.chars().rev().take(6000).collect::<String>().chars().rev().collect::<String>());
+        let log = std::fs::read_to_string(Path::new(&run.directory).join("logs").join(name))
+            .unwrap_or_default();
+        eprintln!(
+            "{name}: {}",
+            log.chars()
+                .rev()
+                .take(6000)
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect::<String>()
+        );
     }
     assert_eq!(run.status, "succeeded", "{:?}", run.error);
     let catalog = runtime.catalog(Some(project), None).await.unwrap();
-    let artifacts: Vec<_> = catalog.history.artifacts.iter().filter(|artifact| artifact.run_id == id).collect();
+    let artifacts: Vec<_> = catalog
+        .history
+        .artifacts
+        .iter()
+        .filter(|artifact| artifact.run_id == id)
+        .collect();
     assert_eq!(artifacts.len(), 2);
     for name in ["proof_raw.png", "proof_raw_z.png"] {
         assert!(artifacts.iter().any(|artifact| artifact.name == name));
@@ -1232,8 +1826,13 @@ async fn real_origin_blender_render_retains_image_artifacts() {
             std::fs::write(directory.join(name), &bytes).unwrap();
         }
     }
-    // Recapturing the approved pack rejects dirty, untracked or ignored source files.
-    runtime.command(ProjectFileCommand::ReviewAutomation { id: automation }, true).await.unwrap();
+    runtime
+        .command(
+            ProjectFileCommand::ReviewAutomation { id: automation },
+            true,
+        )
+        .await
+        .unwrap();
     eprintln!("Origin render verified at {revision}; two 108x144 PNG artifacts");
 }
 
@@ -1241,8 +1840,12 @@ async fn real_origin_blender_render_retains_image_artifacts() {
 #[ignore = "Runs real Codex and Blender with a disposable scheduled Origin studio project"]
 async fn real_scheduled_studio_uses_library_skill_and_required_tools() {
     let (checkout, revision) = clone_origin_kit();
-    assert_eq!(revision, "271fb05956913c730a5f496378406677e03f422f", "Use the fixture's pinned kit revision in the supplied checkout");
-    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/tests/fixtures/plugins/origin-studio");
+    assert_eq!(
+        revision, "271fb05956913c730a5f496378406677e03f422f",
+        "Use the fixture's pinned kit revision in the supplied checkout"
+    );
+    let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../scripts/tests/fixtures/plugins/origin-studio");
     let profile = tempfile::tempdir().unwrap();
     let project = "4b3ed31d-1e35-55af-94af-2968a11bc10b";
     let automation = "f5b40ea3-3aea-5319-b295-dca7f110827b";
@@ -1250,39 +1853,136 @@ async fn real_scheduled_studio_uses_library_skill_and_required_tools() {
     for entry in walkdir::WalkDir::new(&source) {
         let entry = entry.unwrap();
         let target = root.join(entry.path().strip_prefix(&source).unwrap());
-        if entry.file_type().is_dir() { std::fs::create_dir_all(target).unwrap(); }
-        else { std::fs::copy(entry.path(), target).unwrap(); }
+        if entry.file_type().is_dir() {
+            std::fs::create_dir_all(target).unwrap();
+        } else {
+            std::fs::copy(entry.path(), target).unwrap();
+        }
     }
     let runtime = runtime(profile.path());
-    runtime.command(ProjectFileCommand::LinkRepository {
-        project_id: project.into(), repository_id: "ceb98bdc-9cb0-5d60-b4e5-b17026f15a20".into(),
-        expected_project_hash: project_store::hash(&std::fs::read(root.join("project.json")).unwrap()),
-        path: checkout.path().display().to_string(),
-    }, true).await.unwrap();
-    let review = runtime.command(ProjectFileCommand::ReviewAutomation { id:automation.into() }, true).await.unwrap();
-    runtime.command(ProjectFileCommand::ApproveAutomation { id:automation.into(), expected_inputs_hash:review["inputsHash"].as_str().unwrap().into(), enable:true }, true).await.unwrap();
-    // Advance this disposable schedule's due time, then use the real scheduler path.
-    runtime.store.lock().unwrap().db.execute("UPDATE automation_state SET next_due_at=? WHERE automation_id=?", rusqlite::params![now()-1000,automation]).unwrap();
+    runtime
+        .command(
+            ProjectFileCommand::LinkRepository {
+                project_id: project.into(),
+                repository_id: "ceb98bdc-9cb0-5d60-b4e5-b17026f15a20".into(),
+                expected_project_hash: project_store::hash(
+                    &std::fs::read(root.join("project.json")).unwrap(),
+                ),
+                path: checkout.path().display().to_string(),
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    let review = runtime
+        .command(
+            ProjectFileCommand::ReviewAutomation {
+                id: automation.into(),
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    runtime
+        .command(
+            ProjectFileCommand::ApproveAutomation {
+                id: automation.into(),
+                expected_inputs_hash: review["inputsHash"].as_str().unwrap().into(),
+                enable: true,
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    runtime
+        .store
+        .lock()
+        .unwrap()
+        .db
+        .execute(
+            "UPDATE automation_state SET next_due_at=? WHERE automation_id=?",
+            rusqlite::params![now() - 1000, automation],
+        )
+        .unwrap();
     runtime.tick().await.unwrap();
     let run = tokio::time::timeout(Duration::from_secs(270), async {
         loop {
             let catalog = runtime.catalog(Some(project.into()), None).await.unwrap();
-            if let Some(run) = catalog.history.runs.into_iter().find(|run| run.automation_id == automation && !["queued","running"].contains(&run.status.as_str())) { break run; }
+            if let Some(run) = catalog.history.runs.into_iter().find(|run| {
+                run.automation_id == automation
+                    && !["queued", "running"].contains(&run.status.as_str())
+            }) {
+                break run;
+            }
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
-    }).await.unwrap();
-    let log = std::fs::read_to_string(Path::new(&run.directory).join("logs/agent.jsonl")).unwrap_or_default();
-    assert_eq!(run.status, "succeeded", "{:?}\n{}", run.error, log.chars().rev().take(10000).collect::<String>().chars().rev().collect::<String>());
-    assert!(run.snapshot["skills"].as_array().unwrap().iter().any(|skill| skill["name"] == "Procedural studio"));
+    })
+    .await
+    .unwrap();
+    let log = std::fs::read_to_string(Path::new(&run.directory).join("logs/agent.jsonl"))
+        .unwrap_or_default();
+    assert_eq!(
+        run.status,
+        "succeeded",
+        "{:?}\n{}",
+        run.error,
+        log.chars()
+            .rev()
+            .take(10000)
+            .collect::<String>()
+            .chars()
+            .rev()
+            .collect::<String>()
+    );
+    assert!(
+        run.snapshot["skills"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|skill| skill["name"] == "Procedural studio")
+    );
     assert!(run.conversation_available);
     let catalog = runtime.catalog(Some(project.into()), None).await.unwrap();
-    assert_eq!(catalog.history.runs.len(), 1, "One due occurrence should create one run");
-    let artifacts: Vec<_> = catalog.history.artifacts.iter().filter(|artifact| artifact.run_id == run.id).collect();
-    assert!(artifacts.iter().any(|artifact| artifact.name.ends_with("render_raw.png")));
-    assert!(artifacts.iter().any(|artifact| artifact.name.ends_with("render_raw_z.png")));
-    assert!(artifacts.iter().any(|artifact| artifact.name == "response.md"));
-    runtime.command(ProjectFileCommand::ReviewAutomation { id:automation.into() }, true).await.unwrap();
-    eprintln!("Scheduled studio run: {}\n{}", run.id, std::fs::read_to_string(Path::new(&run.directory).join("output/response.md")).unwrap());
+    assert_eq!(
+        catalog.history.runs.len(),
+        1,
+        "One due occurrence should create one run"
+    );
+    let artifacts: Vec<_> = catalog
+        .history
+        .artifacts
+        .iter()
+        .filter(|artifact| artifact.run_id == run.id)
+        .collect();
+    assert!(
+        artifacts
+            .iter()
+            .any(|artifact| artifact.name.ends_with("render_raw.png"))
+    );
+    assert!(
+        artifacts
+            .iter()
+            .any(|artifact| artifact.name.ends_with("render_raw_z.png"))
+    );
+    assert!(
+        artifacts
+            .iter()
+            .any(|artifact| artifact.name == "response.md")
+    );
+    runtime
+        .command(
+            ProjectFileCommand::ReviewAutomation {
+                id: automation.into(),
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    eprintln!(
+        "Scheduled studio run: {}\n{}",
+        run.id,
+        std::fs::read_to_string(Path::new(&run.directory).join("output/response.md")).unwrap()
+    );
 }
 
 #[tokio::test]
@@ -1294,7 +1994,13 @@ async fn history_projects_latest_reported_usage_without_guessing_missing_counts(
     assert!(runtime.run_for_chat(&id).unwrap().usage.is_none());
     {
         let store = runtime.store.lock().unwrap();
-        store.db.execute("UPDATE runs SET status='failed',error='fixture interruption' WHERE id=?", [&id]).unwrap();
+        store
+            .db
+            .execute(
+                "UPDATE runs SET status='failed',error='fixture interruption' WHERE id=?",
+                [&id],
+            )
+            .unwrap();
         for input in [10, 30] {
             event(&store.db, &id, "provider_usage", &json!({"provider":"codex","usage":{"total":{"inputTokens":input,"outputTokens":4,"cachedInputTokens":2}}})).unwrap();
         }
@@ -1306,7 +2012,10 @@ async fn history_projects_latest_reported_usage_without_guessing_missing_counts(
     assert_eq!(usage.input_tokens, Some(30));
     assert_eq!(usage.output_tokens, Some(4));
     assert_eq!(usage.reported_cost_usd, None);
-    assert_eq!(runtime.run_for_chat(&id).unwrap().usage.as_ref(), Some(usage));
+    assert_eq!(
+        runtime.run_for_chat(&id).unwrap().usage.as_ref(),
+        Some(usage)
+    );
 }
 
 #[tokio::test]
@@ -1325,21 +2034,44 @@ async fn real_codex_usage_is_durable_before_cancellation() {
     let observed = tokio::time::timeout(Duration::from_secs(60), async {
         loop {
             let run = runtime.run_for_chat(&id).unwrap();
-            if run.usage.is_some() || !["queued", "running"].contains(&run.status.as_str()) { break run; }
+            if run.usage.is_some() || !["queued", "running"].contains(&run.status.as_str()) {
+                break run;
+            }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-    }).await;
-    runtime.command(ProjectFileCommand::StopRun { id: id.clone() }, true).await.unwrap();
+    })
+    .await;
+    runtime
+        .command(ProjectFileCommand::StopRun { id: id.clone() }, true)
+        .await
+        .unwrap();
     let done = completed(&runtime, &project, &id).await;
     let observed = observed.expect("Provider did not report usage before timeout");
-    assert_eq!(observed.status, "running", "Usage arrived only after the run finished");
+    assert_eq!(
+        observed.status, "running",
+        "Usage arrived only after the run finished"
+    );
     let usage = observed.usage.expect("No live usage");
     assert!(usage.input_tokens.is_some_and(|count| count > 0));
     assert_eq!(done.status, "cancelled");
-    assert!(done.usage.as_ref().and_then(|usage| usage.input_tokens).is_some_and(|count| count >= usage.input_tokens.unwrap()));
+    assert!(
+        done.usage
+            .as_ref()
+            .and_then(|usage| usage.input_tokens)
+            .is_some_and(|count| count >= usage.input_tokens.unwrap())
+    );
     let db = rusqlite::Connection::open(profile.path().join("projects.sqlite3")).unwrap();
-    let count: i64 = db.query_row("SELECT count(*) FROM run_events WHERE run_id=? AND kind='provider_usage'", [&id], |row| row.get(0)).unwrap();
-    assert!(count > 0, "Usage must be committed, not just held in memory");
+    let count: i64 = db
+        .query_row(
+            "SELECT count(*) FROM run_events WHERE run_id=? AND kind='provider_usage'",
+            [&id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(
+        count > 0,
+        "Usage must be committed, not just held in memory"
+    );
 }
 
 #[tokio::test]
@@ -1349,7 +2081,13 @@ async fn history_keeps_active_work_visible_without_changing_past_pagination() {
     let runtime = runtime(profile.path());
     let id = approved_run(&runtime, &automation, "active-history").await;
     let store = runtime.store.lock().unwrap();
-    store.db.execute("UPDATE runs SET status='running',requested_at=1 WHERE id=?", [&id]).unwrap();
+    store
+        .db
+        .execute(
+            "UPDATE runs SET status='running',requested_at=1 WHERE id=?",
+            [&id],
+        )
+        .unwrap();
     for index in 0..53 {
         store.db.execute(
             "INSERT INTO runs (id,project_id,automation_id,name,status,requested_at,snapshot,request_key,input_hash) SELECT ?1,project_id,automation_id,name,?2,?3,snapshot,?1,input_hash FROM runs WHERE id=?4",
@@ -1357,13 +2095,26 @@ async fn history_keeps_active_work_visible_without_changing_past_pagination() {
         ).unwrap();
     }
     let latest = crate::project_runs::history(&store.db, profile.path(), &project, None).unwrap();
-    assert_eq!(latest.runs.len(), 52); // Two active jobs plus fifty past results.
+    assert_eq!(latest.runs.len(), 52);
     assert!(latest.runs.iter().any(|run| run.id == id));
     assert!(latest.runs.iter().any(|run| run.status == "queued"));
     assert!(latest.has_more_runs);
     assert_eq!(latest.next_run_cursor.as_deref(), Some("102:history-002"));
-    let older = crate::project_runs::history(&store.db, profile.path(), &project, latest.next_run_cursor.as_deref()).unwrap();
-    assert_eq!(older.runs.iter().map(|run| run.id.as_str()).collect::<Vec<_>>(), vec!["history-001", "history-000"]);
+    let older = crate::project_runs::history(
+        &store.db,
+        profile.path(),
+        &project,
+        latest.next_run_cursor.as_deref(),
+    )
+    .unwrap();
+    assert_eq!(
+        older
+            .runs
+            .iter()
+            .map(|run| run.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["history-001", "history-000"]
+    );
     assert!(!older.has_more_runs);
     assert!(older.next_run_cursor.is_none());
 }
@@ -1371,7 +2122,15 @@ async fn history_keeps_active_work_visible_without_changing_past_pagination() {
 #[tokio::test]
 async fn mcp_library_tools_use_approved_processes_and_retain_protocol_failures() {
     let script = include_str!("../../../../scripts/tests/fixtures/plugins/stdio-mcp/server.py");
-    for mode in ["success", "missing", "error", "slow", "overflow", "invalid-schema", "collision"] {
+    for mode in [
+        "success",
+        "missing",
+        "error",
+        "slow",
+        "overflow",
+        "invalid-schema",
+        "collision",
+    ] {
         let profile = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
         let target = outside.path().join("unapproved.txt");
@@ -1441,9 +2200,13 @@ async fn mcp_library_tools_use_approved_processes_and_retain_protocol_failures()
             }
         }
         if mode == "collision" {
-            assert_eq!(std::fs::read_to_string(output.join("mcp-response.json")).unwrap(), "server-owned output");
+            assert_eq!(
+                std::fs::read_to_string(output.join("mcp-response.json")).unwrap(),
+                "server-owned output"
+            );
         }
-        let process: Value = serde_json::from_slice(&std::fs::read(logs.join("process.json")).unwrap()).unwrap();
+        let process: Value =
+            serde_json::from_slice(&std::fs::read(logs.join("process.json")).unwrap()).unwrap();
         let pid = process["pid"].as_u64().unwrap().to_string();
         assert!(
             !std::process::Command::new("/bin/kill")
@@ -1536,7 +2299,9 @@ async fn mcp_agent_grant_records_outputs_and_revokes_after_library_edit() {
 async fn credential_relay_tool_scope_has_no_raw_key_and_requires_network() {
     use inferay_core::connections::ConnectionCommand;
     let profile = tempfile::tempdir().unwrap();
-    let (project, automation) = definition_files(profile.path(), r#"import os,json,urllib.request,urllib.error
+    let (project, automation) = definition_files(
+        profile.path(),
+        r#"import os,json,urllib.request,urllib.error
 from pathlib import Path
 url=os.environ['INFERAY_CONNECTIONS_URL']
 try:
@@ -1546,18 +2311,30 @@ except urllib.error.HTTPError as error:
  assert error.code == 404, error.code
 Path(os.environ['INFERAY_RUN_OUTPUT'],'relay.json').write_text(json.dumps({'url':url,'environment':dict(os.environ)}))
 print(json.dumps({'artifacts':['relay.json']}))
-"#);
+"#,
+    );
     let runtime = runtime(profile.path());
     let secret = format!("temporary-relay-key-{}", uuid::Uuid::new_v4());
-    let saved = runtime.connections.apply(ConnectionCommand::Save {
-        project_id: project.clone(), id: None, expected_revision: None,
-        name: "Tool relay fixture".into(), secret: secret.clone(),
-    }).unwrap().unwrap();
-    struct Cleanup(Arc<crate::connections::Store>, inferay_core::connections::ConnectionInfo);
+    let saved = runtime
+        .connections
+        .apply(ConnectionCommand::Save {
+            project_id: project.clone(),
+            id: None,
+            expected_revision: None,
+            name: "Tool relay fixture".into(),
+            secret: secret.clone(),
+        })
+        .unwrap()
+        .unwrap();
+    struct Cleanup(
+        Arc<crate::connections::Store>,
+        inferay_core::connections::ConnectionInfo,
+    );
     impl Drop for Cleanup {
         fn drop(&mut self) {
             let _ = self.0.apply(ConnectionCommand::Delete {
-                project_id: self.1.project_id.clone(), id: self.1.id.clone(),
+                project_id: self.1.project_id.clone(),
+                id: self.1.id.clone(),
                 expected_revision: self.1.revision.clone(),
             });
         }
@@ -1574,8 +2351,15 @@ print(json.dumps({'artifacts':['relay.json']}))
     let denied = completed(&runtime, &project, &denied).await;
     assert_eq!(denied.status, "failed");
     assert!(denied.error.unwrap().contains("network permission"));
-    assert!(!Path::new(&denied.directory).join("output/relay.json").exists());
-    for path in ["plugins/report/plugin.json", "plugins/report/automations/report.json"] {
+    assert!(
+        !Path::new(&denied.directory)
+            .join("output/relay.json")
+            .exists()
+    );
+    for path in [
+        "plugins/report/plugin.json",
+        "plugins/report/automations/report.json",
+    ] {
         let file = root.join(path);
         let mut body: Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
         body["may"] = json!(["network"]);
@@ -1586,16 +2370,26 @@ print(json.dumps({'artifacts':['relay.json']}))
     runtime.tick().await.unwrap();
     let done = completed(&runtime, &project, &id).await;
     assert_eq!(done.status, "succeeded", "{:?}", done.error);
-    let output: Value = serde_json::from_slice(&std::fs::read(Path::new(&done.directory).join("output/relay.json")).unwrap()).unwrap();
+    let output: Value = serde_json::from_slice(
+        &std::fs::read(Path::new(&done.directory).join("output/relay.json")).unwrap(),
+    )
+    .unwrap();
     let expired = format!("{}/UNKNOWN?path=hash", output["url"].as_str().unwrap());
     assert!(reqwest::Client::new().get(expired).send().await.is_err());
     fn check_files(path: &Path, secret: &str) {
         for entry in std::fs::read_dir(path).unwrap() {
             let entry = entry.unwrap();
-            if entry.file_type().unwrap().is_dir() { check_files(&entry.path(), secret); }
-            else if entry.file_type().unwrap().is_file() {
+            if entry.file_type().unwrap().is_dir() {
+                check_files(&entry.path(), secret);
+            } else if entry.file_type().unwrap().is_file() {
                 let bytes = std::fs::read(entry.path()).unwrap();
-                assert!(!bytes.windows(secret.len()).any(|window| window == secret.as_bytes()), "credential leaked into {}", entry.path().display());
+                assert!(
+                    !bytes
+                        .windows(secret.len())
+                        .any(|window| window == secret.as_bytes()),
+                    "credential leaked into {}",
+                    entry.path().display()
+                );
             }
         }
     }
@@ -1607,9 +2401,18 @@ async fn finishing_a_run_preserves_its_open_chat() {
     let profile = tempfile::tempdir().unwrap();
     let (project, automation) = definition_files(profile.path(), "print('{}')");
     let runtime = runtime(profile.path());
-    for (key, result) in [("success", Ok(json!({"message":"Done"}))), ("failure", Err("Failed".into()))] {
+    for (key, result) in [
+        ("success", Ok(json!({"message":"Done"}))),
+        ("failure", Err("Failed".into())),
+    ] {
         let id = approved_run(&runtime, &automation, key).await;
-        runtime.store.lock().unwrap().db.execute("UPDATE runs SET status='running' WHERE id=?", [&id]).unwrap();
+        runtime
+            .store
+            .lock()
+            .unwrap()
+            .db
+            .execute("UPDATE runs SET status='running' WHERE id=?", [&id])
+            .unwrap();
         runtime.attach_run_chat(&id, "existing-chat").unwrap();
         runtime.finish(&id, &project, result).unwrap();
         let run = runtime.run_for_chat(&id).unwrap();
@@ -1623,11 +2426,29 @@ async fn effect_artifacts_are_durable_deduplicated_and_conflict_safe() {
     let (project, automation) = definition_files(profile.path(), "print('{}')");
     let runtime = runtime(profile.path());
     let mut first = String::new();
-    for (key, text, expected_status) in [("original", "Hello", "succeeded"), ("retry", "Hello", "succeeded"), ("conflict", "Changed", "failed")] {
+    for (key, text, expected_status) in [
+        ("original", "Hello", "succeeded"),
+        ("retry", "Hello", "succeeded"),
+        ("conflict", "Changed", "failed"),
+    ] {
         let id = approved_run(&runtime, &automation, key).await;
-        if first.is_empty() { first.clone_from(&id); }
-        runtime.store.lock().unwrap().db.execute("UPDATE runs SET status='running' WHERE id=?", [&id]).unwrap();
-        let output = profile.path().join("projects").join(&project).join("runs").join(&id).join("output");
+        if first.is_empty() {
+            first.clone_from(&id);
+        }
+        runtime
+            .store
+            .lock()
+            .unwrap()
+            .db
+            .execute("UPDATE runs SET status='running' WHERE id=?", [&id])
+            .unwrap();
+        let output = profile
+            .path()
+            .join("projects")
+            .join(&project)
+            .join("runs")
+            .join(&id)
+            .join("output");
         std::fs::create_dir_all(&output).unwrap();
         let intent = json!({"schema":"inferay.effect/1","key":"daily-message","kind":"fixture.send","target":"test-account","payload":{"text":text},"notBefore":null});
         std::fs::write(output.join("intent.json"), intent.to_string()).unwrap();
@@ -1636,26 +2457,59 @@ async fn effect_artifacts_are_durable_deduplicated_and_conflict_safe() {
             first_intent["key"] = json!("must-roll-back");
             std::fs::write(output.join("first.json"), first_intent.to_string()).unwrap();
             json!(["first.json", "intent.json"])
-        } else { json!(["intent.json"]) };
-        runtime.finish(&id, &project, Ok(json!({"artifacts":artifacts}))).unwrap();
+        } else {
+            json!(["intent.json"])
+        };
+        runtime
+            .finish(&id, &project, Ok(json!({"artifacts":artifacts})))
+            .unwrap();
         assert_eq!(runtime.run_for_chat(&id).unwrap().status, expected_status);
-        let history = runtime.store.lock().unwrap().history(&project,None).unwrap();
+        let history = runtime
+            .store
+            .lock()
+            .unwrap()
+            .history(&project, None)
+            .unwrap();
         assert_eq!(history.effects.len(), 1);
         assert_eq!(history.effects[0].run_id, first);
         assert_eq!(history.effects[0].intent.payload["text"], "Hello");
         if expected_status == "failed" {
-            assert!(!history.artifacts.iter().any(|artifact| artifact.run_id == id));
+            assert!(
+                !history
+                    .artifacts
+                    .iter()
+                    .any(|artifact| artifact.run_id == id)
+            );
         }
     }
-    let effect = runtime.store.lock().unwrap().history(&project,None).unwrap().effects.remove(0);
-    let mut review = inferay_core::projects::EffectReviewRequest {id:effect.id, intent_hash:"stale".into()};
+    let effect = runtime
+        .store
+        .lock()
+        .unwrap()
+        .history(&project, None)
+        .unwrap()
+        .effects
+        .remove(0);
+    let mut review = inferay_core::projects::EffectReviewRequest {
+        id: effect.id,
+        intent_hash: "stale".into(),
+    };
     assert!(crate::project_effects::dismiss(&runtime.store.lock().unwrap().db, &review).is_err());
     review.intent_hash = effect.intent_hash;
-    let dismissed = crate::project_effects::dismiss(&runtime.store.lock().unwrap().db, &review).unwrap();
-    assert_eq!(crate::project_effects::dismiss(&runtime.store.lock().unwrap().db, &review).unwrap(), dismissed);
+    let dismissed =
+        crate::project_effects::dismiss(&runtime.store.lock().unwrap().db, &review).unwrap();
+    assert_eq!(
+        crate::project_effects::dismiss(&runtime.store.lock().unwrap().db, &review).unwrap(),
+        dismissed
+    );
     drop(runtime);
     let reopened = self::runtime(profile.path());
-    let history = reopened.store.lock().unwrap().history(&project,None).unwrap();
+    let history = reopened
+        .store
+        .lock()
+        .unwrap()
+        .history(&project, None)
+        .unwrap();
     assert_eq!(history.effects.len(), 1);
     assert_eq!(history.effects[0].artifact, "intent.json");
     assert_eq!(history.effects[0].dismissed_at, Some(dismissed));
@@ -1669,68 +2523,170 @@ async fn shared_tool_runner_uses_explicit_authority_without_an_automation_snapsh
     std::fs::create_dir_all(&root).unwrap();
     let root = root.canonicalize().unwrap();
     let script = "import json,os,pathlib\npathlib.Path(os.environ['INFERAY_RUN_OUTPUT'],'ran.txt').write_text('ran')\nprint(json.dumps({'artifacts':['ran.txt']}))\n";
-    std::fs::write(root.join("handler.py"),script).unwrap();
+    std::fs::write(root.join("handler.py"), script).unwrap();
     let make_tool = || LocalTool {
         interface: ToolInterface::JsonStdin,
         program: "python3".into(),
-        entrypoint: ProjectPath::Project {path:"handler.py".into()},
-        arguments: vec![ToolArgument::Literal(root.join("handler.py").to_string_lossy().into())],
-        working_directory: ProjectPath::Project {path:".".into()},
+        entrypoint: ProjectPath::Project {
+            path: "handler.py".into(),
+        },
+        arguments: vec![ToolArgument::Literal(
+            root.join("handler.py").to_string_lossy().into(),
+        )],
+        working_directory: ProjectPath::Project { path: ".".into() },
         timeout_seconds: 5,
         input_schema: json!({"type":"object"}),
         output_schema: json!({"type":"object"}),
     };
-    // Effect handlers supply their own reviewed permissions and cancellation owner.
-    // There is deliberately no automation definition or run row in this snapshot.
     let snapshot = json!({"projectId":"fixture","repositoryPaths":{}});
-    let permissions=std::collections::BTreeSet::new();
-    let digest=project_store::hash(script.as_bytes());
-    let cancelled_dir=root.join("cancelled");
-    let error=tool::execute(&runtime,tool::Invocation {
-        id:"cancelled",root:&root,dir:&cancelled_dir,call:None,connection_tool:None,
-        tool:make_tool(),input:json!({}),snapshot:&snapshot,entrypoint_hash:&digest,
-        permissions:&permissions,cancelled:&||true,
-    }).await.unwrap_err();
-    assert!(error.to_string().contains("Cancelled before tool launch"), "{error}");
+    let permissions = std::collections::BTreeSet::new();
+    let digest = project_store::hash(script.as_bytes());
+    let cancelled_dir = root.join("cancelled");
+    let error = tool::execute(
+        &runtime,
+        tool::Invocation {
+            id: "cancelled",
+            root: &root,
+            dir: &cancelled_dir,
+            call: None,
+            connection_tool: None,
+            tool: make_tool(),
+            input: json!({}),
+            snapshot: &snapshot,
+            entrypoint_hash: &digest,
+            permissions: &permissions,
+            cancelled: &|| true,
+        },
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        error.to_string().contains("Cancelled before tool launch"),
+        "{error}"
+    );
     assert!(!cancelled_dir.exists());
     assert!(!cancelled_dir.join("output/ran.txt").exists());
-    let invalid_dir=root.join("invalid-input");
-    let mut invalid_tool=make_tool();
-    invalid_tool.input_schema=json!({"type":"object","required":["count"],"properties":{"count":{"type":"integer"}}});
-    assert!(tool::execute(&runtime,tool::Invocation {
-        id:"invalid",root:&root,dir:&invalid_dir,call:None,connection_tool:None,
-        tool:invalid_tool,input:json!({"count":"wrong"}),snapshot:&snapshot,entrypoint_hash:&digest,
-        permissions:&permissions,cancelled:&||false,
-    }).await.is_err());
+    let invalid_dir = root.join("invalid-input");
+    let mut invalid_tool = make_tool();
+    invalid_tool.input_schema =
+        json!({"type":"object","required":["count"],"properties":{"count":{"type":"integer"}}});
+    assert!(
+        tool::execute(
+            &runtime,
+            tool::Invocation {
+                id: "invalid",
+                root: &root,
+                dir: &invalid_dir,
+                call: None,
+                connection_tool: None,
+                tool: invalid_tool,
+                input: json!({"count":"wrong"}),
+                snapshot: &snapshot,
+                entrypoint_hash: &digest,
+                permissions: &permissions,
+                cancelled: &|| false,
+            }
+        )
+        .await
+        .is_err()
+    );
     assert!(!invalid_dir.exists());
-    let dir=root.join("allowed");
-    let result=tool::execute(&runtime,tool::Invocation {
-        id:"allowed",root:&root,dir:&dir,call:None,connection_tool:None,
-        tool:make_tool(),input:json!({}),snapshot:&snapshot,entrypoint_hash:&digest,
-        permissions:&permissions,cancelled:&||false,
-    }).await.unwrap();
-    assert_eq!(result["artifacts"],json!(["ran.txt"]));
-    assert_eq!(std::fs::read_to_string(dir.join("output/ran.txt")).unwrap(),"ran");
+    let dir = root.join("allowed");
+    let result = tool::execute(
+        &runtime,
+        tool::Invocation {
+            id: "allowed",
+            root: &root,
+            dir: &dir,
+            call: None,
+            connection_tool: None,
+            tool: make_tool(),
+            input: json!({}),
+            snapshot: &snapshot,
+            entrypoint_hash: &digest,
+            permissions: &permissions,
+            cancelled: &|| false,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(result["artifacts"], json!(["ran.txt"]));
+    assert_eq!(
+        std::fs::read_to_string(dir.join("output/ran.txt")).unwrap(),
+        "ran"
+    );
 }
 
 #[tokio::test]
 async fn effect_handlers_cannot_enter_ordinary_automation_execution() {
     let root = tempfile::tempdir().unwrap();
-    let (project, automation) = definition_files(root.path(), "raise Exception('must never launch')");
-    let tool_path = root.path().join("projects").join(&project).join("plugins/report/tools/report/tool.json");
-    let mut tool: serde_json::Value = serde_json::from_slice(&std::fs::read(&tool_path).unwrap()).unwrap();
+    let (project, automation) =
+        definition_files(root.path(), "raise Exception('must never launch')");
+    let tool_path = root
+        .path()
+        .join("projects")
+        .join(&project)
+        .join("plugins/report/tools/report/tool.json");
+    let mut tool: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&tool_path).unwrap()).unwrap();
     tool["effectHandler"] = json!({"kinds":["example.deliver"],"retrySafety":"never"});
     std::fs::write(&tool_path, tool.to_string()).unwrap();
     let runtime = runtime(root.path());
-    let error = runtime.command(ProjectFileCommand::ReviewAutomation { id: automation.clone() }, true).await.unwrap_err();
-    assert!(error.to_string().contains("Effect handlers require delivery approval"), "{error}");
-    let automation_path = root.path().join("projects").join(&project).join("plugins/report/automations/report.json");
-    let plugin: serde_json::Value = serde_json::from_slice(&std::fs::read(root.path().join("projects").join(&project).join("plugins/report/plugin.json")).unwrap()).unwrap();
-    let mut definition: serde_json::Value = serde_json::from_slice(&std::fs::read(&automation_path).unwrap()).unwrap();
+    let error = runtime
+        .command(
+            ProjectFileCommand::ReviewAutomation {
+                id: automation.clone(),
+            },
+            true,
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("Effect handlers require delivery approval"),
+        "{error}"
+    );
+    let automation_path = root
+        .path()
+        .join("projects")
+        .join(&project)
+        .join("plugins/report/automations/report.json");
+    let plugin: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(
+            root.path()
+                .join("projects")
+                .join(&project)
+                .join("plugins/report/plugin.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut definition: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&automation_path).unwrap()).unwrap();
     definition["execution"] = json!({"kind":"agent","provider":"codex","model":null,"reasoningLevel":null,"instructions":"Use the library","skills":[],"resources":[],"repositories":[],"tools":[{"pluginId":plugin["id"],"toolId":tool["id"]}],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":60});
     std::fs::write(automation_path, definition.to_string()).unwrap();
     runtime.catalog(Some(project.clone()), None).await.unwrap();
-    let error = runtime.command(ProjectFileCommand::ReviewAutomation { id: automation }, true).await.unwrap_err();
-    assert!(error.to_string().contains("Effect handlers require delivery approval"), "{error}");
-    assert!(runtime.catalog(Some(project), None).await.unwrap().history.runs.is_empty());
+    let error = runtime
+        .command(
+            ProjectFileCommand::ReviewAutomation { id: automation },
+            true,
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("Effect handlers require delivery approval"),
+        "{error}"
+    );
+    assert!(
+        runtime
+            .catalog(Some(project), None)
+            .await
+            .unwrap()
+            .history
+            .runs
+            .is_empty()
+    );
 }

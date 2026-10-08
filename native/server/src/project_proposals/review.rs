@@ -1,4 +1,3 @@
-//! Read-only comparison of a proposed library with the exact current package.
 use super::*;
 use std::{collections::BTreeSet, path::Path};
 

@@ -1,12 +1,11 @@
 import { iconSize } from "@design-system/styles.stylex.ts";
 import { ariaValue } from "@shared/lib/dom.tsx";
-import { IconBookmark, IconCheck } from "@shared/ui/Icons/index.tsx";
 import { memoryTitle, saveMemoryNote } from "@shared/services/memoryApi.ts";
+import { IconBookmark, IconCheck } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createSignal } from "solid-js";
 import { styles } from "./styles.ts";
 
-/** Saves one message as a project memory note, linked back to this chat. */
 export function MemoryButton(props: {
 	paneId: string;
 	messageId: string;

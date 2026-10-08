@@ -1,5 +1,3 @@
-//! Turn-scoped loopback MCP transport. Provider tools share the native dispatcher;
-//! no public API credential or provider configuration is modified.
 use crate::agent_runner::AgentProcessHandle;
 use axum::{
     Json, Router,

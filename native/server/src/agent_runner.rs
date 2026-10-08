@@ -56,7 +56,6 @@ pub struct AgentProcessHandle {
     sandbox: Option<crate::automation_sandbox::AutomationSandbox>,
 }
 
-/// Project memory available to one chat turn or automation run. Reads are collected for run provenance.
 #[derive(Clone)]
 pub(crate) struct MemoryScope {
     pub runtime: Arc<crate::project_runtime::ProjectRuntime>,
@@ -102,7 +101,10 @@ impl AgentProcessHandle {
         self
     }
 
-    pub(crate) fn with_sandbox(mut self, sandbox: crate::automation_sandbox::AutomationSandbox) -> Self {
+    pub(crate) fn with_sandbox(
+        mut self,
+        sandbox: crate::automation_sandbox::AutomationSandbox,
+    ) -> Self {
         self.sandbox = Some(sandbox);
         self
     }
@@ -115,10 +117,16 @@ impl AgentProcessHandle {
     pub(crate) fn tool_definitions(&self) -> Value {
         let mut definitions = inferay_core::prompts::tools::tool_definitions();
         if self.tools.is_some() {
-            definitions.as_array_mut().unwrap().push(crate::project_tools::ToolScope::execution_definition());
+            definitions
+                .as_array_mut()
+                .unwrap()
+                .push(crate::project_tools::ToolScope::execution_definition());
         }
         if self.tools.as_ref().is_some_and(|tools| tools.available()) {
-            definitions.as_array_mut().unwrap().push(crate::project_tools::ToolScope::definition());
+            definitions
+                .as_array_mut()
+                .unwrap()
+                .push(crate::project_tools::ToolScope::definition());
         }
         if self.projects.is_some() {
             definitions.as_array_mut().unwrap().push(json!({"type":"function","name":"inferay_projects","description":"Inspect file-backed Inferay projects, resources, plugins and automations. Use help for the current file formats and commands. createPlugin and updatePlugin prepare one complete library proposal card without saving or enabling it. Read the current library hash before proposing updates. Standalone automation saveDefinition prepares an automation card. Definitions are files; never edit SQLite. Approval, writes and execution require a user action. Skills are reusable instructions; automations are scheduled or manually triggered executions. Do not create a skill for an automation request unless explicitly asked.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["list","help","command"]},"projectId":{"type":"string"},"command":{"type":"object"}},"required":["action"]}}));
@@ -132,8 +140,6 @@ impl AgentProcessHandle {
         definitions
     }
 
-    /// All providers share tool policy and proposal construction. Transports
-    /// only translate the returned output and optional persisted card.
     pub(crate) async fn call_tool(
         &self,
         tool: &str,
@@ -141,13 +147,27 @@ impl AgentProcessHandle {
     ) -> Result<(Value, Option<Value>), String> {
         if tool == "inferay_exec" {
             let scope = self.tools.as_ref().ok_or("No automation execution scope")?;
-            let mut args = args.as_object().cloned().ok_or("Command arguments must be an object")?;
+            let mut args = args
+                .as_object()
+                .cloned()
+                .ok_or("Command arguments must be an object")?;
             args.insert("action".into(), json!("execute"));
-            return scope.call(json!(args)).await.map(|result| (result, None)).map_err(|error| error.to_string());
+            return scope
+                .call(json!(args))
+                .await
+                .map(|result| (result, None))
+                .map_err(|error| error.to_string());
         }
         if tool == "inferay_tools" {
-            let scope = self.tools.as_ref().ok_or("No library tools are granted to this run")?;
-            return scope.call(args).await.map(|result| (result, None)).map_err(|error| error.to_string());
+            let scope = self
+                .tools
+                .as_ref()
+                .ok_or("No library tools are granted to this run")?;
+            return scope
+                .call(args)
+                .await
+                .map(|result| (result, None))
+                .map_err(|error| error.to_string());
         }
         if tool == "inferay_projects" {
             if let Some(projects) = &self.projects {
@@ -458,7 +478,12 @@ pub async fn run_codex(
     state: &mut CodexProtocolState,
     emissions: &mpsc::UnboundedSender<ProtocolEmission>,
 ) -> String {
-    let mut child = match spawn_codex_app_server(run.binary, &run.invocation.cwd, run.env, handle.sandbox.as_ref()) {
+    let mut child = match spawn_codex_app_server(
+        run.binary,
+        &run.invocation.cwd,
+        run.env,
+        handle.sandbox.as_ref(),
+    ) {
         Ok(child) => child,
         Err(error) => {
             if !handle.is_cancelled() {
@@ -1072,10 +1097,13 @@ fn spawn_codex_app_server(
     policy: Option<&crate::automation_sandbox::AutomationSandbox>,
 ) -> std::io::Result<tokio::process::Child> {
     let mut command = match policy {
-        Some(policy) => policy.codex_command(binary, env).map_err(std::io::Error::other)?,
+        Some(policy) => policy
+            .codex_command(binary, env)
+            .map_err(std::io::Error::other)?,
         None => Command::new(binary),
     };
-    command.args(["app-server", "--listen", "stdio://"])
+    command
+        .args(["app-server", "--listen", "stdio://"])
         .current_dir(cwd)
         .env_clear()
         .envs(env)
@@ -1344,7 +1372,10 @@ mod runner_tests {
             let original = config.clone();
             let mut params = json!({});
             configure_codex_session(&mut params, &config, &HashMap::new(), None).unwrap();
-            assert_eq!(params["config"]["mcp_servers"]["GitKraken"]["enabled"], false);
+            assert_eq!(
+                params["config"]["mcp_servers"]["GitKraken"]["enabled"],
+                false
+            );
             assert!(params["config"]["mcp_servers"].get("linear").is_none());
             assert_eq!(config, original);
         }
@@ -1354,7 +1385,8 @@ mod runner_tests {
             &json!({"model_provider": "custom"}),
             &HashMap::new(),
             None,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(params["config"], json!({}));
     }
 

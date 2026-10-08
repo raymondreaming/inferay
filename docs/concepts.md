@@ -2,7 +2,7 @@
 
 Inferay is a desktop workspace for working with Claude and Codex, and a local harness that turns what you build in chat into capabilities that run on their own: on a schedule, under your approval, with a record of what they did. This page explains each building block and how they differ. File formats are in [reference/project-files.md](reference/project-files.md); the rules the core enforces are in [ADR 0002](adr/0002-automation-kernel.md).
 
-Status words on this page: **works** (runs in the current build), **defined** (format and validator exist; the storage switch to files is in progress, see the [roadmap](roadmap.md)), **planned** (designed, not built).
+Status words on this page: **works** (runs in the current build), **planned** (designed, not built). Definitions are files; see the [roadmap](roadmap.md) for remaining gates.
 
 ## The one-paragraph model
 
@@ -26,20 +26,20 @@ Project ─┬─ Repositories (linked, never copied)
 | Concept | What it is | Owned by | Status |
 |---|---|---|---|
 | **Chat** | A conversation with Claude or Codex in a pane, optionally attached to a project or repository. Where you work day to day and where plugins get authored. | chat runtime | works |
-| **Project** | Durable identity for one effort, independent of any folder: name, instructions, linked repositories. Has a managed folder for its definitions and files. | project store | works; file-owned definition **defined** |
-| **Repository** | A folder you work in (usually Git). Linked to a project by ID; the path on this Mac is local state, so the same project can point at different checkouts on different Macs. Inferay never copies it. | project + local path table | works; ID references **defined** |
-| **Record** | A typed, structured fact stored in Memory: `brand.brand`, `brand.mind`, `brand.genome`, or a type a plugin adds. Agents get a resource only when an automation or chat explicitly selects it. | project | works; file-owned **defined** |
+| **Project** | Durable identity for one effort, independent of any folder: name, instructions, linked repositories. Has a managed folder for its definitions and files. | project store | works (file-owned definition) |
+| **Repository** | A folder you work in (usually Git). Linked to a project by ID; the path on this Mac is local state, so the same project can point at different checkouts on different Macs. Inferay never copies it. | project + local path table | works (ID references) |
+| **Record** | A typed, structured fact stored in Memory: `brand.brand`, `brand.mind`, `brand.genome`, or a type a plugin adds. Agents get a resource only when an automation or chat explicitly selects it. | project | works (file-owned); no Memory page view yet |
 | **Skill** | Markdown instructions with a name and description: how to do something. Global skills live in the Skills library (bundled with the app, plus your own); project skills live inside a plugin. A skill holds judgment, never secrets or schedules. | Skills library / plugin | works (global and plugin-local) |
-| **Tool** | A program Inferay runs with a declared input and output schema, a timeout and captured logs. Holds rules and measurements: a check that must pass or fail is a tool, not a skill. | plugin | works; in-plugin **defined** |
-| **Automation** | A saved job: a trigger (manual, interval, or calendar time in a timezone), an execution (an agent with chosen skills, resources and repositories, or a single tool), an overlap policy, and the permissions it needs (`may`). | project; optionally supplied by a plugin | works; standalone file layout in progress |
+| **Tool** | A program Inferay runs with a declared input and output schema, a timeout and captured logs. Holds rules and measurements: a check that must pass or fail is a tool, not a skill. | plugin | works (in-plugin) |
+| **Automation** | A saved job: a trigger (manual, interval, or calendar time in a timezone), an execution (an agent with chosen skills, resources and repositories, or a single tool), an overlap policy, and the permissions it needs (`may`). | project; optionally supplied by a plugin | works (standalone or in a plugin) |
 | **Plugin** | A persistent folder of reusable code and supporting files for a capability, plus a descriptive manifest and declared permissions. Skills, tools and automations are optional. The unit you approve, share (by copying the folder) and see in the Plugins view. | project | works; imported-folder organization through chat remains unfinished |
 | **Run** | One execution of an automation: captured inputs, state (`queued`, `running`, `succeeded`, `failed`, `waiting_input`, `cancelled`, `interrupted`, `skipped`), events, logs, artifacts. A crash or restart never turns into success. | run store | works |
 | **Artifact** | A file a run declares as output (a report, a render, a JSON result), with its size and hash. | run | works |
-| **Approval** | Your local decision that an automation may run on its schedule, stored as a hash of every input it reads. Any change to those inputs turns the schedule off until you enable it again. | local state | works (snapshot hash); file-input hashing **defined** |
-| **Memory** | The project's long-term knowledge: notes saved from chats and runs, dropped files, and typed records. Agents search and read it through a `memory` tool instead of loading it all. Memory informs; it never authorizes. See [memory.md](memory.md). | project | notes **work**; files and records on the page **planned** (M2) |
-| **Pack** | Someone else's folder of scripts and modules (for example a Blender kit) linked as a repository and used in place, pinned by commit. Not a separate object: a repository a plugin's tools point into. | repository + plugin | **planned** (E1) |
-| **Connection** | A secret (API key, token) held in the Keychain and injected only into the tools that declare it. Never in a definition file, never shown to an agent. | core | Keychain management works; approved tool bindings and injection are **planned** (E4). See [Connections](connections.md). |
-| **Effect** | A consequential action outside Inferay (post, deploy, send, spend). Runs emit effect *intents*; the core checks them against an approved budget, records them in an outbox before sending, and reconciles receipts. | core + handler plugin | **planned** (E5) |
+| **Approval** | Your local decision that an automation may run on its schedule, stored as a hash of every input it reads. Any change to those inputs turns the schedule off until you enable it again. | local state | works (hash of file inputs) |
+| **Memory** | The project's long-term knowledge: notes saved from chats and runs, dropped files, and typed records. Agents search and read it through a `memory` tool instead of loading it all. Memory informs; it never authorizes. See [memory.md](memory.md). | project | notes, dropped files and graph view **work**; records on the page **planned** |
+| **Pack** | Someone else's folder of scripts and modules (for example a Blender kit) linked as a repository and used in place, pinned by commit. Not a separate object: a repository a plugin's tools point into. | repository + plugin | works for clean Git checkouts (E1) |
+| **Connection** | A secret (API key, token) held in the Keychain and injected only into the tools that declare it. Never in a definition file, never shown to an agent. | core | Keychain management, approved tool bindings and an authenticated GET relay work; remote authenticated MCP is **planned** (E4). See [Connections](connections.md). |
+| **Effect** | A consequential action outside Inferay (post, deploy, send, spend). Runs emit effect *intents*; the core checks them against an approved budget, records them in an outbox before sending, and reconciles receipts. | core + handler plugin | intent capture, Needs review inbox and dismissal work; handler kinds can be declared; binding, budgets and the delivery worker are **planned** (E5). See [Effects](effects.md). |
 | **Observation** | A fact flowing back in (post analytics, build status, store numbers) that skills can read and triggers can react to. | core + observer plugin | **planned** |
 
 ## The differences that matter
@@ -58,7 +58,7 @@ Project ─┬─ Repositories (linked, never copied)
 
 **Definition vs state.** Definitions (project, resources, plugins, skills, tools, automations) are files you can read, copy and put under Git if you want. State (approvals, enabled schedules, next due times, runs, events, artifacts, which folder a repository ID means on this Mac) stays in Inferay's local database and is never shared by copying a folder. Pulling or copying someone's plugin never enables anything.
 
-**Run vs effect.** A run does work inside the project and its linked repositories. Automation agents use provider sandbox settings for filesystem and network limits; local tools use an OS sandbox. Local tools additionally require `commit` for Git metadata changes. Enforcement is partial: read isolation, provider-shell commit control, and separate push and PR permissions remain unfinished. See [architecture.md](architecture.md#provider-runner). An effect is a planned, core-mediated external action with an approved budget, durable intent and receipt. That effect path is not implemented yet.
+**Run vs effect.** A run does work inside the project and its linked repositories. Automation agents use provider sandbox settings for filesystem and network limits; local tools use an OS sandbox. Local tools additionally require `commit` for Git metadata changes. Enforcement is partial: read isolation, provider-shell commit control, and separate push and PR permissions remain unfinished. See [architecture.md](architecture.md#provider-runner). An effect is a core-mediated external action with an approved budget, durable intent and receipt. Runs can propose effect intents for review and dismissal; nothing is delivered yet, because handler binding, delivery approval and the delivery worker are not implemented.
 
 ## Reviewing run output
 
@@ -74,7 +74,7 @@ Each library uses the same discovery and execution conventions: a manifest gives
 
 **Ownership.** Workflow and automation definitions live in Inferay's project folder, alongside its plugins and Memory. They are not installed into linked repositories. Global skills remain in the global Skills library; library-specific skills travel with the plugin. A linked repository may contain its own process guide or implementation, which Inferay can reference without taking ownership of it. Repository-backed tools use linked repository IDs, a pinned commit and an entrypoint hash. They run from a verified clean checkout.
 
-**Automations are independent.** An existing daily research or weekly briefing job belongs in Automations. It does not become a plugin merely because it has a schedule. Several jobs can reuse one meaningful library; a library can have no jobs at all. Plugins should start empty for a project that has never created or imported one. The migration-generated one-plugin-per-automation wrappers are being removed while preserving job IDs and history.
+**Automations are independent.** An existing daily research or weekly briefing job belongs in Automations. It does not become a plugin merely because it has a schedule. Several jobs can reuse one meaningful library; a library can have no jobs at all. Plugins should start empty for a project that has never created or imported one. Migration turns the earlier one-plugin-per-automation wrappers into standalone automations, keeping job IDs and history and requiring re-approval.
 
 **Folder intake.** Import a folder of existing work into Plugins and preserve its original files, including binary assets, as a draft library. Then ask chat to inspect it, explain what it does, organize reusable pieces, document requirements, and propose skills and tool entrypoints. Review the proposed changes before approving execution. Importing does not execute scripts, install dependencies, enable schedules or post anything. The folder picker and drag-and-drop accept raw files, including binary assets, without a manifest. Originals are kept under `source/`, with a generated manifest and usage guide. The current bound is 1,000 entries and 50 MB. Chat-driven organization of the imported library remains unfinished.
 
@@ -97,7 +97,7 @@ Inferay/
   chat.sqlite3, chat-*/        conversations
 ```
 
-Definitions live in the project folder; SQLite indexes them and stores local run, approval and schedule state. Separating migrated automation folders from generated plugin wrappers is in progress.
+Definitions live in the project folder; SQLite indexes them and stores local run, approval and schedule state.
 
 ## Worked examples
 

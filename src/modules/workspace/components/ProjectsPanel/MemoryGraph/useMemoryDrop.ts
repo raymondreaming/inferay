@@ -2,8 +2,6 @@ import { memoryTitle, saveMemoryNote } from "@shared/services/memoryApi.ts";
 import { createSignal, onSettled } from "solid-js";
 import { importProjectDocument } from "../../../services/projectsApi.ts";
 
-/** Dropping or pasting saves straight to memory: files as they are into memory/documents, plain text as a note.
- * Paste works anywhere while Memory is open, unless the user is typing in a field. */
 export function useMemoryDrop(
 	projectId: () => string,
 	refresh: () => Promise<unknown>,

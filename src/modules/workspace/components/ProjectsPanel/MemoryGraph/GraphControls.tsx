@@ -21,7 +21,6 @@ const Stroke = (props: { d: string }) => (
 	</svg>
 );
 
-/** Search and type filters, top left of the graph. */
 export function GraphFilters(props: {
 	query: string;
 	onQuery: (value: string) => void;
@@ -92,7 +91,6 @@ export function GraphFilters(props: {
 	);
 }
 
-/** Zoom out, reset, zoom in and fit, stacked top right of the graph. */
 export function ZoomControls(props: {
 	zoom: number;
 	onZoom: (factor: number) => void;

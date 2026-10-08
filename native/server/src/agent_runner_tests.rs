@@ -286,20 +286,42 @@ async fn installed_codex_refuses_native_mutation_paths_in_automation_policy() {
     let work = root.path().join("work");
     std::fs::create_dir_all(&home).unwrap();
     std::fs::create_dir_all(&work).unwrap();
-    std::fs::write(work.join("AGENTS.md"), "INFERAY_UNAPPROVED_CODEX_PROJECT_CONTEXT_41931").unwrap();
-    std::fs::write(home.join("AGENTS.md"), "INFERAY_UNAPPROVED_CODEX_PERSONAL_CONTEXT_41931").unwrap();
+    std::fs::write(
+        work.join("AGENTS.md"),
+        "INFERAY_UNAPPROVED_CODEX_PROJECT_CONTEXT_41931",
+    )
+    .unwrap();
+    std::fs::write(
+        home.join("AGENTS.md"),
+        "INFERAY_UNAPPROVED_CODEX_PERSONAL_CONTEXT_41931",
+    )
+    .unwrap();
     #[cfg(unix)]
     {
         let override_target = root.path().join("personal-override.md");
-        std::fs::write(&override_target, "INFERAY_UNAPPROVED_CODEX_OVERRIDE_CONTEXT_41931").unwrap();
+        std::fs::write(
+            &override_target,
+            "INFERAY_UNAPPROVED_CODEX_OVERRIDE_CONTEXT_41931",
+        )
+        .unwrap();
         std::os::unix::fs::symlink(override_target, home.join("AGENTS.override.md")).unwrap();
     }
     for (path, marker) in [
-        (home.join("skills/personal-fixture/SKILL.md"), "INFERAY_UNAPPROVED_PERSONAL_SKILL_41931"),
-        (work.join(".agents/skills/project-fixture/SKILL.md"), "INFERAY_UNAPPROVED_PROJECT_SKILL_41931"),
+        (
+            home.join("skills/personal-fixture/SKILL.md"),
+            "INFERAY_UNAPPROVED_PERSONAL_SKILL_41931",
+        ),
+        (
+            work.join(".agents/skills/project-fixture/SKILL.md"),
+            "INFERAY_UNAPPROVED_PROJECT_SKILL_41931",
+        ),
     ] {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, format!("---\nname: fixture-skill\ndescription: {marker}\n---\n{marker}\n")).unwrap();
+        std::fs::write(
+            path,
+            format!("---\nname: fixture-skill\ndescription: {marker}\n---\n{marker}\n"),
+        )
+        .unwrap();
     }
     let requests = Arc::new(Mutex::new(Vec::<Value>::new()));
     async fn respond(
@@ -422,12 +444,30 @@ supports_websockets = false
     );
     let requests = requests.lock().unwrap();
     let transcript = serde_json::to_string(&*requests).unwrap();
-    assert!(transcript.contains("INFERAY_APPROVED_CONTEXT_41931"), "Explicit run instructions must still reach the provider");
-    assert!(!transcript.contains("INFERAY_UNAPPROVED_CODEX_PROJECT_CONTEXT_41931"), "Unapproved project instructions entered the provider context");
-    assert!(!transcript.contains("INFERAY_UNAPPROVED_CODEX_PERSONAL_CONTEXT_41931"), "Unapproved personal instructions entered the provider context");
-    assert!(!transcript.contains("INFERAY_UNAPPROVED_CODEX_OVERRIDE_CONTEXT_41931"), "Symlinked personal overrides entered the provider context");
-    for marker in ["INFERAY_UNAPPROVED_PERSONAL_SKILL_41931", "INFERAY_UNAPPROVED_PROJECT_SKILL_41931"] {
-        assert!(!transcript.contains(marker), "Unselected skill entered automation context: {marker}");
+    assert!(
+        transcript.contains("INFERAY_APPROVED_CONTEXT_41931"),
+        "Explicit run instructions must still reach the provider"
+    );
+    assert!(
+        !transcript.contains("INFERAY_UNAPPROVED_CODEX_PROJECT_CONTEXT_41931"),
+        "Unapproved project instructions entered the provider context"
+    );
+    assert!(
+        !transcript.contains("INFERAY_UNAPPROVED_CODEX_PERSONAL_CONTEXT_41931"),
+        "Unapproved personal instructions entered the provider context"
+    );
+    assert!(
+        !transcript.contains("INFERAY_UNAPPROVED_CODEX_OVERRIDE_CONTEXT_41931"),
+        "Symlinked personal overrides entered the provider context"
+    );
+    for marker in [
+        "INFERAY_UNAPPROVED_PERSONAL_SKILL_41931",
+        "INFERAY_UNAPPROVED_PROJECT_SKILL_41931",
+    ] {
+        assert!(
+            !transcript.contains(marker),
+            "Unselected skill entered automation context: {marker}"
+        );
     }
     let output = requests
         .iter()
@@ -474,11 +514,23 @@ async fn installed_claude_refuses_native_file_and_shell_tools_in_automation_poli
     let work = root.path().join("work");
     let home = root.path().join("claude-home");
     std::fs::create_dir_all(&work).unwrap();
-    std::fs::write(work.join("CLAUDE.md"), "INFERAY_UNAPPROVED_CLAUDE_PROJECT_CONTEXT_41931").unwrap();
+    std::fs::write(
+        work.join("CLAUDE.md"),
+        "INFERAY_UNAPPROVED_CLAUDE_PROJECT_CONTEXT_41931",
+    )
+    .unwrap();
     std::fs::create_dir_all(&home).unwrap();
-    std::fs::write(home.join("CLAUDE.md"), "INFERAY_UNAPPROVED_CLAUDE_PERSONAL_CONTEXT_41931").unwrap();
+    std::fs::write(
+        home.join("CLAUDE.md"),
+        "INFERAY_UNAPPROVED_CLAUDE_PERSONAL_CONTEXT_41931",
+    )
+    .unwrap();
     std::fs::write(work.join("edit.txt"), "original").unwrap();
-    std::fs::write(root.path().join("private.txt"), "INFERAY_PRIVATE_READ_SENTINEL_31907").unwrap();
+    std::fs::write(
+        root.path().join("private.txt"),
+        "INFERAY_PRIVATE_READ_SENTINEL_31907",
+    )
+    .unwrap();
     let requests = Arc::new(Mutex::new(Vec::<Value>::new()));
     async fn respond(
         State((requests, work)): State<(Arc<Mutex<Vec<Value>>>, PathBuf)>,
@@ -499,9 +551,18 @@ async fn installed_claude_refuses_native_file_and_shell_tools_in_automation_poli
                 "Edit",
                 json!({"file_path":work.join("edit.txt"),"old_string":"original","new_string":"changed"}),
             )),
-            4 => Some(("Read", json!({"file_path":work.parent().unwrap().join("private.txt")}))),
-            5 => Some(("Glob", json!({"path":work.parent().unwrap(),"pattern":"*.txt"}))),
-            6 => Some(("Grep", json!({"path":work.parent().unwrap(),"pattern":"INFERAY_PRIVATE_READ", "output_mode":"content"}))),
+            4 => Some((
+                "Read",
+                json!({"file_path":work.parent().unwrap().join("private.txt")}),
+            )),
+            5 => Some((
+                "Glob",
+                json!({"path":work.parent().unwrap(),"pattern":"*.txt"}),
+            )),
+            6 => Some((
+                "Grep",
+                json!({"path":work.parent().unwrap(),"pattern":"INFERAY_PRIVATE_READ", "output_mode":"content"}),
+            )),
             _ => None,
         };
         let mut events = vec![
@@ -606,10 +667,23 @@ async fn installed_claude_refuses_native_file_and_shell_tools_in_automation_poli
     );
     let requests = requests.lock().unwrap();
     let transcript = serde_json::to_string(&*requests).unwrap();
-    assert!(transcript.contains("INFERAY_APPROVED_CONTEXT_41931"), "Explicit run instructions must still reach the provider");
-    assert!(!transcript.contains("INFERAY_UNAPPROVED_CLAUDE_PROJECT_CONTEXT_41931"), "Unapproved project instructions entered the provider context");
-    assert!(!transcript.contains("INFERAY_UNAPPROVED_CLAUDE_PERSONAL_CONTEXT_41931"), "Unapproved personal instructions entered the provider context");
-    assert!(!serde_json::to_string(&*requests).unwrap().contains("INFERAY_PRIVATE_READ_SENTINEL_31907"));
+    assert!(
+        transcript.contains("INFERAY_APPROVED_CONTEXT_41931"),
+        "Explicit run instructions must still reach the provider"
+    );
+    assert!(
+        !transcript.contains("INFERAY_UNAPPROVED_CLAUDE_PROJECT_CONTEXT_41931"),
+        "Unapproved project instructions entered the provider context"
+    );
+    assert!(
+        !transcript.contains("INFERAY_UNAPPROVED_CLAUDE_PERSONAL_CONTEXT_41931"),
+        "Unapproved personal instructions entered the provider context"
+    );
+    assert!(
+        !serde_json::to_string(&*requests)
+            .unwrap()
+            .contains("INFERAY_PRIVATE_READ_SENTINEL_31907")
+    );
     for name in ["Bash", "Write", "Edit", "Read", "Glob", "Grep"] {
         let id = format!("native-{name}");
         let output = requests

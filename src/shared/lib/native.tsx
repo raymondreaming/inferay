@@ -28,7 +28,6 @@ export {
 	DocumentReplica,
 	MarkdownCursor,
 	PanelReplica,
-	RepositoryTabs,
 	SkillDialogReplica,
 	UiTimingRecorder,
 	WorkspaceReplica,

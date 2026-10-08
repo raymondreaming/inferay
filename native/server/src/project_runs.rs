@@ -1,4 +1,3 @@
-//! Durable run admission, independent of how definitions are stored.
 use crate::project_store::{Result, event, hash, now};
 use inferay_core::projects::bounded_text;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -32,8 +31,6 @@ pub(crate) struct RunIntent<'a> {
     pub preflight_error: Option<String>,
 }
 
-/// Called within the project writer's transaction. Failed preflight remains a
-/// recorded run with evidence; it never enters the execution queue.
 pub(crate) fn enqueue(db: &Connection, intent: RunIntent<'_>) -> Result<String> {
     if let Some(id) = existing(db, intent.automation, intent.request_key)? {
         return Ok(id);
@@ -136,8 +133,6 @@ pub(crate) fn prepare_file_run(
     )
 }
 
-/// Process a bounded batch of due schedules. Failed admission may disable a
-/// schedule; do not accidentally assign it another due time afterward.
 pub(crate) fn schedule_due(
     db: &mut Connection,
     profile: &std::path::Path,
@@ -197,8 +192,6 @@ pub(crate) fn schedule_due(
     Ok(())
 }
 
-/// Claim only after checking today's files against the captured inputs. A run
-/// waiting in the queue cannot gain a newer script or skill without review.
 pub(crate) fn claim_next(
     db: &mut Connection,
     profile: &std::path::Path,
@@ -247,7 +240,6 @@ pub(crate) fn claim_next(
     Ok(None)
 }
 
-/// History survives definition deletion and migration; it is never rebuilt from files.
 pub(crate) fn history(
     db: &Connection,
     root: &std::path::Path,
@@ -266,7 +258,9 @@ pub(crate) fn history(
     let projection = "SELECT json_object('id',id,'projectId',project_id,'automationId',automation_id,'name',name,'status',status,'requestedAt',requested_at,'startedAt',started_at,'finishedAt',finished_at,'result',json(result),'error',error,'snapshot',json(snapshot),'directory',?2||'/projects/'||project_id||'/runs/'||id) FROM runs";
     let mut runs = rows::<ProjectRun>(
         db,
-        &format!("{projection} WHERE project_id=?1 AND status NOT IN ('queued','running') AND (requested_at<?3 OR (requested_at=?3 AND id<?4)) ORDER BY requested_at DESC,id DESC LIMIT 51"),
+        &format!(
+            "{projection} WHERE project_id=?1 AND status NOT IN ('queued','running') AND (requested_at<?3 OR (requested_at=?3 AND id<?4)) ORDER BY requested_at DESC,id DESC LIMIT 51"
+        ),
         params![project, root.to_string_lossy(), before_time, before_id],
     )?;
     let has_more_runs = runs.len() > 50;
@@ -277,19 +271,21 @@ pub(crate) fn history(
     } else {
         None
     };
-    // Active work is independent of the past-results cursor and cannot age off
-    // the latest page while newer runs finish.
     if before.is_none() {
         let mut active = rows::<ProjectRun>(
             db,
-            &format!("{projection} WHERE project_id=?1 AND status IN ('queued','running') ORDER BY requested_at DESC,id DESC"),
+            &format!(
+                "{projection} WHERE project_id=?1 AND status IN ('queued','running') ORDER BY requested_at DESC,id DESC"
+            ),
             params![project, root.to_string_lossy()],
         )?;
         active.append(&mut runs);
         runs = active;
     }
     attach_usage(db, &mut runs)?;
-    for run in &mut runs { run.conversation_available = conversation_available(run); }
+    for run in &mut runs {
+        run.conversation_available = conversation_available(run);
+    }
     let artifacts = rows(
         db,
         "SELECT json_object('id',id,'runId',run_id,'name',name,'path',path,'byteSize',byte_size) FROM artifacts WHERE project_id=?1 AND run_id IN (SELECT value FROM json_each(?2)) ORDER BY created_at DESC,id LIMIT 5000",
@@ -299,9 +295,14 @@ pub(crate) fn history(
         ],
     )?;
     Ok(inferay_core::projects::ProjectHistory {
-        effects: rows(db,
+        effects: rows(
+            db,
             "SELECT json_object('id',e.id,'runId',e.run_id,'artifact',e.artifact,'intent',json(e.intent),'createdAt',e.created_at,'intentHash',e.intent_hash,'dismissedAt',d.dismissed_at,'delivery',json((SELECT json_object('id',o.id,'state',o.state,'cancellationRequestedAt',c.requested_at,'receipt',json(o.receipt)) FROM effect_outbox o LEFT JOIN effect_cancellations c ON c.delivery_id=o.id WHERE o.effect_id=e.id))) FROM effect_intents e LEFT JOIN effect_dismissals d ON d.effect_id=e.id WHERE e.project_id=?1 AND e.run_id IN (SELECT value FROM json_each(?2)) ORDER BY e.created_at DESC,e.id LIMIT 5000",
-            params![project,serde_json::to_string(&runs.iter().map(|r| &r.id).collect::<Vec<_>>())?])?,
+            params![
+                project,
+                serde_json::to_string(&runs.iter().map(|r| &r.id).collect::<Vec<_>>())?
+            ],
+        )?,
         runs,
         artifacts,
         has_more_runs,
@@ -309,15 +310,38 @@ pub(crate) fn history(
     })
 }
 
-/// Shared by history projection and the continuation endpoint. A preflight failure
-/// has no transcript, even when its captured execution was an agent task.
 pub(crate) fn conversation_available(run: &inferay_core::projects::ProjectRun) -> bool {
     if run.snapshot["execution"]["kind"] != "agent" {
         return false;
     }
-    crate::project_definitions::managed_path(std::path::Path::new(&run.directory), "logs/agent.jsonl", false)
-        .ok().and_then(|path| std::fs::metadata(path).ok())
-        .is_some_and(|metadata| metadata.is_file() && metadata.len() > 0)
+    crate::project_definitions::managed_path(
+        std::path::Path::new(&run.directory),
+        "logs/agent.jsonl",
+        false,
+    )
+    .ok()
+    .and_then(|path| std::fs::metadata(path).ok())
+    .is_some_and(|metadata| metadata.is_file() && metadata.len() > 0)
+}
+
+pub(crate) fn attach_usage(
+    db: &Connection,
+    runs: &mut [inferay_core::projects::ProjectRun],
+) -> Result<()> {
+    let ids = serde_json::to_string(&runs.iter().map(|run| &run.id).collect::<Vec<_>>())?;
+    let mut statement = db.prepare("SELECT e.run_id,e.payload FROM run_events e WHERE e.kind='provider_usage' AND e.run_id IN (SELECT value FROM json_each(?)) AND e.sequence=(SELECT max(latest.sequence) FROM run_events latest WHERE latest.run_id=e.run_id AND latest.kind='provider_usage')")?;
+    let rows = statement.query_map([ids], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+    for row in rows {
+        let (id, payload) = row?;
+        if let Some(run) = runs.iter_mut().find(|run| run.id == id) {
+            run.usage = serde_json::from_str::<Value>(&payload)
+                .ok()
+                .and_then(|event| inferay_core::projects::RunUsage::from_provider(&event));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -331,19 +355,30 @@ mod conversation_tests {
             "status":"failed", "requestedAt":0,"startedAt":0,"finishedAt":1,
             "result":null,"error":"Missing dependency", "snapshot":{"execution":{"kind":"agent"}},
             "directory":directory.path().to_string_lossy()
-        })).unwrap();
+        }))
+        .unwrap();
         assert!(!conversation_available(&run));
         std::fs::create_dir(directory.path().join("logs")).unwrap();
         let log = directory.path().join("logs/agent.jsonl");
         std::fs::write(&log, "").unwrap();
         assert!(!conversation_available(&run));
-        std::fs::write(&log, "{\"system\":\"Provider stopped after beginning work\"}\n").unwrap();
+        std::fs::write(
+            &log,
+            "{\"system\":\"Provider stopped after beginning work\"}\n",
+        )
+        .unwrap();
         assert!(conversation_available(&run));
         for status in ["running", "queued"] {
             run.status = status.into();
             assert!(conversation_available(&run));
         }
-        for status in ["succeeded", "failed", "cancelled", "interrupted", "waiting_input"] {
+        for status in [
+            "succeeded",
+            "failed",
+            "cancelled",
+            "interrupted",
+            "waiting_input",
+        ] {
             run.status = status.into();
             assert!(conversation_available(&run));
         }
@@ -352,18 +387,4 @@ mod conversation_tests {
         run.snapshot = json!({"automation":{}});
         assert!(!conversation_available(&run));
     }
-}
-
-/// One bounded query for the displayed page, retaining unknown usage on older runs.
-pub(crate) fn attach_usage(db: &Connection, runs: &mut [inferay_core::projects::ProjectRun]) -> Result<()> {
-    let ids = serde_json::to_string(&runs.iter().map(|run| &run.id).collect::<Vec<_>>())?;
-    let mut statement = db.prepare("SELECT e.run_id,e.payload FROM run_events e WHERE e.kind='provider_usage' AND e.run_id IN (SELECT value FROM json_each(?)) AND e.sequence=(SELECT max(latest.sequence) FROM run_events latest WHERE latest.run_id=e.run_id AND latest.kind='provider_usage')")?;
-    let rows = statement.query_map([ids], |row| Ok((row.get::<_,String>(0)?, row.get::<_,String>(1)?)))?;
-    for row in rows {
-        let (id, payload) = row?;
-        if let Some(run) = runs.iter_mut().find(|run| run.id == id) {
-            run.usage = serde_json::from_str::<Value>(&payload).ok().and_then(|event| inferay_core::projects::RunUsage::from_provider(&event));
-        }
-    }
-    Ok(())
 }

@@ -341,17 +341,13 @@ pub fn project(body: &Value) -> Result<Value, String> {
     let tree = stored.and_then(|v| serde_json::from_value::<Tree>(v.clone()).ok());
     let reset = grid && saved.is_some_and(|s| s["preset"] != json!(preset));
     let membership_changed = grid
-        && tree
-            .as_ref()
-            .is_some_and(|tree| {
-                let present = tree.ids();
-                present.len() != ids.len() || present.iter().any(|id| !ids.contains(id))
-            });
+        && tree.as_ref().is_some_and(|tree| {
+            let present = tree.ids();
+            present.len() != ids.len() || present.iter().any(|id| !ids.contains(id))
+        });
     let mut tree = if reset {
         build(&ids, columns)
     } else if membership_changed {
-        // Close the gap in visual order instead of expanding a surviving split
-        // across one row while leaving the other rows at their old widths.
         let mut remaining = tree.as_ref().unwrap().ids();
         remaining.retain(|id| ids.contains(id));
         for id in &ids {

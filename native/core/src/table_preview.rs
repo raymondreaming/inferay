@@ -1,4 +1,3 @@
-//! A bounded, lossless-to-source projection of tabular file content supplied by the host.
 use serde::Serialize;
 use serde_json::Value;
 
@@ -15,8 +14,6 @@ pub struct TablePreview {
 }
 
 impl TablePreview {
-    /// CSV/TSV use their first record as column names. JSON objects and ordinary
-    /// arrays are left as source; only an array of row objects is tabular.
     pub fn from_content(filename: &str, content: &str) -> Result<Option<Self>, String> {
         let extension = filename
             .rsplit('.')

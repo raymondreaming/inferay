@@ -48,7 +48,6 @@ export function AutomationWorkspace() {
 			await saveProjectCommand(command);
 			return true;
 		} catch {
-			/* Shared error shown below. */
 			return false;
 		}
 	}
@@ -93,9 +92,7 @@ export function AutomationWorkspace() {
 				gitWritePaths: review.gitWritePaths ?? [],
 				connections: review.connections ?? [],
 			});
-		} catch {
-			/* Shared mutation error is displayed. */
-		}
+		} catch {}
 	}
 	function begin(a?: ProjectAutomation, seed?: (typeof starters)[number]) {
 		setEditing(a);

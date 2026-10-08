@@ -284,8 +284,6 @@ fn target(command: &str) -> Option<String> {
         })
         .map(|word| word.rsplit('/').next().unwrap_or(word).into())
 }
-/// Project memory reads and writes read as memory steps, whether Codex uses its `inferay_memory` tool or
-/// Claude searches and reads the project's `memory/` folder directly.
 fn memory_display(tool_name: Option<&str>, input: &Value) -> Option<ToolDisplayInfo> {
     let detail = |text: Option<String>| ToolDisplayInfo {
         detail: text.filter(|t| !t.is_empty()),
@@ -296,22 +294,46 @@ fn memory_display(tool_name: Option<&str>, input: &Value) -> Option<ToolDisplayI
         let (name, info) = match input.get("action").and_then(Value::as_str) {
             Some("search") => ("Searching memory", text("query").map(|q| format!("“{q}”"))),
             Some("read") => ("Reading memory", None),
-            Some("save") => ("Saving to memory", input.pointer("/note/title").and_then(Value::as_str).map(str::to_owned)),
+            Some("save") => (
+                "Saving to memory",
+                input
+                    .pointer("/note/title")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+            ),
             _ => ("Using memory", None),
         };
-        return Some(ToolDisplayInfo { label: name.into(), ..detail(info) });
+        return Some(ToolDisplayInfo {
+            label: name.into(),
+            ..detail(info)
+        });
     }
-    let path = file_target(input).filter(|p| p.contains("/memory/notes/") || p.contains("/memory/documents/"));
+    let path = file_target(input)
+        .filter(|p| p.contains("/memory/notes/") || p.contains("/memory/documents/"));
     if let Some(path) = path {
-        return Some(ToolDisplayInfo { label: "Reading memory".into(), file: Some(path.clone()), ..detail(Some(basename(&path).to_owned())) });
+        return Some(ToolDisplayInfo {
+            label: "Reading memory".into(),
+            file: Some(path.clone()),
+            ..detail(Some(basename(&path).to_owned()))
+        });
     }
-    let command = input.get("command").or_else(|| input.get("cmd")).and_then(scalar)?;
+    let command = input
+        .get("command")
+        .or_else(|| input.get("cmd"))
+        .and_then(scalar)?;
     if !(command.contains("/memory/notes") || command.contains("/memory/documents")) {
         return None;
     }
     let first = words(&command).into_iter().next().unwrap_or("");
-    let name = if matches!(first, "rg" | "grep" | "find" | "ls" | "fd") { "Searching memory" } else { "Reading memory" };
-    Some(ToolDisplayInfo { label: name.into(), ..detail(target(&command)) })
+    let name = if matches!(first, "rg" | "grep" | "find" | "ls" | "fd") {
+        "Searching memory"
+    } else {
+        "Reading memory"
+    };
+    Some(ToolDisplayInfo {
+        label: name.into(),
+        ..detail(target(&command))
+    })
 }
 pub fn display(tool_name: Option<&str>, input: &Value) -> ToolDisplayInfo {
     if let Some(info) = memory_display(tool_name, input) {
@@ -528,13 +550,35 @@ mod tool_display_tests {
 
     #[test]
     fn memory_steps_read_as_memory_for_both_providers() {
-        let search = display(Some("inferay_memory"), &json!({"action": "search", "query": "how trades work"}));
-        assert_eq!((search.label.as_str(), search.detail.as_deref()), ("Searching memory", Some("“how trades work”")));
-        assert_eq!(display(Some("inferay_memory"), &json!({"action": "read", "id": "x"})).label, "Reading memory");
-        let rg = display(Some("Bash"), &json!({"command": "rg -n trades /p/memory/notes"}));
+        let search = display(
+            Some("inferay_memory"),
+            &json!({"action": "search", "query": "how trades work"}),
+        );
+        assert_eq!(
+            (search.label.as_str(), search.detail.as_deref()),
+            ("Searching memory", Some("“how trades work”"))
+        );
+        assert_eq!(
+            display(
+                Some("inferay_memory"),
+                &json!({"action": "read", "id": "x"})
+            )
+            .label,
+            "Reading memory"
+        );
+        let rg = display(
+            Some("Bash"),
+            &json!({"command": "rg -n trades /p/memory/notes"}),
+        );
         assert_eq!(rg.label, "Searching memory");
-        let read = display(Some("Read"), &json!({"file_path": "/p/memory/notes/trades.md"}));
-        assert_eq!((read.label.as_str(), read.detail.as_deref()), ("Reading memory", Some("trades.md")));
+        let read = display(
+            Some("Read"),
+            &json!({"file_path": "/p/memory/notes/trades.md"}),
+        );
+        assert_eq!(
+            (read.label.as_str(), read.detail.as_deref()),
+            ("Reading memory", Some("trades.md"))
+        );
     }
 
     #[test]

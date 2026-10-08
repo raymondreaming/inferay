@@ -1,4 +1,3 @@
-//! Shared process execution for direct tools and granted agent tool calls.
 mod mcp;
 use super::*;
 use inferay_core::project_files::Permission;
@@ -19,7 +18,6 @@ pub(crate) struct Invocation<'a> {
     pub cancelled: &'a (dyn Fn() -> bool + Send + Sync),
 }
 
-/// Own process cleanup even when the execution future is dropped mid-await.
 struct ToolProcess<'a> {
     pid: Option<u32>,
     tracker: &'a RuntimePidTracker,
@@ -33,8 +31,6 @@ impl ToolProcess<'_> {
             }
             #[cfg(unix)]
             {
-                // The tool starts a private process group. Kill helpers even
-                // after its leader exits or when they ignore SIGTERM.
                 let _ = std::process::Command::new("/bin/kill")
                     .args(["-KILL", "--", &format!("-{pid}")])
                     .stdout(std::process::Stdio::null())
@@ -81,7 +77,7 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
         }
     }
     std::fs::write(inputs.join("input.json"), serde_json::to_vec(&input)?)?;
-    let file = resolve_path(&root, &tool.entrypoint)?;
+    let file = resolve_path(root, &tool.entrypoint)?;
     let bytes = std::fs::read(&file)?;
     if entrypoint_hash != project_store::hash(&bytes) {
         return Err(
@@ -89,7 +85,7 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
         );
     }
     std::fs::write(inputs.join("entrypoint"), &bytes)?;
-    let cwd = resolve_path(&root, &tool.working_directory)?;
+    let cwd = resolve_path(root, &tool.working_directory)?;
     let policy = crate::automation_sandbox::AutomationSandbox::new(
         permissions,
         &snapshot["repositoryPaths"],
@@ -104,7 +100,7 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
     let mut command = policy.tool_command(&tool.program, &arguments, &output_dir, &scratch)?;
     command
         .current_dir(cwd)
-        .env("INFERAY_PROJECT_DIR", &root)
+        .env("INFERAY_PROJECT_DIR", root)
         .env("INFERAY_RUN_OUTPUT", output_dir.clone())
         .env("INFERAY_RUN_ID", id)
         .stdin(if tool.interface != ToolInterface::Cli {
@@ -125,7 +121,9 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
         }
         let relay = crate::connections::relay::Relay::start(
             runtime.connections.clone(),
-            snapshot["projectId"].as_str().ok_or("Project identity missing")?,
+            snapshot["projectId"]
+                .as_str()
+                .ok_or("Project identity missing")?,
             serde_json::from_value(snapshot["connectionRequests"][tool_id].clone())?,
             serde_json::from_value(snapshot["connections"][tool_id].clone())?,
         )
@@ -162,8 +160,8 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
                 logs: &logs,
                 timeout: Duration::from_secs(tool.timeout_seconds),
             },
-        ).await?;
-        // Refuse collisions and symlinks instead of overwriting server-produced output.
+        )
+        .await?;
         let response_file = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -275,8 +273,6 @@ pub(crate) async fn execute(runtime: &ProjectRuntime, invocation: Invocation<'_>
     Ok(result)
 }
 
-// CLI programs need no Inferay-specific stdout protocol to produce artifacts.
-// Bound traversal before indexing; finalization owns size/hash validation.
 fn collect_outputs(root: &Path) -> Result<Vec<String>> {
     let mut pending = vec![(root.to_path_buf(), 0)];
     let mut artifacts = Vec::new();

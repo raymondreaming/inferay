@@ -1,4 +1,3 @@
-//! Rebuildable projections of project files. Only this module writes definition tables.
 use crate::{
     project_definitions::{self as files, DefinitionFile},
     project_store::{Result, hash},
@@ -33,8 +32,6 @@ fn indexed<T: serde::de::DeserializeOwned>(
     })
 }
 
-/// Read the indexed file catalog, retaining invalid entries for repair. This
-/// does not scan, create directories, approve inputs or advance scheduling.
 pub(crate) fn catalog(db: &Connection, project: Option<&str>) -> Result<ProjectFileCatalog> {
     let projects = db.prepare("SELECT id,project_id,plugin_id,source_path,source_hash,error,body FROM projects ORDER BY id LIMIT 256")?
         .query_map([], indexed)?.collect::<std::result::Result<_,_>>()?;
@@ -94,8 +91,6 @@ pub(crate) fn save_definition(
 ) -> Result<String> {
     uuid::Uuid::parse_str(project).map_err(|_| "Invalid project ID")?;
     let root = profile.join("projects").join(project);
-    // Creating the project directory is harmless; a failed preview never creates
-    // a definition, approval or runnable schedule.
     files::managed_path(profile, &format!("projects/{project}/project.json"), true)?;
     let globals = skills.iter().map(|s| format!("global:{}", s.id)).collect();
     files::validate_write(&root, path, bytes, &globals)?;
@@ -104,9 +99,6 @@ pub(crate) fn save_definition(
     Ok(hash)
 }
 
-/// Approval is over every captured input, not only automation.json. The caller
-/// supplies the digest shown in the user's review, so unseen edits cannot be
-/// approved by a stale card. This operation never writes a definition file.
 pub(crate) fn approve_automation(
     db: &Connection,
     profile: &Path,
@@ -149,8 +141,6 @@ pub(crate) fn disable_automation(db: &Connection, automation: &str) -> Result<()
     Ok(())
 }
 
-/// Both Run now and the scheduler use the same approval check. Disabling a
-/// schedule preserves its approval and permits an explicitly requested run.
 pub(crate) fn approved_inputs(
     db: &Connection,
     profile: &Path,
@@ -181,8 +171,6 @@ pub(crate) fn approved_inputs(
     Err(error.into())
 }
 
-/// Initialize only after the legacy exporter has succeeded and old definition
-/// tables have been removed. Durable runtime tables are owned by the run store.
 pub(crate) fn create_schema(db: &Connection) -> Result<()> {
     for table in TABLES {
         db.execute_batch(&format!(
@@ -242,8 +230,6 @@ fn body(definition: &DefinitionFile) -> Result<Value> {
     })
 }
 
-/// Capture the exact file inputs used for approval and admission. Read files
-/// again instead of trusting the rebuildable index's last observed hashes.
 pub(crate) fn execution_inputs(
     db: &Connection,
     profile: &Path,
@@ -317,24 +303,69 @@ pub(crate) fn execution_inputs(
     {
         for grant in grants {
             let owner = scanned.iter().find(|entry| matches!(&entry.definition, Some(DefinitionFile::Plugin(plugin)) if plugin.id == grant.plugin_id)).ok_or("Granted tool library is missing")?;
-            let owner_prefix = owner.path.strip_suffix("/plugin.json").ok_or("Invalid library path")?;
-            let Some(DefinitionFile::Plugin(plugin)) = &owner.definition else { unreachable!() };
-            if !plugin.may.is_subset(&definition.may) { return Err(format!("Granted tool library {} requires permissions absent from this automation", plugin.name).into()); }
-            if let Some(entry) = scanned.iter().find(|entry| entry.path.starts_with(&format!("{owner_prefix}/")) && entry.error.is_some()) {
-                return Err(format!("Granted library needs repair: {}", entry.error.as_deref().unwrap()).into());
+            let owner_prefix = owner
+                .path
+                .strip_suffix("/plugin.json")
+                .ok_or("Invalid library path")?;
+            let Some(DefinitionFile::Plugin(plugin)) = &owner.definition else {
+                unreachable!()
+            };
+            if !plugin.may.is_subset(&definition.may) {
+                return Err(format!(
+                    "Granted tool library {} requires permissions absent from this automation",
+                    plugin.name
+                )
+                .into());
+            }
+            if let Some(entry) = scanned.iter().find(|entry| {
+                entry.path.starts_with(&format!("{owner_prefix}/")) && entry.error.is_some()
+            }) {
+                return Err(format!(
+                    "Granted library needs repair: {}",
+                    entry.error.as_deref().unwrap()
+                )
+                .into());
             }
             let entry = scanned.iter().find(|entry| entry.path.starts_with(&format!("{owner_prefix}/tools/")) && matches!(&entry.definition, Some(DefinitionFile::Tool(tool)) if tool.id == grant.tool_id)).ok_or("Granted tool is missing")?;
-            let Some(DefinitionFile::Tool(tool)) = &entry.definition else { unreachable!() };
-            if tool.effect_handler.is_some() { return Err("Effect handlers require delivery approval and cannot be granted as ordinary automation tools".into()); }
-            let package = files::package_files(&root, owner_prefix)?;
-            for entry in scanned.iter().filter(|entry| entry.path.starts_with(&format!("{owner_prefix}/"))) {
-                if entry.hash.as_ref() != package.get(&entry.path) { return Err("Granted tool library changed while capturing inputs".into()); }
+            let Some(DefinitionFile::Tool(tool)) = &entry.definition else {
+                unreachable!()
+            };
+            if tool.effect_handler.is_some() {
+                return Err("Effect handlers require delivery approval and cannot be granted as ordinary automation tools".into());
             }
-            let directory = entry.path.strip_suffix("/tool.json").ok_or("Invalid tool path")?.to_owned();
-            let (entrypoint, working_directory, entrypoint_hash) = crate::project_packs::resolve(db, &root, project_definition, tool, &directory, &mut repositories)?;
-            granted_tools.insert(grant.key(), crate::project_tools::CapturedTool {
-                grant: grant.clone(), definition: tool.clone(), directory, entrypoint, working_directory, entrypoint_hash,
-            });
+            let package = files::package_files(&root, owner_prefix)?;
+            for entry in scanned
+                .iter()
+                .filter(|entry| entry.path.starts_with(&format!("{owner_prefix}/")))
+            {
+                if entry.hash.as_ref() != package.get(&entry.path) {
+                    return Err("Granted tool library changed while capturing inputs".into());
+                }
+            }
+            let directory = entry
+                .path
+                .strip_suffix("/tool.json")
+                .ok_or("Invalid tool path")?
+                .to_owned();
+            let (entrypoint, working_directory, entrypoint_hash) = crate::project_packs::resolve(
+                db,
+                &root,
+                project_definition,
+                tool,
+                &directory,
+                &mut repositories,
+            )?;
+            granted_tools.insert(
+                grant.key(),
+                crate::project_tools::CapturedTool {
+                    grant: grant.clone(),
+                    definition: tool.clone(),
+                    directory,
+                    entrypoint,
+                    working_directory,
+                    entrypoint_hash,
+                },
+            );
             inputs.extend(package.clone());
             packages.insert(owner_prefix.into(), package);
         }
@@ -368,36 +399,55 @@ pub(crate) fn execution_inputs(
                 skill_context
                     .push(json!({"id":id,"name":skill.name,"instructions":skill.prompt_template}));
             } else if let Some(reference) = id.strip_prefix("plugin:") {
-                let (plugin_id, skill_id) = reference.split_once(':').ok_or("Invalid plugin skill reference")?;
+                let (plugin_id, skill_id) = reference
+                    .split_once(':')
+                    .ok_or("Invalid plugin skill reference")?;
                 let owner = scanned.iter().find(|entry| matches!(&entry.definition, Some(DefinitionFile::Plugin(plugin)) if plugin.id == plugin_id)).ok_or("Selected skill library is missing")?;
-                let owner_prefix = owner.path.strip_suffix("/plugin.json").ok_or("Invalid skill library path")?;
-                if scanned.iter().any(|entry| entry.path.starts_with(&format!("{owner_prefix}/")) && entry.error.is_some()) {
+                let owner_prefix = owner
+                    .path
+                    .strip_suffix("/plugin.json")
+                    .ok_or("Invalid skill library path")?;
+                if scanned.iter().any(|entry| {
+                    entry.path.starts_with(&format!("{owner_prefix}/")) && entry.error.is_some()
+                }) {
                     return Err("Selected skill library needs repair".into());
                 }
-                let skill = scanned.iter().find_map(|entry| {
-                    if !entry.path.starts_with(&format!("{owner_prefix}/skills/")) { return None; }
-                    match &entry.definition {
-                        Some(DefinitionFile::Skill(skill)) if skill.id == skill_id => Some(skill),
-                        _ => None,
-                    }
-                }).ok_or("Selected library skill is missing")?;
+                let skill = scanned
+                    .iter()
+                    .find_map(|entry| {
+                        if !entry.path.starts_with(&format!("{owner_prefix}/skills/")) {
+                            return None;
+                        }
+                        match &entry.definition {
+                            Some(DefinitionFile::Skill(skill)) if skill.id == skill_id => {
+                                Some(skill)
+                            }
+                            _ => None,
+                        }
+                    })
+                    .ok_or("Selected library skill is missing")?;
                 let package = files::package_files(&root, owner_prefix)?;
-                for entry in scanned.iter().filter(|entry| entry.path.starts_with(&format!("{owner_prefix}/"))) {
-                    if entry.hash.as_ref() != package.get(&entry.path) { return Err("Selected skill library changed while capturing inputs".into()); }
+                for entry in scanned
+                    .iter()
+                    .filter(|entry| entry.path.starts_with(&format!("{owner_prefix}/")))
+                {
+                    if entry.hash.as_ref() != package.get(&entry.path) {
+                        return Err("Selected skill library changed while capturing inputs".into());
+                    }
                 }
                 inputs.extend(package.clone());
                 packages.insert(owner_prefix.into(), package);
-                skill_context.push(json!({"id":id,"name":skill.name,"instructions":skill.instructions}));
+                skill_context
+                    .push(json!({"id":id,"name":skill.name,"instructions":skill.instructions}));
             } else {
                 let skill = scanned
                     .iter()
                     .find_map(|entry| {
-                        if entry.path.starts_with(&format!("{prefix}/skills/")) {
-                            if let Some(DefinitionFile::Skill(skill)) = &entry.definition {
-                                if &skill.id == id {
-                                    return Some(skill);
-                                }
-                            }
+                        if entry.path.starts_with(&format!("{prefix}/skills/"))
+                            && let Some(DefinitionFile::Skill(skill)) = &entry.definition
+                            && &skill.id == id
+                        {
+                            return Some(skill);
                         }
                         None
                     })
@@ -426,7 +476,6 @@ pub(crate) fn execution_inputs(
             repositories.insert(id.clone(), path.to_string_lossy().into_owned());
         }
     }
-    // Detect edits during the capture rather than approving a mixed set of files.
     for (path, expected) in &inputs {
         if hash(&files::read(&root, path, PLUGIN_BYTE_LIMIT)?) != *expected {
             return Err(format!("Execution input changed while reading: {path}").into());
@@ -490,9 +539,18 @@ pub(crate) fn execution_inputs(
             let Some(DefinitionFile::Tool(tool)) = &entry.definition else {
                 return Err("Selected tool is invalid".into());
             };
-            if tool.effect_handler.is_some() { return Err("Effect handlers require delivery approval and cannot run as ordinary automation tools".into()); }
+            if tool.effect_handler.is_some() {
+                return Err("Effect handlers require delivery approval and cannot run as ordinary automation tools".into());
+            }
             inferay_core::projects::validate_json(&tool.input_schema, input)?;
-            let (entrypoint, working_directory, entrypoint_hash) = crate::project_packs::resolve(db, &root, project_definition, tool, &directory, &mut repositories)?;
+            let (entrypoint, working_directory, entrypoint_hash) = crate::project_packs::resolve(
+                db,
+                &root,
+                project_definition,
+                tool,
+                &directory,
+                &mut repositories,
+            )?;
             let path = crate::project_store::resolve_path(&root, &entrypoint)?;
             snapshot["entrypointHash"] = json!(entrypoint_hash);
             snapshot["entrypoint"] = json!(path);
@@ -500,9 +558,9 @@ pub(crate) fn execution_inputs(
                 interface: tool.interface.clone(),
                 program: tool.program.clone(),
                 entrypoint,
-                arguments: tool.interface.arguments(
-                    &tool.args, input, &path.to_string_lossy(),
-                )?,
+                arguments: tool
+                    .interface
+                    .arguments(&tool.args, input, &path.to_string_lossy())?,
                 working_directory,
                 timeout_seconds: tool.timeout_seconds,
                 input_schema: tool.input_schema.clone(),
@@ -518,28 +576,46 @@ pub(crate) fn execution_inputs(
     let mut connections = BTreeMap::new();
     let mut connection_tool_names = BTreeMap::new();
     let mut connection_requests = BTreeMap::new();
-    let mut selected_tools: BTreeSet<String> = granted_tools.values()
-        .map(|grant| format!("{}/tool.json", grant.directory)).collect();
+    let mut selected_tools: BTreeSet<String> = granted_tools
+        .values()
+        .map(|grant| format!("{}/tool.json", grant.directory))
+        .collect();
     if let DefinitionExecution::Tool { tool, .. } = &definition.execution {
         selected_tools.insert(format!("{prefix}/tools/{tool}/tool.json"));
     }
-    // Only the owning library and selected tools contribute requirements.
     for entry in &scanned {
         match &entry.definition {
-            Some(DefinitionFile::Plugin(plugin)) if entry.path == format!("{prefix}/plugin.json") || granted_tools.values().any(|tool| tool.grant.plugin_id == plugin.id) => {
+            Some(DefinitionFile::Plugin(plugin))
+                if entry.path == format!("{prefix}/plugin.json")
+                    || granted_tools
+                        .values()
+                        .any(|tool| tool.grant.plugin_id == plugin.id) =>
+            {
                 requirements.extend(plugin.requires.iter().cloned());
             }
             Some(DefinitionFile::Tool(tool)) if selected_tools.contains(&entry.path) => {
                 requirements.extend(tool.requires.iter().cloned());
-                if !tool.connections.is_empty() { connections.insert(tool.id.clone(), tool.connections.iter().map(|(alias, connection)| (alias.clone(), connection.id.clone())).collect()); connection_tool_names.insert(tool.id.clone(), tool.name.clone()); connection_requests.insert(tool.id.clone(), tool.connections.clone()); }
+                if !tool.connections.is_empty() {
+                    connections.insert(
+                        tool.id.clone(),
+                        tool.connections
+                            .iter()
+                            .map(|(alias, connection)| (alias.clone(), connection.id.clone()))
+                            .collect(),
+                    );
+                    connection_tool_names.insert(tool.id.clone(), tool.name.clone());
+                    connection_requests.insert(tool.id.clone(), tool.connections.clone());
+                }
             }
-            _ => {},
+            _ => {}
         }
     }
     if !connections.is_empty() {
         snapshot["connectionToolNames"] = json!(connection_tool_names);
         snapshot["connectionRequests"] = json!(connection_requests);
-        snapshot["connections"] = serde_json::to_value(crate::connections::Store::open(profile)?.capture(&project, &connections)?)?;
+        snapshot["connections"] = serde_json::to_value(
+            crate::connections::Store::open(profile)?.capture(&project, &connections)?,
+        )?;
     }
     let project_path = root.to_string_lossy().into_owned();
     let git_metadata = crate::automation_sandbox::git_metadata_directories(
@@ -549,8 +625,11 @@ pub(crate) fn execution_inputs(
         snapshot["gitMetadataPaths"] = serde_json::to_value(git_metadata)?;
     }
     let git_writes = crate::automation_sandbox::AutomationSandbox::new(
-        &definition.may, &json!(repositories), &root,
-    ).git_write_paths()?;
+        &definition.may,
+        &json!(repositories),
+        &root,
+    )
+    .git_write_paths()?;
     if !git_writes.is_empty() {
         snapshot["gitWritePaths"] = serde_json::to_value(git_writes)?;
     }
@@ -560,10 +639,6 @@ pub(crate) fn execution_inputs(
     Ok(snapshot)
 }
 
-/// Hash all package files, including companion scripts. An entrypoint importing
-/// another script must not bypass approval invalidation by leaving tool.json unchanged.
-/// Capture a whole capability, including every active automation's selected
-/// resources, global skills, and local repository bindings.
 pub(crate) fn plugin_inputs(
     db: &Connection,
     profile: &Path,
@@ -620,16 +695,16 @@ pub(crate) fn plugin_inputs(
             if entry.hash.as_ref() != package.get(&entry.path) {
                 return Err("Plugin changed during review".into());
             }
-            if let Some(DefinitionFile::Automation(automation)) = &entry.definition {
-                if !automation.archived {
-                    let inputs = execution_inputs(db, profile, &automation.id, skills)?;
-                    for (path, expected) in &package {
-                        if inputs["files"][path].as_str() != Some(expected.as_str()) {
-                            return Err("Plugin changed during review".into());
-                        }
+            if let Some(DefinitionFile::Automation(automation)) = &entry.definition
+                && !automation.archived
+            {
+                let inputs = execution_inputs(db, profile, &automation.id, skills)?;
+                for (path, expected) in &package {
+                    if inputs["files"][path].as_str() != Some(expected.as_str()) {
+                        return Err("Plugin changed during review".into());
                     }
-                    automations.insert(automation.id.clone(), inputs);
                 }
+                automations.insert(automation.id.clone(), inputs);
             }
         }
     }
@@ -691,14 +766,29 @@ pub(crate) fn review_plugin(
         .flat_map(|v| v.values())
         .map(|v| serde_json::from_value(v["automation"].clone()))
         .collect::<std::result::Result<_, _>>()?;
-    let git_write_paths = inputs["automations"].as_object().into_iter()
+    let git_write_paths = inputs["automations"]
+        .as_object()
+        .into_iter()
         .flat_map(|automations| automations.values())
         .flat_map(|snapshot| snapshot["gitWritePaths"].as_array().into_iter().flatten())
-        .filter_map(Value::as_str).map(str::to_owned).collect::<BTreeSet<_>>();
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>();
     let mut connection_access = BTreeMap::new();
-    for snapshot in inputs["automations"].as_object().into_iter().flat_map(|items| items.values()) {
+    for snapshot in inputs["automations"]
+        .as_object()
+        .into_iter()
+        .flat_map(|items| items.values())
+    {
         for access in inferay_core::connections::ConnectionAccess::from_snapshot(snapshot)? {
-            connection_access.insert((access.tool_id.clone(), access.alias.clone(), access.connection.revision.clone()), access);
+            connection_access.insert(
+                (
+                    access.tool_id.clone(),
+                    access.alias.clone(),
+                    access.connection.revision.clone(),
+                ),
+                access,
+            );
         }
     }
     Ok(PluginReview {
@@ -713,8 +803,6 @@ pub(crate) fn review_plugin(
     })
 }
 
-/// Refresh from disk as one index transaction. Malformed/missing definitions
-/// replace old index contents, but runtime history and approval records survive.
 pub(crate) fn refresh(
     db: &mut Connection,
     profile: &Path,
@@ -802,7 +890,6 @@ pub(crate) fn refresh(
                     hash(format!("{project_id}/{}", entry.path).as_bytes())
                 )
             };
-            // Keep every conflicting path visible, even when two files carry one ID.
             let exists: bool = tx.query_row(
                 &format!("SELECT EXISTS(SELECT 1 FROM {table} WHERE id=?)"),
                 [&id],
@@ -825,8 +912,6 @@ pub(crate) fn refresh(
             }
         }
     }
-    // Approval covers execution inputs, including selected global skills and
-    // companion scripts. Index source hashes alone cannot detect those edits.
     let approved = tx.prepare("SELECT automation_id,approved_hash FROM automation_state WHERE inputs_changed=0 AND (approved_hash IS NOT NULL OR enabled=1)")?
         .query_map([], |r| Ok((r.get::<_,String>(0)?,r.get::<_,Option<String>>(1)?)))?
         .collect::<std::result::Result<Vec<_>,_>>()?;
@@ -841,8 +926,6 @@ pub(crate) fn refresh(
             tx.execute("UPDATE automation_state SET enabled=0,next_due_at=NULL,inputs_changed=1,error=? WHERE automation_id=?",params![error,id])?;
         }
     }
-    // A reusable library can have no automations. Its own approval still covers
-    // every supporting file and must be revoked independently of schedules.
     let approved_plugins = tx
         .prepare(
             "SELECT plugin_id,approved_hash FROM plugin_state WHERE approved_hash IS NOT NULL",
@@ -853,8 +936,6 @@ pub(crate) fn refresh(
         let current = plugin_inputs(&tx, profile, &id, skills)
             .and_then(|inputs| Ok(hash(&serde_json::to_vec(&inputs)?)));
         if current.as_ref().ok() != Some(&expected) {
-            // Retain the previous snapshot for review, but never revive approval
-            // merely because a later edit restores the old file contents.
             tx.execute(
                 "UPDATE plugin_state SET approved_hash=NULL WHERE plugin_id=?",
                 [id],

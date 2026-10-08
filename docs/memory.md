@@ -2,18 +2,20 @@
 
 Memory is a project's long-term knowledge: things you or an agent decide are worth keeping, saved as plain files, searchable by every chat and automation in the project. It is how Inferay gets more useful the longer you use it: automations and skills draw on what the project has learned, and improvements arrive as proposals you approve.
 
-Status: **notes work** (`native/core/src/memory.rs`, `native/server/src/memory_store.rs`, the Memory page and the chat Memory button). Files in Memory and records as one page come with the M2 page cleanup; until then Resources, Files and Tools remain separate pages.
+Status: **notes and dropped files work** (`native/core/src/memory.rs`, `native/server/src/memory_store.rs`, the Memory graph page and the chat Memory button). Resources, Files and Tools are no longer separate pages. Records are not shown on the Memory page yet.
 
 | Part | Status |
 |---|---|
 | Notes as Markdown files, rebuildable FTS5 index, superseded and expired ranking, `[[links]]` | works |
-| Memory page: table, search, tag filter, note view with links, New note | works |
+| Memory page: graph of notes, files and their source chats and runs, with `[[link]]` edges, pan, zoom, fit, search and type filters (Text, Images, Files, Chats) | works |
+| Details panel: note or file preview, tags, source, Open chat, Open file, Delete | works |
+| Drop or paste anywhere on the page: files are saved as-is under `memory/documents/`, text as a note | works |
 | Memory button on assistant chat messages (saves with an automatic title; edit afterwards) | works |
 | Codex `inferay_memory` tool (search, read, save in chats; no save in automations) | works |
-| Claude: memory guide and best matches in the prompt; searches the folder with `rg` and writes notes as files | works (no tool yet) |
+| Claude: the same `inferay_memory` tool through the turn-scoped Inferay MCP bridge to the shared dispatcher; best matches in the prompt | works (the prompt guidance still points Claude at `rg` and file writes) |
 | Runs record the notes they read (`memory_read` run event) | works |
-| Library view: drop zone, card grid with previews, side panel, files with companion notes, PDF text extraction, duplicate detection, records as cards, live updates; Resources and Files pages removed | planned (M2) |
-| Title and tags sheet before saving, Memory button on your own messages, image and video descriptions, graph view, global memory, meaning-based search | planned |
+| Files with companion notes, PDF text extraction, duplicate detection, records on the page, live updates | planned (M2) |
+| Title and tags sheet before saving, Memory button on your own messages, image and video descriptions, global memory, meaning-based search | planned |
 
 ## What it is
 
@@ -28,17 +30,17 @@ Status: **notes work** (`native/core/src/memory.rs`, `native/server/src/memory_s
 - 🧬 **Records stay deliberate**: a dropped JSON file never silently becomes a genome that automations depend on; records are added through their editor or an explicit "use as …" action.
 
 
-The project page currently called Resources becomes **Memory**. It holds three kinds of entries:
+The **Memory** page replaces the former Resources page. Memory holds three kinds of entries:
 
 | Kind | Examples | Stored as | Role |
 |---|---|---|---|
-| 📝 **Notes** | a chat answer you liked, a decision, a research summary, a run's report | Markdown with a small header, `resources/notes/<slug>.md` | Knowledge: informs chats and runs |
-| 📎 **Files** | PDFs, images, exports, references | The original under `resources/documents/`, plus a text note describing it | Source material |
-| 🧬 **Records** | brand genome, Mind, characters | Typed JSON, `resources/<type>/<slug>.json` | Definitions: approved, hashed into automations |
+| 📝 **Notes** | a chat answer you liked, a decision, a research summary, a run's report | Markdown with a small header, `memory/notes/<slug>.md` | Knowledge: informs chats and runs |
+| 📎 **Files** | PDFs, images, exports, references | The original under `memory/documents/`, plus a text note describing it (planned) | Source material |
+| 🧬 **Records** | brand genome, Mind, characters | Typed JSON, `memory/<type>/<slug>.json` | Definitions: approved, hashed into automations |
 
 Notes and files are **memory**: they inform, they never authorize. Records are **definitions**: automations that read them are approved against their exact content (see [concepts.md](concepts.md)).
 
-The folder stays `resources/` on disk; the page and the agent tool call it Memory. Notes are plain Markdown with `[[links]]`, so the folder also opens as an Obsidian vault.
+Notes, documents and records live under the project's `memory/` folder. Notes are plain Markdown with `[[links]]`, so the folder also opens as an Obsidian vault.
 
 ## Note format
 
@@ -92,11 +94,11 @@ The prompt never contains the whole memory, only what the agent looks up. Projec
 
 ### The index
 
-`projects.sqlite3` keeps a rebuildable index, like the definition index:
+`memory.sqlite3` keeps a rebuildable index, like the definition index:
 
-- `memory_notes`: id, path, title, tags, source, created, supersedes, expires, content hash
-- `memory_fts`: SQLite FTS5 full-text index over title, tags and body (local, no model calls)
-- `memory_links`: `[[link]]` targets, shared source and supersedes edges
+- `notes`: id, path, title, tags, source, created, supersedes, expires, file stamp, body
+- `notes_fts`: SQLite FTS5 full-text index over title, tags and body (local, no model calls)
+- `links`: `[[link]]` targets
 
 It updates whenever memory files change and can be rebuilt from the files at any time. Ranking: text relevance, then newer first; superseded and expired notes last. Meaning-based (embedding) search can replace the ranking later without changing the tool.
 
@@ -109,9 +111,8 @@ It updates whenever memory files change and can be rebuilt from the files at any
 
 ## Seeing it
 
-- **Table** (default): title, kind, tags, source, date, superseded. Search box, tag filters, sort.
-- **Note view**: rendered Markdown, "what links here", source link back to the chat or run, Supersede and Edit.
-- **Graph** (after the table): notes as dots; lines from `[[links]]`, shared tags, shared source and supersedes. Bounded to the current search or tag.
+- **Graph** (the page): notes and files grouped by the chat or run they came from, with `[[link]]` and supersedes edges; superseded notes are marked. Search and type filters narrow it; the newest items are shown when memory exceeds the graph bound.
+- **Details panel**: the note or file preview, tags, source with Open chat, Open file, and Delete. "What links here", Supersede and Edit are planned.
 - **Run view**: each run lists the notes it read.
 
 ## How it ties the flow together
@@ -138,6 +139,6 @@ Chat ──Save to memory──►  MEMORY  ◄──Save to memory── Run re
 - Save to memory on a chat message creates a note with a working link back to the message.
 - An agent saves and later finds a note through `memory.search` in a new chat, in both Codex and Claude.
 - A run's history lists the notes it read; adding a new note does not disable any automation.
-- A superseded note ranks below its replacement and is marked in the table.
-- Deleting `projects.sqlite3` rebuilds the memory index from the files.
+- A superseded note ranks below its replacement and is marked in the graph.
+- Deleting `memory.sqlite3` rebuilds the memory index from the files.
 - The memory folder opens in Obsidian with links intact.

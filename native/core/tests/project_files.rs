@@ -124,11 +124,25 @@ fn skill_front_matter_and_manifest_limits_are_validated() {
 #[test]
 fn repository_packs_require_stable_identity_and_full_hashes() {
     let value = json!({"schema":"inferay.tool/1","id":ID,"name":"Pinned tool","program":"python3","entrypoint":"scripts/run.py","args":[],"timeoutSeconds":30,"inputSchema":{},"outputSchema":{},"pack":{"repositoryId":ID,"commit":"a".repeat(40),"sha256":"b".repeat(64)}});
-    assert!(parse::<ToolDefinition>("tools/report/tool.json", value.to_string().as_bytes()).is_ok());
-    for (field, invalid) in [("repositoryId", "kit"), ("commit", "main"), ("commit", "abcdef"), ("sha256", "not-a-hash")] {
+    assert!(
+        parse::<ToolDefinition>("tools/report/tool.json", value.to_string().as_bytes()).is_ok()
+    );
+    for (field, invalid) in [
+        ("repositoryId", "kit"),
+        ("commit", "main"),
+        ("commit", "abcdef"),
+        ("sha256", "not-a-hash"),
+    ] {
         let mut invalid_value = value.clone();
         invalid_value["pack"][field] = json!(invalid);
-        assert!(parse::<ToolDefinition>("tools/report/tool.json", invalid_value.to_string().as_bytes()).is_err(), "{field}");
+        assert!(
+            parse::<ToolDefinition>(
+                "tools/report/tool.json",
+                invalid_value.to_string().as_bytes()
+            )
+            .is_err(),
+            "{field}"
+        );
     }
 }
 
@@ -137,13 +151,29 @@ fn required_tool_grants_preserve_optional_defaults_and_reject_duplicate_identity
     let plugin = "11111111-1111-4111-8111-111111111111";
     let tool = "22222222-2222-4222-8222-222222222222";
     let optional = serde_json::json!({"pluginId":plugin,"toolId":tool});
-    let grant: inferay_core::project_files::AgentToolGrant = serde_json::from_value(optional.clone()).unwrap();
+    let grant: inferay_core::project_files::AgentToolGrant =
+        serde_json::from_value(optional.clone()).unwrap();
     assert!(!grant.required);
     assert_eq!(serde_json::to_value(grant).unwrap(), optional);
     let mut automation = serde_json::json!({"schema":"inferay.automation/1","id":"33333333-3333-4333-8333-333333333333","name":"Required checks","trigger":{"kind":"manual"},"overlap":"skip","may":[],"execution":{"kind":"agent","provider":"codex","instructions":"Use the check","skills":[],"resources":[],"repositories":[],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":60,"tools":[{"pluginId":plugin,"toolId":tool,"required":true}]}});
-    assert!(parse::<AutomationDefinition>("automations/check/automation.json", automation.to_string().as_bytes()).is_ok());
-    automation["execution"]["tools"].as_array_mut().unwrap().push(optional);
-    assert!(parse::<AutomationDefinition>("automations/check/automation.json", automation.to_string().as_bytes()).is_err());
+    assert!(
+        parse::<AutomationDefinition>(
+            "automations/check/automation.json",
+            automation.to_string().as_bytes()
+        )
+        .is_ok()
+    );
+    automation["execution"]["tools"]
+        .as_array_mut()
+        .unwrap()
+        .push(optional);
+    assert!(
+        parse::<AutomationDefinition>(
+            "automations/check/automation.json",
+            automation.to_string().as_bytes()
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -153,25 +183,48 @@ fn tool_connection_references_require_bounded_aliases_and_local_ids() {
     let binding = value["connections"]["SERVICE"].clone();
     for alias in ["", "lowercase", "0START", "WITH SPACE", "WITH=EQUALS"] {
         value["connections"] = json!({alias:binding});
-        assert!(parse::<ToolDefinition>("tools/read/tool.json", value.to_string().as_bytes()).is_err());
+        assert!(
+            parse::<ToolDefinition>("tools/read/tool.json", value.to_string().as_bytes()).is_err()
+        );
     }
     value["connections"] = json!({"SERVICE":"secret-value"});
     assert!(parse::<ToolDefinition>("tools/read/tool.json", value.to_string().as_bytes()).is_err());
-    value["connections"] = (0..17).map(|i| (format!("SERVICE_{i}"), binding.clone())).collect::<serde_json::Map<_,_>>().into();
+    value["connections"] = (0..17)
+        .map(|i| (format!("SERVICE_{i}"), binding.clone()))
+        .collect::<serde_json::Map<_, _>>()
+        .into();
     assert!(parse::<ToolDefinition>("tools/read/tool.json", value.to_string().as_bytes()).is_err());
 }
 
 #[test]
 fn connection_request_targets_reject_ambient_authority_and_header_injection() {
     use inferay_core::connections::ToolConnection;
-    let mut connection = ToolConnection { id: ID.into(), base_url:"https://api.example.test/v1/".into(), header:"Authorization".into(), prefix:"Bearer ".into() };
+    let mut connection = ToolConnection {
+        id: ID.into(),
+        base_url: "https://api.example.test/v1/".into(),
+        header: "Authorization".into(),
+        prefix: "Bearer ".into(),
+    };
     assert!(connection.validate().is_ok());
-    for url in ["http://api.example.test/", "https://user:pass@api.example.test/", "https://api.example.test/v1", "https://api.example.test/?key=value", "https://api.example.test/#fragment"] {
+    for url in [
+        "http://api.example.test/",
+        "https://user:pass@api.example.test/",
+        "https://api.example.test/v1",
+        "https://api.example.test/?key=value",
+        "https://api.example.test/#fragment",
+    ] {
         connection.base_url = url.into();
         assert!(connection.validate().is_err(), "{url}");
     }
     connection.base_url = "https://api.example.test/v1/".into();
-    for header in ["Host", "Cookie", "Content-Length", "Proxy-Authorization", "Authorization\r\nOther", ""] {
+    for header in [
+        "Host",
+        "Cookie",
+        "Content-Length",
+        "Proxy-Authorization",
+        "Authorization\r\nOther",
+        "",
+    ] {
         connection.header = header.into();
         assert!(connection.validate().is_err(), "{header}");
     }
@@ -185,11 +238,18 @@ fn connection_request_targets_reject_ambient_authority_and_header_injection() {
 #[test]
 fn effect_handler_declarations_require_explicit_recovery_and_json_interface() {
     let mut value = json!({"schema":"inferay.tool/1","id":ID,"name":"Delivery","program":"python3","entrypoint":"run.py","args":[],"timeoutSeconds":30,"inputSchema":{},"outputSchema":{},"effectHandler":{"kinds":["example.deliver"],"retrySafety":"never"}});
-    let valid = |value: &serde_json::Value| parse::<ToolDefinition>("tools/delivery/tool.json", value.to_string().as_bytes()).is_ok();
+    let valid = |value: &serde_json::Value| {
+        parse::<ToolDefinition>("tools/delivery/tool.json", value.to_string().as_bytes()).is_ok()
+    };
     assert!(valid(&value));
     value["effectHandler"]["retrySafety"] = json!("idempotent");
     assert!(valid(&value));
-    for declaration in [json!({"kinds":["example.deliver"]}), json!({"kinds":[],"retrySafety":"never"}), json!({"kinds":["bad\nkind"],"retrySafety":"never"}), json!({"kinds":["example.deliver"],"retrySafety":"automatic"})] {
+    for declaration in [
+        json!({"kinds":["example.deliver"]}),
+        json!({"kinds":[],"retrySafety":"never"}),
+        json!({"kinds":["bad\nkind"],"retrySafety":"never"}),
+        json!({"kinds":["example.deliver"],"retrySafety":"automatic"}),
+    ] {
         let mut invalid = value.clone();
         invalid["effectHandler"] = declaration;
         assert!(!valid(&invalid));

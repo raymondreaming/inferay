@@ -23,8 +23,6 @@ import { useMemoryDrop } from "./useMemoryDrop.ts";
 
 type View = { x: number; y: number; k: number };
 
-/** Obsidian-style map of a project's memory: each item is drawn as what it is (a thumbnail or an icon);
- * lines join items to the chat or run they came from and to each other through [[links]]. */
 export function MemoryGraph(props: { projectId: string }) {
 	const [selected, setSelected] = createSignal<string | null>(null);
 	const [hovered, setHovered] = createSignal<string | null>(null);
@@ -51,7 +49,6 @@ export function MemoryGraph(props: { projectId: string }) {
 			: new Map<string, { x: number; y: number }>();
 	});
 
-	// Search covers note text through the memory index, and file names directly.
 	let searchTimer: ReturnType<typeof setTimeout> | undefined;
 	createEffect(
 		() => query().trim(),
@@ -176,12 +173,10 @@ export function MemoryGraph(props: { projectId: string }) {
 			.filter((n): n is MemoryGraphNode => !!n);
 	};
 
-	/** The live chat a source hub came from, if that chat is still open in the workspace. */
 	const chatOf = (node: MemoryGraphNode) =>
 		node.source.startsWith("chat:")
 			? findAgentPane(node.source.slice(5))
 			: undefined;
-	/** Same name the sidebar shows: the chat's summary, kept on the pane or in local storage. */
 	const chatTitle = (node: MemoryGraphNode) => {
 		if (node.source.startsWith("run:")) return "Automation run";
 		return (
@@ -214,7 +209,6 @@ export function MemoryGraph(props: { projectId: string }) {
 		}
 		setView(next);
 	};
-	/** Zoom around a point given relative to the stage centre (0, 0 = centre). */
 	const zoomTo = (k: number, px = 0, py = 0, smooth = false) => {
 		const v = view();
 		const next = clampZoom(k);
@@ -227,7 +221,6 @@ export function MemoryGraph(props: { projectId: string }) {
 			smooth,
 		);
 	};
-	/** Frame everything visible, leaving room for the labels under each item. */
 	const fitView = (smooth: boolean) => {
 		const points = nodes()
 			.map((n) => positions().get(n.id))

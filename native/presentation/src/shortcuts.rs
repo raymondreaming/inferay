@@ -13,8 +13,6 @@ const SHIFT: u8 = 8;
 const BINDINGS: &[(&str, &str, u8, &str, bool)] = &[
     ("window", "ArrowLeft", META, "previousRepository", true),
     ("window", "ArrowRight", META, "nextRepository", true),
-    ("repositoryTabs", "Tab", 0, "nextRepository", true),
-    ("repositoryTabs", "Tab", SHIFT, "previousRepository", true),
     ("graph", "ArrowUp", 0, "previousCommit", true),
     ("graph", "ArrowDown", 0, "nextCommit", true),
     ("graph", "ArrowUp", ALT, "previousBranchCommit", true),
@@ -53,10 +51,10 @@ pub fn action(input: &Value, scope: &str) -> Option<&'static str> {
     {
         return None;
     }
-    let modifiers = u8::from(flag(&input["meta"])) * META
-        | u8::from(flag(&input["ctrl"])) * CTRL
-        | u8::from(flag(&input["alt"])) * ALT
-        | u8::from(flag(&input["shift"])) * SHIFT;
+    let modifiers = (u8::from(flag(&input["meta"])) * META)
+        | (u8::from(flag(&input["ctrl"])) * CTRL)
+        | (u8::from(flag(&input["alt"])) * ALT)
+        | (u8::from(flag(&input["shift"])) * SHIFT);
     BINDINGS
         .iter()
         .find_map(|&(context, key, keys, action, repeat)| {
@@ -68,14 +66,14 @@ pub fn action(input: &Value, scope: &str) -> Option<&'static str> {
         })
 }
 
-pub fn resolve(input: &Value) -> Option<&'static str> {
-    action(input, "window").or_else(|| action(input, string(&input["scope"])))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn resolve(input: &Value) -> Option<&'static str> {
+        action(input, "window").or_else(|| action(input, string(&input["scope"])))
+    }
 
     #[test]
     fn every_binding_has_exact_modifiers_and_declared_repeat_policy() {
@@ -99,7 +97,7 @@ mod tests {
 
     #[test]
     fn window_shortcuts_ignore_focus_but_local_shortcuts_respect_editors_and_overlays() {
-        for scope in ["graph", "sidebar", "diff", "chat", "repositoryTabs"] {
+        for scope in ["graph", "sidebar", "diff", "chat"] {
             for guard in ["editable", "overlay"] {
                 let mut input = json!({"scope":scope,"key":"ArrowRight","meta":true});
                 input[guard] = json!(true);

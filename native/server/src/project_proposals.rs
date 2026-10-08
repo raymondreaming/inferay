@@ -1,5 +1,3 @@
-//! Durable chat decisions. A saved intent precedes filesystem publication so
-//! retries can recognize completed writes without applying the proposal twice.
 use crate::{
     project_definitions as files, project_file_commands,
     project_file_store::FileProjectStore,
@@ -9,6 +7,14 @@ use crate::{
 use inferay_core::{project_files::*, prompts::Prompt};
 use rusqlite::{OptionalExtension, params};
 use std::collections::BTreeMap;
+
+type ProposalReceipt = (
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
 mod edits;
 pub(crate) mod review;
 
@@ -55,7 +61,7 @@ pub(crate) fn resolve(
         .clone()
         .unwrap_or_else(|| request.command.clone());
     edits::validate(&request.command, &effective)?;
-    let receipt: Option<(String, String, Option<String>, Option<String>, Option<String>)> = store.db.query_row(
+    let receipt: Option<ProposalReceipt> = store.db.query_row(
         "SELECT command_hash,state,output_hash,entity_id,accepted_command FROM project_proposals WHERE message_id=?",
         [&request.message_id],
         |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?)),
@@ -100,8 +106,6 @@ pub(crate) fn resolve(
                         hash(&files::read(&root, &target, MANIFEST_LIMIT)?)
                     };
                     if output_hash.as_deref() == Some(&actual) {
-                        // Publication succeeded before a crash or failed response.
-                        // Reindex first so approvals are revoked before reporting success.
                         project_index::refresh(&mut store.db, &store.root, skills)?;
                         store.db.execute(
                             "UPDATE project_proposals SET state='saved' WHERE message_id=?",
@@ -198,8 +202,6 @@ pub(crate) fn resolve(
         }
         _ => unreachable!(),
     };
-    // The mutex and profile lease serialize application writers. The durable
-    // intent survives a crash between publishing files and recording completion.
     store.db.execute(
         "INSERT INTO project_proposals(message_id,command_hash,project_id,state,output_hash,entity_id,accepted_command)
          VALUES(?,?,?,'applying',?,?,?)

@@ -1,6 +1,5 @@
 import type { PluginImportFile } from "../../services/projectsApi.ts";
 
-/** Capture directory handles during the drop event, before its data store closes. */
 export function droppedPluginFiles(transfer: DataTransfer) {
 	const entries = Array.from(transfer.items)
 		.filter((item) => item.kind === "file")

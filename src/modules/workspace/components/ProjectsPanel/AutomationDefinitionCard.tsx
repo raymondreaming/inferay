@@ -18,7 +18,6 @@ export function AutomationDefinitionCard(props: {
 	messageId: string;
 	onResult?: (message: string) => void;
 }) {
-	// The native transcript model only exposes validated automation definitions.
 	const definition = createMemo(
 		() => JSON.parse(props.command.content) as AutomationDefinition,
 	);

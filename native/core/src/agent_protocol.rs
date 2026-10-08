@@ -86,18 +86,22 @@ impl ClaudeProtocolState {
         // wrapper's type dropped every content_block_delta, which is why
         // assistant text appeared all at once instead of streaming in.
         let tool_result = data["type"] == "user"
-            && data.pointer("/message/content").and_then(Value::as_array)
+            && data
+                .pointer("/message/content")
+                .and_then(Value::as_array)
                 .is_some_and(|blocks| blocks.iter().any(|block| block["type"] == "tool_result"));
-        if tool_result || matches!(
-            data["type"].as_str(),
-            Some(
-                "assistant"
-                    | "content_block_start"
-                    | "content_block_delta"
-                    | "content_block_stop"
-                    | "result"
+        if tool_result
+            || matches!(
+                data["type"].as_str(),
+                Some(
+                    "assistant"
+                        | "content_block_start"
+                        | "content_block_delta"
+                        | "content_block_stop"
+                        | "result"
+                )
             )
-        ) {
+        {
             context.emissions.push(ProtocolEmission::Chat(data.clone()));
         }
     }
@@ -134,18 +138,14 @@ impl CodexProtocolState {
         let item_type = string_field(item, "type");
 
         match (method, item_type) {
-            ("thread/tokenUsage/updated", _) => {
-                // These are cumulative thread totals. Consumers replace the previous
-                // snapshot rather than adding successive notifications together.
-                if params["tokenUsage"].is_object() {
-                    context.emissions.push(ProtocolEmission::Chat(json!({
-                        "type": "inferay.usage",
-                        "provider": "codex",
-                        "threadId": params["threadId"],
-                        "turnId": params["turnId"],
-                        "usage": params["tokenUsage"],
-                    })));
-                }
+            ("thread/tokenUsage/updated", _) if params["tokenUsage"].is_object() => {
+                context.emissions.push(ProtocolEmission::Chat(json!({
+                    "type": "inferay.usage",
+                    "provider": "codex",
+                    "threadId": params["threadId"],
+                    "turnId": params["turnId"],
+                    "usage": params["tokenUsage"],
+                })));
             }
             ("turn/started", _) => {
                 self.emit_status(context, "thinking", true);
@@ -206,7 +206,6 @@ impl CodexProtocolState {
                 })));
             }
             ("item/completed", "functionCallOutput") => {
-                // Code-mode tool output can arrive independently of commandExecution items.
                 context.emissions.push(ProtocolEmission::Chat(json!({
                     "type":"user", "message":{"content":[{
                         "type":"tool_result", "tool_use_id":item["id"], "content":item["output"]

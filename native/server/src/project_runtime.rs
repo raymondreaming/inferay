@@ -1,4 +1,3 @@
-//! Durable local execution; presentation observes this owner and never drives its clock.
 pub(crate) mod tool;
 use crate::{
     agent_command::AgentCommandResolver,
@@ -22,10 +21,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tokio::{
-    io::AsyncWriteExt,
-    sync::Semaphore,
-};
+use tokio::{io::AsyncWriteExt, sync::Semaphore};
 
 pub(crate) struct ProjectRuntime {
     pub store: Mutex<FileProjectStore>,
@@ -216,19 +212,31 @@ impl ProjectRuntime {
         .await?
     }
 
-    pub async fn import_library(self: &Arc<Self>, project_id: String, name: String, originals: std::collections::BTreeMap<String, Vec<u8>>) -> Result<Value> {
+    pub async fn import_library(
+        self: &Arc<Self>,
+        project_id: String,
+        name: String,
+        originals: std::collections::BTreeMap<String, Vec<u8>>,
+    ) -> Result<Value> {
         let this = self.clone();
         tokio::task::spawn_blocking(move || {
             let store = this.store.lock().map_err(|_| "Project store lock failed")?;
             let root = store.project_dir(&project_id)?;
             let id = crate::project_definitions::import_library(&root, &name, &originals)?;
             Ok(json!({"id":id}))
-        }).await?
+        })
+        .await?
     }
 
     pub async fn preview_automation(self: &Arc<Self>, command: &ProjectFileCommand) -> Result<()> {
         inferay_core::project_files::proposed_automation(command)?;
-        let ProjectFileCommand::SaveDefinition { project_id, path, content, expected_hash } = command else {
+        let ProjectFileCommand::SaveDefinition {
+            project_id,
+            path,
+            content,
+            expected_hash,
+        } = command
+        else {
             unreachable!()
         };
         let skills = self.prompts.lock().await.load()?;
@@ -241,10 +249,14 @@ impl ProjectRuntime {
             Err(error) => return Err(error.into()),
         };
         if current.as_deref() != expected_hash.as_deref() {
-            return Err("Automation changed; read its current sourceHash before proposing an update".into());
+            return Err(
+                "Automation changed; read its current sourceHash before proposing an update".into(),
+            );
         }
         crate::project_definitions::validate_write(
-            &root, path, content.as_bytes(),
+            &root,
+            path,
+            content.as_bytes(),
             &skills.iter().map(|s| format!("global:{}", s.id)).collect(),
         )
     }
@@ -254,13 +266,31 @@ impl ProjectRuntime {
         let store = self.store.lock().map_err(|_| "Project store lock failed")?;
         let globals = skills.iter().map(|s| format!("global:{}", s.id)).collect();
         match command {
-            ProjectFileCommand::CreatePlugin { project_id, slug, files } => {
+            ProjectFileCommand::CreatePlugin {
+                project_id,
+                slug,
+                files,
+            } => {
                 let root = store.project_dir(project_id)?;
                 crate::project_definitions::validate_bundle(&root, slug, files, &globals)
             }
-            ProjectFileCommand::UpdatePlugin { project_id, slug, expected_hash, files, remove } => {
+            ProjectFileCommand::UpdatePlugin {
+                project_id,
+                slug,
+                expected_hash,
+                files,
+                remove,
+            } => {
                 let root = store.project_dir(project_id)?;
-                crate::project_definitions::prepare_plugin_update(&root, slug, expected_hash, files, remove, &globals).map(|_| ())
+                crate::project_definitions::prepare_plugin_update(
+                    &root,
+                    slug,
+                    expected_hash,
+                    files,
+                    remove,
+                    &globals,
+                )
+                .map(|_| ())
             }
             _ => Err("Expected a plugin bundle".into()),
         }
@@ -298,7 +328,8 @@ impl ProjectRuntime {
         tokio::task::spawn_blocking(move || {
             let mut store = this.store.lock().map_err(|_| "Project store lock failed")?;
             crate::project_proposals::resolve(&mut store, request, &skills)
-        }).await?
+        })
+        .await?
     }
 
     pub async fn command(self: &Arc<Self>, cmd: ProjectFileCommand, host: bool) -> Result<Value> {
@@ -419,21 +450,41 @@ impl ProjectRuntime {
             dir.join("inputs/run.json"),
             serde_json::to_vec_pretty(snapshot)?,
         )?;
-        let definition: inferay_core::project_files::AutomationDefinition = serde_json::from_value(snapshot["automation"].clone())?;
-        if snapshot["connections"].as_object().is_some_and(|connections| !connections.is_empty()) {
-            if !definition.may.contains(&inferay_core::project_files::Permission::Network) {
-                return Err("Connection requests require network permission".into());
-            }
+        let definition: inferay_core::project_files::AutomationDefinition =
+            serde_json::from_value(snapshot["automation"].clone())?;
+        if snapshot["connections"]
+            .as_object()
+            .is_some_and(|connections| !connections.is_empty())
+            && !definition
+                .may
+                .contains(&inferay_core::project_files::Permission::Network)
+        {
+            return Err("Connection requests require network permission".into());
         }
         crate::project_requirements::check(snapshot, &root, &dir).await?;
         match serde_json::from_value::<ProjectExecution>(snapshot["execution"].clone())? {
             ProjectExecution::Tool { tool_id, input } => {
                 let tool: LocalTool = serde_json::from_value(snapshot["tool"].clone())?;
                 let cancelled = || self.stopped(id);
-                tool::execute(self, tool::Invocation {
-                    id, root: &root, dir: &dir, call: None, connection_tool: Some(&tool_id), tool, input, snapshot,
-                    entrypoint_hash: snapshot["entrypointHash"].as_str().ok_or("Missing entrypoint hash")?, permissions: &definition.may, cancelled: &cancelled,
-                }).await
+                tool::execute(
+                    self,
+                    tool::Invocation {
+                        id,
+                        root: &root,
+                        dir: &dir,
+                        call: None,
+                        connection_tool: Some(&tool_id),
+                        tool,
+                        input,
+                        snapshot,
+                        entrypoint_hash: snapshot["entrypointHash"]
+                            .as_str()
+                            .ok_or("Missing entrypoint hash")?,
+                        permissions: &definition.may,
+                        cancelled: &cancelled,
+                    },
+                )
+                .await
             }
             ProjectExecution::Agent {
                 instructions,
@@ -445,7 +496,6 @@ impl ProjectRuntime {
                 ..
             } => {
                 let cwd = resolve_path(&root, &working_directory)?;
-                // Automations read memory but never save to it; what they read is recorded on the run.
                 let memory = crate::agent_runner::MemoryScope {
                     runtime: self.clone(),
                     project: project.to_owned(),
@@ -459,15 +509,26 @@ impl ProjectRuntime {
                 if let Ok(mut reads) = memory.reads.lock() {
                     reads.extend(recalled.read);
                 }
-                let tools = crate::project_tools::ToolScope::new(self.clone(), id, root.clone(), dir.clone(), snapshot.clone())?;
+                let tools = crate::project_tools::ToolScope::new(
+                    self.clone(),
+                    id,
+                    root.clone(),
+                    dir.clone(),
+                    snapshot.clone(),
+                )?;
                 let _tool_lease = crate::project_tools::ToolLease(tools.clone());
-                let handle = AgentProcessHandle::with_skills(self.prompts.clone())
-                    .with_memory(Some(memory.clone()))
-                    .with_tools(tools.clone())
-                    .with_sandbox(crate::automation_sandbox::AutomationSandbox::new(
-                        &serde_json::from_value::<inferay_core::project_files::AutomationDefinition>(snapshot["automation"].clone())?.may,
-                        &snapshot["repositoryPaths"], &root,
-                    ));
+                let handle =
+                    AgentProcessHandle::with_skills(self.prompts.clone())
+                        .with_memory(Some(memory.clone()))
+                        .with_tools(tools.clone())
+                        .with_sandbox(crate::automation_sandbox::AutomationSandbox::new(
+                            &serde_json::from_value::<
+                                inferay_core::project_files::AutomationDefinition,
+                            >(snapshot["automation"].clone())?
+                            .may,
+                            &snapshot["repositoryPaths"],
+                            &root,
+                        ));
                 let kind = if provider == "codex" {
                     AgentKind::Codex
                 } else {
@@ -485,7 +546,10 @@ impl ProjectRuntime {
                     cwd.display(),
                     dir.join("output").display()
                 );
-                let prompt = format!("{prompt}\n\n{}\n\nGranted library tools: {}. Use inferay_tools list to discover their input schemas and call them through inferay_tools; do not bypass the granted interface with shell commands.", recalled.text, snapshot["tools"]);
+                let prompt = format!(
+                    "{prompt}\n\n{}\n\nGranted library tools: {}. Use inferay_tools list to discover their input schemas and call them through inferay_tools; do not bypass the granted interface with shell commands.",
+                    recalled.text, snapshot["tools"]
+                );
                 let invocation=CodexInvocationContext{cwd:dir.join("output"),reference_paths:vec![],images:vec![],model:model.clone(),reasoning_level:reasoning_level.clone(),developer_instructions:Some("Run the explicitly requested project automation. Do not enable schedules or expand permissions. Report failures truthfully.".into()),session_id:None,mcp_servers:Some(vec![])};
                 let mut protocol = AgentProtocolContext::new(cwd.clone());
                 let mut codex = CodexProtocolState::default();
@@ -527,12 +591,19 @@ impl ProjectRuntime {
                         let usage = if data["type"] == "inferay.usage" {
                             Some(data.clone())
                         } else if data["type"] == "result" && data["usage"].is_object() {
-                            Some(json!({"provider":"claude","usage":data["usage"],"modelUsage":data["modelUsage"],"reportedCostUsd":data["total_cost_usd"]}))
-                        } else { None };
-                        if let Some(usage) = usage.filter(|usage| Some(usage) != last_usage.as_ref()) {
-                            // Commit received usage before awaiting further provider output.
-                            // A crash can lose unreported consumption, not this snapshot.
-                            let store = event_runtime.store.lock().map_err(|_| "Project store lock failed")?;
+                            Some(
+                                json!({"provider":"claude","usage":data["usage"],"modelUsage":data["modelUsage"],"reportedCostUsd":data["total_cost_usd"]}),
+                            )
+                        } else {
+                            None
+                        };
+                        if let Some(usage) =
+                            usage.filter(|usage| Some(usage) != last_usage.as_ref())
+                        {
+                            let store = event_runtime
+                                .store
+                                .lock()
+                                .map_err(|_| "Project store lock failed")?;
                             event(&store.db, &event_run_id, "provider_usage", &usage)?;
                             last_usage = Some(usage);
                         }
@@ -616,7 +687,9 @@ impl ProjectRuntime {
                     tools.verify_required()?;
                     let mut artifacts = tools.artifacts()?;
                     artifacts.push("response.md".into());
-                    Ok(json!({"message":text,"artifacts":artifacts,"completion":"provider turn completed; not an independently verified business outcome"}))
+                    Ok(
+                        json!({"message":text,"artifacts":artifacts,"completion":"provider turn completed; not an independently verified business outcome"}),
+                    )
                 } else {
                     Err("Agent run stopped or timed out".into())
                 }

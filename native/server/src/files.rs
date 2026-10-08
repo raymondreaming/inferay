@@ -102,14 +102,16 @@ impl ServerState {
         }
         let bytes = tokio::fs::read(&file).await.map_err(map_io_error)?;
         let content = String::from_utf8_lossy(&bytes);
-        let (table, table_error) = match inferay_core::table_preview::TablePreview::from_content(path, &content) {
-            Ok(table) => (table, None),
-            Err(error) => (None, Some(error)),
-        };
-        let (draft, draft_error) = match inferay_core::draft_preview::DraftPreview::from_content(path, &content) {
-            Ok(draft) => (draft, None),
-            Err(error) => (None, Some(error)),
-        };
+        let (table, table_error) =
+            match inferay_core::table_preview::TablePreview::from_content(path, &content) {
+                Ok(table) => (table, None),
+                Err(error) => (None, Some(error)),
+            };
+        let (draft, draft_error) =
+            match inferay_core::draft_preview::DraftPreview::from_content(path, &content) {
+                Ok(draft) => (draft, None),
+                Err(error) => (None, Some(error)),
+            };
         Ok(serde_json::json!({
             "draft": draft,
             "draftError": draft_error,

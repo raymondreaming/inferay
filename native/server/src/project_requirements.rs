@@ -1,9 +1,11 @@
-//! Bounded machine preflight, executed inside the same OS boundary as local tools.
 use crate::{automation_sandbox::AutomationSandbox, project_store::Result};
 use inferay_core::{project_files::Permission, project_requirements::Requirement};
 use serde_json::Value;
 use std::{collections::BTreeSet, path::Path, time::Duration};
 use tokio::io::AsyncReadExt;
+
+static VERSION_PATTERN: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| regex::Regex::new(r"\b([0-9]+(?:\.[0-9]+){1,3})\b").unwrap());
 
 pub(crate) async fn check(snapshot: &Value, project: &Path, run: &Path) -> Result<()> {
     let requirements: Vec<String> = serde_json::from_value(snapshot["requirements"].clone())?;
@@ -21,8 +23,6 @@ pub(crate) async fn check(snapshot: &Value, project: &Path, run: &Path) -> Resul
             .cloned()
             .unwrap_or(serde_json::json!([])),
     )?;
-    // Version probes may initialize graphics drivers, but need no network or writes
-    // outside their scratch directory, even if the run has broader permission.
     let probe_permissions = permissions
         .into_iter()
         .filter(|permission| *permission == Permission::Gpu)
@@ -112,7 +112,7 @@ pub(crate) async fn check(snapshot: &Value, project: &Path, run: &Path) -> Resul
                 String::from_utf8_lossy(&out),
                 String::from_utf8_lossy(&err)
             );
-            let version = regex::Regex::new(r"\b([0-9]+(?:\.[0-9]+){1,3})\b")?
+            let version = VERSION_PATTERN
                 .captures(&text)
                 .and_then(|c| {
                     c[1].split('.')
