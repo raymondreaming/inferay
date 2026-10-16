@@ -17,6 +17,7 @@ const uses = new Map<string, string[]>();
 const requiredBindings = [
 	"ChatSessionRetention",
 	"ChatViewportRetention",
+	"ChatViewport",
 	"DockSession",
 	"ChatReplica",
 	"PanelReplica",

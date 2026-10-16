@@ -29,6 +29,13 @@ export type ChatMessage = ChatTranscriptMessage & {
 	localOnly?: boolean;
 };
 
+/** A published view and the positions changed since its preceding revision. */
+export type ChatSnapshot = {
+	messages: ChatMessage[];
+	revision: number;
+	change?: { start: number; end: number };
+};
+
 export function admittedTranscriptMessages(
 	admission: Extract<
 		import("@contracts").TranscriptAdmission,
@@ -104,7 +111,6 @@ const DEFAULT_CHAT_RUN_STATUS: ChatLoadingState = {
 	status: "idle",
 	startTime: null,
 };
-const STREAM_RENDER_INTERVAL_MS = 16;
 export function useChatConnection(
 	_options: Accessor<{
 		enabled?: boolean;
@@ -129,9 +135,22 @@ export function useChatConnection(
 	const [transcriptReady, setTranscriptReady] = createSignal(
 		retained?.nativeTranscript != null,
 	);
-	const [messages, setMessages] = createSignal<ChatMessage[]>(
-		retained?.messages ?? [],
-	);
+	const [transcript, setTranscript] = createSignal<ChatSnapshot>({
+		messages: retained?.messages ?? [],
+		revision: 0,
+	});
+	const messages = () => transcript().messages;
+	const setMessages = (
+		update: ChatMessage[] | ((before: ChatMessage[]) => ChatMessage[]),
+		change?: ChatSnapshot["change"],
+	) =>
+		setTranscript((before) => {
+			const next =
+				typeof update === "function" ? update(before.messages) : update;
+			return next === before.messages
+				? before
+				: { messages: next, revision: before.revision + 1, change };
+		});
 	const [checkpoints, setCheckpoints] = createSignal<CheckpointMeta[]>(
 		retained?.checkpoints ?? [],
 	);
@@ -153,12 +172,23 @@ export function useChatConnection(
 		});
 	};
 	let nativeTranscriptShared = !!retained;
+	let publishedNative = nativeTranscript;
+	let changedStart = 0;
+	let changedEnd = Infinity;
 	const flushNativeTranscript = () => {
-		if (nativeFrame !== null) window.clearTimeout(nativeFrame);
+		if (nativeFrame !== null) window.cancelAnimationFrame(nativeFrame);
 		nativeFrame = null;
 		const native = nativeTranscript;
 		if (!native || _options().visible === false) return;
-		setMessages((current) => mergeNativeTranscript(current, native));
+		const current = messages();
+		const direct = current === publishedNative;
+		setMessages(
+			direct ? native : mergeNativeTranscript(current, native),
+			direct ? { start: changedStart, end: changedEnd } : undefined,
+		);
+		publishedNative = native;
+		changedStart = Infinity;
+		changedEnd = 0;
 		nativeTranscriptShared = true;
 	};
 	createEffect(
@@ -168,9 +198,11 @@ export function useChatConnection(
 		},
 	);
 	const resetTranscript = () => {
-		if (nativeFrame !== null) window.clearTimeout(nativeFrame);
+		if (nativeFrame !== null) window.cancelAnimationFrame(nativeFrame);
 		nativeFrame = null;
-		nativeTranscript = null;
+		nativeTranscript = publishedNative = null;
+		changedStart = 0;
+		changedEnd = Infinity;
 		setTranscriptReady(false);
 		replica!.clear();
 		setMessages([]);
@@ -183,7 +215,7 @@ export function useChatConnection(
 		_options().replaceQueuedMessages([]);
 	};
 	onSettled(() => () => {
-		if (nativeFrame !== null) window.clearTimeout(nativeFrame);
+		if (nativeFrame !== null) window.cancelAnimationFrame(nativeFrame);
 		if (replica) {
 			const native = nativeTranscript;
 			chatSessionCache.retain(transcriptIdentity, {
@@ -253,6 +285,14 @@ export function useChatConnection(
 			if (update.kind === "sync" || update.kind === "patch") {
 				const before = nativeTranscript ?? [];
 				const inserted = admittedTranscriptMessages(update, before, msg);
+				// Equal-length replacements preserve positions across coalesced patches.
+				// Membership changes invalidate the whole range, including shifted rows.
+				const replacement = inserted.length === update.deleteCount;
+				changedStart = Math.min(changedStart, replacement ? update.start : 0);
+				changedEnd = Math.max(
+					changedEnd,
+					replacement ? update.start + inserted.length : Infinity,
+				);
 				const pending = nativeTranscriptShared ? before.slice() : before;
 				pending.splice(update.start, update.deleteCount, ...inserted);
 				nativeTranscript = pending;
@@ -260,10 +300,7 @@ export function useChatConnection(
 				if (update.kind === "sync") {
 					flushNativeTranscript();
 				} else if (_optionsValue2.visible !== false && nativeFrame === null) {
-					nativeFrame = window.setTimeout(
-						flushNativeTranscript,
-						STREAM_RENDER_INTERVAL_MS,
-					);
+					nativeFrame = window.requestAnimationFrame(flushNativeTranscript);
 				}
 			}
 			if (plan.ready) {
@@ -326,7 +363,7 @@ export function useChatConnection(
 		const cleanupReconnect = wsClient.onReconnect(reconnectChat);
 		return () => {
 			subscribed = false;
-			if (nativeFrame !== null) window.clearTimeout(nativeFrame);
+			if (nativeFrame !== null) window.cancelAnimationFrame(nativeFrame);
 			nativeFrame = null;
 			cleanupReconnect();
 			cleanup();
@@ -380,6 +417,9 @@ export function useChatConnection(
 		},
 		get messages() {
 			return messages();
+		},
+		get transcript() {
+			return transcript();
 		},
 		revertCheckpoint,
 		setMessages,

@@ -1,6 +1,7 @@
 //! Row grouping and viewport selection operate on descriptors and measurements,
 //! never on transcript text. The renderer retains its existing message objects.
 use serde::{Deserialize, Serialize};
+use wasm_bindgen::prelude::*;
 
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -104,23 +105,53 @@ pub fn list(input: &serde_json::Value) -> Result<Vec<ChatListRow>, String> {
     Ok(result)
 }
 
-pub fn offsets(heights: &[Option<f64>]) -> Vec<f64> {
-    let mut result = Vec::with_capacity(heights.len() + 1);
-    result.push(0.);
-    for height in heights {
-        result.push(result.last().unwrap() + height.unwrap_or(160.));
-    }
-    result
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+/// Own offsets and window hysteresis in Rust. Scroll events carry only the
+/// current position and viewport height, not a serialized copy of the history.
+#[wasm_bindgen]
+#[derive(Default)]
 pub struct ChatViewport {
     offsets: Vec<f64>,
-    scroll_offset: Option<f64>,
-    viewport_height: f64,
-    #[serde(default)]
     retained_window: Option<ChatWindow>,
+}
+
+#[wasm_bindgen]
+impl ChatViewport {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn measure(&mut self, heights: &[f64]) {
+        self.offsets.clear();
+        self.offsets.reserve(heights.len() + 1);
+        self.offsets.push(0.);
+        for height in heights {
+            let height = if height.is_finite() && *height > 0. {
+                *height
+            } else {
+                160.
+            };
+            self.offsets.push(self.offsets.last().unwrap() + height);
+        }
+        if self.offsets.capacity() > self.offsets.len().saturating_mul(4) {
+            self.offsets.shrink_to_fit();
+        }
+    }
+
+    pub fn offset(&self, index: usize) -> f64 {
+        self.offsets.get(index).copied().unwrap_or(0.)
+    }
+
+    pub fn window(&mut self, scroll: Option<f64>, height: f64) -> String {
+        let next = self.select(scroll, height);
+        let result = crate::wasm_json::stringify(&next, "chat viewport");
+        self.retained_window = Some(next);
+        result
+    }
+
+    pub fn first_visible(&self, scroll: Option<f64>, height: f64) -> usize {
+        self.select(scroll, height).first_visible
+    }
 }
 
 #[derive(Debug, PartialEq, Deserialize, Serialize, ts_rs::TS)]
@@ -131,53 +162,53 @@ pub struct ChatWindow {
     end: usize,
 }
 
-pub fn window(input: &ChatViewport) -> ChatWindow {
-    let count = input.offsets.len().saturating_sub(1);
-    if count <= 60 {
-        return ChatWindow {
-            first_visible: 0,
-            start: 0,
-            end: count,
+impl ChatViewport {
+    fn select(&self, scroll_offset: Option<f64>, viewport_height: f64) -> ChatWindow {
+        let count = self.offsets.len().saturating_sub(1);
+        if count <= 60 {
+            return ChatWindow {
+                first_visible: 0,
+                start: 0,
+                end: count,
+            };
+        }
+        let height = if viewport_height > 0. {
+            viewport_height
+        } else {
+            800.
         };
-    }
-    let height = if input.viewport_height > 0. {
-        input.viewport_height
-    } else {
-        800.
-    };
-    // Following uses the tail's measured offsets. Keep the mounted window
-    // independent of programmatic DOM scroll events while heights settle.
-    let scroll = input
-        .scroll_offset
-        .unwrap_or_else(|| (input.offsets[count] - height).max(0.));
-    let first_visible = input.offsets[1..]
-        .partition_point(|offset| *offset <= scroll)
-        .min(count - 1);
-    // Keep mounted rows stable while the viewport has room on both sides.
-    // Rebuilding the slice at every row boundary needlessly remounts rich
-    // content and introduces asynchronous height changes during scrolling.
-    if let Some(previous) = &input.retained_window
-        && input.scroll_offset.is_some()
-        && previous.start < previous.end
-        && previous.end <= count
-        && (previous.start == 0 || previous.start + 4 <= first_visible)
-        && (previous.end == count
-            || input.offsets[previous.end.saturating_sub(4)] >= scroll + height)
-    {
-        return ChatWindow {
+        // Following uses the tail's measured offsets. Keep the mounted window
+        // independent of programmatic DOM scroll events while heights settle.
+        let scroll = scroll_offset.unwrap_or_else(|| (self.offsets[count] - height).max(0.));
+        let first_visible = self.offsets[1..]
+            .partition_point(|offset| *offset <= scroll)
+            .min(count - 1);
+        // Keep mounted rows stable while the viewport has room on both sides.
+        // Rebuilding the slice at every row boundary needlessly remounts rich
+        // content and introduces asynchronous height changes during scrolling.
+        if let Some(previous) = &self.retained_window
+            && scroll_offset.is_some()
+            && previous.start < previous.end
+            && previous.end <= count
+            && (previous.start == 0 || previous.start + 4 <= first_visible)
+            && (previous.end == count
+                || self.offsets[previous.end.saturating_sub(4)] >= scroll + height)
+        {
+            return ChatWindow {
+                first_visible,
+                start: previous.start,
+                end: previous.end,
+            };
+        }
+        let start = first_visible.saturating_sub(8);
+        let bottom = scroll + height;
+        let low = first_visible
+            + self.offsets[first_visible..count].partition_point(|offset| *offset < bottom);
+        ChatWindow {
             first_visible,
-            start: previous.start,
-            end: previous.end,
-        };
-    }
-    let start = first_visible.saturating_sub(8);
-    let bottom = scroll + height;
-    let low = first_visible
-        + input.offsets[first_visible..count].partition_point(|offset| *offset < bottom);
-    ChatWindow {
-        first_visible,
-        start,
-        end: count.min((start + 48).max(low + 8)),
+            start,
+            end: count.min((start + 48).max(low + 8)),
+        }
     }
 }
 
@@ -279,25 +310,29 @@ mod tests {
     #[test]
     fn retained_window_covers_mixed_height_history_in_both_directions() {
         let heights: Vec<_> = (0..200)
-            .map(|index| Some(if index % 7 == 0 { 900. } else { 32. }))
+            .map(|index| if index % 7 == 0 { 900. } else { 32. })
             .collect();
-        let mut viewport = ChatViewport {
-            offsets: offsets(&heights),
-            scroll_offset: Some(0.),
-            viewport_height: 700.,
-            retained_window: None,
-        };
+        let mut viewport = ChatViewport::new();
+        viewport.measure(&heights);
         for step in (0..100).chain((0..100).rev()) {
             let scroll = step as f64 * 250.;
-            viewport.scroll_offset = Some(scroll);
-            let next = window(&viewport);
+            let next: ChatWindow =
+                serde_json::from_str(&viewport.window(Some(scroll), 700.)).unwrap();
             assert!(viewport.offsets[next.start] <= scroll);
             assert!(viewport.offsets[next.end] >= scroll + 700.);
-            viewport.retained_window = Some(next);
         }
         // Deleting history invalidates an old retained range.
-        viewport.offsets.truncate(81);
-        viewport.scroll_offset = Some(0.);
-        assert!(window(&viewport).end <= 80);
+        viewport.measure(&heights[..80]);
+        assert!(viewport.select(Some(0.), 700.).end <= 80);
+        viewport.measure(&[]);
+        assert_eq!(
+            viewport.select(None, 700.),
+            ChatWindow {
+                first_visible: 0,
+                start: 0,
+                end: 0
+            }
+        );
+        assert_eq!(viewport.offset(0), 0.);
     }
 }

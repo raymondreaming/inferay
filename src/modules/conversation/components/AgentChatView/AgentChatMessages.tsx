@@ -55,7 +55,7 @@ export function AgentChatMessages(
 				<ChatMessageList
 					active={props.state.visible()}
 					paneId={props.paneId}
-					messages={props.state.connection.messages}
+					transcript={props.state.connection.transcript}
 					scrollElementRef={props.state.viewport.scrollRef}
 					virtualizerControlsRef={(handle) => {
 						props.state.viewport.chatVirtualizerRef.current = handle;

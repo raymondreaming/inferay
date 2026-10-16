@@ -61,14 +61,6 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
         "sidebarResize" => json!(appearance::sidebar_resize(input)),
         "backgroundModel" => json!(appearance::background_model(input)),
         "chatList" => json!(chat_view::list(input)?),
-        "chatOffsets" => json!(chat_view::offsets(
-            &serde_json::from_value::<Vec<Option<f64>>>(input.clone())
-                .map_err(|error| error.to_string())?
-        )),
-        "chatWindow" => json!(chat_view::window(
-            &serde_json::from_value::<chat_view::ChatViewport>(input.clone())
-                .map_err(|error| error.to_string())?
-        )),
         "mergeTranscriptOrder" => transcript::merge_order(input),
         "emptyPanels" => json!(panels::PanelSession::read(&Value::Null)),
         "panelPresentation" => json!(panels::PanelSession::read(input).presentation()),

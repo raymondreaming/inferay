@@ -21,6 +21,7 @@ import {
 export {
 	ChatReplica,
 	ChatSessionRetention,
+	ChatViewport,
 	ChatViewportRetention,
 	DockSession,
 	DocumentReplica,

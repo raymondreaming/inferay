@@ -93,6 +93,10 @@ Git action labels, response contracts, and post-action selection rules belong to
 
 `src/client.tsx` wires production persistence for workspace state and panel sessions (`configureWorkspacePanels`). Rust panel replicas replay typed pending actions over acknowledged sessions. The document viewer owns its browser file-body cache; panel snapshots contain only paths and selection metadata. Their hooks own Solid state and query lifecycles; services can be tested without loading the UI or a live backend.
 
+Chat publication keeps native replacement ranges in a versioned renderer snapshot. Combine ranges until the next animation frame; consumers use them only across consecutive observed revisions. Membership changes, browser-only messages and skipped revisions must preserve full-comparison correctness. Mounted rows read that immutable snapshot at the original transcript indices. Do not introduce a separately reconciled message slice and offset: they can become inconsistent with row membership during replacement or scrolling.
+
+Rust `ChatViewport` owns measured chat offsets and retained row selection. The renderer supplies a numeric height buffer when measurements or row membership change, then only scroll position and viewport height during scrolling. It reads scalar padding offsets and frees the model when the list unmounts. Keep history-sized arrays out of per-scroll JSON calls.
+
 Rust workbench models also resolve retained workspace views from the active and previously visited keys. The renderer receives group and pane indices into its current state, preserving object identity without constructing every possible view or duplicating pane records. Only visited views count toward the eight-view/twenty-four-pane budget; an oversized active view remains mounted.
 
 ## Module shape

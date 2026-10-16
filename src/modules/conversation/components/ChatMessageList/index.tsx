@@ -1,19 +1,21 @@
 import type { ChatListRow, ChatWindow, CheckpointMeta } from "@contracts";
 import { bindImperativeRef, domStyle, type RefCell } from "@shared/lib/dom.tsx";
-import { project as rustProject } from "@shared/lib/native.tsx";
+import { ChatViewport, project as rustProject } from "@shared/lib/native.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
 	type Accessor,
 	createEffect,
 	createMemo,
-	createProjection,
 	createSignal,
 	For,
 	flush,
 	onSettled,
 	untrack,
 } from "solid-js";
-import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
+import type {
+	ChatMessage,
+	ChatSnapshot,
+} from "../AgentChatView/useChatConnection.tsx";
 import { ChatRenderRow } from "./ChatRenderRow.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
@@ -24,7 +26,7 @@ import {
 export const ChatMessageList = function ChatMessageList(_props: {
 	active?: boolean;
 	paneId: string;
-	messages: ChatMessage[];
+	transcript: ChatSnapshot;
 	scrollElementRef: RefCell<HTMLDivElement | null>;
 	virtualizerControlsRef?: (handle: ChatVirtualizerControls | null) => void;
 	expandedTools: Set<string>;
@@ -36,39 +38,40 @@ export const ChatMessageList = function ChatMessageList(_props: {
 	slashCommandNames: readonly string[];
 	stickToBottom: boolean;
 }) {
-	const messageListRef = {
-		current: null,
-	} as {
-		current: HTMLDivElement | null;
-	};
-	const { messages, renderRows } = createChatListModel(
-		() => _props.messages,
+	let messageList: HTMLDivElement | undefined;
+	const renderRows = createChatListModel(
+		() => _props.transcript,
 		() => _props.checkpoints,
 	);
 	const retainedViewport = untrack(() => chatViewportState(_props.paneId));
-	const measuredHeights = { current: retainedViewport.heights };
+	const measuredHeights = retainedViewport.heights;
 	const [measurementVersion, setMeasurementVersion] = createSignal(0);
 	const [scrollOffset, setScrollOffset] = createSignal<number | null>(null);
 	const virtual = createMemo(() => renderRows().length > 60);
-	const offsets = createMemo(() => {
-		measurementVersion();
-		return rustProject<number[]>(
-			"chatOffsets",
-			renderRows().map((row) => measuredHeights.current.get(row.key) ?? null),
-		);
-	});
+	const viewport = new ChatViewport();
+	onSettled(() => () => viewport.free());
+	const layout = createMemo(
+		() => {
+			measurementVersion();
+			viewport.measure(
+				Float64Array.from(
+					renderRows(),
+					(row) => measuredHeights.get(row.key) ?? 160,
+				),
+			);
+			return viewport;
+		},
+		{ equals: false },
+	);
 	const [viewportHeight, setViewportHeight] = createSignal(800);
-	let retainedWindow: ChatWindow | undefined;
-	const _source = createMemo(() => {
-		const next = rustProject<ChatWindow>("chatWindow", {
-			offsets: offsets(),
-			scrollOffset: _props.stickToBottom ? null : scrollOffset(),
-			viewportHeight: viewportHeight(),
-			retainedWindow,
-		});
-		retainedWindow = next;
-		return next;
-	});
+	const _source = createMemo<ChatWindow>(() =>
+		JSON.parse(
+			layout().window(
+				_props.stickToBottom ? undefined : (scrollOffset() ?? undefined),
+				viewportHeight(),
+			),
+		),
+	);
 	// Changes to firstVisible alone must not reconcile the mounted row list.
 	const mountedWindow = createMemo(
 		() => ({ start: _source().start, end: _source().end }),
@@ -76,6 +79,9 @@ export const ChatMessageList = function ChatMessageList(_props: {
 			equals: (before, after) =>
 				before.start === after.start && before.end === after.end,
 		},
+	);
+	const mountedRows = createMemo(() =>
+		renderRows().slice(mountedWindow().start, mountedWindow().end),
 	);
 	createEffect(
 		() =>
@@ -91,7 +97,7 @@ export const ChatMessageList = function ChatMessageList(_props: {
 				if (frame) return;
 				frame = requestAnimationFrame(() => {
 					frame = 0;
-					const list = messageListRef.current;
+					const list = messageList;
 					if (!list || _props.active === false) return;
 					setScrollOffset(
 						Math.max(
@@ -103,21 +109,17 @@ export const ChatMessageList = function ChatMessageList(_props: {
 				});
 			};
 			const viewportObserver = new ResizeObserver(() => {
-				const width =
-					messageListRef.current?.clientWidth ?? element.clientWidth;
+				const width = messageList?.clientWidth ?? element.clientWidth;
 				if (width <= 0 || _props.active === false) return;
 				if (width > 0 && retainedViewport.width !== width) {
 					if (retainedViewport.width !== null) {
-						measuredHeights.current.clear();
+						measuredHeights.clear();
 						// Cached heights from another width are estimates. Seed the
 						// currently mounted rows together after layout, before offsets.
 						for (const row of observedRows) {
 							const key = row.dataset.chatRowKey;
 							if (key)
-								measuredHeights.current.set(
-									key,
-									row.getBoundingClientRect().height,
-								);
+								measuredHeights.set(key, row.getBoundingClientRect().height);
 						}
 						setMeasurementVersion((version) => version + 1);
 					}
@@ -153,7 +155,7 @@ export const ChatMessageList = function ChatMessageList(_props: {
 			}
 			const element = _props.scrollElementRef.current;
 			const previousTop = element?.scrollTop ?? 0;
-			const list = messageListRef.current;
+			const list = messageList;
 			// The scroll listener publishes on another frame. Anchor measurements
 			// to the current viewport, not its previous (possibly lower) position.
 			const liveOffset =
@@ -164,19 +166,18 @@ export const ChatMessageList = function ChatMessageList(_props: {
 								list.getBoundingClientRect().top,
 						)
 					: scrollOffset();
-			const firstVisible = rustProject<ChatWindow>("chatWindow", {
-				offsets: offsets(),
-				scrollOffset: liveOffset,
-				viewportHeight: viewportHeight(),
-			}).firstVisible;
+			const firstVisible = layout().first_visible(
+				liveOffset ?? undefined,
+				viewportHeight(),
+			);
 			let changed = false;
 			let adjustment = 0;
 			for (const [row, height] of pendingMeasurements) {
 				const key = row.dataset.chatRowKey;
 				if (!row.isConnected || !key || height <= 0) continue;
-				const previous = measuredHeights.current.get(key) ?? 160;
+				const previous = measuredHeights.get(key) ?? 160;
 				if (Math.abs(previous - height) < 0.5) continue;
-				measuredHeights.current.set(key, height);
+				measuredHeights.set(key, height);
 				if (Number(row.dataset.chatRowIndex) < firstVisible)
 					adjustment += height - previous;
 				changed = true;
@@ -192,7 +193,7 @@ export const ChatMessageList = function ChatMessageList(_props: {
 				if (_props.stickToBottom) pinToBottom();
 				else if (virtual() && adjustment)
 					element.scrollTop = previousTop + adjustment;
-				const list = messageListRef.current;
+				const list = messageList;
 				if (list && !_props.stickToBottom)
 					setScrollOffset(
 						Math.max(
@@ -237,8 +238,8 @@ export const ChatMessageList = function ChatMessageList(_props: {
 		() => renderRows().map((row) => row.key),
 		(rowKeys) => {
 			const keys = new Set(rowKeys);
-			for (const key of measuredHeights.current.keys())
-				if (!keys.has(key)) measuredHeights.current.delete(key);
+			for (const key of measuredHeights.keys())
+				if (!keys.has(key)) measuredHeights.delete(key);
 		},
 	);
 	const pinToBottom = (behavior: ScrollBehavior = "auto") => {
@@ -290,7 +291,7 @@ export const ChatMessageList = function ChatMessageList(_props: {
 		},
 	);
 	onSettled(() => {
-		const list = messageListRef.current;
+		const list = messageList;
 		if (!list) return;
 		// Row measurements, late image/Markdown layout and new messages share
 		// one frame. No second observer is allowed to scroll independently.
@@ -300,7 +301,7 @@ export const ChatMessageList = function ChatMessageList(_props: {
 	});
 	return (
 		<div
-			ref={(element) => (messageListRef.current = element)}
+			ref={(element) => (messageList = element)}
 			{...stylex.attrs(styles.messageList)}
 		>
 			{virtual() && (
@@ -308,16 +309,13 @@ export const ChatMessageList = function ChatMessageList(_props: {
 					aria-hidden="true"
 					style={domStyle(
 						inlineStyles.getChatMessageListDivStyle(
-							offsets()[mountedWindow().start],
+							layout().offset(mountedWindow().start),
 						),
 					)}
 				/>
 			)}
 			{
-				<For
-					each={renderRows().slice(mountedWindow().start, mountedWindow().end)}
-					keyed={(row) => row.key}
-				>
+				<For each={mountedRows()} keyed={(row) => row.key}>
 					{(item, windowIndex) => {
 						const index = createMemo(
 							() => mountedWindow().start + windowIndex(),
@@ -331,7 +329,7 @@ export const ChatMessageList = function ChatMessageList(_props: {
 								paneId={_props.paneId}
 								expandedTools={_props.expandedTools}
 								toggleTool={_props.toggleTool}
-								messages={messages}
+								messages={_props.transcript.messages}
 								checkpoint={
 									item().checkpoint === null
 										? undefined
@@ -351,7 +349,8 @@ export const ChatMessageList = function ChatMessageList(_props: {
 					aria-hidden="true"
 					style={domStyle(
 						inlineStyles.getChatMessageListDivStyle1(
-							offsets()[renderRows().length]! - offsets()[mountedWindow().end]!,
+							layout().offset(renderRows().length) -
+								layout().offset(mountedWindow().end),
 						),
 					)}
 				/>
@@ -362,12 +361,11 @@ export const ChatMessageList = function ChatMessageList(_props: {
 
 /** Reconcile stream patches by message ID so text updates do not regroup the transcript. */
 function createChatListModel(
-	source: Accessor<ChatMessage[]>,
+	source: Accessor<ChatSnapshot>,
 	checkpoints: Accessor<CheckpointMeta[]>,
 ) {
-	const messages = createProjection<ChatMessage[]>(source, [], { key: "id" });
-	// Transcript snapshots retain unchanged message objects. Cache only row facts,
-	// so streaming content does not subscribe grouping to every projected row.
+	// Snapshot ranges cover coalesced native replacements. Missed revisions and
+	// browser-only edits fall back to comparing the full immutable snapshot.
 	const describeRow = ({ id, role, isStreaming, render }: ChatMessage) => ({
 		id,
 		role,
@@ -384,27 +382,26 @@ function createChatListModel(
 				}
 			: null,
 	});
-	const facts = new WeakMap<ChatMessage, ReturnType<typeof describeRow>>();
-	const rowFacts = createMemo(
-		() =>
-			source().map((message) => {
-				let value = facts.get(message);
-				if (!value) {
-					value = describeRow(message);
-					facts.set(message, value);
-				}
-				return value;
-			}),
-		{
-			equals: (before, after) =>
-				before.length === after.length &&
-				before.every(
-					(value, index) =>
-						value === after[index] ||
-						JSON.stringify(value) === JSON.stringify(after[index]),
-				),
-		},
-	);
+	let previous: ChatSnapshot | undefined;
+	const structureVersion = createMemo<number>((version = 0) => {
+		const next = source();
+		const range =
+			previous && next.revision === previous.revision + 1
+				? next.change
+				: undefined;
+		let changed =
+			!previous || next.messages.length !== previous.messages.length;
+		const end = Math.min(range?.end ?? Infinity, next.messages.length);
+		for (let index = range?.start ?? 0; !changed && index < end; index++) {
+			const message = next.messages[index]!;
+			changed =
+				message !== previous!.messages[index] &&
+				JSON.stringify(describeRow(message)) !==
+					JSON.stringify(describeRow(previous!.messages[index]!));
+		}
+		previous = next;
+		return version + Number(changed);
+	});
 	const checkpointLinks = createMemo(
 		() => checkpoints().map(({ afterMessageId }) => afterMessageId),
 		{
@@ -413,13 +410,22 @@ function createChatListModel(
 				before.every((id, index) => id === after[index]),
 		},
 	);
-	const renderRows = createMemo(() =>
-		rustProject<ChatListRow[]>("chatList", {
-			messages: rowFacts(),
+	return createMemo(() => {
+		void structureVersion();
+		const messages = untrack(source).messages;
+		const rows = rustProject<ChatListRow[]>("chatList", {
+			messages: messages.map(describeRow),
 			checkpoints: checkpointLinks().map((afterMessageId) => ({
 				afterMessageId,
 			})),
-		}),
-	);
-	return { messages, renderRows };
+		});
+		// Reuse snapshot ID strings instead of retaining the JSON-decoded copies.
+		for (const row of rows) {
+			const message =
+				messages[row.type === "edit-group" ? row.start : row.index]!;
+			const key = message.render?.rowId ?? message.id;
+			if (row.key === key) row.key = key;
+		}
+		return rows;
+	});
 }

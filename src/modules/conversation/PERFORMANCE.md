@@ -10,9 +10,27 @@ updates only the Solid computations that need it.
 - Keep rapid chat actions ref-based. Queue appends, queued-message shifts, and
   streaming callbacks should read current refs instead of depending on a
   reactive update that may not have committed yet.
-- Coalesce native streaming patches in the 32 ms transcript flush. Reconcile
-  messages by ID with `createProjection`; stable messages retain their identity.
-  Row grouping must read only structural metadata, never streamed text.
+- Coalesce native streaming patches on the next animation frame. Cancel pending
+  frames on reset or disposal; hidden panes retain pending data without
+  publishing it. Publish the validated replacement range with the snapshot
+  revision. Combine ranges across the flush; membership changes invalidate
+  shifted positions. Local edits and
+  notices use the full comparison path. Consumers may use a range only when they
+  observed its immediately preceding revision; skipped revisions compare fully.
+- Mounted rows read immutable messages at their original transcript indices;
+  unchanged message references suppress ordinary bubble updates. Do not maintain
+  a separate projected slice and offset: a window transition can expose a row
+  before that representation is consistent, crashing tool rendering. Edit groups
+  slice their full original range. Row grouping reads only structural metadata,
+  never streamed text.
+  Prepare descriptors only when grouping changes; do not retain a second
+  per-message descriptor cache. Reuse snapshot ID strings in the grouped rows
+  when their values match, instead of retaining JSON-decoded duplicates.
+- `ChatViewport` owns the prefix offsets and retained row range in Rust. Send
+  measured heights as a numeric buffer only when rows or measurements change;
+  scroll updates pass position and viewport height only. Do not serialize the
+  entire offset table per scroll event. Dispose the model with its chat list.
+  The offset buffer releases excess capacity when history shrinks substantially.
 - Virtualize message rendering and preserve rows by message ID. Do not map every stored
   message into mounted markdown/code DOM on each token.
 - Persist chat state off the critical path. Debounce message/input writes,
