@@ -494,7 +494,7 @@ impl ProjectRuntime {
                 );
                 let invocation=CodexInvocationContext{cwd:dir.join("output"),reference_paths:vec![],images:vec![],model:model.clone(),reasoning_level:reasoning_level.clone(),developer_instructions:Some("Run the explicitly requested project automation. Do not enable schedules or expand permissions. Report failures truthfully.".into()),session_id:None,mcp_servers:Some(vec![])};
                 let mut protocol = AgentProtocolContext::new(cwd.clone());
-                let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+                let (sender, mut receiver) = tokio::sync::mpsc::channel(agent_runner::PROTOCOL_BUFFER_CAPACITY);
                 let log = dir.join("logs/agent.jsonl");
                 let waiting = Arc::new(std::sync::atomic::AtomicBool::new(false));
                 let waiting_signal = waiting.clone();

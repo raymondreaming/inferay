@@ -132,7 +132,18 @@ impl MarkdownCursor {
         else {
             return Err("Unsupported Markdown stream response");
         };
-        if patch["version"] != 1
+        let append = patch.get("appendCode");
+        if append.is_some_and(|value| {
+            !value.is_string()
+                || request.reset
+                || !request.streaming
+                || delete != 1
+                || blocks != 0
+                || !matches!(patch["appendTarget"].as_str(), Some("code" | "mermaid"))
+        }) {
+            return Err("Unsupported Markdown code append");
+        }
+        if patch["version"] != 2
             || patch["reset"] != request.reset
             || integer("revision") != Some(revision)
             || if request.reset {
@@ -147,7 +158,7 @@ impl MarkdownCursor {
         if accepted {
             self.current = request.streaming.then(|| Cursor {
                 revision,
-                blocks: start + blocks,
+                blocks: start + if append.is_some() { 1 } else { blocks },
                 ..request.cursor
             });
         }
@@ -160,8 +171,37 @@ mod tests {
     use super::*;
 
     fn patch(reset: bool, revision: u64, start: u64, delete: u64, blocks: u64) -> Value {
-        json!({"version":1,"reset":reset,"revision":revision,"start":start,
+        json!({"version":2,"reset":reset,"revision":revision,"start":start,
             "deleteCount":delete,"blocks":blocks})
+    }
+
+    #[test]
+    fn code_appends_validate_shape_and_preserve_block_count() {
+        let mut cursor = MarkdownCursor::new();
+        let first = cursor.begin("```\ncode".into(), true, true, "stream".into());
+        cursor.admit(first, &patch(true, 1, 0, 0, 2)).unwrap();
+        for (target, append, delete, blocks) in [
+            ("paragraph", json!("!"), 1, 0),
+            ("code", json!(null), 1, 0),
+            ("code", json!("!"), 2, 0),
+            ("code", json!("!"), 1, 1),
+        ] {
+            let attempt = cursor.begin("```\ncode!".into(), true, true, "unused".into());
+            let mut response = patch(false, 2, 1, delete, blocks);
+            response["appendTarget"] = json!(target);
+            response["appendCode"] = append;
+            assert!(cursor.admit(attempt, &response).is_err());
+            assert_eq!(cursor.current.as_ref().unwrap().revision, 1);
+        }
+        let attempt = cursor.begin("```\ncode!".into(), true, true, "unused".into());
+        let mut response = patch(false, 2, 1, 1, 0);
+        response["appendTarget"] = json!("code");
+        response["appendCode"] = json!("!");
+        assert!(cursor.admit(attempt, &response).unwrap());
+        assert_eq!(cursor.current.as_ref().unwrap().blocks, 2);
+        let attempt = cursor.begin("```\ncode!\n```".into(), true, false, "unused".into());
+        assert!(cursor.admit(attempt, &patch(false, 3, 0, 2, 2)).unwrap());
+        assert!(!cursor.active());
     }
 
     #[test]

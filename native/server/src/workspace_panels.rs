@@ -1,4 +1,4 @@
-//! Durable panel snapshots share the existing client-storage lock and file.
+//! Durable panel snapshots share the existing client-storage lock and database.
 use super::*;
 use serde_json::Value;
 
@@ -10,10 +10,10 @@ pub(super) async fn handle(state: &ServerState, request: Request) -> ApiResult {
         body["workspaceId"].as_str().filter(|id| !id.is_empty()),
         "workspaceId is required",
     )?;
-    let mut storage = state.client_storage.lock().await;
-    let entries = storage.read().await?;
+    let storage = state.client_storage.lock().await;
     let key = format!("{KEY}{workspace_id}");
-    let stored = crate::client_storage::decode_json(entries, &key);
+    let entries = storage.select(&[&key]).await?;
+    let stored = crate::client_storage::decode_json(&entries, &key);
     let mut current =
         inferay_presentation::panels::PanelSession::read(stored.as_ref().unwrap_or(&Value::Null));
     let announcement = match body.get("action") {
@@ -49,16 +49,21 @@ pub(super) async fn restore_documents(state: &ServerState, request: Request) -> 
     let workspace = required(body["workspaceId"].as_str(), "workspaceId is required")?;
     let session_id = required(body["sessionId"].as_str(), "sessionId is required")?;
     let saved = {
-        let mut storage = state.client_storage.lock().await;
-        let entries = storage.read().await?;
-        let panels = crate::client_storage::decode_json(entries, &format!("{KEY}{workspace}"));
+        let storage = state.client_storage.lock().await;
+        let entries = storage
+            .select(&[
+                &format!("{KEY}{workspace}"),
+                &format!("agent-workspace-files:{session_id}"),
+            ])
+            .await?;
+        let panels = crate::client_storage::decode_json(&entries, &format!("{KEY}{workspace}"));
         panels
             .as_ref()
             .and_then(|panels| panels["documentSessions"].get(session_id))
             .cloned()
             .or_else(|| {
                 crate::client_storage::decode_json(
-                    entries,
+                    &entries,
                     &format!("agent-workspace-files:{session_id}"),
                 )
             })

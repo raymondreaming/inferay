@@ -47,12 +47,23 @@ export function nativeMarkdownStream(
 				const inserted = Array.isArray(patch?.blocks) ? patch.blocks : [];
 				const metadata = {
 					...patch,
+					appendTarget: patch ? before[patch.start]?.type : undefined,
 					blocks: Array.isArray(patch?.blocks) ? patch.blocks.length : null,
 				};
 				const result: { accepted: boolean; start: number } = JSON.parse(
 					cursor.finish(attempt, response.status, JSON.stringify(metadata)),
 				);
-				const next = [...before.slice(0, result.start), ...inserted];
+				const next = [
+					...before.slice(0, result.start),
+					...(patch?.appendCode === undefined
+						? inserted
+						: [
+								{
+									...before[result.start],
+									content: before[result.start].content + patch.appendCode,
+								},
+							]),
+				];
 				if (result.accepted) blocks = next;
 				return { version: 1 as const, blocks: next };
 			} catch (cause) {

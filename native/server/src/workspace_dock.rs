@@ -5,9 +5,21 @@ pub(super) async fn handle(state: &ServerState, request: Request) -> ApiResult {
     let mut body: Value = api_body(request).await?;
     let workspace = required(body["workspaceId"].as_str(), "workspaceId is required")?;
     let key = format!("native-workspace-dock:{workspace}");
-    let mut storage = state.client_storage.lock().await;
-    let entries = storage.read().await?;
-    let read = |key: &str| crate::client_storage::decode_json(entries, key);
+    let storage = state.client_storage.lock().await;
+    let keys: Vec<String> = [Some(workspace), body["legacyWorkspaceId"].as_str()]
+        .into_iter()
+        .flatten()
+        .flat_map(|id| {
+            [
+                format!("native-workspace-dock:{id}"),
+                format!("agent-workspace-dock:{id}"),
+            ]
+        })
+        .collect();
+    let entries = storage
+        .select(&keys.iter().map(String::as_str).collect::<Vec<_>>())
+        .await?;
+    let read = |key: &str| crate::client_storage::decode_json(&entries, key);
     let saved = read(&key).or_else(|| {
         body["legacyWorkspaceId"]
             .as_str()

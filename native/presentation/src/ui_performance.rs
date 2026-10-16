@@ -72,7 +72,7 @@ pub struct UiStageTiming {
 #[derive(Default, serde::Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct UiTiming {
-    #[ts(type = "'repository' | 'send'")]
+    #[ts(type = "'project' | 'send'")]
     kind: String,
     #[ts(type = "'frame-ready' | 'timeout' | 'superseded' | 'background'")]
     result: String,
@@ -128,15 +128,6 @@ impl UiTimingRecorder {
         self.last_frame = now;
         self.ready_frame = false;
         self.sent = false;
-        let target = if kind == "repository" {
-            target
-                .rsplit('/')
-                .find(|p| !p.is_empty())
-                .unwrap_or(&target)
-                .to_owned()
-        } else {
-            target
-        };
         self.sample = UiTiming {
             kind,
             target,
@@ -242,12 +233,11 @@ impl UiTimingRecorder {
                 "send accepted"
             } else if self.sample.kind == "send" && !activity {
                 "activity indicator"
-            } else if self.sample.kind == "repository" && f64::from(visible_panes) != expected_panes
-            {
+            } else if self.sample.kind == "project" && f64::from(visible_panes) != expected_panes {
                 "pane layout"
-            } else if self.sample.kind == "repository" && !hydrated {
+            } else if self.sample.kind == "project" && !hydrated {
                 "transcript hydration"
-            } else if self.sample.kind == "repository" && formatting {
+            } else if self.sample.kind == "project" && formatting {
                 "Markdown formatting"
             } else {
                 ""

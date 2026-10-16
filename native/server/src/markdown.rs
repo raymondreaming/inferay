@@ -117,6 +117,7 @@ struct Parser {
     chat: bool,
     streaming: bool,
     budget: usize,
+    open_fence: usize,
 }
 impl Parser {
     fn inline(&mut self, src: &str, depth: usize) -> Vec<MdInlineToken> {
@@ -274,16 +275,19 @@ impl Parser {
                 });
             }
             if let Some(fence) = fence(line) {
-                let lang = line.trim_start()[fence.len()..].trim();
+                let lang = line.trim_start()[fence..].trim();
                 let start = i + 1;
                 i = start;
-                while i < lines.len() && !lines[i].trim_start().starts_with(&fence) {
+                while i < lines.len() && !closes_fence(lines[i], fence) {
                     i += 1;
                 }
                 let mut b = MdBlock::new(
                     if lang == "mermaid" { "mermaid" } else { "code" },
                     &lines[start..i].join("\n"),
                 );
+                if starts.is_some() && i == lines.len() && start < lines.len() {
+                    self.open_fence = fence;
+                }
                 b.lang = Some(lang.into());
                 out.push(b);
                 i += usize::from(i < lines.len());
@@ -463,9 +467,15 @@ fn closing_delimiter(rest: &str, mark: &str, budget: &mut usize) -> Option<usize
         return Some(first + run - mark.len());
     }
 }
-fn fence(line: &str) -> Option<String> {
+fn fence(line: &str) -> Option<usize> {
     let n = line.trim_start().bytes().take_while(|b| *b == b'`').count();
-    (n >= 3).then(|| "`".repeat(n))
+    (n >= 3).then_some(n)
+}
+fn closes_fence(line: &str, width: usize) -> bool {
+    line.trim_start()
+        .as_bytes()
+        .get(..width)
+        .is_some_and(|prefix| prefix.iter().all(|b| *b == b'`'))
 }
 fn setext(line: &str) -> bool {
     let s = line.trim_end();
@@ -497,6 +507,7 @@ pub fn prepare(text: &str, streaming: bool, chat: bool) -> PreparedMarkdown {
         chat,
         streaming,
         budget: MAX_PARSE_BYTES * 4,
+        open_fence: 0,
     };
     let blocks = if text.len() > MAX_PARSE_BYTES {
         let mut block = MdBlock::new("paragraph", "");
@@ -521,6 +532,8 @@ pub(crate) struct IncrementalMarkdown {
     text: String,
     starts: Vec<BlockStart>,
     lines: usize,
+    last_line_start: usize,
+    open_fence: usize,
     streaming: bool,
     chat: bool,
     pub revision: u64,
@@ -529,13 +542,16 @@ pub(crate) struct IncrementalMarkdown {
 #[derive(Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct MarkdownPatch {
-    #[ts(type = "1")]
+    #[ts(type = "2")]
     pub version: u8,
     pub revision: u32,
     pub reset: bool,
     pub start: usize,
     pub delete_count: usize,
     pub blocks: Vec<MdBlock>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub append_code: Option<String>,
 }
 
 impl IncrementalMarkdown {
@@ -560,6 +576,10 @@ impl IncrementalMarkdown {
             return Err("Markdown stream revision limit reached");
         }
         let old_count = self.starts.len();
+        let open_fence = self.open_fence;
+        let append_code =
+            !reset && streaming && self.streaming && chat == self.chat && open_fence > 0;
+        let last_line_start = if reset { 0 } else { self.last_line_start };
         // The last line can change the interpretation of the preceding block
         // (setext headings, table lookahead, or a partial block delimiter).
         // Keep two blocks mutable; all earlier top-level blocks are complete.
@@ -581,14 +601,34 @@ impl IncrementalMarkdown {
             self.revision = 0;
         }
         self.text.push_str(text);
+        self.last_line_start = text.rfind('\n').map_or(last_line_start, |i| bytes + i + 1);
         self.lines = lines;
         self.streaming = streaming;
         self.chat = chat;
+        // Include the previous partial line so a closing delimiter split across
+        // updates takes the normal parser path. An open fence owns the whole tail.
+        if append_code
+            && !self.text[last_line_start..]
+                .split('\n')
+                .any(|line| closes_fence(line, open_fence))
+        {
+            self.revision += 1;
+            return Ok(MarkdownPatch {
+                version: 2,
+                revision: self.revision as u32,
+                reset: false,
+                start: old_count - 1,
+                delete_count: 1,
+                blocks: Vec::new(),
+                append_code: Some(text.to_owned()),
+            });
+        }
         self.starts.truncate(start);
         let mut parser = Parser {
             streaming,
             chat,
             budget: checkpoint.budget,
+            open_fence: 0,
         };
         let blocks = parser.blocks_recorded(
             &self.text[checkpoint.offset..],
@@ -596,14 +636,16 @@ impl IncrementalMarkdown {
             Some(&mut self.starts),
             checkpoint.offset,
         );
+        self.open_fence = parser.open_fence;
         self.revision += 1;
         Ok(MarkdownPatch {
-            version: 1,
+            version: 2,
             revision: self.revision as u32,
             reset,
             start,
             delete_count: old_count - start,
             blocks,
+            append_code: None,
         })
     }
 }
@@ -629,7 +671,10 @@ mod incremental_tests {
                 .unwrap();
             let value = serde_json::to_value(&patch).unwrap();
             let inserted = value["blocks"].as_array().unwrap().clone();
-            if patch.reset {
+            if let Some(append) = patch.append_code {
+                let content = blocks[patch.start]["content"].as_str().unwrap().to_owned();
+                blocks[patch.start]["content"] = json!(content + &append);
+            } else if patch.reset {
                 blocks = inserted;
             } else {
                 blocks.splice(patch.start..patch.start + patch.delete_count, inserted);
@@ -651,6 +696,57 @@ mod incremental_tests {
         assert_eq!(
             json!(blocks),
             serde_json::to_value(prepare(text, false, chat)).unwrap()["blocks"]
+        );
+    }
+
+    #[test]
+    fn open_code_appends_match_full_parsing_across_delimiters() {
+        for text in [
+            "# Title\n\n```rust\nlet x = \"🙂\";\n  ```\nafter",
+            "before\n\n````mermaid\r\ngraph TD\r\n```not closed\n````close\n\nend",
+            "```\n   \n  ````\nnext\n---\n",
+            "> ```rust\n> nested\n> ```\n\n```rust\nbody",
+            "- item\n  ```rust\n  nested\n  ```\n\nend",
+        ] {
+            for stride in [1, 2, 5, 13] {
+                for chat in [false, true] {
+                    check_prefixes(text, stride, chat);
+                }
+            }
+        }
+        let mut model = IncrementalMarkdown::default();
+        model
+            .update(
+                &format!("# Title\n\n```rust\n{}", "x".repeat(100_000)),
+                true,
+                true,
+                true,
+            )
+            .unwrap();
+        let patch = model.update("🙂\n", false, true, true).unwrap();
+        assert_eq!(patch.append_code.as_deref(), Some("🙂\n"));
+        assert_eq!(patch.start, 1);
+        assert!(serde_json::to_vec(&patch).unwrap().len() < 160);
+        let revision = model.revision;
+        assert!(
+            model
+                .update(&"x".repeat(MAX_PARSE_BYTES), false, true, true)
+                .is_err()
+        );
+        assert_eq!(model.revision, revision);
+        assert!(
+            model
+                .update("changed mode", false, true, false)
+                .unwrap()
+                .append_code
+                .is_none()
+        );
+        assert!(
+            model
+                .update("reset", true, true, false)
+                .unwrap()
+                .append_code
+                .is_none()
         );
     }
 

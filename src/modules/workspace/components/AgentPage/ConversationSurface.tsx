@@ -22,6 +22,7 @@ type AgentPaneActions = {
 
 export function ConversationSurface(props: {
 	view: WorkspaceView;
+	projectId: string;
 	group: Group | undefined;
 	active: boolean;
 	actions: AgentPaneActions;
@@ -61,7 +62,8 @@ export function ConversationSurface(props: {
 	);
 	return (
 		<div
-			data-repository-active={props.active ? "true" : "false"}
+			data-project-surface={props.projectId}
+			data-project-active={props.active ? "true" : "false"}
 			data-expected-panes={panes().length}
 			aria-hidden={props.active ? undefined : "true"}
 			{...stylex.attrs(styles.surface, !props.active && styles.inactive)}

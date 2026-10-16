@@ -1,11 +1,10 @@
-//! Shared JSON preferences with keyed reads and atomic publication. Retain the
-//! existing file format; stat checks detect changes made outside this process.
+//! Durable per-key preferences. Legacy JSON is imported once and retained as a backup.
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::SystemTime;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 type Changes = BTreeMap<String, Option<Value>>;
 
 pub(crate) fn decode_json(entries: &Map<String, Value>, key: &str) -> Option<Value> {
@@ -19,164 +18,111 @@ pub(crate) fn encode_json(value: &Value) -> Value {
     Value::String(value.to_string())
 }
 
-#[derive(PartialEq, Eq)]
-struct Version {
-    bytes: u64,
-    modified: Option<SystemTime>,
-    #[cfg(unix)]
-    identity: (u64, u64, i64, i64),
-}
-impl Version {
-    fn from_metadata(metadata: std::fs::Metadata) -> Self {
-        #[cfg(unix)]
-        use std::os::unix::fs::MetadataExt;
-        Self {
-            bytes: metadata.len(),
-            modified: metadata.modified().ok(),
-            #[cfg(unix)]
-            identity: (
-                metadata.dev(),
-                metadata.ino(),
-                metadata.ctime(),
-                metadata.ctime_nsec(),
-            ),
+fn read_values(
+    db: &Connection,
+    keys: impl IntoIterator<Item = rusqlite::Result<String>>,
+) -> Result<Map<String, Value>> {
+    let mut statement = db.prepare_cached("SELECT value FROM entries WHERE key = ?1")?;
+    let mut entries = Map::new();
+    for key in keys {
+        let key = key?;
+        if let Some(value) = statement
+            .query_row([&key], |row| row.get::<_, String>(0))
+            .optional()?
+        {
+            entries.insert(key, serde_json::from_str(&value)?);
         }
     }
-}
-async fn version(path: &Path) -> Result<Option<Version>, String> {
-    match tokio::fs::metadata(path).await {
-        Ok(metadata) => Ok(Some(Version::from_metadata(metadata))),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error.to_string()),
-    }
+    Ok(entries)
 }
 
 pub(crate) struct ClientStorage {
-    path: PathBuf,
-    entries: Arc<Map<String, Value>>,
-    version: Option<Version>,
-    loaded: bool,
+    legacy_path: PathBuf,
+    connection: Arc<Mutex<Option<Connection>>>,
 }
 impl ClientStorage {
-    pub fn new(path: PathBuf) -> Self {
+    pub fn new(legacy_path: PathBuf) -> Self {
         Self {
-            path,
-            entries: Arc::new(Map::new()),
-            version: None,
-            loaded: false,
+            legacy_path,
+            connection: Arc::new(Mutex::new(None)),
         }
     }
-    pub async fn read(&mut self) -> Result<&Map<String, Value>, String> {
-        let observed = version(&self.path).await?;
-        if !self.loaded || observed != self.version {
-            let entries = match tokio::fs::read(&self.path).await {
-                Ok(bytes) => tokio::task::spawn_blocking(move || {
-                    serde_json::from_slice(&bytes).map_err(|error| error.to_string())
-                })
-                .await
-                .map_err(|error| error.to_string())??,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Map::new(),
-                Err(error) => return Err(error.to_string()),
-            };
-            self.entries = Arc::new(entries);
-            // Use the pre-read fingerprint. If an external writer replaced the
-            // file during the read, the next read must validate it again.
-            self.version = observed;
-            self.loaded = true;
-        }
-        Ok(&self.entries)
+    async fn query<T: Send + 'static>(
+        &self,
+        query: impl FnOnce(&mut Connection) -> Result<T> + Send + 'static,
+    ) -> std::result::Result<T, String> {
+        let legacy_path = self.legacy_path.clone();
+        let connection = self.connection.clone();
+        tokio::task::spawn_blocking(move || -> Result<T> {
+            let mut slot = connection.lock().map_err(|_| "Preferences lock poisoned")?;
+            if slot.is_none() {
+                std::fs::create_dir_all(legacy_path.parent().ok_or("Invalid preferences path")?)?;
+                let mut db = Connection::open(legacy_path.with_extension("sqlite3"))?;
+                db.busy_timeout(std::time::Duration::from_secs(5))?;
+                db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;")?;
+                let transaction = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                match transaction.pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))? {
+                    0 => {
+                        let entries: Map<String, Value> = match std::fs::read(&legacy_path) {
+                            Ok(bytes) => serde_json::from_slice(&bytes)?,
+                            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Map::new(),
+                            Err(error) => return Err(error.into()),
+                        };
+                        transaction.execute_batch("CREATE TABLE entries (key TEXT PRIMARY KEY, value TEXT NOT NULL CHECK(json_valid(value)));")?;
+                        for (key, value) in entries {
+                            transaction.execute("INSERT INTO entries VALUES (?1, ?2)", params![key, value.to_string()])?;
+                        }
+                        transaction.pragma_update(None, "user_version", 1)?;
+                    }
+                    1 => {}
+                    version => return Err(format!("Unsupported preferences schema {version}").into()),
+                }
+                transaction.commit()?;
+                *slot = Some(db);
+            }
+            query(slot.as_mut().unwrap())
+        }).await.map_err(|error| error.to_string())?.map_err(|error| error.to_string())
     }
-    pub async fn select(&mut self, keys: &[&str]) -> Result<Map<String, Value>, String> {
-        let entries = self.read().await?;
-        Ok(keys
-            .iter()
-            .filter_map(|key| {
-                entries
-                    .get(*key)
-                    .map(|value| ((*key).to_owned(), value.clone()))
-            })
-            .collect())
+    /// Enumerate the key index before loading values, so excluded archives never
+    /// enter the snapshot or need to be parsed. Both queries share one read transaction.
+    pub async fn read_matching(
+        &self,
+        include: fn(&str) -> bool,
+    ) -> std::result::Result<Map<String, Value>, String> {
+        self.query(move |db| {
+            let transaction = db.transaction()?;
+            let mut statement = transaction.prepare("SELECT key FROM entries")?;
+            let keys = statement.query_map([], |row| row.get::<_, String>(0))?;
+            read_values(
+                &transaction,
+                keys.filter(|key| key.as_ref().map_or(true, |key| include(key))),
+            )
+        })
+        .await
+    }
+    pub async fn select(&self, keys: &[&str]) -> std::result::Result<Map<String, Value>, String> {
+        let keys: Vec<String> = keys.iter().map(|key| (*key).to_owned()).collect();
+        self.query(move |db| {
+            let transaction = db.transaction()?;
+            read_values(&transaction, keys.into_iter().map(Ok))
+        })
+        .await
     }
     /// None removes a key; Some(Null) stores an explicit null preference.
-    pub async fn update(&mut self, changes: Changes) -> Result<(), String> {
-        self.read().await?;
-        if changes
-            .iter()
-            .all(|(key, value)| self.entries.get(key) == value.as_ref())
-        {
-            return Ok(());
-        }
-        let (committed, changes) = write(self.path.clone(), self.entries.clone(), changes).await?;
-        // Publish only after successful replacement. The fingerprint comes from
-        // our open file handle, never a possibly externally replaced path.
-        let entries = Arc::make_mut(&mut self.entries);
-        for (key, value) in changes {
-            if let Some(value) = value {
-                entries.insert(key, value);
-            } else {
-                entries.remove(&key);
+    pub async fn update(&self, changes: Changes) -> std::result::Result<(), String> {
+        self.query(move |db| {
+            let transaction = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            for (key, value) in changes {
+                if let Some(value) = value {
+                    transaction.execute("INSERT INTO entries VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value WHERE entries.value <> excluded.value", params![key, value.to_string()])?;
+                } else {
+                    transaction.execute("DELETE FROM entries WHERE key = ?1", [key])?;
+                }
             }
-        }
-        self.loaded = committed.is_some();
-        self.version = committed;
-        Ok(())
+            transaction.commit()?;
+            Ok(())
+        }).await
     }
-}
-
-async fn write(
-    path: PathBuf,
-    entries: Arc<Map<String, Value>>,
-    changes: Changes,
-) -> Result<(Option<Version>, Changes), String> {
-    tokio::task::spawn_blocking(move || {
-        // Borrow unchanged values on the worker. Only the small changes map is
-        // moved; neither parsing nor full-file serialization runs on an async worker.
-        let mut merged: BTreeMap<&str, &Value> = entries
-            .iter()
-            .map(|(key, value)| (key.as_str(), value))
-            .collect();
-        for (key, value) in &changes {
-            if let Some(value) = value {
-                merged.insert(key, value);
-            } else {
-                merged.remove(key.as_str());
-            }
-        }
-        let bytes = serde_json::to_vec_pretty(&merged).map_err(|error| error.to_string())?;
-        drop(merged);
-        let parent = path.parent().ok_or("Invalid preferences path")?;
-        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        let temporary = parent.join(format!("client-storage.{}.tmp", uuid::Uuid::new_v4()));
-        let result = (|| {
-            let mut file = std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&temporary)
-                .map_err(|error| error.to_string())?;
-            file.write_all(&bytes).map_err(|error| error.to_string())?;
-            // Preserve the existing close-before-replace behavior on Windows.
-            #[cfg(windows)]
-            drop(file);
-            crate::atomic_write::replace(&temporary, &path).map_err(|error| error.to_string())?;
-            #[cfg(not(windows))]
-            {
-                file.metadata()
-                    .map(Version::from_metadata)
-                    .map(Some)
-                    .map_err(|error| error.to_string())
-            }
-            #[cfg(windows)]
-            {
-                Ok(None)
-            }
-        })();
-        if result.is_err() {
-            let _ = std::fs::remove_file(&temporary);
-        }
-        result.map(|version| (version, changes))
-    })
-    .await
-    .map_err(|error| error.to_string())?
 }
 
 #[cfg(test)]
@@ -185,33 +131,103 @@ mod tests {
     use serde_json::json;
 
     #[tokio::test]
-    async fn malformed_files_and_failed_saves_do_not_publish_unsaved_preferences() {
+    async fn migration_preserves_values_and_never_resurrects_removed_keys() {
         let directory = tempfile::tempdir().unwrap();
-        let parent = directory.path().join("nested");
-        let path = parent.join("preferences.json");
-        let mut store = ClientStorage::new(path.clone());
+        let path = directory.path().join("client-storage.json");
+        let original =
+            json!({"archive": "x".repeat(100_000), "nested": {"a": [1, null]}, "null": null});
+        let bytes = serde_json::to_vec_pretty(&original).unwrap();
+        std::fs::write(&path, &bytes).unwrap();
+        let store = ClientStorage::new(path.clone());
+        assert_eq!(
+            json!(store.read_matching(|_| true).await.unwrap()),
+            original
+        );
         store
-            .update(BTreeMap::from([("model".into(), Some(json!("saved")))]))
+            .update(BTreeMap::from([
+                ("archive".into(), None),
+                ("selected".into(), Some(json!(null))),
+            ]))
             .await
             .unwrap();
-        assert_eq!(store.read().await.unwrap()["model"], "saved");
-        std::fs::write(&path, b"malformed").unwrap();
-        assert!(store.read().await.is_err());
+        for i in 0..20 {
+            store
+                .update(BTreeMap::from([("selected".into(), Some(json!(i)))]))
+                .await
+                .unwrap();
+        }
+        drop(store);
+        let restored = ClientStorage::new(path.clone())
+            .read_matching(|_| true)
+            .await
+            .unwrap();
+        assert!(!restored.contains_key("archive"));
+        assert_eq!(restored["nested"], original["nested"]);
+        assert_eq!(restored["null"], Value::Null);
+        assert_eq!(restored["selected"], 19);
+        assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+
+    #[tokio::test]
+    async fn failed_import_and_failed_batches_are_retryable_and_atomic() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("client-storage.json");
+        std::fs::write(&path, "malformed").unwrap();
+        let store = ClientStorage::new(path.clone());
+        assert!(store.read_matching(|_| true).await.is_err());
         assert!(
             store
                 .update(BTreeMap::from([("model".into(), Some(json!("unsaved")))]))
                 .await
                 .is_err()
         );
-        assert_eq!(std::fs::read(&path).unwrap(), b"malformed");
-        std::fs::remove_file(&path).unwrap();
-        std::fs::remove_dir(&parent).unwrap();
-        std::fs::write(&parent, b"cannot create a directory here").unwrap();
+        std::fs::write(&path, r#"{"model":"saved"}"#).unwrap();
+        assert_eq!(
+            store.read_matching(|_| true).await.unwrap()["model"],
+            "saved"
+        );
+        let external = Connection::open(path.with_extension("sqlite3")).unwrap();
+        let version: i64 = external
+            .pragma_query_value(None, "data_version", |row| row.get(0))
+            .unwrap();
+        store
+            .update(BTreeMap::from([
+                ("model".into(), Some(json!("saved"))),
+                ("missing".into(), None),
+            ]))
+            .await
+            .unwrap();
+        assert_eq!(
+            external
+                .pragma_query_value(None, "data_version", |row| row.get::<_, i64>(0))
+                .unwrap(),
+            version
+        );
+        external.execute_batch("CREATE TRIGGER fail_save BEFORE INSERT ON entries WHEN NEW.key = 'z' BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;").unwrap();
         assert!(
             store
-                .update(BTreeMap::from([("model".into(), Some(json!("unsaved")))]))
+                .update(BTreeMap::from([
+                    ("model".into(), Some(json!("unsaved"))),
+                    ("z".into(), Some(json!(1)))
+                ]))
                 .await
                 .is_err()
+        );
+        assert_eq!(store.select(&["model"]).await.unwrap()["model"], "saved");
+        external
+            .execute(
+                "UPDATE entries SET value = '\"external\"' WHERE key = 'model'",
+                [],
+            )
+            .unwrap();
+        assert_eq!(store.select(&["model"]).await.unwrap()["model"], "external");
+        store
+            .update(BTreeMap::from([("model".into(), Some(Value::Null))]))
+            .await
+            .unwrap();
+        assert_eq!(
+            store.read_matching(|_| true).await.unwrap()["model"],
+            Value::Null
         );
     }
 }

@@ -795,13 +795,7 @@ async fn save_provider_configuration(state: &ServerState, mut input: Value) -> A
             .await?;
         return Ok(resolved);
     };
-    let mut storage = state.client_storage.lock().await;
-    let entries = storage.read().await?;
-    input["defaults"] = entries
-        .get("inferay-default-chat-settings")
-        .and_then(Value::as_str)
-        .and_then(|text| serde_json::from_str::<Value>(text).ok())
-        .unwrap_or(Value::Null);
+    let storage = state.client_storage.lock().await;
     let fields = [
         ("model", format!("inferay-chat-model-{pane_id}")),
         (
@@ -809,6 +803,14 @@ async fn save_provider_configuration(state: &ServerState, mut input: Value) -> A
             format!("inferay-chat-reasoning-{pane_id}"),
         ),
     ];
+    let entries = storage
+        .select(&["inferay-default-chat-settings", &fields[0].1, &fields[1].1])
+        .await?;
+    input["defaults"] = entries
+        .get("inferay-default-chat-settings")
+        .and_then(Value::as_str)
+        .and_then(|text| serde_json::from_str::<Value>(text).ok())
+        .unwrap_or(Value::Null);
     for (field, key) in &fields {
         if input.get(field).is_none() {
             input[field] = entries.get(key).cloned().unwrap_or(Value::Null);
@@ -1394,8 +1396,8 @@ async fn skill_proposal(state: &ServerState, request: Request) -> ApiResult {
         "Missing proposal message ID",
     )?;
     let key = format!("inferay-skill-proposal:{id}");
-    let mut storage = state.client_storage.lock().await;
-    let entries = storage.read().await?;
+    let storage = state.client_storage.lock().await;
+    let entries = storage.select(&[&key]).await?;
     let stored = entries
         .get(&key)
         .and_then(Value::as_str)
@@ -2062,14 +2064,6 @@ fn is_chat_preference_key(key: &str) -> bool {
     .any(|prefix| key.starts_with(prefix))
 }
 
-async fn read_client_storage(path: &Path) -> Result<serde_json::Map<String, Value>, String> {
-    match tokio::fs::read(path).await {
-        Ok(bytes) => serde_json::from_slice(&bytes).map_err(|error| error.to_string()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(serde_json::Map::new()),
-        Err(error) => Err(error.to_string()),
-    }
-}
-
 fn migrate_vscode_appearance(entries: &mut serde_json::Map<String, Value>) -> bool {
     const MIGRATION: &str = "inferay-vscode-appearance-version";
     if entries.get(MIGRATION).and_then(Value::as_str) == Some("1") {
@@ -2087,7 +2081,7 @@ fn migrate_vscode_appearance(entries: &mut serde_json::Map<String, Value>) -> bo
 
 async fn get_client_storage(state: &ServerState, request: Request) -> ApiResult {
     let requested_key = query_value(&request, "key");
-    let mut storage = state.client_storage.lock().await;
+    let storage = state.client_storage.lock().await;
     let mut migrations = storage
         .select(&[
             "inferay-vscode-appearance-version",
@@ -2115,7 +2109,11 @@ async fn get_client_storage(state: &ServerState, request: Request) -> ApiResult 
     let entries = if let Some(key) = requested_key {
         storage.select(&[&key]).await?
     } else {
-        storage.read().await?.clone()
+        storage
+            .read_matching(|key| {
+                !is_chat_message_storage_key(key) && !key.starts_with("inferay-checkpoints-")
+            })
+            .await?
     };
     Ok(json!({"entries":entries,"storageKeyPattern":client_storage_key_pattern()}))
 }
@@ -3462,6 +3460,80 @@ mod saved_title_tests {
                 Some(title)
             );
         }
+        server.shutdown();
+    }
+}
+
+#[cfg(test)]
+mod client_storage_http_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn bootstrap_omits_archives_without_losing_preferences_or_native_records() {
+        let root = tempfile::tempdir().unwrap();
+        let profile = root.path().join("state");
+        std::fs::create_dir_all(&profile).unwrap();
+        let mut expected = json!({
+            "inferay-vscode-appearance-version": "1",
+            "inferay-app-font": "vscode",
+            "inferay-chat-input-pane": "Unsaved draft ⡀",
+            "inferay-chat-summary-pane": "Saved title",
+            "inferay-chat-model-pane": null,
+            "native-workspace-dock:project": "{\"panes\":[]}",
+            "inferay-chat-pane": "x".repeat(1_000_000),
+            "inferay-checkpoints-pane": "[{\"id\":\"checkpoint\",\"afterMessageId\":\"message\"}]"
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        let original = serde_json::to_vec(&expected).unwrap();
+        std::fs::write(profile.join("client-storage.json"), &original).unwrap();
+        let mut config = ServerConfig::new("127.0.0.1:0".parse().unwrap(), root.path().to_owned());
+        config.home_directory = root.path().to_owned();
+        config.user_data_dir = profile.clone();
+        let auth = config.auth_token.clone();
+        let mut server = ServerHandle::start(config).unwrap();
+        let url = format!("http://{}/api/client-storage", server.local_addr());
+        let client = Client::new();
+        let response = client
+            .get(&url)
+            .header("x-inferay-auth", &auth)
+            .header("sec-fetch-site", "same-origin")
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap();
+        assert!(
+            response.len() < 4096,
+            "Legacy transcript entered bootstrap payload"
+        );
+        for key in ["inferay-chat-pane", "inferay-checkpoints-pane"] {
+            let saved = expected.remove(key).unwrap();
+            let queried = client
+                .get(format!("{url}?key={key}"))
+                .header("x-inferay-auth", &auth)
+                .header("sec-fetch-site", "same-origin")
+                .send()
+                .await
+                .unwrap()
+                .error_for_status()
+                .unwrap()
+                .bytes()
+                .await
+                .unwrap();
+            let queried: Value = serde_json::from_slice(&queried).unwrap();
+            assert_eq!(queried["entries"][key], saved);
+        }
+        let bootstrap: Value = serde_json::from_slice(&response).unwrap();
+        assert_eq!(bootstrap["entries"], json!(expected));
+        assert_eq!(
+            std::fs::read(profile.join("client-storage.json")).unwrap(),
+            original
+        );
         server.shutdown();
     }
 }

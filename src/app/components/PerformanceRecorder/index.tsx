@@ -20,7 +20,7 @@ function recordUiTimings(publish: (sample: UiTiming) => void) {
 	const visible = (node: HTMLElement) =>
 		node.getClientRects().length > 0 && node.clientHeight > 0;
 	const surfaces = () => [
-		...document.querySelectorAll<HTMLElement>("[data-repository-surface]"),
+		...document.querySelectorAll<HTMLElement>("[data-project-surface]"),
 	];
 	const panesIn = (root: ParentNode) => [
 		...root.querySelectorAll<HTMLElement>("[data-chat-pane-id]"),
@@ -59,18 +59,22 @@ function recordUiTimings(publish: (sample: UiTiming) => void) {
 		const now = performance.now();
 		const roots = surfaces();
 		const root =
-			kind === "repository"
-				? roots.find((surface) => surface.dataset.repositorySurface === target)
+			kind === "project"
+				? roots.find(
+						(surface) =>
+							surface.dataset.projectSurface === target &&
+							surface.dataset.projectActive === "true",
+					)
 				: panesIn(document).find((pane) => pane.dataset.chatPaneId === target);
 		const active = roots.find(
-			(surface) => surface.dataset.repositoryActive === "true",
+			(surface) => surface.dataset.projectActive === "true",
 		);
 		model.begin(
 			kind,
 			target,
 			JSON.stringify({
 				retained: !!root,
-				alreadySelected: kind === "repository" && root === active,
+				alreadySelected: kind === "project" && !!root && root === active,
 				visibleChats: active ? panesIn(active).filter(visible).length : 0,
 				activeRuns: document.querySelectorAll("[data-chat-activity]").length,
 				viewportWidth: window.innerWidth,
@@ -95,9 +99,9 @@ function recordUiTimings(publish: (sample: UiTiming) => void) {
 	const click = (event: MouseEvent) => {
 		const tab =
 			event.target instanceof Element
-				? event.target.closest<HTMLElement>("[data-repository-tab]")
+				? event.target.closest<HTMLElement>("[data-project-tab]")
 				: null;
-		if (tab) begin("repository", tab.dataset.repositoryTab!, event.timeStamp);
+		if (tab) begin("project", tab.dataset.projectTab!, event.timeStamp);
 	};
 	const key = (event: KeyboardEvent) => {
 		if (
@@ -120,13 +124,11 @@ function recordUiTimings(publish: (sample: UiTiming) => void) {
 					)
 				: surfaces().find(
 						(surface) =>
-							surface.dataset.repositorySurface === current.target &&
-							surface.dataset.repositoryActive === "true",
+							surface.dataset.projectSurface === current.target &&
+							surface.dataset.projectActive === "true",
 					);
 		const panes =
-			root && current.kind === "repository"
-				? panesIn(root).filter(visible)
-				: [];
+			root && current.kind === "project" ? panesIn(root).filter(visible) : [];
 		return model.frame(
 			now,
 			performance.now(),
@@ -207,7 +209,7 @@ export default function PerformanceRecorder(props: { onClose: () => void }) {
 		value === null ? "—" : `${value.toFixed(1)} ms`;
 	const download = () => {
 		const data = {
-			schemaVersion: 2,
+			schemaVersion: 3,
 			capturedAt: new Date().toISOString(),
 			environment: {
 				userAgent: navigator.userAgent,
@@ -231,7 +233,7 @@ export default function PerformanceRecorder(props: { onClose: () => void }) {
 		<aside {...stylex.attrs(styles.panel)} aria-label="UI performance recorder">
 			<strong>Recording UI timings</strong>
 			<p>
-				Click repository tabs or send a message. Times include a frame
+				Switch between project chats or send a message. Times include a frame
 				opportunity after the panes or activity indicator are ready.
 			</p>
 			<p>

@@ -74,11 +74,19 @@ impl WorktreeIndex {
             directory,
             pairs: Vec::new(),
         };
-        for paths in paths.chunks(100) {
-            let mut args = vec!["--literal-pathspecs", "add", "--intent-to-add", "--"];
-            args.extend_from_slice(paths);
-            result.git(cwd, &args)?;
-        }
+        let pathspec = result.directory.path().join("paths");
+        std::fs::write(&pathspec, paths.join("\0")).ok()?;
+        result.git(
+            cwd,
+            &[
+                "--literal-pathspecs",
+                "add",
+                "--intent-to-add",
+                "--pathspec-file-nul",
+                "--pathspec-from-file",
+                pathspec.to_str()?,
+            ],
+        )?;
         Some(result)
     }
 
@@ -110,6 +118,38 @@ mod tests {
             output.status.success(),
             "{args:?}: {}",
             String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn large_untracked_batches_preserve_literal_paths_and_the_real_index() {
+        let root = tempfile::tempdir().unwrap();
+        git(root.path(), &["init", "-q"]);
+        std::fs::write(root.path().join("tracked"), "staged\n").unwrap();
+        git(root.path(), &["add", "tracked"]);
+        let original_index = std::fs::read(root.path().join(".git/index")).unwrap();
+        // Together these paths exceed typical command-line argument limits.
+        let prefix = "x".repeat(230);
+        let mut paths: Vec<_> = (0..1200).map(|i| format!("{prefix}-{i}")).collect();
+        paths.extend(["-option", ":(glob)*", "line\nbreak", "quote\"'"].map(str::to_owned));
+        for path in &paths {
+            std::fs::write(root.path().join(path), "first\nsecond").unwrap();
+        }
+        let status = get_git_status(root.path().to_str().unwrap()).unwrap();
+        let untracked: std::collections::HashSet<_> = status
+            .files
+            .iter()
+            .filter(|file| file.status == "?")
+            .map(|file| {
+                assert!(!file.staged);
+                assert_eq!((file.additions, file.deletions), (Some(2), Some(0)));
+                file.path.clone()
+            })
+            .collect();
+        assert_eq!(untracked, paths.into_iter().collect());
+        assert_eq!(
+            std::fs::read(root.path().join(".git/index")).unwrap(),
+            original_index
         );
     }
 

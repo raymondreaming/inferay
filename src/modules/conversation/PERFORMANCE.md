@@ -59,6 +59,15 @@ updates only the Solid computations that need it.
   graph, source, and diff rows. Derive branch types separately so text changes
   update existing components instead of rebuilding their DOM.
 
+Streaming Markdown uses version 2 patches from `/api/native/markdown/stream`.
+The Rust parser retains source offsets and an open top-level fence; ordinary
+code appends transmit only `appendCode`. The presentation cursor validates its
+revision, replacement range and code/mermaid target before the browser appends
+to that block. Earlier blocks retain identity. A possible closing fence, reset,
+mode change or finalization uses normal block replacement. Nested blocks retain
+the existing parser path. Keep the server, generated contracts and WASM cursor
+in the same release; prepared full Markdown remains version 1.
+
 ## Validation
 
 Use the focused checks described in [CODING_GUIDELINES.md](../../../CODING_GUIDELINES.md).

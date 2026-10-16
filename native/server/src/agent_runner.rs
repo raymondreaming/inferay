@@ -21,20 +21,23 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufRead
 use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot};
 
+pub(crate) const PROTOCOL_BUFFER_CAPACITY: usize = 64;
+
 const MAX_STREAM_CHARS: usize = 64_000;
 const CODEX_RPC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 const CODEX_INTERRUPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Poll the provider while an emission waits for persistence or a file diff.
-/// Applying emissions stays ordered, and the turn cannot finish before they drain.
+/// Backpressure caps pending events; applying them stays ordered, and the turn
+/// cannot finish before they drain.
 pub(crate) async fn drive_protocol<R, F, H, A>(run: R, mut apply: H) -> F::Output
 where
-    R: FnOnce(mpsc::UnboundedSender<ProtocolEmission>) -> F,
+    R: FnOnce(mpsc::Sender<ProtocolEmission>) -> F,
     F: std::future::Future,
     H: FnMut(ProtocolEmission) -> A,
     A: std::future::Future<Output = ()>,
 {
-    let (sender, mut receiver) = mpsc::unbounded_channel();
+    let (sender, mut receiver) = mpsc::channel(PROTOCOL_BUFFER_CAPACITY);
     let (result, ()) = tokio::join!(run(sender), async {
         while let Some(emission) = receiver.recv().await {
             apply(emission).await;
@@ -313,7 +316,7 @@ pub async fn run_agent(
     handle: &AgentProcessHandle,
     tracker: &RuntimePidTracker,
     context: &mut AgentProtocolContext,
-    emissions: &mpsc::UnboundedSender<ProtocolEmission>,
+    emissions: &mpsc::Sender<ProtocolEmission>,
 ) -> String {
     match kind {
         inferay_core::agent_kind::AgentKind::Codex => {
@@ -337,7 +340,7 @@ async fn run_claude(
     run: ProviderRun<'_>,
     handle: &AgentProcessHandle,
     context: &mut AgentProtocolContext,
-    emissions: &mpsc::UnboundedSender<ProtocolEmission>,
+    emissions: &mpsc::Sender<ProtocolEmission>,
 ) -> String {
     let scoped_mcp = match run
         .invocation
@@ -349,7 +352,7 @@ async fn run_claude(
         Ok(config) => config,
         Err(error) => {
             emit_error(context, error);
-            flush_emissions(context, emissions);
+            flush_emissions(context, emissions).await;
             return String::new();
         }
     };
@@ -358,7 +361,7 @@ async fn run_claude(
             Ok(bridge) => bridge,
             Err(error) => {
                 emit_error(context, format!("Inferay tools could not start: {error}"));
-                flush_emissions(context, emissions);
+                flush_emissions(context, emissions).await;
                 return String::new();
             }
         };
@@ -380,7 +383,7 @@ async fn run_claude(
                 context,
                 format!("Inferay tool configuration failed: {error}"),
             );
-            flush_emissions(context, emissions);
+            flush_emissions(context, emissions).await;
             return String::new();
         }
         Some(scoped.path())
@@ -397,7 +400,7 @@ async fn run_claude(
     if let Some(policy) = &handle.sandbox {
         if let Err(error) = policy.claude(&mut arguments) {
             emit_error(context, error);
-            flush_emissions(context, emissions);
+            flush_emissions(context, emissions).await;
             return String::new();
         }
         if !arguments.iter().any(|arg| arg == "--strict-mcp-config") {
@@ -411,7 +414,7 @@ async fn run_claude(
             if !handle.is_cancelled() {
                 emit_error(context, error.to_string());
             }
-            flush_emissions(context, emissions);
+            flush_emissions(context, emissions).await;
             return String::new();
         }
     };
@@ -428,7 +431,7 @@ async fn run_claude(
             Ok(_) => {
                 if let Some(event) = parse_ndjson(&line) {
                     protocol.handle_event(context, &event);
-                    flush_emissions(context, emissions);
+                    flush_emissions(context, emissions).await;
                 }
             }
             Err(error) => {
@@ -448,7 +451,7 @@ async fn run_claude(
     {
         emit_error(context, stderr);
     }
-    flush_emissions(context, emissions);
+    flush_emissions(context, emissions).await;
     protocol.last_assistant_message
 }
 
@@ -493,7 +496,7 @@ async fn run_codex(
     tracker: &RuntimePidTracker,
     context: &mut AgentProtocolContext,
     state: &mut CodexProtocolState,
-    emissions: &mpsc::UnboundedSender<ProtocolEmission>,
+    emissions: &mpsc::Sender<ProtocolEmission>,
 ) -> String {
     let mut child = match spawn_codex_app_server(
         run.binary,
@@ -506,7 +509,7 @@ async fn run_codex(
             if !handle.is_cancelled() {
                 emit_error(context, error.to_string());
             }
-            flush_emissions(context, emissions);
+            flush_emissions(context, emissions).await;
             return String::new();
         }
     };
@@ -581,7 +584,7 @@ async fn run_codex(
         state.handle_notification(context, "thread/name/updated", &json!({
             "threadId": thread_id, "threadName": thread_response["thread"]["name"]
         }), &Default::default());
-        flush_emissions(context, emissions);
+        flush_emissions(context, emissions).await;
         // Resolve MCP tools before the model snapshots its tool inventory.
         // Starting discovery after turn/start leaves slow servers out of that turn.
         let mut cursor = Value::Null;
@@ -643,7 +646,7 @@ async fn run_codex(
                     match control {
                         Some(CodexControl::Steer { text, images, response }) => {
                             state.prepare_for_steering(context);
-                            flush_emissions(context, emissions);
+                            flush_emissions(context, emissions).await;
                             if let Some((response_id, field)) = pending_elicitation.take() {
                                 let reply = elicitation_reply(&response_id, &text, field.as_deref());
                                 let result = rpc
@@ -652,7 +655,7 @@ async fn run_codex(
                                     .map_err(|error| error.to_string());
                                 if result.is_ok() {
                                     state.close_tool(context);
-                                    flush_emissions(context, emissions);
+                                    flush_emissions(context, emissions).await;
                                 }
                                 let _ = response.send(result);
                             } else if let Some((response_id, question_ids)) = pending_user_input.take() {
@@ -664,7 +667,7 @@ async fn run_codex(
                                     .map_err(|error| error.to_string());
                                 if result.is_ok() {
                                     state.close_tool(context);
-                                    flush_emissions(context, emissions);
+                                    flush_emissions(context, emissions).await;
                                 }
                                 let _ = response.send(result);
                             } else {
@@ -704,7 +707,7 @@ async fn run_codex(
                         let question_ids = questions.iter().filter_map(|question| question.get("id").and_then(Value::as_str).map(str::to_owned)).collect();
                         pending_user_input = Some((id, question_ids));
                         state.begin_tool(context, "AskUserQuestion", json!({"questions":questions}));
-                        flush_emissions(context, emissions);
+                        flush_emissions(context, emissions).await;
                         continue;
                     }
                     if message.get("method").and_then(Value::as_str) == Some("item/tool/call")
@@ -717,7 +720,7 @@ async fn run_codex(
                             Ok((output, card)) => {
                                 if let Some(card) = card {
                                     context.emissions.push(ProtocolEmission::System(card.to_string()));
-                                    flush_emissions(context, emissions);
+                                    flush_emissions(context, emissions).await;
                                 }
                                 (true, output.to_string())
                             }
@@ -746,13 +749,13 @@ async fn run_codex(
                             .and_then(|properties| properties.keys().next().cloned());
                         pending_elicitation = Some((id, field));
                         state.begin_tool(context, "McpElicitation", params);
-                        flush_emissions(context, emissions);
+                        flush_emissions(context, emissions).await;
                         continue;
                     }
                     if let Some(reply) = unsupported_codex_request(&message) {
                         let method = message["method"].as_str().unwrap_or("unknown");
                         emit_error(context, format!("Codex requested {method}, which Inferay does not support yet. The request was declined so the turn can continue."));
-                        flush_emissions(context, emissions);
+                        flush_emissions(context, emissions).await;
                         if rpc.write(&reply).await.is_err() {
                             break;
                         }
@@ -761,7 +764,7 @@ async fn run_codex(
                     let is_completed = message.get("method").and_then(Value::as_str) == Some("turn/completed");
                     if let Some(method) = message["method"].as_str() {
                         crate::agent_protocol::handle_codex_notification(state, context, method, &message["params"]);
-                        flush_emissions(context, emissions);
+                        flush_emissions(context, emissions).await;
                     }
                     if is_completed {
                         completed = true;
@@ -882,7 +885,10 @@ pub(crate) async fn inspect_codex_mcp(
     };
     let mut context = AgentProtocolContext::new(cwd.to_owned());
     let mut protocol = CodexProtocolState::default();
-    let (emissions, _receiver) = mpsc::unbounded_channel();
+    let (emissions, receiver) = mpsc::channel(1);
+    // Inventory inspection has no chat consumer. Discard notifications rather
+    // than accumulating them while waiting for MCP discovery replies.
+    drop(receiver);
     let result = tokio::time::timeout(std::time::Duration::from_secs(75), async {
         rpc.request(
             "initialize",
@@ -986,7 +992,7 @@ impl CodexConnection {
         protocol: (
             &mut AgentProtocolContext,
             &mut CodexProtocolState,
-            &mpsc::UnboundedSender<ProtocolEmission>,
+            &mpsc::Sender<ProtocolEmission>,
         ),
     ) -> Result<Value, String> {
         let id = self.send(method, params).await?;
@@ -1026,7 +1032,7 @@ impl CodexConnection {
                     method,
                     &message["params"],
                 );
-                flush_emissions(context, emissions);
+                flush_emissions(context, emissions).await;
             }
         }
     }
@@ -1082,7 +1088,7 @@ async fn finish_codex_child(
     protocol: (
         &mut AgentProtocolContext,
         &mut CodexProtocolState,
-        &mpsc::UnboundedSender<ProtocolEmission>,
+        &mpsc::Sender<ProtocolEmission>,
     ),
 ) -> String {
     let (context, state, emissions) = protocol;
@@ -1106,7 +1112,7 @@ async fn finish_codex_child(
     {
         emit_error(context, stderr);
     }
-    flush_emissions(context, emissions);
+    flush_emissions(context, emissions).await;
     state.last_assistant_message.clone()
 }
 
@@ -1228,12 +1234,12 @@ fn emit_error(context: &mut AgentProtocolContext, message: String) {
     context.emissions.push(ProtocolEmission::System(message));
 }
 
-fn flush_emissions(
+async fn flush_emissions(
     context: &mut AgentProtocolContext,
-    sender: &mpsc::UnboundedSender<ProtocolEmission>,
+    sender: &mpsc::Sender<ProtocolEmission>,
 ) {
     for emission in context.take_emissions() {
-        let _ = sender.send(emission);
+        let _ = sender.send(emission).await;
     }
 }
 
@@ -1420,7 +1426,7 @@ mod runner_tests {
         let handle = AgentProcessHandle::with_skills(Arc::new(tokio::sync::Mutex::new(
             PromptStore::new(root.join("bundled.json"), root.join("local.json")),
         )));
-        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (tx, mut rx) = mpsc::channel(PROTOCOL_BUFFER_CAPACITY);
         let mut context = AgentProtocolContext::new(root.clone());
         let env = HashMap::new();
         let invocation = CodexInvocationContext {

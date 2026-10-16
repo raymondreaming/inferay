@@ -14,12 +14,14 @@ async fn provider_progresses_during_slow_emission_and_drains_before_returning() 
             |sender| async move {
                 sender
                     .send(ProtocolEmission::System("first".into()))
+                    .await
                     .unwrap();
                 // Simulate a provider that needs polling while the first durable
                 // write is pending. The old select/await loop deadlocks here.
                 applied.await.unwrap();
                 sender
                     .send(ProtocolEmission::System("second".into()))
+                    .await
                     .unwrap();
                 release.send(()).unwrap();
                 "complete"
@@ -45,6 +47,63 @@ async fn provider_progresses_during_slow_emission_and_drains_before_returning() 
     .expect("provider must keep progressing during a pending write");
     assert_eq!(output, "complete");
     assert_eq!(*seen.lock().unwrap(), ["first", "second"]);
+}
+
+#[tokio::test]
+async fn slow_consumer_bounds_queued_events_and_preserves_delivery_order() {
+    let (applying, applied) = oneshot::channel();
+    let (release, released) = oneshot::channel();
+    let mut first = Some((applying, released));
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        drive_protocol(
+            |sender| async move {
+                sender
+                    .send(ProtocolEmission::System("0".into()))
+                    .await
+                    .unwrap();
+                applied.await.unwrap();
+                for index in 1..=PROTOCOL_BUFFER_CAPACITY {
+                    sender
+                        .send(ProtocolEmission::System(index.to_string()))
+                        .await
+                        .unwrap();
+                }
+                assert!(matches!(
+                    sender.try_send(ProtocolEmission::System("overflow".into())),
+                    Err(mpsc::error::TrySendError::Full(_))
+                ));
+                release.send(()).unwrap();
+                sender
+                    .send(ProtocolEmission::System(
+                        (PROTOCOL_BUFFER_CAPACITY + 1).to_string(),
+                    ))
+                    .await
+                    .unwrap();
+            },
+            |emission| {
+                let first = first.take();
+                let seen = seen.clone();
+                async move {
+                    if let Some((applying, released)) = first {
+                        applying.send(()).unwrap();
+                        released.await.unwrap();
+                    }
+                    let ProtocolEmission::System(text) = emission else {
+                        panic!("unexpected emission")
+                    };
+                    seen.lock().unwrap().push(text.parse::<usize>().unwrap());
+                }
+            },
+        ),
+    )
+    .await
+    .expect("backpressure must resume when the consumer drains");
+    assert_eq!(
+        *seen.lock().unwrap(),
+        (0..=PROTOCOL_BUFFER_CAPACITY + 1).collect::<Vec<_>>()
+    );
 }
 
 struct Fixture {
@@ -135,6 +194,32 @@ impl Drop for Fixture {
 }
 
 #[tokio::test]
+async fn inventory_discards_unsolicited_chat_events_without_filling_a_queue() {
+    let root = tempfile::tempdir().unwrap();
+    let binary = root.path().join("provider");
+    std::fs::write(&binary, r#"#!/usr/bin/python3
+import json,sys
+for line in sys.stdin:
+ request=json.loads(line)
+ if 'id' not in request: continue
+ for i in range(200):
+  print(json.dumps({'method':'item/agentMessage/delta','params':{'itemId':'chat','delta':'discard me'}}),flush=True)
+ method=request['method']
+ result={'config':{}} if method=='config/read' else {'thread':{'id':'fixture'}} if method=='thread/start' else {'data':[],'nextCursor':None} if method=='mcpServerStatus/list' else {}
+ print(json.dumps({'id':request['id'],'result':result}),flush=True)
+"#).unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let (_, servers) = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        inspect_codex_mcp(&binary, root.path(), &HashMap::new(), Some(&[])),
+    )
+    .await
+    .expect("inventory must not wait for a nonexistent chat consumer")
+    .unwrap();
+    assert!(servers.is_empty());
+}
+
+#[tokio::test]
 async fn unsupported_server_requests_receive_replies_during_startup_and_turns() {
     let f = Fixture::new("unsupported");
     let invocation = f.invocation(false);
@@ -142,7 +227,7 @@ async fn unsupported_server_requests_receive_replies_during_startup_and_turns() 
     let tracker = RuntimePidTracker::new(f.root.join("pids.json"));
     let mut context = AgentProtocolContext::new(f.root.clone());
     let mut state = CodexProtocolState::default();
-    let (tx, _rx) = mpsc::unbounded_channel();
+    let (tx, _rx) = mpsc::channel(PROTOCOL_BUFFER_CAPACITY);
     let env = HashMap::new();
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(10),
@@ -174,7 +259,7 @@ async fn failed_resume_does_not_silently_start_a_new_thread() {
     let tracker = RuntimePidTracker::new(f.root.join("pids.json"));
     let mut context = AgentProtocolContext::new(f.root.clone());
     let mut state = CodexProtocolState::default();
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (tx, mut rx) = mpsc::channel(PROTOCOL_BUFFER_CAPACITY);
     let env = HashMap::new();
     run_codex(
         ProviderRun {
@@ -205,7 +290,7 @@ async fn interrupt_terminates_a_server_that_never_completes_the_turn() {
     let tracker = RuntimePidTracker::new(f.root.join("pids.json"));
     let mut context = AgentProtocolContext::new(f.root.clone());
     let mut state = CodexProtocolState::default();
-    let (tx, _rx) = mpsc::unbounded_channel();
+    let (tx, _rx) = mpsc::channel(PROTOCOL_BUFFER_CAPACITY);
     let env = HashMap::new();
     tokio::time::timeout(std::time::Duration::from_secs(10), async {
         tokio::join!(
@@ -252,7 +337,7 @@ async fn notifications_do_not_reset_the_rpc_deadline() {
     let tracker = RuntimePidTracker::new(f.root.join("pids.json"));
     let mut context = AgentProtocolContext::new(f.root.clone());
     let mut state = CodexProtocolState::default();
-    let (tx, mut rx) = mpsc::unbounded_channel();
+    let (tx, mut rx) = mpsc::channel(PROTOCOL_BUFFER_CAPACITY);
     let env = HashMap::new();
     tokio::time::timeout(
         std::time::Duration::from_secs(30),
@@ -406,7 +491,16 @@ supports_websockets = false
     let tracker = RuntimePidTracker::new(root.path().join("pids.json"));
     let mut context = AgentProtocolContext::new(work.clone());
     let mut state = CodexProtocolState::default();
-    let (sender, mut receiver) = mpsc::unbounded_channel();
+    let (sender, mut receiver) = mpsc::channel(PROTOCOL_BUFFER_CAPACITY);
+    let drain = tokio::spawn(async move {
+        let mut emissions = Vec::new();
+        while let Some(emission) = receiver.recv().await {
+            if let ProtocolEmission::Chat(value) = emission {
+                emissions.push(value);
+            }
+        }
+        emissions
+    });
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(60),
         run_codex(
@@ -428,12 +522,8 @@ supports_websockets = false
         handle.kill();
     }
     server.abort();
-    let mut emissions = Vec::new();
-    while let Ok(emission) = receiver.try_recv() {
-        if let ProtocolEmission::Chat(value) = emission {
-            emissions.push(value);
-        }
-    }
+    drop(sender);
+    let emissions = drain.await.unwrap();
     assert!(
         result.is_ok(),
         "Installed Codex probe timed out: {emissions:?}"
@@ -626,7 +716,18 @@ async fn installed_claude_refuses_native_file_and_shell_tools_in_automation_poli
             &work,
         ));
     let mut context = AgentProtocolContext::new(work.clone());
-    let (sender, mut receiver) = mpsc::unbounded_channel();
+    let (sender, mut receiver) = mpsc::channel(PROTOCOL_BUFFER_CAPACITY);
+    let drain = tokio::spawn(async move {
+        let mut emissions = Vec::new();
+        while let Some(emission) = receiver.recv().await {
+            match emission {
+                ProtocolEmission::Chat(value) => emissions.push(value),
+                ProtocolEmission::System(text) => emissions.push(json!({"system":text})),
+                _ => {}
+            }
+        }
+        emissions
+    });
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(60),
         run_claude(
@@ -655,14 +756,8 @@ async fn installed_claude_refuses_native_file_and_shell_tools_in_automation_poli
         handle.kill();
     }
     server.abort();
-    let mut emissions = Vec::new();
-    while let Ok(emission) = receiver.try_recv() {
-        match emission {
-            ProtocolEmission::Chat(value) => emissions.push(value),
-            ProtocolEmission::System(text) => emissions.push(json!({"system":text})),
-            _ => {}
-        }
-    }
+    drop(sender);
+    let emissions = drain.await.unwrap();
     assert!(result.is_ok(), "Claude probe timed out: {emissions:?}");
     assert!(!work.join("shell-forbidden.txt").exists());
     assert!(!work.join("write-forbidden.txt").exists());
@@ -793,5 +888,87 @@ args = [{}, {}]
                 .as_object()
                 .is_some_and(|tools| !tools.is_empty())),
         "Selected server must expose its tool inventory"
+    );
+}
+
+#[tokio::test]
+#[ignore = "manual provider burst benchmark; records throughput under a slow consumer"]
+async fn measure_provider_burst() {
+    let root = tempfile::tempdir().unwrap();
+    let binary = root.path().join("provider");
+    std::fs::write(&binary, r#"#!/usr/bin/python3
+import json,sys
+for i in range(2000):
+ print(json.dumps({'type':'stream_event','event':{'type':'content_block_delta','index':0,'delta':{'type':'text_delta','text':str(i)+':'+'x'*16384}}}),flush=True)
+print(json.dumps({'type':'result','result':'finished'}),flush=True)
+"#).unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let handle =
+        AgentProcessHandle::with_skills(Arc::new(tokio::sync::Mutex::new(PromptStore::new(
+            root.path().join("bundled.json"),
+            root.path().join("local.json"),
+        ))));
+    let invocation = CodexInvocationContext {
+        cwd: root.path().to_owned(),
+        reference_paths: vec![],
+        images: vec![],
+        model: None,
+        reasoning_level: None,
+        developer_instructions: None,
+        session_id: None,
+        mcp_servers: None,
+    };
+    let mut context = AgentProtocolContext::new(root.path().to_owned());
+    let env = HashMap::new();
+    let count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let delay = std::env::var("INFERAY_BURST_DELAY_MS")
+        .unwrap_or("1".into())
+        .parse::<u64>()
+        .unwrap();
+    let started = std::time::Instant::now();
+    let runner_handle = handle.clone();
+    let output = drive_protocol(
+        |sender| async move {
+            run_claude(
+                ProviderRun {
+                    binary: &binary,
+                    prompt: "fixture",
+                    invocation: &invocation,
+                    env: &env,
+                },
+                &runner_handle,
+                &mut context,
+                &sender,
+            )
+            .await
+        },
+        |emission| {
+            let count = count.clone();
+            async move {
+                if let ProtocolEmission::Chat(event) = emission
+                    && event["type"] == "content_block_delta"
+                {
+                    let text = event["delta"]["text"].as_str().unwrap();
+                    let (index, body) = text.split_once(':').unwrap();
+                    assert_eq!(
+                        index.parse::<usize>().unwrap(),
+                        count.fetch_add(1, Ordering::Relaxed)
+                    );
+                    assert_eq!(body.len(), 16384);
+                    assert!(body.bytes().all(|b| b == b'x'));
+                    if delay > 0 {
+                        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                    }
+                }
+            }
+        },
+    )
+    .await;
+    assert_eq!(output, "finished");
+    assert_eq!(count.load(Ordering::Relaxed), 2000);
+    assert!(handle.pid().is_none());
+    println!(
+        "PROVIDER_BURST_MS={:.3}",
+        started.elapsed().as_secs_f64() * 1000.0
     );
 }

@@ -37,11 +37,19 @@ Inferay/
 ├── memory.sqlite3                    DATABASE: Memory search index (rebuildable)
 ├── chat.sqlite3                      DATABASE: conversations and transcripts
 ├── agent-state.json                  workspace and panes
-├── client-storage.json, settings.json  interface preferences, search folders
+├── client-storage.sqlite3           DATABASE: interface preferences and panel state
+├── client-storage.json              retained pre-migration backup, when present
+├── settings.json                    search folders
 └── checkpoints.json, mcp-*.json, …   see architecture.md
 ```
 
 ## The databases
+
+### `client-storage.sqlite3`
+
+`client_storage.rs` owns interface preferences and panel state. Each key is a JSON value in the `entries` table. Reads select only the requested keys; updates commit the changed keys together using SQLite WAL and full synchronization. Unchanged values do not produce journal writes. The database is authoritative local state, not a rebuildable index. The renderer bootstrap (`GET /api/client-storage` without a key) excludes legacy transcript bodies and checkpoint associations. It selects keys before loading values; drafts, summaries, appearance preferences and dock state remain available. Excluded records stay in SQLite and can still be read explicitly by key.
+
+On first access, one transaction imports every value from `client-storage.json` and records schema version 1. The JSON file remains untouched as a migration backup. A malformed file fails the import without publishing partial state; fixing the file allows retry. After successful migration the old JSON file is never re-imported, so deleted preferences cannot return. Back up the SQLite database using SQLite's backup mechanism, or copy it after Inferay closes; a live database may also have `-wal` and `-shm` files.
 
 ### `projects.sqlite3`
 
@@ -152,7 +160,7 @@ Older profiles kept definitions in database rows. On first launch of a version-3
 
 ## ⚠️ Known limits
 
-- **Full rebuild on every refresh.** `project_index::refresh` deletes and re-reads every project's definition files on each call, and the project pages call it every 3 seconds. That is fine for a handful of projects but grows with every plugin. Planned fix: re-read only files whose size or modified time changed, as `memory_store` already does.
+- **File validation on every refresh.** `project_index::refresh` still reads and validates definition files and checks approved inputs on each call. It updates only changed index rows and removes missing rows in one transaction; unchanged refreshes do not rewrite the index. The project pages poll every 3 seconds while visible. Large libraries can still make scanning and approval validation expensive.
 - **Old write paths remain.** `project_store.rs` still contains row-writing code for the pre-file schema (`resources`, `resource_revisions`, `projects`, `automations`, `plugins`), now used only by migration and slated for removal ([roadmap](roadmap.md), M1).
 - **Claude lacks the tools.** `inferay_projects` and `inferay_memory` are offered to Codex only; Claude gets Memory as prompt text and can search the notes folder itself.
 - **No cost on runs yet.** Token counts and cost are not recorded on `runs` ([roadmap](roadmap.md), M2).

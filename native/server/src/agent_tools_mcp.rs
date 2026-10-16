@@ -19,7 +19,7 @@ struct Tools {
     token: String,
     active: Arc<AtomicBool>,
     handle: AgentProcessHandle,
-    emissions: mpsc::UnboundedSender<ProtocolEmission>,
+    emissions: mpsc::Sender<ProtocolEmission>,
 }
 
 pub(crate) struct ToolBridge {
@@ -36,7 +36,7 @@ impl Drop for ToolBridge {
 impl ToolBridge {
     pub async fn start(
         handle: AgentProcessHandle,
-        emissions: mpsc::UnboundedSender<ProtocolEmission>,
+        emissions: mpsc::Sender<ProtocolEmission>,
     ) -> Result<Self, String> {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -120,7 +120,8 @@ async fn call(
                     if let Some(card) = card {
                         let _ = tools
                             .emissions
-                            .send(ProtocolEmission::System(card.to_string()));
+                            .send(ProtocolEmission::System(card.to_string()))
+                            .await;
                     }
                     json!({"content":[{"type":"text","text":output.to_string()}],"isError":false})
                 }
@@ -150,7 +151,7 @@ mod tests {
             ),
         ));
         let handle = AgentProcessHandle::with_skills(skills);
-        let (sender, _receiver) = mpsc::unbounded_channel();
+        let (sender, _receiver) = mpsc::channel(crate::agent_runner::PROTOCOL_BUFFER_CAPACITY);
         let bridge = ToolBridge::start(handle, sender).await.unwrap();
         let config: Value = serde_json::from_reader(bridge.config.reopen().unwrap()).unwrap();
         let url = config["mcpServers"]["inferay"]["url"].as_str().unwrap();
@@ -215,7 +216,7 @@ mod provider_test {
                 root.path().join("local.json"),
             ),
         )));
-        let (sender, _receiver) = mpsc::unbounded_channel();
+        let (sender, _receiver) = mpsc::channel(crate::agent_runner::PROTOCOL_BUFFER_CAPACITY);
         let bridge = ToolBridge::start(handle, sender).await.unwrap();
         let output = tokio::time::timeout(std::time::Duration::from_secs(120), tokio::process::Command::new("claude")
             .current_dir(root.path())

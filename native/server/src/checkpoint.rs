@@ -170,7 +170,16 @@ impl CheckpointService {
                         Err(_) => Vec::new(),
                     };
                 // Adopt associations written by older renderers; native snapshots own new links.
-                if let Ok(entries) = super::read_client_storage(&self.client_storage_path).await {
+                let keys: Vec<String> = checkpoints
+                    .iter()
+                    .filter(|checkpoint| checkpoint.after_message_id.is_none())
+                    .map(|checkpoint| format!("inferay-checkpoints-{}", checkpoint.pane_id))
+                    .collect();
+                if let Ok(entries) =
+                    crate::client_storage::ClientStorage::new(self.client_storage_path.clone())
+                        .select(&keys.iter().map(String::as_str).collect::<Vec<_>>())
+                        .await
+                {
                     for checkpoint in &mut checkpoints {
                         if checkpoint.after_message_id.is_some() {
                             continue;

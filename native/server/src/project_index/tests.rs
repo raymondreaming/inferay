@@ -1155,3 +1155,78 @@ fn measure_plugin_approval_and_review() {
         samples[9]
     );
 }
+
+#[test]
+#[ignore = "isolated catalog benchmark; run with --ignored --nocapture --test-threads=1"]
+fn measure_catalog_refresh() {
+    let directory = tempfile::tempdir().unwrap();
+    let profile = std::env::var_os("INFERAY_BENCH_PROFILE")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| directory.path().to_owned());
+    if profile == directory.path() {
+        for i in 0..15 {
+            let project = uuid::Uuid::new_v4().to_string();
+            let root = profile.join("projects").join(&project);
+            fs::create_dir_all(&root).unwrap();
+            fs::write(root.join("project.json"), json!({"schema":"inferay.project/1","id":project,"name":format!("Project {i}"),"description":"","instructions":"","repositories":[]}).to_string()).unwrap();
+        }
+    }
+    let mut db = Connection::open(directory.path().join("index.sqlite3")).unwrap();
+    db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;")
+        .unwrap();
+    create_schema(&db).unwrap();
+    let mut samples = Vec::new();
+    for iteration in 0..45 {
+        let before = db.total_changes();
+        let start = std::time::Instant::now();
+        refresh(&mut db, &profile, &[]).unwrap();
+        let view = catalog(&db, None).unwrap();
+        assert!(!view.projects.is_empty());
+        if iteration >= 5 {
+            samples.push(json!({"ms":start.elapsed().as_secs_f64()*1000.0,"changedRows":db.total_changes()-before}));
+        }
+    }
+    println!("CATALOG_BENCH {}", json!(samples));
+}
+
+#[test]
+fn unchanged_refresh_preserves_rows_and_moved_ids_replace_old_sources() {
+    let (profile, project, first_id) = fixture();
+    let root = profile.path().join("projects").join(&project);
+    let first_path = "plugins/daily/automations/daily.json";
+    let second_path = "plugins/daily/automations/second.json";
+    let first = fs::read(root.join(first_path)).unwrap();
+    let mut second: Value = serde_json::from_slice(&first).unwrap();
+    let second_id = uuid::Uuid::new_v4().to_string();
+    second["id"] = json!(second_id);
+    let second = serde_json::to_vec(&second).unwrap();
+    fs::write(root.join(second_path), &second).unwrap();
+    let mut db = Connection::open_in_memory().unwrap();
+    create_schema(&db).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
+    let unchanged = db.total_changes();
+    refresh(&mut db, profile.path(), &[]).unwrap();
+    assert_eq!(db.total_changes(), unchanged);
+
+    // Outside editors may swap identities and paths together. The unique source
+    // constraint must not leave stale rows or reject this valid new inventory.
+    fs::write(root.join(first_path), second).unwrap();
+    fs::write(root.join(second_path), first).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
+    let view = catalog(&db, Some(&project)).unwrap();
+    assert_eq!(view.automations.len(), 2);
+    assert_eq!(view.automations[0].file.id, second_id);
+    assert_eq!(view.automations[1].file.id, first_id);
+    fs::write(root.join(first_path), "malformed").unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
+    let invalid = db.total_changes();
+    refresh(&mut db, profile.path(), &[]).unwrap();
+    assert_eq!(db.total_changes(), invalid);
+    assert_eq!(catalog(&db, Some(&project)).unwrap().automations.len(), 2);
+    fs::remove_file(root.join(first_path)).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
+    let view = catalog(&db, Some(&project)).unwrap();
+    assert_eq!(view.automations.len(), 1);
+    assert_eq!(view.automations[0].file.id, first_id);
+    assert!(view.issues.is_empty());
+}

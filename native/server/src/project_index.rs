@@ -948,6 +948,29 @@ pub(crate) fn review_plugin(
     })
 }
 
+// Preserve unchanged rows, including invalid definitions. REPLACE also handles an
+// ID moving to a different source path; local approval/history tables are separate.
+fn index_definition(
+    db: &Connection,
+    table: &str,
+    id: &str,
+    project: &str,
+    plugin: Option<&String>,
+    entry: &files::IndexedFile,
+) -> Result<()> {
+    let body = entry
+        .definition
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()?;
+    db.prepare_cached(&format!("INSERT OR REPLACE INTO {table}(id,project_id,plugin_id,source_path,source_hash,valid,error,body)
+        SELECT ?1,?2,?3,?4,?5,?6,?7,?8 WHERE NOT EXISTS (
+        SELECT 1 FROM {table} WHERE id=?1 AND project_id=?2 AND plugin_id IS ?3
+        AND source_path=?4 AND source_hash IS ?5 AND valid=?6 AND error IS ?7 AND body IS ?8)"))?
+        .execute(params![id,project,plugin,entry.path,entry.hash,entry.error.is_none(),entry.error,body])?;
+    Ok(())
+}
+
 pub(crate) fn refresh(
     db: &mut Connection,
     profile: &Path,
@@ -979,15 +1002,29 @@ pub(crate) fn refresh(
     }
     projects.sort_by(|a, b| a.0.cmp(&b.0));
     let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    for table in TABLES {
-        tx.execute(&format!("DELETE FROM {table}"), [])?;
-    }
-    tx.execute("DELETE FROM definition_errors", [])?;
+    let mut seen: BTreeMap<_, BTreeSet<String>> = TABLES
+        .iter()
+        .map(|table| (*table, BTreeSet::new()))
+        .collect();
+    let mut seen_errors = BTreeSet::new();
     for (project_id, root) in projects {
         let scanned = match files::scan(&root, &globals) {
             Ok(scanned) => scanned,
             Err(error) => {
-                tx.execute("INSERT INTO projects(id,project_id,source_path,valid,error) VALUES(?,?,'project.json',0,?)",params![project_id,project_id,error.to_string()])?;
+                index_definition(
+                    &tx,
+                    "projects",
+                    &project_id,
+                    &project_id,
+                    None,
+                    &files::IndexedFile {
+                        path: "project.json".into(),
+                        hash: None,
+                        definition: None,
+                        error: Some(error.to_string()),
+                    },
+                )?;
+                seen.get_mut("projects").unwrap().insert(project_id);
                 continue;
             }
         };
@@ -1004,20 +1041,14 @@ pub(crate) fn refresh(
         for entry in scanned {
             let Some(table) = files::definition_table(&entry.path) else {
                 if let Some(error) = entry.error {
-                    tx.execute(
-                        "INSERT INTO definition_errors VALUES(?,?,?)",
-                        params![project_id, entry.path, error],
-                    )?;
+                    tx.prepare_cached("INSERT INTO definition_errors VALUES(?1,?2,?3) ON CONFLICT(project_id,source_path) DO UPDATE SET error=excluded.error WHERE definition_errors.error IS NOT excluded.error")?
+                        .execute(params![project_id, entry.path, error])?;
+                    seen_errors.insert((project_id.clone(), entry.path));
                 }
                 continue;
             };
             let owner = entry.path.split('/').take(2).collect::<Vec<_>>().join("/");
             let plugin_id = plugins.get(&owner);
-            let value = entry
-                .definition
-                .as_ref()
-                .map(serde_json::to_value)
-                .transpose()?;
             let id = if let Some(definition) = &entry.definition {
                 match definition {
                     DefinitionFile::Project(_) => project_id.clone(),
@@ -1039,12 +1070,8 @@ pub(crate) fn refresh(
                     hash(format!("{project_id}/{}", entry.path).as_bytes())
                 )
             };
-            let exists: bool = tx.query_row(
-                &format!("SELECT EXISTS(SELECT 1 FROM {table} WHERE id=?)"),
-                [&id],
-                |r| r.get(0),
-            )?;
-            let id = if exists {
+            let visited = seen.get_mut(table).unwrap();
+            let id = if visited.contains(&id) {
                 format!(
                     "invalid:{}",
                     hash(format!("{project_id}/{}", entry.path).as_bytes())
@@ -1052,7 +1079,8 @@ pub(crate) fn refresh(
             } else {
                 id
             };
-            tx.execute(&format!("INSERT INTO {table}(id,project_id,plugin_id,source_path,source_hash,valid,error,body) VALUES(?,?,?,?,?,?,?,?)"),params![id,project_id,plugin_id,entry.path,entry.hash,entry.error.is_none(),entry.error,value.as_ref().map(Value::to_string)])?;
+            index_definition(&tx, table, &id, &project_id, plugin_id, &entry)?;
+            visited.insert(id.clone());
             if table == "automations" {
                 tx.execute(
                     "INSERT OR IGNORE INTO automation_state(automation_id) VALUES(?)",
@@ -1060,6 +1088,26 @@ pub(crate) fn refresh(
                 )?;
             }
         }
+    }
+    for (table, visited) in seen {
+        let ids = tx
+            .prepare_cached(&format!("SELECT id FROM {table}"))?
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for id in ids.into_iter().filter(|id| !visited.contains(id)) {
+            tx.prepare_cached(&format!("DELETE FROM {table} WHERE id=?"))?
+                .execute([id])?;
+        }
+    }
+    let errors = tx
+        .prepare_cached("SELECT project_id,source_path FROM definition_errors")?
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (project, path) in errors.into_iter().filter(|key| !seen_errors.contains(key)) {
+        tx.prepare_cached("DELETE FROM definition_errors WHERE project_id=? AND source_path=?")?
+            .execute(params![project, path])?;
     }
     let approved = tx.prepare("SELECT automation_id,approved_hash FROM automation_state WHERE inputs_changed=0 AND (approved_hash IS NOT NULL OR enabled=1)")?
         .query_map([], |r| Ok((r.get::<_,String>(0)?,r.get::<_,Option<String>>(1)?)))?

@@ -323,7 +323,8 @@ impl ChatPersistence {
         {
             return None;
         }
-        super::read_client_storage(&self.path.with_file_name("client-storage.json"))
+        crate::client_storage::ClientStorage::new(self.path.with_file_name("client-storage.json"))
+            .select(&[&format!("inferay-chat-summary-{pane_id}")])
             .await
             .ok()?
             .get(&format!("inferay-chat-summary-{pane_id}"))?

@@ -147,6 +147,7 @@ export function AgentPage() {
 				{(view) => (
 					<ConversationSurface
 						view={view()}
+						projectId={projects.selectedId()}
 						group={workspace().groups[view().groupIndex]}
 						active={view().key === activeViewKey()}
 						actions={actions}
