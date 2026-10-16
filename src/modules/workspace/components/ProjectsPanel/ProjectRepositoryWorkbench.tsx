@@ -1,6 +1,6 @@
 import { useRepositoryWorkbench } from "@repository/hooks/useRepositoryWorkbench.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { For, onSettled } from "solid-js";
+import { For } from "solid-js";
 import { styles } from "./styles.ts";
 
 export function ProjectRepositoryWorkbench(props: { path: string }) {
@@ -9,7 +9,6 @@ export function ProjectRepositoryWorkbench(props: { path: string }) {
 		cwd: props.path,
 		workspaceId: props.path,
 	}));
-	onSettled(() => workbench.showGraph());
 	return (
 		<section
 			aria-label="Repository workspace"

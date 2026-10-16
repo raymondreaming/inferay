@@ -49,6 +49,8 @@ pub struct GitFileEntry {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GitStatusResult {
+    #[serde(default)]
+    pub revision: String,
     pub cwd: String,
     pub name: String,
     pub branch: String,
@@ -63,6 +65,21 @@ pub struct GitStatusResult {
     pub file_presentation: Option<GitFilePresentation>,
 }
 
+impl GitStatusResult {
+    pub fn change_summary(&self) -> GitChangeSummary {
+        GitChangeSummary {
+            files: self
+                .files
+                .iter()
+                .map(|file| &file.path)
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            additions: self.files.iter().filter_map(|file| file.additions).sum(),
+            deletions: self.files.iter().filter_map(|file| file.deletions).sum(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
 pub struct GitBranch {
     pub name: String,
@@ -72,6 +89,9 @@ pub struct GitBranch {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GitWorktree {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub change_summary: Option<GitChangeSummary>,
     pub path: String,
     pub head: String,
     pub branch: Option<String>,

@@ -32,7 +32,7 @@ pub struct SyntaxInput {
     pub content_key: String,
     pub line_types_key: String,
 }
-fn key(lines: &[String]) -> String {
+fn key(lines: &[&str]) -> String {
     let mut hash = 2_166_136_261u32;
     let mut length = 0;
     for line in lines {
@@ -48,7 +48,7 @@ fn key(lines: &[String]) -> String {
 }
 /// Keep UTF-16 cache identity stable across browser/native runtimes. The server
 /// additionally caps encoded bytes before passing input to the grammar.
-pub fn input(lines: &[String], types: Option<&[String]>, enabled: bool) -> SyntaxInput {
+pub fn input(lines: &[&str], types: Option<&[&str]>, enabled: bool) -> SyntaxInput {
     let mut characters = 0;
     let mut bytes = lines.len().saturating_sub(1);
     let enabled = enabled
@@ -79,32 +79,28 @@ mod tests {
 
     #[test]
     fn keys_match_utf16_browser_hashes_and_preserve_line_boundaries() {
-        let model = input(
-            &["a".into(), "😀".into()],
-            Some(&["add".into(), "remove".into()]),
-            true,
-        );
+        let model = input(&["a", "😀"], Some(&["add", "remove"]), true);
         assert_eq!(model.content_key, "2:3:678920311");
         assert_eq!(model.line_types_key, "2:9:3106578908");
         assert_ne!(
-            input(&["a\nb".into()], None, true).content_key,
-            input(&["a".into(), "b".into()], None, true).content_key
+            input(&["a\nb"], None, true).content_key,
+            input(&["a", "b"], None, true).content_key
         );
-        assert_eq!(input(&["text".into()], None, false).content_key, "1");
+        assert_eq!(input(&["text"], None, false).content_key, "1");
     }
 
     #[test]
     fn admission_preserves_character_limits_and_checks_the_native_byte_limits() {
         assert!(!input(&[], None, true).enabled);
-        assert!(!input(&["text".into()], None, false).enabled);
-        assert!(input(&vec![String::new(); MAX_LINES], None, true).enabled);
-        assert!(!input(&vec![String::new(); MAX_LINES + 1], None, true).enabled);
-        assert!(input(&["x".repeat(4000)], None, true).enabled);
-        assert!(!input(&["x".repeat(4001)], None, true).enabled);
-        assert!(input(&vec!["x".repeat(4000); 500], None, true).enabled);
-        assert!(!input(&vec!["x".repeat(4000); 501], None, true).enabled);
-        assert!(input(&["😀".repeat(1000)], None, true).enabled);
-        assert!(!input(&["😀".repeat(1001)], None, true).enabled);
-        assert!(!input(&vec!["漢".repeat(1333); 1100], None, true).enabled);
+        assert!(!input(&["text"], None, false).enabled);
+        assert!(input(&vec![""; MAX_LINES], None, true).enabled);
+        assert!(!input(&vec![""; MAX_LINES + 1], None, true).enabled);
+        assert!(input(&["x".repeat(4000).as_str()], None, true).enabled);
+        assert!(!input(&["x".repeat(4001).as_str()], None, true).enabled);
+        assert!(input(&vec!["x".repeat(4000).as_str(); 500], None, true).enabled);
+        assert!(!input(&vec!["x".repeat(4000).as_str(); 501], None, true).enabled);
+        assert!(input(&["😀".repeat(1000).as_str()], None, true).enabled);
+        assert!(!input(&["😀".repeat(1001).as_str()], None, true).enabled);
+        assert!(!input(&vec!["漢".repeat(1333).as_str(); 1100], None, true).enabled);
     }
 }

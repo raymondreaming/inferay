@@ -1,6 +1,6 @@
 import { selectionAppearance } from "@design-system/styles.stylex.ts";
 import { FileChangeTotals } from "@repository/components/changes/components/ChangesPanel/FileChangeTotals.tsx";
-import { useGitStatus } from "@repository/hooks/useGitStatus.tsx";
+import { useGitSummaries } from "@repository/hooks/useGitStatus.tsx";
 import { APP_REGION_NO_DRAG_CLASS, ariaValue } from "@shared/lib/dom.tsx";
 import {
 	IconBookmark,
@@ -12,7 +12,7 @@ import {
 	IconWorkflow,
 } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { createMemo, createSignal, For } from "solid-js";
+import { createSignal, For } from "solid-js";
 import {
 	openProjectRepository,
 	projects,
@@ -26,27 +26,9 @@ export function ProjectNavigation() {
 	const [editing, setEditing] = createSignal(false);
 	const current = () =>
 		projects.list().find((p) => p.id === projects.selectedId());
-	const git = useGitStatus(
+	const git = useGitSummaries(
 		() => projects.catalog()?.repositoryPaths ?? [],
-		() => ({ enabled: expanded() }),
-	);
-	const totals = createMemo(
-		() =>
-			new Map(
-				git.projects.map((repository) => [
-					repository.cwd,
-					{
-						additions: repository.files.reduce(
-							(sum, file) => sum + (file.additions ?? 0),
-							0,
-						),
-						deletions: repository.files.reduce(
-							(sum, file) => sum + (file.deletions ?? 0),
-							0,
-						),
-					},
-				]),
-			),
+		() => expanded(),
 	);
 	const items = [
 		{ view: "memory", label: "Memory", icon: IconBookmark },
@@ -133,10 +115,10 @@ export function ProjectNavigation() {
 										<span {...stylex.attrs(styles.repositoryNavLabel)}>
 											{path().split("/").at(-1)}
 										</span>
-										{totals().get(path()) ? (
+										{git()[path()] ? (
 											<FileChangeTotals
-												additions={totals().get(path())!.additions}
-												deletions={totals().get(path())!.deletions}
+												additions={git()[path()]!.additions}
+												deletions={git()[path()]!.deletions}
 											/>
 										) : null}
 									</button>

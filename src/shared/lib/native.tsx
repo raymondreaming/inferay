@@ -53,7 +53,7 @@ type JsonFailure = {
 	message?: string | ((status: number) => string);
 	server?: boolean;
 };
-async function readJson<T>(
+export async function readJson<T>(
 	response: Response,
 	failure?: JsonFailure,
 ): Promise<T> {

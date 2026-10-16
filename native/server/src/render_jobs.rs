@@ -8,9 +8,65 @@ const MAX_BYTES: usize = 64 * 1024 * 1024;
 const MAX_ENTRIES: usize = 128;
 struct Entry {
     key: String,
-    body: Bytes,
+    response: Rendered,
     at: Instant,
 }
+/// Immutable response bytes and their validator share the cache's lifetime.
+#[derive(Clone)]
+pub(crate) struct Rendered {
+    pub body: Bytes,
+    pub etag: String,
+}
+impl From<Vec<u8>> for Rendered {
+    fn from(body: Vec<u8>) -> Self {
+        use std::hash::{Hash, Hasher};
+        let body = Bytes::from(body);
+        let mut hash = std::collections::hash_map::DefaultHasher::new();
+        body.hash(&mut hash);
+        Self {
+            body,
+            etag: format!("\"{:x}\"", hash.finish()),
+        }
+    }
+}
+/// Reuse a base only within the authorized graph request's exact scope.
+pub(crate) fn previous(scope: &str, etag: &str) -> Option<Rendered> {
+    CACHE
+        .get_or_init(Default::default)
+        .lock()
+        .ok()?
+        .entries
+        .iter()
+        .rev()
+        .find(|entry| entry.key.starts_with(scope) && entry.response.etag == etag)
+        .map(|entry| entry.response.clone())
+}
+/// Once a graph replacement exists, old readers can fall back to a full response.
+/// In-flight comparisons already hold their own cheap reference to their base.
+pub(crate) fn release_previous(scope: &str, etag: &str) {
+    let Ok(mut cache) = CACHE.get_or_init(Default::default).lock() else {
+        return;
+    };
+    let Some(at) = cache
+        .entries
+        .iter()
+        .rev()
+        .find(|entry| entry.key.starts_with(scope) && entry.response.etag == etag)
+        .map(|entry| entry.at)
+    else {
+        return;
+    };
+    // A late request for an older cached response must not discard newer results.
+    cache
+        .entries
+        .retain(|entry| !entry.key.starts_with(scope) || entry.at >= at);
+    cache.bytes = cache
+        .entries
+        .iter()
+        .map(|entry| entry.key.len() + entry.response.body.len() + entry.response.etag.len())
+        .sum();
+}
+
 #[derive(Default)]
 struct Cache {
     entries: VecDeque<Entry>,
@@ -78,6 +134,57 @@ fn highlight_previews() -> &'static JobPool {
 mod tests {
     use super::*;
 
+    #[test]
+    fn previous_responses_are_scoped_and_replaced_with_the_byte_cache() {
+        let scope = "test:graph-scope\0";
+        let first = Rendered::from(b"first".to_vec());
+        store(format!("{scope}revision"), first.clone());
+        assert_eq!(previous(scope, &first.etag).unwrap().body, first.body);
+        assert!(previous("test:other-scope\0", &first.etag).is_none());
+        assert!(previous(scope, "missing").is_none());
+        store(
+            format!("{scope}revision"),
+            Rendered::from(b"second".to_vec()),
+        );
+        assert!(previous(scope, &first.etag).is_none());
+    }
+
+    #[test]
+    fn graph_replacements_release_old_bodies_without_invalidating_readers() {
+        let scope = "test:release-graph\0";
+        let old = Rendered::from(b"old graph".to_vec());
+        let current = Rendered::from(b"current graph".to_vec());
+        let newer = Rendered::from(b"newer graph".to_vec());
+        let other = Rendered::from(b"other scope".to_vec());
+        store(format!("{scope}old"), old.clone());
+        let reader = previous(scope, &old.etag).unwrap();
+        store(format!("{scope}current"), current.clone());
+        store(format!("{scope}newer"), newer.clone());
+        store("test:other-graph\0current".into(), other.clone());
+        // Touching an older result changes LRU order, not publication order.
+        assert!(lookup(&format!("{scope}current"), Duration::from_secs(30)).is_some());
+        release_previous(scope, &current.etag);
+        assert!(previous(scope, &old.etag).is_none());
+        assert_eq!(reader.body, old.body);
+        assert!(previous(scope, &current.etag).is_some());
+        assert!(previous(scope, &newer.etag).is_some());
+        assert!(previous("test:other-graph\0", &other.etag).is_some());
+        release_previous(scope, "missing");
+        assert!(previous(scope, &current.etag).is_some());
+        release_previous(scope, &newer.etag);
+        assert!(previous(scope, &current.etag).is_none());
+        assert!(previous(scope, &newer.etag).is_some());
+        let cache = CACHE.get().unwrap().lock().unwrap();
+        assert_eq!(
+            cache.bytes,
+            cache
+                .entries
+                .iter()
+                .map(|e| e.key.len() + e.response.body.len() + e.response.etag.len())
+                .sum::<usize>()
+        );
+    }
+
     #[tokio::test]
     async fn highlighting_cannot_block_foreground_work() {
         let occupied = highlighting()
@@ -111,20 +218,20 @@ mod tests {
         assert!(highlight.await.unwrap().unwrap().0.is_some());
     }
 }
-fn lookup(key: &str, ttl: Duration) -> Option<Bytes> {
+fn lookup(key: &str, ttl: Duration) -> Option<Rendered> {
     let mut cache = CACHE.get_or_init(Default::default).lock().ok()?;
     let index = cache.entries.iter().position(|entry| entry.key == key)?;
     let entry = cache.entries.remove(index)?;
     if entry.at.elapsed() > ttl {
-        cache.bytes -= entry.body.len() + entry.key.len();
+        cache.bytes -= entry.response.body.len() + entry.response.etag.len() + entry.key.len();
         return None;
     }
-    let body = entry.body.clone();
+    let body = entry.response.clone();
     cache.entries.push_back(entry);
     Some(body)
 }
-fn store(key: String, body: Bytes) {
-    let size = key.len() + body.len();
+fn store(key: String, response: Rendered) {
+    let size = key.len() + response.body.len() + response.etag.len();
     if size > MAX_BYTES {
         return;
     }
@@ -135,17 +242,17 @@ fn store(key: String, body: Bytes) {
     if let Some(index) = cache.entries.iter().position(|entry| entry.key == key)
         && let Some(old) = cache.entries.remove(index)
     {
-        cache.bytes -= old.key.len() + old.body.len();
+        cache.bytes -= old.key.len() + old.response.body.len() + old.response.etag.len();
     }
     cache.bytes += size;
     cache.entries.push_back(Entry {
         key,
-        body,
+        response,
         at: Instant::now(),
     });
     while cache.bytes > MAX_BYTES || cache.entries.len() > MAX_ENTRIES {
         if let Some(old) = cache.entries.pop_front() {
-            cache.bytes -= old.key.len() + old.body.len();
+            cache.bytes -= old.key.len() + old.response.body.len() + old.response.etag.len();
         }
     }
 }
@@ -156,7 +263,7 @@ pub async fn cached(
     key: String,
     ttl: Duration,
     job: impl FnOnce() -> Option<Vec<u8>> + Send + 'static,
-) -> Result<(Option<Bytes>, bool), String> {
+) -> Result<(Option<Rendered>, bool), String> {
     cached_if(key, ttl, job, || true).await
 }
 
@@ -165,7 +272,7 @@ pub async fn cached_if(
     ttl: Duration,
     job: impl FnOnce() -> Option<Vec<u8>> + Send + 'static,
     cacheable: impl FnOnce() -> bool + Send + 'static,
-) -> Result<(Option<Bytes>, bool), String> {
+) -> Result<(Option<Rendered>, bool), String> {
     cached_in(foreground(), key, ttl, job, cacheable).await
 }
 
@@ -174,7 +281,7 @@ pub async fn cached_highlight(
     key: String,
     ttl: Duration,
     job: impl FnOnce() -> Option<Vec<u8>> + Send + 'static,
-) -> Result<(Option<Bytes>, bool), String> {
+) -> Result<(Option<Rendered>, bool), String> {
     cached_in(highlighting(), key, ttl, job, || true).await
 }
 
@@ -183,7 +290,7 @@ pub async fn cached_highlight_priority(
     ttl: Duration,
     preview: bool,
     job: impl FnOnce() -> Option<Vec<u8>> + Send + 'static,
-) -> Result<(Option<Bytes>, bool), String> {
+) -> Result<(Option<Rendered>, bool), String> {
     cached_in(
         if preview {
             highlight_previews()
@@ -204,9 +311,9 @@ async fn cached_in(
     ttl: Duration,
     job: impl FnOnce() -> Option<Vec<u8>> + Send + 'static,
     cacheable: impl FnOnce() -> bool + Send + 'static,
-) -> Result<(Option<Bytes>, bool), String> {
+) -> Result<(Option<Rendered>, bool), String> {
     if ttl.is_zero() {
-        return pool.run(move || (job().map(Bytes::from), false)).await;
+        return pool.run(move || (job().map(Rendered::from), false)).await;
     }
     if let Some(body) = lookup(&key, ttl) {
         return Ok((Some(body), true));
@@ -231,7 +338,7 @@ async fn cached_in(
     }
     pool.run(move || {
         let _guard = guard;
-        let body = job().map(Bytes::from);
+        let body = job().map(Rendered::from);
         if let Some(bytes) = &body
             && cacheable()
         {

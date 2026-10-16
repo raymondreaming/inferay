@@ -16,6 +16,7 @@ use inferay_core::url_encode;
 use path_access::resolve_real_allowed_local_path;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+#[cfg(test)]
 use std::process::Command;
 use std::time::Duration;
 
@@ -155,7 +156,8 @@ fn get_raw_git_patch(cwd: &str, file_path: &str, staged: bool) -> (String, Optio
     args.pop();
     args.extend([original, file_path]);
     let rename_patch = if !staged && is_untracked_git_file(cwd, file_path) {
-        WorktreeIndex::prepare(cwd, &[file_path]).and_then(|snapshot| snapshot.git(cwd, &args))
+        WorktreeIndex::prepare(cwd, Some(&[file_path]))
+            .and_then(|snapshot| snapshot.git(cwd, &args))
     } else {
         run_git_timed(&args, cwd, Duration::from_secs(5))
     };
@@ -796,14 +798,18 @@ fn is_changed(line: &GitDiffLine) -> bool {
     )
 }
 
-fn append_review_rows(result: &mut Vec<GitDiffLine>, rows: &[GitDiffLine]) {
+fn append_review_rows(result: &mut Vec<GitDiffLine>, rows: &[&GitDiffLine]) {
     for run in rows.chunk_by(|a, b| is_changed(a) == is_changed(b)) {
         if is_changed(&run[0]) {
             for kind in [GitDiffLineType::Remove, GitDiffLineType::Add] {
-                result.extend(run.iter().filter(|line| line.line_type == kind).cloned());
+                result.extend(
+                    run.iter()
+                        .filter(|line| line.line_type == kind)
+                        .map(|line| (*line).clone()),
+                );
             }
         } else {
-            result.extend_from_slice(run);
+            result.extend(run.iter().map(|line| (*line).clone()));
         }
     }
 }
@@ -852,34 +858,36 @@ pub fn prepare_inline_lines(
     old_lines: &[GitDiffLine],
     new_lines: &[GitDiffLine],
 ) -> Vec<GitDiffLine> {
-    let mut stacked = Vec::new();
+    let hunk = GitDiffLine {
+        number: None,
+        content: String::new(),
+        line_type: GitDiffLineType::Hunk,
+    };
+    // Plan with borrowed rows; only visible output needs owned source strings.
     let line_count = old_lines.len().max(new_lines.len());
+    let mut stacked = Vec::with_capacity(line_count);
     for index in 0..line_count {
         let old_line = old_lines.get(index);
         let new_line = new_lines.get(index);
         if old_line.is_some_and(|line| line.line_type == GitDiffLineType::Hunk)
             || new_line.is_some_and(|line| line.line_type == GitDiffLineType::Hunk)
         {
-            stacked.push(GitDiffLine {
-                number: None,
-                content: String::new(),
-                line_type: GitDiffLineType::Hunk,
-            });
+            stacked.push(&hunk);
             continue;
         }
         if old_line.is_some_and(|line| line.line_type == GitDiffLineType::Context)
             && new_line.is_some_and(|line| line.line_type == GitDiffLineType::Context)
         {
             if let Some(line) = new_line {
-                stacked.push(line.clone());
+                stacked.push(line);
             }
             continue;
         }
         if let Some(line) = old_line.filter(|line| line.line_type != GitDiffLineType::Spacer) {
-            stacked.push(line.clone());
+            stacked.push(line);
         }
         if let Some(line) = new_line.filter(|line| line.line_type != GitDiffLineType::Spacer) {
-            stacked.push(line.clone());
+            stacked.push(line);
         }
     }
 
@@ -888,7 +896,7 @@ pub fn prepare_inline_lines(
         .enumerate()
         .filter_map(|(index, line)| is_changed(line).then_some(index));
     let Some(sections) = review_sections(stacked.len(), changed_rows) else {
-        return stacked;
+        return stacked.into_iter().cloned().collect();
     };
     let mut result = Vec::new();
     for section in sections {
@@ -987,6 +995,7 @@ pub fn get_git_worktrees(cwd: &str) -> Vec<GitWorktree> {
                 }
             }
             (!path.is_empty()).then_some(GitWorktree {
+                change_summary: None,
                 is_current: false,
                 path,
                 head,
@@ -1098,7 +1107,7 @@ fn resolve_remote_checkout(cwd: &str, name: &str) -> Option<RemoteCheckout> {
 }
 
 fn git_ref_contains(cwd: &str, ancestor: &str, descendant: &str) -> bool {
-    Command::new("git")
+    git_exec::command()
         .args(["merge-base", "--is-ancestor", ancestor, descendant])
         .current_dir(cwd)
         .output()
@@ -1152,7 +1161,7 @@ pub fn checkout_git_branch(cwd: &str, branch_name: &str) -> GitCheckoutResult {
             ));
         }
         let run = |args: &[&str], failure: String| -> Result<(), (GitOperationErrorKind, String)> {
-            let output = Command::new("git")
+            let output = git_exec::command()
                 .args(args)
                 .current_dir(cwd)
                 .output()
@@ -1451,7 +1460,7 @@ pub fn perform_git_ref_operation(
         );
     }
 
-    let mut command = Command::new("git");
+    let mut command = git_exec::command();
     command.current_dir(cwd).args(args);
     if operation == "rebase" {
         command.env("GIT_EDITOR", "true");
@@ -1484,7 +1493,7 @@ pub fn finish_git_ref_operation(cwd: &str, operation: &str, action: &str) -> Git
             };
         }
     };
-    let output = Command::new("git")
+    let output = git_exec::command()
         .args(args)
         .current_dir(cwd)
         .env("GIT_EDITOR", "true")
@@ -1536,7 +1545,7 @@ fn valid_ref_name(cwd: &str, kind: &str, name: &str) -> bool {
     } else {
         format!("refs/tags/{name}")
     };
-    let mut command = Command::new("git");
+    let mut command = git_exec::command();
     command.arg("check-ref-format");
     if kind == "branch" {
         command.arg("--branch");
@@ -1593,7 +1602,7 @@ pub fn perform_git_graph_action_with_targets(
         );
     }
 
-    let mut command = Command::new("git");
+    let mut command = git_exec::command();
     command.current_dir(cwd);
     match action {
         "createBranch" => {
@@ -1758,7 +1767,7 @@ pub fn perform_git_graph_action_with_targets(
             else {
                 return git_operation_error(cwd, action, "Unable to resolve stash");
             };
-            let drop = Command::new("git")
+            let drop = git_exec::command()
                 .args(["stash", "drop", target])
                 .current_dir(cwd)
                 .output();
@@ -2259,7 +2268,28 @@ fn commit_git_mode(cwd: &str, message: &str, amend: bool) -> GitCommitResult {
 }
 
 pub fn get_git_status(cwd: &str) -> Option<GitStatusResult> {
-    git_status(cwd, true)
+    let mut status = git_status(cwd, true)?;
+    let mut parts = vec![serde_json::to_string(&status).unwrap_or_default()];
+    for file in &status.files {
+        let path = Path::new(cwd).join(&file.path);
+        parts.push(format!(
+            "{}:{:?}",
+            path.display(),
+            std::fs::metadata(&path)
+                .ok()
+                .map(|metadata| (metadata.len(), metadata.modified().ok()))
+        ));
+    }
+    status.revision = stable_revision_token(&parts);
+    status.file_groups = GitFileGroups::from_files(&status.files);
+    status.file_presentation = Some(GitFilePresentation::from_paths(
+        status.files.iter().map(|file| file.path.clone()).collect(),
+    ));
+    Some(status)
+}
+
+pub fn get_git_change_summary(cwd: &str) -> Option<GitChangeSummary> {
+    git_status(cwd, true).map(|status| status.change_summary())
 }
 
 fn git_status(cwd: &str, include_stats: bool) -> Option<GitStatusResult> {
@@ -2280,6 +2310,7 @@ fn git_status(cwd: &str, include_stats: bool) -> Option<GitStatusResult> {
     let mut ahead = 0usize;
     let mut behind = 0usize;
     let mut files: Vec<GitFileEntry> = Vec::new();
+    let mut conflicted = false;
 
     let mut records = raw.split('\0').filter(|record| !record.is_empty());
     while let Some(line) = records.next() {
@@ -2319,6 +2350,7 @@ fn git_status(cwd: &str, include_stats: bool) -> Option<GitStatusResult> {
 
         let x = line.chars().next().unwrap_or(' ');
         let y = line.chars().nth(1).unwrap_or(' ');
+        conflicted |= x == 'U' || y == 'U' || (x == y && matches!(x, 'A' | 'D'));
         let actual_path = line.get(3..).unwrap_or("").to_string();
         let original_path = if matches!(x, 'R' | 'C') || matches!(y, 'R' | 'C') {
             Some(records.next()?.to_owned())
@@ -2345,12 +2377,13 @@ fn git_status(cwd: &str, include_stats: bool) -> Option<GitStatusResult> {
         }
     }
 
-    let worktree_index = WorktreeIndex::for_status(cwd, &files, include_stats);
+    let worktree_index = WorktreeIndex::for_status(cwd, &files, include_stats, conflicted);
     let diff_stats = get_working_tree_numstat(
         cwd,
         include_stats && files.iter().any(|file| !file.staged),
         include_stats && files.iter().any(|file| file.staged),
         worktree_index.as_ref(),
+        &files,
     );
     if let Some(index) = worktree_index {
         for (old, new) in index.pairs {
@@ -2375,10 +2408,9 @@ fn git_status(cwd: &str, include_stats: bool) -> Option<GitStatusResult> {
     }
 
     Some(GitStatusResult {
-        file_groups: GitFileGroups::from_files(&files),
-        file_presentation: include_stats.then(|| {
-            GitFilePresentation::from_paths(files.iter().map(|file| file.path.clone()).collect())
-        }),
+        revision: String::new(),
+        file_groups: GitFileGroups::default(),
+        file_presentation: None,
         cwd: cwd.to_string(),
         name,
         branch,
@@ -2394,16 +2426,17 @@ fn get_working_tree_numstat(
     unstaged: bool,
     staged: bool,
     index: Option<&WorktreeIndex>,
+    files: &[GitFileEntry],
 ) -> HashMap<String, (usize, usize)> {
     match (unstaged, staged) {
         (false, false) => return HashMap::new(),
-        (true, false) => return get_numstat_entries(cwd, false, index),
-        (false, true) => return get_numstat_entries(cwd, true, None),
+        (true, false) => return get_numstat_entries(cwd, false, index, files),
+        (false, true) => return get_numstat_entries(cwd, true, None, files),
         (true, true) => {}
     }
     let (mut unstaged, staged) = std::thread::scope(|scope| {
-        let unstaged = scope.spawn(|| get_numstat_entries(cwd, false, index));
-        let staged = scope.spawn(|| get_numstat_entries(cwd, true, None));
+        let unstaged = scope.spawn(|| get_numstat_entries(cwd, false, index, files));
+        let staged = scope.spawn(|| get_numstat_entries(cwd, true, None, files));
         (
             unstaged.join().unwrap_or_default(),
             staged.join().unwrap_or_default(),
@@ -2417,16 +2450,45 @@ fn get_numstat_entries(
     cwd: &str,
     staged: bool,
     index: Option<&WorktreeIndex>,
+    files: &[GitFileEntry],
 ) -> HashMap<String, (usize, usize)> {
-    let args = if staged {
-        ["diff", "--cached", "--find-renames", "--numstat", "-z"].as_slice()
+    // Status already identified both sides of changes and rename candidates.
+    // Narrow sparse changes instead of statting the entire tracked tree again.
+    // Larger pathspec lists cost more than an unrestricted scan (measured
+    // crossover ~128 paths with 20,000 tracked files); bound argv size too.
+    let paths: Vec<_> = files
+        .iter()
+        .filter(|file| file.staged == staged)
+        .flat_map(|file| std::iter::once(&file.path).chain(file.original_path.iter()))
+        .take(65)
+        .collect();
+    let paths = if paths.len() <= 64 && paths.iter().map(|path| path.len()).sum::<usize>() <= 16_384
+    {
+        paths
+            .iter()
+            .map(|path| format!(":(top,literal){path}"))
+            .collect::<Vec<_>>()
     } else {
-        ["diff", "--find-renames", "--numstat", "-z"].as_slice()
+        Vec::new()
     };
+    let mut args = vec![
+        "--no-literal-pathspecs",
+        "diff",
+        "--find-renames",
+        "--numstat",
+        "-z",
+    ];
+    if staged {
+        args.push("--cached");
+    }
+    if !paths.is_empty() {
+        args.push("--");
+        args.extend(paths.iter().map(String::as_str));
+    }
     let prefix = if staged { "staged" } else { "unstaged" };
     let output = match index {
-        Some(index) => index.git(cwd, args),
-        None => run_git(args, cwd),
+        Some(index) => index.git(cwd, &args),
+        None => run_git(&args, cwd),
     };
     parse_worktree_numstat(&output.unwrap_or_default())
         .into_iter()
@@ -2707,7 +2769,7 @@ fn collapse_stash_internal_commits(commits: &mut Vec<GraphCommit>, stashes: &[Gi
 }
 
 fn repository_snapshot_state(cwd: &str) -> (GitRepositorySnapshotState, Option<String>) {
-    let git_dir = Command::new("git")
+    let git_dir = git_exec::command()
         .args(["rev-parse", "--git-dir"])
         .current_dir(cwd)
         .output();
@@ -2724,7 +2786,7 @@ fn repository_snapshot_state(cwd: &str) -> (GitRepositorySnapshotState, Option<S
         Ok(_) => {}
     }
 
-    let has_head = Command::new("git")
+    let has_head = git_exec::command()
         .args(["rev-parse", "--verify", "--quiet", "HEAD"])
         .current_dir(cwd)
         .output()
@@ -2732,7 +2794,7 @@ fn repository_snapshot_state(cwd: &str) -> (GitRepositorySnapshotState, Option<S
     if has_head {
         return (GitRepositorySnapshotState::Ready, None);
     }
-    let has_symbolic_head = Command::new("git")
+    let has_symbolic_head = git_exec::command()
         .args(["symbolic-ref", "-q", "HEAD"])
         .current_dir(cwd)
         .output()
@@ -2805,19 +2867,8 @@ pub fn prepare_git_graph(cwd: &str) -> GitGraphInput {
         format!("{operation:?}"),
     ];
     for (worktree, status) in worktrees.iter_mut().zip(statuses) {
+        worktree.change_summary = status.as_ref().map(GitStatusResult::change_summary);
         worktree.status = status;
-        if let Some(status) = &worktree.status {
-            for file in &status.files {
-                let path = std::path::Path::new(&worktree.path).join(&file.path);
-                parts.push(format!(
-                    "{}:{:?}",
-                    path.display(),
-                    std::fs::metadata(path.clone())
-                        .ok()
-                        .map(|m| (m.len(), m.modified().ok()))
-                ));
-            }
-        }
     }
     parts.push(serde_json::to_string(&worktrees).unwrap_or_default());
     GitGraphInput {
@@ -2915,18 +2966,7 @@ pub fn get_git_graph_snapshot_with_query(
             GraphCommit {
                 hash: identity,
                 message: "Uncommitted changes".to_string(),
-                change_summary: worktree.status.as_ref().map(|status| {
-                    inferay_core::repository::GitChangeSummary {
-                        files: status
-                            .files
-                            .iter()
-                            .map(|file| &file.path)
-                            .collect::<HashSet<_>>()
-                            .len(),
-                        additions: status.files.iter().filter_map(|file| file.additions).sum(),
-                        deletions: status.files.iter().filter_map(|file| file.deletions).sum(),
-                    }
-                }),
+                change_summary: worktree.change_summary.clone(),
 
                 author: "Workspace".to_string(),
 
@@ -3382,6 +3422,9 @@ mod graph_layout_tests {
                 (summary.files, summary.additions, summary.deletions),
                 (1, 1, 1)
             );
+            for tree in &snapshot.worktrees {
+                assert_eq!(tree.change_summary.as_ref(), Some(summary));
+            }
             assert!(snapshot.rows[0].rails.iter().all(|rail| rail.dashed));
             assert!(snapshot.rows[1].rails.iter().all(|rail| rail.dashed));
             assert!(snapshot.rows[3].convergences.iter().all(|edge| edge.dashed));
@@ -3418,6 +3461,10 @@ mod graph_layout_tests {
             std::fs::write(&file, "stashed\n").unwrap();
             git(&["stash", "push"]);
             let before = prepare_git_graph(cwd);
+            assert_eq!(
+                before.worktrees[0].change_summary,
+                Some(GitChangeSummary::default())
+            );
             git(&["reset", mode, "HEAD~2"]);
             let input = prepare_git_graph(cwd);
             assert_ne!(input.revision, before.revision);
@@ -3933,5 +3980,37 @@ mod discard_tests {
         );
         assert!(run(&["stash", "list"]).contains("Stash file.txt"));
         std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod status_revision_tests {
+    use super::*;
+
+    #[test]
+    fn same_size_edits_change_status_revision_without_changing_line_totals() {
+        let root = tempfile::tempdir().unwrap();
+        let cwd = root.path().to_str().unwrap();
+        assert!(run_git(&["init", "-q"], cwd).is_some());
+        let path = root.path().join("source.txt");
+        std::fs::write(&path, "base\n").unwrap();
+        assert!(run_git(&["add", "source.txt"], cwd).is_some());
+        std::fs::write(&path, "aaaa\n").unwrap();
+        let before = get_git_status(cwd).unwrap();
+        assert!(!before.revision.is_empty());
+        assert_eq!(before.revision, get_git_status(cwd).unwrap().revision);
+        let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+        std::fs::write(&path, "bbbb\n").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(modified + Duration::from_secs(1)))
+            .unwrap();
+        let after = get_git_status(cwd).unwrap();
+        assert_eq!(before.files, after.files);
+        assert_eq!(before.change_summary(), after.change_summary());
+        assert_ne!(before.revision, after.revision);
+        assert_eq!(after.revision, get_git_status(cwd).unwrap().revision);
     }
 }

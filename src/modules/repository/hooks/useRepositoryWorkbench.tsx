@@ -203,7 +203,17 @@ export function useRepositoryWorkbench(
 	);
 	const activeCwd = () => context().activeCwd ?? undefined;
 	const trackedCwds = () => context().trackedCwds;
-	const graphCwd = () => context().graphCwd ?? undefined;
+	// Start the requested graph immediately, while its panel transition settles.
+	const [openingGraph, setOpeningGraph] = createSignal(true);
+	onSettled(() => {
+		const cwd = activeCwd();
+		if (cwd) updatePanelSession({ type: "openGraph", cwd });
+		setOpeningGraph(false);
+	});
+	const graphCwd = () =>
+		openingGraph() && onboardingChrome().graph !== false
+			? activeCwd()
+			: (context().graphCwd ?? undefined);
 	const [graphLimit, setGraphLimit] = createSignal(() => {
 		graphCwd();
 		return DEFAULT_GIT_GRAPH_HISTORY_LIMIT;
@@ -238,15 +248,6 @@ export function useRepositoryWorkbench(
 	});
 	const fileGroups = createMemo(
 		() => project()?.fileGroups ?? EMPTY_FILE_GROUPS,
-	);
-	const graphRevisions = new Map<string, string>();
-	createEffect(
-		() => [graphCwd(), graph.revision] as const,
-		([cwd, revision]) => {
-			if (cwd && revision) {
-				graphRevisions.set(cwd, revision);
-			}
-		},
 	);
 	const selectedGraph = createMemo<{
 		cwd: string | undefined;
@@ -330,9 +331,7 @@ export function useRepositoryWorkbench(
 			diffViewerCwd: _sourceValue5.diffViewerCwd,
 			graphCwd: graphCwd(),
 			graphRevision: graph.revision,
-			storedRevision: _sourceValue5.diffViewerCwd
-				? graphRevisions.get(_sourceValue5.diffViewerCwd)
-				: undefined,
+			diffRevision: diffViewerProject()?.revision,
 			selectedCommitIds: _sourceValue5.selectedCommitIds,
 			selectedCommitParent: _sourceValue5.selectedCommitParent,
 			selectedGraphItem: selectedGraphItem(),
@@ -453,11 +452,7 @@ export function useRepositoryWorkbench(
 			active: _options().active,
 			cwd: _sourceValue7.diffViewerCwd,
 			selectedFile: _sourceValue7.selectedFile,
-			revision: _sourceValue7.diffViewerCwd
-				? graphCwd() === _sourceValue7.diffViewerCwd
-					? graph.revision
-					: graphRevisions.get(_sourceValue7.diffViewerCwd)
-				: undefined,
+			revision: diffViewerProject()?.revision,
 			fileSource: fileSource(),
 			viewMode: diffViewMode(),
 		});
@@ -466,10 +461,8 @@ export function useRepositoryWorkbench(
 	const prefetchContext = createMemo(() => ({
 		active: _options().active && sidebarVisible(),
 		cwd: selectedWorkingTreeCwd(),
-		revision:
-			graphCwd() === selectedWorkingTreeCwd()
-				? graph.revision
-				: graphRevisions.get(selectedWorkingTreeCwd() ?? ""),
+		revision: gitStatus.projectMap.get(selectedWorkingTreeCwd() ?? "")
+			?.revision,
 		viewMode: diffViewMode(),
 	}));
 	const prefetchFiles = createMemo(() => {
@@ -1001,7 +994,6 @@ export function useRepositoryWorkbench(
 			return auxiliaryPanels();
 		},
 		diffPanel,
-		showGraph: () => changeMainViewMode("graph"),
 		sidebar,
 	};
 }

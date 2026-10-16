@@ -88,6 +88,12 @@ export function useGitGraph(
 			return visible().data;
 		},
 		{
+			get cwd() {
+				return _cwd();
+			},
+			get loaded() {
+				return source.loaded;
+			},
 			get searchQuery() {
 				return searchQuery();
 			},
@@ -219,7 +225,14 @@ function createGitGraphReader() {
 		const key = `${cwd}\0${limit}\0${searchQuery}\0${preferenceKey}`;
 		const cached = response?.key === key ? response : null;
 		const result = await loadGitGraph(
-			{ cwd, limit, query: searchQuery, preferences, etag: cached?.etag },
+			{
+				cwd,
+				limit,
+				query: searchQuery,
+				preferences,
+				etag: cached?.etag,
+				previous: cached?.data,
+			},
 			signal,
 		);
 		if (result.notModified && cached) return cached.data;

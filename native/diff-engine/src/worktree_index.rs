@@ -10,18 +10,28 @@ pub(super) struct WorktreeIndex {
 }
 
 impl WorktreeIndex {
-    pub fn for_status(cwd: &str, files: &[GitFileEntry], include_stats: bool) -> Option<Self> {
+    pub fn for_status(
+        cwd: &str,
+        files: &[GitFileEntry],
+        include_stats: bool,
+        conflicted: bool,
+    ) -> Option<Self> {
         let detect_renames = files.iter().any(|file| !file.staged && file.status == "D");
         if (!include_stats && !detect_renames) || !files.iter().any(|file| file.status == "?") {
             return None;
         }
+        // Large pathspec lists repeatedly match the same directory entries.
+        // Keep small batches targeted (measured crossover: ~128 paths with
+        // 20,000 tracked files). Never scan unmerged entries: intent-to-add
+        // would replace their conflict stages in the disposable index.
+        let paths = files
+            .iter()
+            .filter(|file| file.status == "?")
+            .map(|file| file.path.as_str())
+            .collect::<Vec<_>>();
         let mut result = Self::prepare(
             cwd,
-            &files
-                .iter()
-                .filter(|file| file.status == "?")
-                .map(|file| file.path.as_str())
-                .collect::<Vec<_>>(),
+            (conflicted || paths.len() < 256).then_some(paths.as_slice()),
         )?;
         if !detect_renames {
             return Some(result);
@@ -57,7 +67,7 @@ impl WorktreeIndex {
         Some(result)
     }
 
-    pub fn prepare(cwd: &str, paths: &[&str]) -> Option<Self> {
+    pub fn prepare(cwd: &str, paths: Option<&[&str]>) -> Option<Self> {
         let directory = tempfile::tempdir().ok()?;
         let index = run_git(&["rev-parse", "--git-path", "index"], cwd)?;
         match std::fs::copy(
@@ -74,19 +84,40 @@ impl WorktreeIndex {
             directory,
             pairs: Vec::new(),
         };
-        let pathspec = result.directory.path().join("paths");
-        std::fs::write(&pathspec, paths.join("\0")).ok()?;
-        result.git(
-            cwd,
-            &[
-                "--literal-pathspecs",
-                "add",
-                "--intent-to-add",
-                "--pathspec-file-nul",
-                "--pathspec-from-file",
-                pathspec.to_str()?,
-            ],
-        )?;
+        if let Some(paths) = paths {
+            let pathspec = result.directory.path().join("paths");
+            std::fs::write(
+                &pathspec,
+                paths
+                    .iter()
+                    .map(|path| format!(":(top,literal){path}\0"))
+                    .collect::<String>(),
+            )
+            .ok()?;
+            result.git(
+                cwd,
+                &[
+                    "--no-literal-pathspecs",
+                    "add",
+                    "--intent-to-add",
+                    "--pathspec-file-nul",
+                    "--pathspec-from-file",
+                    pathspec.to_str()?,
+                ],
+            )?;
+        } else {
+            result.git(
+                cwd,
+                &[
+                    "--no-literal-pathspecs",
+                    "add",
+                    "--intent-to-add",
+                    "--ignore-removal",
+                    "--",
+                    ":/",
+                ],
+            )?;
+        }
         Some(result)
     }
 
@@ -104,7 +135,10 @@ impl WorktreeIndex {
 
 #[cfg(test)]
 mod tests {
-    use crate::{get_git_hunk_diff, get_git_status, stage_git, unstage_git};
+    use crate::{
+        get_git_change_summary, get_git_hunk_diff, get_git_status, stage_git, unstage_git,
+        GitChangeSummary,
+    };
     use inferay_core::path_security::AllowedPaths;
     use std::path::Path;
 
@@ -122,15 +156,86 @@ mod tests {
     }
 
     #[test]
+    fn unmerged_stages_keep_the_existing_line_counts_and_real_index() {
+        let root = tempfile::tempdir().unwrap();
+        let cwd = root.path().to_str().unwrap();
+        git(root.path(), &["init", "-q"]);
+        git(root.path(), &["config", "user.name", "Fixture"]);
+        git(
+            root.path(),
+            &["config", "user.email", "fixture@example.invalid"],
+        );
+        for name in ["conflict", "removed"] {
+            std::fs::write(root.path().join(name), "base\n".repeat(8)).unwrap();
+        }
+        git(root.path(), &["add", "."]);
+        git(
+            root.path(),
+            &["-c", "commit.gpgsign=false", "commit", "-qm", "base"],
+        );
+        let index = root.path().join(".git/index");
+        let original = std::fs::read(&index).unwrap();
+        let oid = super::run_git(&["rev-parse", "HEAD:conflict"], cwd).unwrap();
+        std::fs::write(root.path().join("conflict"), "working\n").unwrap();
+        std::fs::remove_file(root.path().join("removed")).unwrap();
+        for i in 0..300 {
+            std::fs::write(root.path().join(format!("new-{i}.txt")), "new\nlines\n").unwrap();
+        }
+        // DD, AU, UD, UA, DU, AA and UU. Expected totals come from the
+        // previous exact-path query, including both staged and unstaged sides.
+        for (stages, additions, deletions) in [
+            (&[1][..], 600, 8),
+            (&[2][..], 601, 16),
+            (&[1, 2][..], 601, 16),
+            (&[3][..], 600, 8),
+            (&[1, 3][..], 600, 8),
+            (&[2, 3][..], 601, 16),
+            (&[1, 2, 3][..], 601, 16),
+        ] {
+            std::fs::write(&index, &original).unwrap();
+            let mut entries = format!("0 {}\tconflict\n", "0".repeat(40));
+            for stage in stages {
+                entries.push_str(&format!("100644 {} {stage}\tconflict\n", oid.trim()));
+            }
+            let input = root.path().join(".git/fixture-index-info");
+            std::fs::write(&input, entries).unwrap();
+            let output = std::process::Command::new("git")
+                .current_dir(root.path())
+                .args(["update-index", "--index-info"])
+                .stdin(std::fs::File::open(input).unwrap())
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+            let before = std::fs::read(&index).unwrap();
+            assert_eq!(
+                get_git_change_summary(cwd),
+                Some(GitChangeSummary {
+                    files: 302,
+                    additions,
+                    deletions,
+                }),
+                "stages {stages:?}"
+            );
+            assert_eq!(std::fs::read(&index).unwrap(), before);
+        }
+    }
+
+    #[test]
     fn large_untracked_batches_preserve_literal_paths_and_the_real_index() {
+        check_large_untracked_batches_preserve_literal_paths_and_the_real_index(0);
+        check_large_untracked_batches_preserve_literal_paths_and_the_real_index(1200);
+    }
+
+    fn check_large_untracked_batches_preserve_literal_paths_and_the_real_index(padding: usize) {
         let root = tempfile::tempdir().unwrap();
         git(root.path(), &["init", "-q"]);
         std::fs::write(root.path().join("tracked"), "staged\n").unwrap();
         git(root.path(), &["add", "tracked"]);
         let original_index = std::fs::read(root.path().join(".git/index")).unwrap();
+        std::fs::write(root.path().join("tracked"), "staged\nunstaged\n").unwrap();
         // Together these paths exceed typical command-line argument limits.
         let prefix = "x".repeat(230);
-        let mut paths: Vec<_> = (0..1200).map(|i| format!("{prefix}-{i}")).collect();
+        let mut paths: Vec<_> = (0..padding).map(|i| format!("{prefix}-{i}")).collect();
         paths.extend(["-option", ":(glob)*", "line\nbreak", "quote\"'"].map(str::to_owned));
         for path in &paths {
             std::fs::write(root.path().join(path), "first\nsecond").unwrap();
@@ -147,6 +252,22 @@ mod tests {
             })
             .collect();
         assert_eq!(untracked, paths.into_iter().collect());
+        let expected = GitChangeSummary {
+            files: padding + 5,
+            additions: padding * 2 + 10,
+            deletions: 0,
+        };
+        assert_eq!(status.change_summary(), expected);
+        let nested = root.path().join("nested");
+        std::fs::create_dir(&nested).unwrap();
+        assert_eq!(
+            get_git_change_summary(nested.to_str().unwrap()),
+            Some(expected.clone())
+        );
+        assert_eq!(
+            get_git_change_summary(root.path().to_str().unwrap()),
+            Some(expected)
+        );
         assert_eq!(
             std::fs::read(root.path().join(".git/index")).unwrap(),
             original_index
@@ -155,9 +276,17 @@ mod tests {
 
     #[test]
     fn new_files_contribute_git_line_counts_without_changing_the_real_index() {
+        check_new_files_contribute_git_line_counts_without_changing_the_real_index(0);
+        check_new_files_contribute_git_line_counts_without_changing_the_real_index(300);
+    }
+
+    fn check_new_files_contribute_git_line_counts_without_changing_the_real_index(padding: usize) {
         let root = tempfile::tempdir().unwrap();
         let cwd = root.path().to_str().unwrap();
         git(root.path(), &["init", "-q"]);
+        for i in 0..padding {
+            std::fs::write(root.path().join(format!("padding-{i}")), "").unwrap();
+        }
         std::fs::write(root.path().join("new file.txt"), "first\nsecond").unwrap();
         std::fs::write(root.path().join("empty.txt"), "").unwrap();
         std::fs::write(root.path().join("image.bin"), b"a\0b\n").unwrap();
@@ -182,6 +311,7 @@ mod tests {
         #[cfg(unix)]
         assert_eq!(counts("link"), (1, 0));
         assert!(!status.files.iter().any(|file| file.path == "ignored.txt"));
+        assert_eq!(get_git_change_summary(cwd), Some(status.change_summary()));
 
         git(root.path(), &["add", "."]);
         git(
@@ -239,6 +369,11 @@ mod tests {
 
     #[test]
     fn unstaged_renames_keep_counts_diffs_and_staging_consistent() {
+        check_unstaged_renames_keep_counts_diffs_and_staging_consistent(0);
+        check_unstaged_renames_keep_counts_diffs_and_staging_consistent(300);
+    }
+
+    fn check_unstaged_renames_keep_counts_diffs_and_staging_consistent(padding: usize) {
         let root = tempfile::tempdir().unwrap();
         let cwd = root.path().to_str().unwrap();
         git(root.path(), &["init", "-q"]);
@@ -262,6 +397,9 @@ mod tests {
             root.path(),
             &["-c", "commit.gpgsign=false", "commit", "-qm", "base"],
         );
+        for i in 0..padding {
+            std::fs::write(root.path().join(format!("padding-{i}")), "").unwrap();
+        }
         let destinations = [
             "renamed.txt",
             "with -> arrow.txt",
@@ -289,7 +427,7 @@ mod tests {
         git(root.path(), &["add", "file18.txt"]);
         let index_before = std::fs::read(root.path().join(".git/index")).unwrap();
         let status = get_git_status(cwd).unwrap();
-        assert_eq!(status.files.len(), 19);
+        assert_eq!(status.files.len(), 19 + padding);
         assert_eq!(
             std::fs::read(root.path().join(".git/index")).unwrap(),
             index_before
@@ -322,7 +460,7 @@ mod tests {
         );
         assert!(stage_git(cwd, Some(destinations[0])));
         let status = get_git_status(cwd).unwrap();
-        assert_eq!(status.files.len(), 19);
+        assert_eq!(status.files.len(), 19 + padding);
         assert!(status
             .files
             .iter()
@@ -331,7 +469,7 @@ mod tests {
         assert!(!diff.is_new);
         assert!(!diff.old_lines.is_empty());
         assert!(unstage_git(cwd, Some(destinations[0])));
-        assert_eq!(get_git_status(cwd).unwrap().files.len(), 19);
+        assert_eq!(get_git_status(cwd).unwrap().files.len(), 19 + padding);
         assert!(get_git_status(cwd)
             .unwrap()
             .files
@@ -339,13 +477,13 @@ mod tests {
             .any(|file| file.path == "file18.txt" && file.staged));
         for destination in &destinations[1..] {
             assert!(stage_git(cwd, Some(destination)));
-            assert_eq!(get_git_status(cwd).unwrap().files.len(), 19);
+            assert_eq!(get_git_status(cwd).unwrap().files.len(), 19 + padding);
             assert!(unstage_git(cwd, Some(destination)));
-            assert_eq!(get_git_status(cwd).unwrap().files.len(), 19);
+            assert_eq!(get_git_status(cwd).unwrap().files.len(), 19 + padding);
         }
         assert!(stage_git(cwd, None));
         let staged = get_git_status(cwd).unwrap();
-        assert_eq!(staged.files.len(), 19);
+        assert_eq!(staged.files.len(), 19 + padding);
         assert!(staged.files.iter().all(|file| file.staged));
         assert_eq!(
             staged
@@ -356,11 +494,11 @@ mod tests {
             3
         );
         assert!(unstage_git(cwd, None));
-        assert_eq!(get_git_status(cwd).unwrap().files.len(), 19);
+        assert_eq!(get_git_status(cwd).unwrap().files.len(), 19 + padding);
         std::fs::remove_file(root.path().join("file17.txt")).unwrap();
         std::fs::write(root.path().join("unrelated.txt"), "entirely different\n").unwrap();
         let status = get_git_status(cwd).unwrap();
-        assert_eq!(status.files.len(), 20);
+        assert_eq!(status.files.len(), 20 + padding);
         assert!(status
             .files
             .iter()

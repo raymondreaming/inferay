@@ -1,12 +1,14 @@
-import type { GitStatusResult } from "@contracts";
+import type { GitChangeSummary, GitStatusResult, GraphData } from "@contracts";
 import {
 	commitGitChanges,
 	discardGitChanges,
 	loadGitStatuses,
+	loadGitSummaries,
 	runGitChangeAction,
 	stashGitFile,
 } from "@repository/services/gitApi.ts";
 import { useQueryResource } from "@shared/hooks/useQueryResource.tsx";
+import { createExternalSignal, queryClient } from "@shared/lib/dom.tsx";
 import { type Accessor, createMemo, createSignal } from "solid-js";
 import type { useGitGraph } from "./useGitGraph.tsx";
 
@@ -29,9 +31,21 @@ export function useGitStatus(
 				)
 			: EMPTY_GIT_PROJECTS;
 	});
+	// The graph owns the first status read too. Keep the changes panel loading
+	// until that request settles; failures then use the independent status query.
+	const pendingGraphCwd = createMemo(() => {
+		const current = graph();
+		return current && !current.loaded && _cwds().includes(current.cwd ?? "")
+			? current.cwd
+			: undefined;
+	});
 	const cwdKey = createMemo(() =>
 		_cwds()
-			.filter((cwd) => !graphProjects().some((project) => project.cwd === cwd))
+			.filter(
+				(cwd) =>
+					cwd !== pendingGraphCwd() &&
+					!graphProjects().some((project) => project.cwd === cwd),
+			)
 			.join("\u0000"),
 	);
 	const requestedCwds = createMemo(() => {
@@ -74,10 +88,57 @@ export function useGitStatus(
 		refetch,
 		get loaded() {
 			return (
-				!_options().enabled || requestedCwds().length === 0 || _source.loaded
+				!_options().enabled ||
+				(!pendingGraphCwd() && (requestedCwds().length === 0 || _source.loaded))
 			);
 		},
 	};
+}
+export function useGitSummaries(
+	cwds: Accessor<string[]>,
+	enabled: Accessor<boolean>,
+) {
+	// Active graphs already refresh native line totals every three seconds.
+	// Observe that existing query cache; closing or failing a graph immediately
+	// returns its repositories to the independent sidebar query.
+	const cache = queryClient.getQueryCache();
+	const graphSummaries = createExternalSignal<Record<string, GitChangeSummary>>(
+		(notify) =>
+			cache.subscribe(({ query }) => {
+				if (query.queryKey[0] === "git" && query.queryKey[1] === "graph")
+					notify();
+			}),
+		() =>
+			Object.fromEntries(
+				cache
+					.findAll({ queryKey: ["git", "graph"], type: "active" })
+					.filter(
+						(query) =>
+							query.state.status === "success" && !query.state.isInvalidated,
+					)
+					.sort((a, b) => a.state.dataUpdatedAt - b.state.dataUpdatedAt)
+					.flatMap((query) => {
+						const graph = queryClient.getQueryData<GraphData>(query.queryKey);
+						return graph?.revision && graph.state !== "commandFailed"
+							? graph.worktrees.flatMap((tree) =>
+									tree.changeSummary ? [[tree.path, tree.changeSummary]] : [],
+								)
+							: [];
+					}),
+			),
+	);
+	const source = useQueryResource<Record<string, GitChangeSummary>>(() => {
+		const paths = cwds().filter((cwd) => !graphSummaries()[cwd]);
+		return {
+			queryKey: ["git", "summaries", paths.join("\u0000")],
+			queryFn: ({ signal }) => loadGitSummaries(paths, signal),
+			initialData: {},
+			refetchInterval: 5000,
+			staleTime: 5000,
+			enabled: enabled() && paths.length > 0,
+		};
+	});
+	return createMemo(() => ({ ...source.data, ...graphSummaries() }));
 }
 export function useGitChangeActions(
 	_options2: Accessor<{

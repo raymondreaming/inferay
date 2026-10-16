@@ -218,10 +218,10 @@ pub(crate) fn read_history(
     refs: HashMap<String, Vec<crate::GitGraphRef>>,
 ) -> Result<Vec<(crate::GraphCommit, usize)>, String> {
     use std::io::{BufRead, BufReader, Read};
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
     use std::time::Duration;
     let failure = |kind, detail: String| crate::git_failure("git log", kind, &detail);
-    let mut child = Command::new("git")
+    let mut child = crate::git_exec::command()
         .args([
             "--no-optional-locks",
             "--no-pager",
@@ -243,7 +243,9 @@ pub(crate) fn read_history(
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     let reader = std::thread::spawn(move || {
         let mut reader = BufReader::new(stdout);
-        let mut matches_found = Vec::new();
+        // The caller already bounds the requested history. Reserving once avoids
+        // repeatedly growing a large allocation while Git streams the records.
+        let mut matches_found = Vec::with_capacity(limit);
         let mut history_order = 0usize;
         let mut record = Vec::new();
         let result = loop {

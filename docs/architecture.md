@@ -29,11 +29,85 @@ How Inferay is built. For what the product's concepts mean, read [concepts.md](c
 
 **Contracts.** `scripts/build-presentation.sh` exports Rust types to `build/presentation/contracts` (imported as `@contracts`), builds the presentation crate for `wasm32-unknown-unknown`, runs `wasm-bindgen` and inlines the module so the renderer loads it synchronously. The renderer calls Rust models through one `presentation(op, json)` entry. See [ADR 0001](adr/0001-rust-models-solid-views.md).
 
+Repository status has two query shapes. `/api/git/statuses` returns file lists,
+groups and display metadata for detailed workbenches; `/api/git/summaries` returns
+`GitChangeSummary` values keyed by canonical repository path for project navigation.
+Both use the same native Git status and line-count computation, path authorization
+and deduplication. Only the detailed query builds file groups and presentation
+metadata. The core status model owns the summary. Graph preparation computes it
+once per readable worktree, includes it as `GitWorktree.changeSummary`, and reuses
+it for graph WIP rows. Clean worktrees carry a zero summary; unreadable worktrees
+omit it. This remains available when graph search hides WIP rows.
+
+Project navigation observes the existing active graph queries and displays their
+native summaries directly, excluding those paths from its independent five-second
+summary poll. Successful graphs retain their three-second refresh interval. If a
+graph closes, becomes disabled, or fails, its paths return to independent polling.
+No separate result cache or renderer-side line aggregation is introduced.
+
+The detailed workbench also lets its initial graph request own the current
+repository's status read. The workbench hook establishes the graph intent before
+its first query subscription, while the panel transition settles. Its changes
+panel remains loading until that request settles; unrelated paths still load
+independently, and graph failure enables the independent status query. The
+presentation component does not issue a second initialization command.
+
+Detailed native status includes an opaque revision covering status fields and
+changed-file size/mtime. Diff requests use that status revision, whether supplied
+by the visible graph or the independent status poll. Opening a diff stops the
+graph poll without freezing the diff at a remembered graph revision. Graph
+preparation reuses these fingerprints rather than scanning file metadata again.
+
+Repository diff queries retain recently visited files for 30 seconds. After a
+successful response, the query lifecycle releases superseded revisions of the same
+diff identity only when they have no observers, have settled, and predate the
+new request. Other views/files and newer or in-flight results remain cached;
+failed or cancelled reads do not evict snapshots. Validators stay with those query results. Refreshes reuse a validator only for
+an identical repository/file/view/staging/history scope. An unchanged native
+response returns 304; the renderer preserves the previous diff object and skips
+JSON decoding and syntax preflight. Selected-file changes still return new data,
+and failed responses still hide stale content. Working-tree image URLs include
+the existing file/index fingerprint so changed images invalidate both the diff
+and the browser image source. Native diff computation and its two-second cache
+lifetime remain unchanged. Native inline-view preparation borrows source rows
+while selecting context windows and ordering removals/additions. It allocates
+owned strings only for retained output rows; the transport contract is unchanged.
+
+Graph refreshes retain one validator and snapshot per reader, scoped by repository,
+limit, search and ref preferences. The native renderer cache owns both serialized
+bytes and their precomputed ETag under the existing 64 MiB / 128-entry budget.
+Clients with an exact base negotiate `A-IM: inferay-graph`; a 226 response carries
+changed root fields and an optional commit splice, with `IM`, `Delta-Base`, the
+new ETag and `Cache-Control: no-store`. This follows the conditional-response
+semantics in [RFC 3229](https://www.rfc-editor.org/rfc/rfc3229.html#section-10.3).
+The server compares borrowed serialized JSON on its bounded blocking pool, reading
+commit arrays once. It never predicts graph stability from refs alone. Once a
+replacement is available, it releases older cached responses for that exact scope;
+in-flight comparisons retain their own base references, and late reads of older
+cached entries cannot remove newer entries. History collection reserves the
+requested row count, and graph serialization reserves the prior response size
+plus 4 KiB for small edits, avoiding repeated growth of large allocations. A missing/evicted base, unsupported
+negotiation, small response, comparison failure or insufficient size reduction
+returns the ordinary full representation. Unchanged graphs still return 304.
+The renderer applies a delta only to its matching base and keeps unchanged arrays
+and commit objects; failures and cancelled requests never publish a new base.
+This reduces transport and browser reconstruction, not native Git history work.
+
 ## Workspace ownership
 
 The core workspace resolves pane actions by stable pane ID. Selecting, removing or changing a chat does not require the renderer to supply its owning group. The WebAssembly workspace replica owns optimistic selection and acknowledgement rollback; the Solid adapter owns only the request queue and a shared memoized project view. There is no second renderer state setter bypassing that queue.
 
 The chat canvas uses the native grid dock model for layout, pointer placement and scrolling. Panel transitions and optimistic replay use the same typed Rust session. Legacy snapshots are repaired only when read from storage; graph and history display flags are derived rather than persisted. Saved detached document panels still restore, while the unused document-detaching commands and drag controls have been removed. Repository documents and changes remain in the repository workbench; the chat dock has no alternate row layout or auxiliary-panel rendering path. The repository diff rail fills its available area, while the changes sidebar retains its independent resize control.
+
+Native repository commands share the diff engine's `git_exec::command` boundary.
+On macOS, when the first executable Git on PATH is `/usr/bin/git`, it resolves
+Apple's selected tool with a bounded `xcrun --find git` call and reuses that binary.
+Every call still checks PATH precedence; custom installations, wrappers and
+relative PATH entries retain normal command lookup. A failed lookup or missing
+resolved binary falls back to `git`. The selected Apple toolchain is retained
+for the process lifetime; restart Inferay after switching Xcode installations.
+Other platforms retain normal Git lookup. No Git results, credentials or remote
+operations are cached by this resolver.
 
 Repository `+`/`−` totals count lines across staged, unstaged and untracked changes. The diff engine uses a disposable index to include new files in Git’s numstat and rename detection without staging them in the user’s index; binary files contribute no text lines.
 

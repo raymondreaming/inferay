@@ -27,6 +27,8 @@ function syntaxQueryOptions(input: HighlightInput) {
 		input,
 	);
 	const path = input.filePath;
+	// Cached requests must not retain the original source-line arrays.
+	const preview = input.preview === true;
 	const text = enabled ? input.lines.join("\n") : "";
 	const lineTypes = input.lineTypes ? [...input.lineTypes] : undefined;
 	return {
@@ -34,7 +36,7 @@ function syntaxQueryOptions(input: HighlightInput) {
 		enabled,
 		queryFn: ({ signal }: { signal: AbortSignal }) =>
 			highlightSyntax(
-				{ path, text, lineTypes, preview: input.preview === true },
+				{ path, text, lineTypes, preview },
 				AbortSignal.any([signal, AbortSignal.timeout(15000)]),
 			),
 		staleTime: Infinity,

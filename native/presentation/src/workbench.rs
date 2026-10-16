@@ -493,7 +493,7 @@ pub fn historical_query(i: &Value) -> Value {
     let mut result = json!({"commitSource":commit, "comparisonSource":comparison,
         "commit":commit_query, "comparison":comparison_query});
     let revision = if diff && !string(&i["diffViewerCwd"]).is_empty() {
-        &i["storedRevision"]
+        &i["diffRevision"]
     } else {
         &i["graphRevision"]
     };

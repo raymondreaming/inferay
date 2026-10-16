@@ -1,40 +1,35 @@
 import type { DiffRequest, HunkDiff } from "@contracts";
-import { loadGitDiff } from "@repository/services/gitApi.ts";
+import {
+	type GitDiffResponse,
+	loadGitDiff,
+} from "@repository/services/gitApi.ts";
 import { useBackgroundQuery as useQuery } from "@shared/hooks/useQueryResource.tsx";
 import { prefetchSyntaxPreview } from "@shared/hooks/useSyntaxHighlight.tsx";
 import { queryClient } from "@shared/lib/dom.tsx";
-import { type Accessor, createMemo, onSettled } from "solid-js";
+import { type Accessor, onSettled } from "solid-js";
 
 export function useGitDiff(
 	_request: Accessor<DiffRequest | null> = () => null,
 ) {
-	const key = createMemo(() => {
-		const _requestValue = _request();
-		return _requestValue
-			? JSON.stringify({ ..._requestValue, revision: undefined })
-			: "";
-	});
 	const query = useQuery(() => {
-		const _requestValue2 = _request();
-		const identity = key();
+		const request = _request();
+		const queryKey = request ? diffQueryKey(request) : ["git-diff", null];
 		return {
-			queryKey: _requestValue2
-				? diffQueryKey(_requestValue2)
-				: ["git-diff", null],
+			queryKey,
 			placeholderData: (previous, previousQuery) =>
-				previousQuery?.queryKey[2] === identity ? previous : undefined,
-			enabled: _requestValue2 !== null,
+				previousQuery?.queryKey[2] === queryKey[2] ? previous : undefined,
+			enabled: request !== null,
 			// Paint recently visited diffs immediately while checking for changes.
 			gcTime: 30_000,
 			staleTime: 0,
 			retry: false,
 			queryFn: ({ signal }: { signal: AbortSignal }) =>
-				fetchGitDiff(_requestValue2!, signal),
+				fetchGitDiff(request!, signal),
 		};
 	});
 	return {
 		get diff() {
-			return _request() && !query.error ? (query.data ?? null) : null;
+			return _request() && !query.error ? (query.data?.diff ?? null) : null;
 		},
 		get error() {
 			return _request() ? query.error?.message : undefined;
@@ -50,11 +45,32 @@ export function useGitDiff(
 async function fetchGitDiff(
 	input: DiffRequest,
 	signal: AbortSignal,
-): Promise<HunkDiff> {
-	const diff = await loadGitDiff(input, signal);
+): Promise<GitDiffResponse> {
+	const startedAt = Date.now();
+	const queryKey = diffQueryKey(input).slice(0, 3);
+	const cached = queryClient
+		.getQueryCache()
+		.findAll({ queryKey })
+		.filter((query) => query.state.data !== undefined)
+		.sort((a, b) => b.state.dataUpdatedAt - a.state.dataUpdatedAt)[0];
+	const previous = cached
+		? queryClient.getQueryData<GitDiffResponse>(cached.queryKey)
+		: undefined;
+	const response = await loadGitDiff(input, signal, previous);
 	signal.throwIfAborted();
-	void prefetchDiffSyntax(input, diff);
-	return diff;
+	// Keep other files warm, but release superseded snapshots of this diff.
+	// Live viewers, pending reads and results newer than this request stay owned.
+	queryClient.removeQueries({
+		queryKey,
+		type: "inactive",
+		predicate: (query) =>
+			query.getObserversCount() === 0 &&
+			query.queryKey[3] !== input.revision &&
+			query.state.fetchStatus === "idle" &&
+			query.state.dataUpdatedAt <= startedAt,
+	});
+	if (response !== previous) void prefetchDiffSyntax(input, response.diff);
+	return response;
 }
 
 async function prefetchDiffSyntax(request: DiffRequest, diff: HunkDiff) {

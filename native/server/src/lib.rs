@@ -113,6 +113,7 @@ pub fn export_renderer_types(config: &ts_rs::Config) -> Result<(), ts_rs::Export
     chat_persistence::QueuedMessageInfo::export_all(config)?;
     native_app::AppInfo::export_all(config)?;
     native_git::ComparisonPlan::export_all(config)?;
+    native_git::GraphDelta::export_all(config)?;
     render_jobs::HunkDiff::export_all(config)?;
     Ok(())
 }
@@ -120,7 +121,7 @@ pub fn export_renderer_types(config: &ts_rs::Config) -> Result<(), ts_rs::Export
 const LOCAL_AUTH_COOKIE: &str = "inferay_local_auth";
 const MAX_PROXY_BODY_BYTES: usize = 32 * 1024 * 1024;
 const CORS_METHODS: &str = "GET,POST,PUT,DELETE,OPTIONS";
-const CORS_HEADERS: &str = "Content-Type,X-Inferay-Auth";
+const CORS_HEADERS: &str = "Content-Type,X-Inferay-Auth,If-None-Match,A-IM";
 const MAX_TEMP_UPLOAD_BYTES: usize = 20 * 1024 * 1024;
 const MAX_SERVED_FILE_BYTES: u64 = 20 * 1024 * 1024;
 
@@ -512,6 +513,7 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             ("/api/forge/connect", "POST") => forge::handle_request(&state, &path, request).await,
             ("/api/git/status", "GET") => git_status(&state, request).await,
             ("/api/git/statuses", "POST") => git_statuses(&state, request).await,
+            ("/api/git/summaries", "POST") => git_summaries(&state, request).await,
             ("/api/git/branches", "GET") => git_branches(&state, request).await,
             ("/api/git/branches", "POST") => git_checkout_branch(&state, request).await,
             ("/api/git/ref-operation", "POST") => git_ref_operation(&state, request).await,
@@ -952,6 +954,27 @@ async fn git_status(state: &ServerState, request: Request) -> ApiResult {
     Ok(json!(status))
 }
 async fn git_statuses(state: &ServerState, request: Request) -> ApiResult {
+    Ok(json!(
+        read_git_repositories(state, request, get_git_status)
+            .await?
+            .into_iter()
+            .map(|(_, status)| status)
+            .collect::<Vec<_>>()
+    ))
+}
+async fn git_summaries(state: &ServerState, request: Request) -> ApiResult {
+    Ok(json!(
+        read_git_repositories(state, request, inferay_native_diff::get_git_change_summary)
+            .await?
+            .into_iter()
+            .collect::<std::collections::BTreeMap<_, _>>()
+    ))
+}
+async fn read_git_repositories<T: Send + 'static>(
+    state: &ServerState,
+    request: Request,
+    read: fn(&str) -> Option<T>,
+) -> ApiResult<Vec<(String, T)>> {
     let body: GitStatusesBody = api_body(request).await?;
     let mut seen = std::collections::HashSet::new();
     let tasks = body
@@ -960,14 +983,12 @@ async fn git_statuses(state: &ServerState, request: Request) -> ApiResult {
         .into_iter()
         .filter_map(|cwd| safe_cwd(state, &cwd))
         .filter(|cwd| seen.insert(cwd.clone()))
-        .map(|cwd| tokio::task::spawn_blocking(move || get_git_status(&cwd)));
-    Ok(json!(
-        join_all(tasks)
-            .await
-            .into_iter()
-            .filter_map(|result| result.ok().flatten())
-            .collect::<Vec<_>>()
-    ))
+        .map(|cwd| tokio::task::spawn_blocking(move || read(&cwd).map(|result| (cwd, result))));
+    Ok(join_all(tasks)
+        .await
+        .into_iter()
+        .filter_map(|result| result.ok().flatten())
+        .collect())
 }
 async fn git_branches(state: &ServerState, request: Request) -> ApiResult {
     let cwd = request_cwd(state, query_value(&request, "cwd").as_deref())?;
@@ -1117,6 +1138,20 @@ async fn git_graph(state: &ServerState, request: Request) -> ApiResult<Response>
         ));
     }
     let started = std::time::Instant::now();
+    let scope = format!(
+        "graph-v6\0{}\0",
+        serde_json::to_string(&(&cwd, limit, &query, &hidden_refs, &solo_refs, &pinned_refs))
+            .expect("graph scope serialization")
+    );
+    let previous =
+        if request_headers.get("a-im").and_then(|h| h.to_str().ok()) == Some("inferay-graph") {
+            request_headers
+                .get("if-none-match")
+                .and_then(|h| h.to_str().ok())
+                .and_then(|etag| render_jobs::previous(&scope, etag))
+        } else {
+            None
+        };
     let task = async move {
         let input_cwd = cwd.clone();
         let (forge_result, input_result) = tokio::join!(
@@ -1125,35 +1160,69 @@ async fn git_graph(state: &ServerState, request: Request) -> ApiResult<Response>
         );
         let (pr_revision, pull_requests) = forge_result;
         let input = input_result?;
-        let key = format!(
-            "graph-v5\0{cwd}\0{limit}\0{}\0{pr_revision}\0{query}\0{:?}\0{:?}\0{:?}",
-            input.revision, hidden_refs, solo_refs, pinned_refs
-        );
-        render_jobs::cached(key, std::time::Duration::from_secs(30), move || {
-            let mut snapshot =
-                inferay_native_diff::get_git_graph_snapshot_with_query(&cwd, limit, input, &query);
-            inferay_presentation::graph_response::annotate_pull_requests(
-                &mut snapshot,
-                &pull_requests,
-            );
-            let response = inferay_presentation::graph_response::response(
-                &snapshot,
-                &hidden_refs,
-                &solo_refs,
-                &pinned_refs,
-            );
-            serde_json::to_vec(&response).ok()
-        })
-        .await
+        let key = format!("{scope}{}\0{pr_revision}", input.revision);
+        // Repeated snapshots are similarly sized. Reserve once, with room for a
+        // small edit, instead of repeatedly reallocating a multi-megabyte buffer.
+        let capacity = previous.as_ref().map_or(128, |base| base.body.len() + 4096);
+        let (rendered, hit) =
+            render_jobs::cached(key, std::time::Duration::from_secs(30), move || {
+                let mut snapshot = inferay_native_diff::get_git_graph_snapshot_with_query(
+                    &cwd, limit, input, &query,
+                );
+                inferay_presentation::graph_response::annotate_pull_requests(
+                    &mut snapshot,
+                    &pull_requests,
+                );
+                let response = inferay_presentation::graph_response::response(
+                    &snapshot,
+                    &hidden_refs,
+                    &solo_refs,
+                    &pinned_refs,
+                );
+                let mut bytes = Vec::with_capacity(capacity);
+                serde_json::to_writer(&mut bytes, &response).ok()?;
+                Some(bytes)
+            })
+            .await?;
+        let rendered = rendered.ok_or_else(|| "Graph preparation failed".to_owned())?;
+        render_jobs::release_previous(&scope, &rendered.etag);
+        let current = rendered.clone();
+        let delta = match previous {
+            Some(previous) if previous.etag != rendered.etag => {
+                render_jobs::run(move || {
+                    native_git::graph_delta(&previous.body, &current.body)
+                        .map(|body| (previous.etag, body))
+                })
+                .await
+                .unwrap_or(None)
+            }
+            _ => None,
+        };
+        Ok::<_, String>((rendered, hit, delta))
     };
-    await_cached_render(
-        task,
-        started,
-        &request_headers,
-        None,
-        "Git history request timed out",
-    )
-    .await
+    match tokio::time::timeout(std::time::Duration::from_secs(10), task).await {
+        Ok(Ok((rendered, hit, delta))) => {
+            let mut response = cached_render_response(rendered, hit, started, &request_headers);
+            if let Some((base, body)) = delta {
+                *response.status_mut() = StatusCode::IM_USED;
+                *response.body_mut() = Body::from(body);
+                response
+                    .headers_mut()
+                    .insert("im", HeaderValue::from_static("inferay-graph"));
+                response
+                    .headers_mut()
+                    .insert("delta-base", HeaderValue::from_str(&base).unwrap());
+                response
+                    .headers_mut()
+                    .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            }
+            Ok(response)
+        }
+        _ => Err(api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Git history request timed out",
+        )),
+    }
 }
 
 async fn git_commit_details(state: &ServerState, request: Request) -> ApiResult {
@@ -1284,16 +1353,20 @@ async fn git_diff(state: &ServerState, request: Request) -> ApiResult<Response> 
     let review = value("view") == Some("review");
     let allowed_paths = state.allowed_paths.clone();
     if full {
-        let body = native_git::full_diff(
-            allowed_paths,
-            cwd,
-            file,
-            value("staged") == Some("true"),
-            review,
+        return await_cached_render(
+            native_git::full_diff(
+                allowed_paths,
+                cwd,
+                file,
+                value("staged") == Some("true"),
+                review,
+            ),
+            std::time::Instant::now(),
+            request.headers(),
+            Some("File is not changed"),
+            "Working-tree diff unavailable",
         )
-        .await?
-        .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "File is not changed"))?;
-        return Ok(json_bytes_response(StatusCode::OK, body, request.headers()));
+        .await;
     }
     let from = value(if comparison {
         "comparisonFrom"
@@ -2297,7 +2370,7 @@ async fn native_markdown(request: Request) -> ApiResult<Response> {
     });
     match tokio::time::timeout(std::time::Duration::from_secs(10), job).await {
         Ok(Ok((Some(body), hit))) => {
-            let mut response = json_bytes_response(StatusCode::OK, body, &headers);
+            let mut response = json_bytes_response(StatusCode::OK, body.body, &headers);
             response.headers_mut().insert(
                 "x-render-cache",
                 HeaderValue::from_static(if hit { "hit" } else { "miss" }),
@@ -2353,7 +2426,7 @@ async fn native_highlight(request: Request) -> ApiResult<Response> {
         classify,
     );
     match tokio::time::timeout(std::time::Duration::from_secs(10), job).await {
-        Ok(Ok((Some(body), _))) => Ok(json_bytes_response(StatusCode::OK, body, &headers)),
+        Ok(Ok((Some(body), _))) => Ok(json_bytes_response(StatusCode::OK, body.body, &headers)),
         _ => Err(api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "Syntax highlighting unavailable",
@@ -2404,7 +2477,7 @@ async fn native_diff(request: Request) -> ApiResult<Response> {
 }
 
 async fn await_cached_render(
-    task: impl std::future::Future<Output = Result<(Option<axum::body::Bytes>, bool), String>>,
+    task: impl std::future::Future<Output = Result<(Option<render_jobs::Rendered>, bool), String>>,
     started: std::time::Instant,
     headers: &HeaderMap,
     not_found: Option<&str>,
@@ -2420,15 +2493,12 @@ async fn await_cached_render(
 }
 
 fn cached_render_response(
-    body: axum::body::Bytes,
+    rendered: render_jobs::Rendered,
     hit: bool,
     started: std::time::Instant,
     headers: &HeaderMap,
 ) -> Response {
-    use std::hash::{Hash, Hasher};
-    let mut hash = std::collections::hash_map::DefaultHasher::new();
-    body.hash(&mut hash);
-    let etag = format!("\"{:x}\"", hash.finish());
+    let render_jobs::Rendered { body, etag } = rendered;
     let unchanged =
         headers.get("if-none-match").and_then(|h| h.to_str().ok()) == Some(etag.as_str());
     let mut response = json_bytes_response(
@@ -3056,6 +3126,10 @@ fn is_loopback_host(value: Option<&str>) -> bool {
 
 fn add_cors_headers(response: &mut HeaderMap, request: &HeaderMap) {
     response.insert(
+        "access-control-expose-headers",
+        HeaderValue::from_static("ETag,IM,Delta-Base"),
+    );
+    response.insert(
         ACCESS_CONTROL_ALLOW_METHODS,
         HeaderValue::from_static(CORS_METHODS),
     );
@@ -3117,6 +3191,108 @@ fn text_response(status: StatusCode, text: &'static str) -> Response {
 #[cfg(test)]
 mod file_http_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn working_tree_diff_validators_follow_content_and_preserve_errors() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let repository = root.join("home/repo");
+        std::fs::create_dir_all(&repository).unwrap();
+        let git = |args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&repository)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "fixture@example.invalid"]);
+        git(&["config", "user.name", "Fixture"]);
+        git(&["config", "commit.gpgsign", "false"]);
+        let file = repository.join("source.txt");
+        std::fs::write(&file, "base\n").unwrap();
+        git(&["add", "source.txt"]);
+        git(&["commit", "-qm", "fixture"]);
+        std::fs::write(&file, "first\n").unwrap();
+        std::fs::create_dir(root.join("app")).unwrap();
+        let mut config = ServerConfig::new("127.0.0.1:0".parse().unwrap(), root.join("app"));
+        config.home_directory = root.join("home");
+        config.user_data_dir = root.join("state");
+        let auth = config.auth_token.clone();
+        let mut server = ServerHandle::start(config).unwrap();
+        let client = Client::new();
+        let mut url = Url::parse(&format!("http://{}/api/git/diff", server.local_addr())).unwrap();
+        url.query_pairs_mut().extend_pairs([
+            ("cwd", repository.to_str().unwrap()),
+            ("file", "source.txt"),
+            ("staged", "false"),
+            ("view", "full"),
+        ]);
+        let get = || {
+            client
+                .get(url.clone())
+                .header("x-inferay-auth", &auth)
+                .header("sec-fetch-site", "same-origin")
+        };
+        let first = get().send().await.unwrap();
+        assert_eq!(first.status(), StatusCode::OK);
+        let etag = first.headers()["etag"].clone();
+        assert!(!first.bytes().await.unwrap().is_empty());
+        std::fs::write(repository.join("unrelated.txt"), "other edit\n").unwrap();
+        let unchanged = get().header("if-none-match", &etag).send().await.unwrap();
+        assert_eq!(unchanged.status(), StatusCode::NOT_MODIFIED);
+        assert!(unchanged.bytes().await.unwrap().is_empty());
+        std::fs::write(&file, "second\n").unwrap();
+        let changed = get().header("if-none-match", &etag).send().await.unwrap();
+        assert_eq!(changed.status(), StatusCode::OK);
+        assert_ne!(changed.headers()["etag"], etag);
+        let etag = changed.headers()["etag"].clone();
+        assert!(changed.text().await.unwrap().contains("second"));
+        std::fs::write(&file, "base\n").unwrap();
+        let clean = get().header("if-none-match", &etag).send().await.unwrap();
+        assert_eq!(clean.status(), StatusCode::NOT_FOUND);
+        assert!(clean.text().await.unwrap().contains("File is not changed"));
+        let image_path = repository.join("new.png");
+        std::fs::write(&image_path, b"first image").unwrap();
+        url.query_pairs_mut().clear().extend_pairs([
+            ("cwd", repository.to_str().unwrap()),
+            ("file", "new.png"),
+            ("staged", "false"),
+            ("view", "full"),
+        ]);
+        let image_get = || {
+            client
+                .get(url.clone())
+                .header("x-inferay-auth", &auth)
+                .header("sec-fetch-site", "same-origin")
+        };
+        let first = image_get().send().await.unwrap();
+        assert_eq!(first.status(), StatusCode::OK);
+        let etag = first.headers()["etag"].clone();
+        let first: Value = serde_json::from_slice(&first.bytes().await.unwrap()).unwrap();
+        let unchanged = image_get()
+            .header("if-none-match", &etag)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(unchanged.status(), StatusCode::NOT_MODIFIED);
+        std::fs::write(&image_path, b"second image").unwrap();
+        let changed = image_get()
+            .header("if-none-match", &etag)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(changed.status(), StatusCode::OK);
+        assert_ne!(changed.headers()["etag"], etag);
+        let changed: Value = serde_json::from_slice(&changed.bytes().await.unwrap()).unwrap();
+        assert_ne!(first["newImage"], changed["newImage"]);
+        server.shutdown();
+    }
 
     #[tokio::test]
     async fn image_previews_are_bounded_cached_and_preserve_originals() {

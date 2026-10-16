@@ -4,19 +4,32 @@ import type {
 	FileContent,
 	ForgeAccount,
 	GitActionResponse,
+	GitChangeSummary,
 	GitCommitDetails,
 	GitComparisonDetails,
 	GithubRepo,
 	GitRefOperationPreflight,
 	GitStatusResult,
 	GraphData,
+	GraphDelta,
 	GraphSemanticPreferences,
 	HunkDiff,
 } from "@contracts";
-import { fetchJson, postJson, request } from "@shared/lib/native.tsx";
+import { fetchJson, postJson, readJson, request } from "@shared/lib/native.tsx";
 
 export function loadGitStatuses(cwds: readonly string[], signal?: AbortSignal) {
 	return postJson<GitStatusResult[]>("/api/git/statuses", { cwds }, { signal });
+}
+
+export function loadGitSummaries(
+	cwds: readonly string[],
+	signal?: AbortSignal,
+) {
+	return postJson<Record<string, GitChangeSummary>>(
+		"/api/git/summaries",
+		{ cwds },
+		{ signal },
+	);
 }
 
 export async function runGitChangeAction(
@@ -197,21 +210,28 @@ export function loadFileContent(
 	);
 }
 
+export type GitDiffResponse = { diff: HunkDiff; etag?: string };
+
 export async function loadGitDiff(
 	input: DiffRequest,
 	signal: AbortSignal,
-): Promise<HunkDiff> {
+	previous?: GitDiffResponse,
+): Promise<GitDiffResponse> {
 	const query = new URLSearchParams();
 	for (const [key, value] of Object.entries(input))
 		if (value !== undefined) query.set(key, String(value));
-	return fetchJson(
-		`/api/git/diff?${query}`,
-		{ signal },
-		{
+	const response = await request(`/api/git/diff?${query}`, {
+		signal,
+		headers: previous?.etag ? { "If-None-Match": previous.etag } : undefined,
+	});
+	if (response.status === 304 && previous?.etag) return previous;
+	return {
+		diff: await readJson<HunkDiff>(response, {
 			message: (status) => `Diff request failed (HTTP ${status})`,
 			server: true,
-		},
-	);
+		}),
+		etag: response.headers.get("etag") ?? undefined,
+	};
 }
 
 export async function loadGitGraph(
@@ -221,10 +241,11 @@ export async function loadGitGraph(
 		query: string;
 		preferences: GraphSemanticPreferences;
 		etag?: string;
+		previous?: GraphData;
 	},
 	signal?: AbortSignal,
 ): Promise<{ data?: GraphData; etag?: string; notModified: boolean }> {
-	const { cwd, limit, query, preferences, etag } = input;
+	const { cwd, limit, query, preferences, etag, previous } = input;
 	const response = await request(
 		`/api/git/graph?${new URLSearchParams({
 			cwd,
@@ -234,15 +255,53 @@ export async function loadGitGraph(
 			soloRefs: JSON.stringify(preferences.soloRefs),
 			pinnedRefs: JSON.stringify(preferences.pinnedRefs),
 		})}`,
-		{ signal, headers: etag ? { "If-None-Match": etag } : undefined },
+		{
+			signal,
+			headers: etag
+				? {
+						"If-None-Match": etag,
+						...(previous ? { "A-IM": "inferay-graph" } : {}),
+					}
+				: undefined,
+		},
 	);
-	if (response.status === 304) return { notModified: true };
-	if (!response.ok) {
-		const error = await response.json().catch(() => null);
-		throw new Error(error?.error || "Failed to fetch Git history");
+	if (response.status === 304 && etag && previous) return { notModified: true };
+	if (response.status === 226) {
+		if (
+			!previous ||
+			!etag ||
+			response.headers.get("delta-base") !== etag ||
+			response.headers.get("im") !== "inferay-graph"
+		)
+			throw new Error("Git history update has no matching base");
+		const delta = await readJson<GraphDelta>(response);
+		const data = { ...previous, ...delta.fields };
+		for (const key of delta.removed) Reflect.deleteProperty(data, key);
+		if (delta.commits) {
+			const { start, delete: count, items } = delta.commits;
+			if (
+				!Number.isInteger(start) ||
+				!Number.isInteger(count) ||
+				start < 0 ||
+				count < 0 ||
+				start + count > previous.commits.length
+			)
+				throw new Error("Git history update has an invalid commit range");
+			data.commits = previous.commits
+				.slice(0, start)
+				.concat(items, previous.commits.slice(start + count));
+		}
+		return {
+			data,
+			etag: response.headers.get("etag") ?? undefined,
+			notModified: false,
+		};
 	}
 	return {
-		data: (await response.json()) as GraphData,
+		data: await readJson<GraphData>(response, {
+			message: "Failed to fetch Git history",
+			server: true,
+		}),
 		etag: response.headers.get("etag") ?? undefined,
 		notModified: false,
 	};

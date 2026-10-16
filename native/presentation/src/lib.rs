@@ -27,6 +27,7 @@ mod wasm_json;
 pub mod workbench;
 pub mod workspace_session;
 
+use serde::Deserialize;
 use serde_json::{Value, json};
 use wasm_bindgen::prelude::*;
 
@@ -47,9 +48,8 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
     Ok(match operation {
         "markdownImageSource" => image::source(input),
         "syntaxInput" => json!(inferay_core::syntax::input(
-            &serde_json::from_value::<Vec<String>>(input["lines"].clone())
-                .map_err(|e| e.to_string())?,
-            serde_json::from_value::<Option<Vec<String>>>(input["lineTypes"].clone())
+            &Vec::<&str>::deserialize(&input["lines"]).map_err(|e| e.to_string())?,
+            Option::<Vec<&str>>::deserialize(&input["lineTypes"])
                 .map_err(|e| e.to_string())?
                 .as_deref(),
             input["enabled"] != false,

@@ -3,6 +3,71 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 use wait_timeout::ChildExt;
 
+/// Keep Git selection at the process boundary. Avoid Apple's repeated tool
+/// selection overhead without overriding a custom PATH Git.
+pub(crate) fn command() -> Command {
+    #[cfg(target_os = "macos")]
+    {
+        static SYSTEM_GIT: std::sync::OnceLock<Option<std::path::PathBuf>> =
+            std::sync::OnceLock::new();
+        if apple_git_on_path(std::env::var_os("PATH").as_deref()) {
+            if let Some(path) = SYSTEM_GIT
+                .get_or_init(resolve_apple_git)
+                .as_ref()
+                .filter(|path| path.is_file())
+            {
+                return Command::new(path);
+            }
+        }
+    }
+    Command::new("git")
+}
+
+#[cfg(target_os = "macos")]
+fn apple_git_on_path(search_path: Option<&std::ffi::OsStr>) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::Path;
+    let Some(search_path) = search_path else {
+        return false;
+    };
+    for directory in std::env::split_paths(search_path) {
+        // Relative PATH entries depend on each command's repository directory.
+        if !directory.is_absolute() {
+            return false;
+        }
+        let candidate = directory.join("git");
+        let Ok(metadata) = candidate.metadata() else {
+            continue;
+        };
+        if !metadata.is_file() || metadata.permissions().mode() & 0o111 == 0 {
+            continue;
+        }
+        return candidate == Path::new("/usr/bin/git");
+    }
+    false
+}
+
+#[cfg(target_os = "macos")]
+fn resolve_apple_git() -> Option<std::path::PathBuf> {
+    let mut child = Command::new("/usr/bin/xcrun")
+        .args(["--find", "git"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    if !matches!(child.wait_timeout(remaining_git_time(Duration::from_secs(1))), Ok(Some(status)) if status.success())
+    {
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    }
+    let output = child.wait_with_output().ok()?;
+    let path = std::path::PathBuf::from(String::from_utf8(output.stdout).ok()?.trim());
+    (path.is_absolute() && path != std::path::Path::new("/usr/bin/git") && path.is_file())
+        .then_some(path)
+}
+
 thread_local! {
     static GIT_DEADLINE: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) };
 }
@@ -101,12 +166,12 @@ pub(crate) fn run_git_bytes_with_index(
     index: Option<&std::path::Path>,
 ) -> Result<Vec<u8>, String> {
     let timeout = remaining_git_time(timeout);
-    let command = format!("git {}", args.first().copied().unwrap_or("command"));
-    let failure = |kind, detail: &str| git_failure(&command, kind, detail);
+    let label = format!("git {}", args.first().copied().unwrap_or("command"));
+    let failure = |kind, detail: &str| git_failure(&label, kind, detail);
     if timeout.is_zero() {
         return Err(failure("timed out", "request deadline exceeded"));
     }
-    let mut command_builder = Command::new("git");
+    let mut command_builder = command();
     if let Some(index) = index {
         command_builder.env("GIT_INDEX_FILE", index);
     }
@@ -135,7 +200,7 @@ pub(crate) fn run_git_bytes_with_index(
         let _ = stderr.read_to_end(&mut bytes);
         bytes
     });
-    let status = match child.wait_timeout(timeout) {
+    let status = match child.wait_timeout(remaining_git_time(timeout)) {
         Ok(Some(status)) => status,
         Ok(None) => {
             let _ = child.kill();
@@ -163,4 +228,22 @@ pub(crate) fn run_git_bytes_with_index(
         return Err(failure("failed", &sanitized_git_error(&stderr)));
     }
     Ok(stdout)
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod selection_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn custom_and_relative_path_entries_keep_normal_git_selection() {
+        let root = tempfile::tempdir().unwrap();
+        let git = root.path().join("git");
+        std::fs::write(&git, "#!/bin/sh\nexit 19\n").unwrap();
+        std::fs::set_permissions(&git, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let path = std::env::join_paths([root.path(), std::path::Path::new("/usr/bin")]).unwrap();
+        assert!(!apple_git_on_path(Some(&path)));
+        assert!(!apple_git_on_path(Some(std::ffi::OsStr::new(".:/usr/bin"))));
+        assert!(!apple_git_on_path(None));
+    }
 }
