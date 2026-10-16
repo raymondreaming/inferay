@@ -1,10 +1,8 @@
 import type { GitGraphRefKind } from "@contracts";
 import { palette } from "@design-system/styles.stylex.ts";
-import { domStyle } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For } from "solid-js";
 import { RefIcon } from "./RefIcon.tsx";
-import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 import { hexToRgba } from "./useCommitGraphState.tsx";
 
@@ -155,19 +153,21 @@ export function RefBadge(_props: {
 						styles.ghostRefBadge,
 				).class
 			}
-			style={domStyle({
-				...inlineStyles.getRefBadgeRefBadgeStyle(
-					(_props.ghost === undefined ? false : _props.ghost)
-						? hexToRgba(_props.color, hovered() ? 0.18 : 0.055)
-						: hexToRgba(_props.color, hovered() ? 0.75 : 0.5),
-					(_props.ghost === undefined ? false : _props.ghost)
-						? _props.color
-						: palette.white,
-				),
+			style={{
+				border: "none",
+				"background-color": (_props.ghost === undefined ? false : _props.ghost)
+					? hexToRgba(_props.color, hovered() ? 0.18 : 0.055)
+					: hexToRgba(_props.color, hovered() ? 0.75 : 0.5),
+				color: (_props.ghost === undefined ? false : _props.ghost)
+					? _props.color
+					: palette.white,
 				...(_props.kind === "stash"
-					? { outline: `1px dashed ${_props.color}`, outlineOffset: "-1px" }
+					? {
+							outline: `1px dashed ${_props.color}`,
+							"outline-offset": "-1px",
+						}
 					: {}),
-			})}
+			}}
 		>
 			<RefIcon kind={_props.kind} />
 			<span class={stylex.attrs(styles.truncate).class}>{_props.label}</span>

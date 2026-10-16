@@ -1,15 +1,10 @@
 import type { GitDiffLine } from "@contracts";
 import type { SyntaxToken } from "@shared/hooks/useSyntaxHighlight.tsx";
-import { type CSSProperties, domStyle } from "@shared/lib/dom.tsx";
+import { px } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, For } from "solid-js";
-import { DiffGutterCells } from "./DiffGutterCells.tsx";
-import * as inlineStyles from "./styles.ts";
 import { DIFF_CONFIG, diffStyles, LINE_H } from "./styles.ts";
 
-type DiffRowStyle = CSSProperties & {
-	"--hover-bg"?: string;
-};
 const MAX_RENDERED_LINE_CHARS = 4000;
 function getDiffRowBg(line: GitDiffLine, isHighlighted?: boolean) {
 	const isAdd = line.type === "add";
@@ -28,14 +23,12 @@ function getDiffRowBg(line: GitDiffLine, isHighlighted?: boolean) {
 			: "transparent";
 }
 export const DiffRow = function DiffRow(_props: {
-	clipContent?: boolean;
 	line: GitDiffLine;
 	highlightedTokens?: SyntaxToken[];
 	syntaxPending?: boolean;
 	isHighlighted?: boolean;
-	minWidth?: number;
-	hideGutter?: boolean;
-	gutterOffset?: number;
+	minWidth: number;
+	gutterOffset: number;
 }) {
 	const kind = createMemo(() => _props.line.type);
 	return (
@@ -45,16 +38,10 @@ export const DiffRow = function DiffRow(_props: {
 					return (
 						<div
 							{...stylex.attrs(diffStyles.hunkSeparator)}
-							style={domStyle(
-								inlineStyles.getDiffRowHunkSeparatorStyle(
-									_props.minWidth || "100%",
-									_props.hideGutter
-										? (_props.gutterOffset === undefined
-												? 0
-												: _props.gutterOffset) + 8
-										: undefined,
-								),
-							)}
+							style={{
+								"min-width": px(_props.minWidth),
+								"padding-left": px(_props.gutterOffset + 8),
+							}}
 						>
 							<span {...stylex.attrs(diffStyles.hunkText)}>
 								{_props.line.content}
@@ -66,9 +53,9 @@ export const DiffRow = function DiffRow(_props: {
 					return (
 						<div
 							{...stylex.attrs(diffStyles.spacer)}
-							style={domStyle(
-								inlineStyles.getDiffRowSpacerStyle(_props.minWidth || "100%"),
-							)}
+							style={{
+								"min-width": px(_props.minWidth),
+							}}
 						/>
 					);
 				}
@@ -94,44 +81,27 @@ export const DiffRow = function DiffRow(_props: {
 					<div
 						{...rowProps()}
 						class={`diff-row ${rowProps().class ?? ""}`}
-						style={domStyle(
-							inlineStyles.getDiffRowDivStyle(
-								`${LINE_H}px`,
-								bgColor(),
-								_props.isHighlighted
-									? "inset 2px 0 0 var(--color-inferay-accent)"
-									: undefined,
-								_props.minWidth || "100%",
-								_props.hideGutter &&
-									(_props.gutterOffset === undefined ? 0 : _props.gutterOffset)
-									? _props.gutterOffset === undefined
-										? 0
-										: _props.gutterOffset
-									: undefined,
-								hoverBg(),
-							) as DiffRowStyle,
-						)}
+						style={{
+							"line-height": `${LINE_H}px`,
+							"background-color": bgColor(),
+							"box-shadow": _props.isHighlighted
+								? "inset 2px 0 0 var(--color-inferay-accent)"
+								: undefined,
+							"min-width": px(_props.minWidth),
+							"padding-left": px(_props.gutterOffset),
+							width: "100%",
+							"--hover-bg": hoverBg(),
+						}}
 					>
-						{!_props.hideGutter && <DiffGutterCells line={_props.line} />}
-
 						<span
 							{...stylex.attrs(diffStyles.content)}
-							style={domStyle({
-								...inlineStyles.getDiffRowContentStyle(
-									DIFF_CONFIG.contentFontSize,
-									(
-										_props.clipContent === undefined
-											? false
-											: _props.clipContent
-									)
-										? 0
-										: undefined,
-									_props.highlightedTokens
-										? undefined
-										: "var(--color-syntax-plain)",
-								),
+							style={{
+								"font-size": px(DIFF_CONFIG.contentFontSize),
+								color: _props.highlightedTokens
+									? undefined
+									: "var(--color-syntax-plain)",
 								visibility: _props.syntaxPending ? "hidden" : undefined,
-							})}
+							}}
 						>
 							{_props.highlightedTokens ? (
 								<For each={_props.highlightedTokens} keyed={false}>

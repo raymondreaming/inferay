@@ -16,7 +16,7 @@ pub(crate) struct MemoryStore {
     db: Mutex<Connection>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct MemoryListing {
     pub hits: Vec<MemoryHit>,
@@ -24,7 +24,14 @@ pub(crate) struct MemoryListing {
     pub errors: Vec<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MemorySearchResponse {
+    project_id: String,
+    listing: MemoryListing,
+}
+
+#[derive(Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct MemoryNoteView {
     pub note: MemoryNote,
@@ -90,6 +97,7 @@ impl MemoryStore {
               tags TEXT NOT NULL,source TEXT NOT NULL,created TEXT NOT NULL,supersedes TEXT,expires TEXT,
               stamp TEXT NOT NULL,body TEXT NOT NULL,PRIMARY KEY(project,id)) WITHOUT ROWID;
             CREATE INDEX IF NOT EXISTS notes_recent ON notes(project,created DESC);
+            CREATE INDEX IF NOT EXISTS notes_supersedes ON notes(project,supersedes);
             CREATE TABLE IF NOT EXISTS links(project TEXT NOT NULL,id TEXT NOT NULL,target TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS links_by_note ON links(project,id);
             CREATE INDEX IF NOT EXISTS links_by_target ON links(project,target);
@@ -452,11 +460,12 @@ impl MemoryStore {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct GraphNode {
+pub(crate) struct MemoryGraphNode {
     pub id: String,
-    pub kind: String,
+    #[ts(type = "'note' | 'image' | 'file' | 'source'")]
+    pub kind: &'static str,
     pub title: String,
     pub source: String,
     pub created: String,
@@ -466,19 +475,20 @@ pub(crate) struct GraphNode {
     pub size: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct GraphEdge {
+pub(crate) struct MemoryGraphEdge {
     pub from: String,
     pub to: String,
-    pub kind: String,
+    #[ts(type = "'source' | 'link' | 'supersedes'")]
+    pub kind: &'static str,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct MemoryGraph {
-    pub nodes: Vec<GraphNode>,
-    pub edges: Vec<GraphEdge>,
+pub(crate) struct MemoryGraphData {
+    pub nodes: Vec<MemoryGraphNode>,
+    pub edges: Vec<MemoryGraphEdge>,
     pub truncated: bool,
 }
 
@@ -491,7 +501,7 @@ fn source_group(source: &str) -> Option<String> {
 }
 
 impl MemoryStore {
-    pub fn graph(&self, project: &str, dir: &Path) -> Result<MemoryGraph> {
+    pub fn graph(&self, project: &str, dir: &Path) -> Result<MemoryGraphData> {
         let db = self.db.lock().map_err(|_| "Memory lock failed")?;
         self.sync(&db, project, dir)?;
         let mut nodes = Vec::new();
@@ -511,15 +521,15 @@ impl MemoryStore {
             titles.insert(hit.title.clone(), hit.id.clone());
             if let Some(group) = source_group(&hit.source) {
                 *groups.entry(group.clone()).or_default() += 1;
-                edges.push(GraphEdge {
+                edges.push(MemoryGraphEdge {
                     from: hit.id.clone(),
                     to: format!("source:{group}"),
-                    kind: "source".into(),
+                    kind: "source",
                 });
             }
-            nodes.push(GraphNode {
+            nodes.push(MemoryGraphNode {
                 id: hit.id,
-                kind: "note".into(),
+                kind: "note",
                 title: hit.title,
                 source: hit.source,
                 created: hit.created,
@@ -541,10 +551,10 @@ impl MemoryStore {
             if let Some(to) = titles.get(&target)
                 && to != &id
             {
-                edges.push(GraphEdge {
+                edges.push(MemoryGraphEdge {
                     from: id,
                     to: to.clone(),
-                    kind: "link".into(),
+                    kind: "link",
                 });
             }
         }
@@ -555,10 +565,10 @@ impl MemoryStore {
             })?
             .flatten()
         {
-            edges.push(GraphEdge {
+            edges.push(MemoryGraphEdge {
                 from: id,
                 to: old,
-                kind: "supersedes".into(),
+                kind: "supersedes",
             });
         }
         let documents = dir.join(DOCUMENTS_DIR);
@@ -581,9 +591,9 @@ impl MemoryStore {
                     .unwrap_or_default();
                 let path = format!("{DOCUMENTS_DIR}/{name}");
                 let image = inferay_core::project_files::document_category(&name) == "Images";
-                nodes.push(GraphNode {
+                nodes.push(MemoryGraphNode {
                     id: format!("doc:{path}"),
-                    kind: if image { "image" } else { "file" }.into(),
+                    kind: if image { "image" } else { "file" },
                     title: name,
                     source: "dropped".into(),
                     created,
@@ -600,9 +610,9 @@ impl MemoryStore {
             } else {
                 "Run"
             };
-            nodes.push(GraphNode {
+            nodes.push(MemoryGraphNode {
                 id: format!("source:{group}"),
-                kind: "source".into(),
+                kind: "source",
                 title: format!("{kind} · {count} saved"),
                 source: group,
                 created: String::new(),
@@ -612,7 +622,7 @@ impl MemoryStore {
                 size: count as u64,
             });
         }
-        Ok(MemoryGraph {
+        Ok(MemoryGraphData {
             nodes,
             edges,
             truncated,
@@ -672,7 +682,7 @@ impl crate::project_runtime::ProjectRuntime {
         project: Option<&str>,
         pane: Option<&str>,
     ) -> Result<Option<(String, std::path::PathBuf)>> {
-        let store = self.store.lock().map_err(|_| "Project store lock failed")?;
+        let store = self.store()?;
         let id = match (project, pane) {
             (Some(id), _) if !id.is_empty() => Some(id.to_owned()),
             (_, Some(pane)) => store
@@ -692,19 +702,18 @@ impl crate::project_runtime::ProjectRuntime {
 }
 
 pub(crate) mod http {
-    use crate::{ApiResult, Request, ServerState, api_body, api_error, query_value};
+    use crate::{ApiResult, Request, Response, ServerState, api_body, api_error, json_response};
     use axum::http::StatusCode;
     use inferay_core::memory::MemoryNoteInput;
     use serde::Deserialize;
     use serde_json::{Value, json};
 
     fn scope(
-        state: &ServerState,
+        projects: &crate::project_runtime::ProjectRuntime,
         project: Option<String>,
         pane: Option<String>,
     ) -> Result<(String, std::path::PathBuf), crate::ApiError> {
-        state
-            .projects
+        projects
             .memory_project(project.as_deref(), pane.as_deref())
             .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?
             .ok_or_else(|| {
@@ -715,56 +724,57 @@ pub(crate) mod http {
             })
     }
 
-    pub(crate) async fn list(state: &ServerState, request: Request) -> ApiResult {
-        let (project, dir) = scope(
-            state,
-            query_value(&request, "projectId"),
-            query_value(&request, "paneId"),
-        )?;
-        let limit = query_value(&request, "limit")
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(50);
-        let listing = state
-            .projects
-            .memory
-            .search(
-                &project,
-                &dir,
-                &query_value(&request, "q").unwrap_or_default(),
-                query_value(&request, "tag").as_deref(),
-                limit,
-            )
-            .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
-        Ok(json!({"projectId": project, "listing": listing}))
-    }
-
-    pub(crate) async fn note(state: &ServerState, request: Request) -> ApiResult {
-        let (project, dir) = scope(
-            state,
-            query_value(&request, "projectId"),
-            query_value(&request, "paneId"),
-        )?;
-        let id = query_value(&request, "id").unwrap_or_default();
-        let view = state
-            .projects
-            .memory
-            .read(&project, &dir, &id)
-            .map_err(|e| api_error(StatusCode::NOT_FOUND, e))?;
-        serde_json::to_value(view).map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, e))
-    }
-
-    pub(crate) async fn graph(state: &ServerState, request: Request) -> ApiResult {
-        let (project, dir) = scope(
-            state,
-            query_value(&request, "projectId"),
-            query_value(&request, "paneId"),
-        )?;
-        let graph = state
-            .projects
-            .memory
-            .graph(&project, &dir)
-            .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
-        serde_json::to_value(graph).map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, e))
+    pub(crate) async fn read(state: &ServerState, request: Request) -> ApiResult<Response> {
+        let projects = state.projects.clone();
+        tokio::task::spawn_blocking(move || {
+            let query =
+                url::form_urlencoded::parse(request.uri().query().unwrap_or_default().as_bytes())
+                    .collect::<Vec<_>>();
+            let value = |key: &str| {
+                query
+                    .iter()
+                    .find(|(name, _)| name == key)
+                    .map(|(_, value)| value.as_ref())
+            };
+            let (project, dir) = scope(
+                &projects,
+                value("projectId").map(str::to_owned),
+                value("paneId").map(str::to_owned),
+            )?;
+            match request.uri().path() {
+                "/api/memory" => {
+                    let listing = projects
+                        .memory
+                        .search(
+                            &project,
+                            &dir,
+                            value("q").unwrap_or_default(),
+                            value("tag"),
+                            value("limit").and_then(|v| v.parse().ok()).unwrap_or(50),
+                        )
+                        .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
+                    Ok(json_response(
+                        StatusCode::OK,
+                        super::MemorySearchResponse {
+                            project_id: project,
+                            listing,
+                        },
+                    ))
+                }
+                "/api/memory/note" => projects
+                    .memory
+                    .read(&project, &dir, value("id").unwrap_or_default())
+                    .map(|view| json_response(StatusCode::OK, view))
+                    .map_err(|e| api_error(StatusCode::NOT_FOUND, e)),
+                "/api/memory/graph" => projects
+                    .memory
+                    .graph(&project, &dir)
+                    .map(|graph| json_response(StatusCode::OK, graph))
+                    .map_err(|e| api_error(StatusCode::BAD_REQUEST, e)),
+                _ => unreachable!("memory read route"),
+            }
+        })
+        .await?
     }
 
     pub(crate) async fn delete(state: &ServerState, request: Request) -> ApiResult {
@@ -776,7 +786,7 @@ pub(crate) mod http {
             path: Option<String>,
         }
         let input: Input = api_body(request).await?;
-        let (project, dir) = scope(state, Some(input.project_id), None)?;
+        let (project, dir) = scope(&state.projects, Some(input.project_id), None)?;
         state
             .projects
             .memory
@@ -794,7 +804,7 @@ pub(crate) mod http {
             note: MemoryNoteInput,
         }
         let input: Input = api_body(request).await?;
-        let (project, dir) = scope(state, input.project_id, input.pane_id)?;
+        let (project, dir) = scope(&state.projects, input.project_id, input.pane_id)?;
         let note = state
             .projects
             .memory
@@ -826,6 +836,20 @@ mod tests {
         let profile = tempfile::tempdir().unwrap();
         let project = tempfile::tempdir().unwrap();
         let store = MemoryStore::open(profile.path()).unwrap();
+        // Guard the per-note lookup against a quadratic scan without a timing threshold.
+        assert!(
+            store
+                .db
+                .lock()
+                .unwrap()
+                .prepare(&format!(
+                    "EXPLAIN QUERY PLAN SELECT {HIT_COLUMNS} FROM notes n WHERE n.project=?1"
+                ))
+                .unwrap()
+                .query_map(["p", "2026-01-01"], |row| row.get::<_, String>(3))
+                .unwrap()
+                .any(|step| step.unwrap().contains("supersedes=?"))
+        );
         let first = store
             .save(
                 "p",
@@ -924,7 +948,7 @@ mod tests {
         .unwrap();
 
         let graph = store.graph("p", project.path()).unwrap();
-        let kinds: Vec<&str> = graph.nodes.iter().map(|n| n.kind.as_str()).collect();
+        let kinds: Vec<&str> = graph.nodes.iter().map(|n| n.kind).collect();
         assert_eq!(kinds.iter().filter(|k| **k == "note").count(), 2);
         assert!(kinds.contains(&"image") && kinds.contains(&"source"));
         assert!(

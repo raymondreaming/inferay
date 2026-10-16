@@ -1,25 +1,21 @@
-import type {
-	GitFileEntry,
-	GitFilePresentation,
-	SelectedPanelFile,
-} from "@contracts";
+import type { GitFilePresentation, SelectedPanelFile } from "@contracts";
 import { iconSize, selectionAppearance } from "@design-system/styles.stylex.ts";
 import { ContextMenu } from "@repository/components/graph/components/CommitGraph/ContextMenu.tsx";
 import { ariaValue } from "@shared/lib/dom.tsx";
 import { IconChevronRight, IconTrash } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { createEffect, createMemo, createSignal, For } from "solid-js";
+import { createEffect, createMemo, createSignal, For, merge } from "solid-js";
 import { styles } from "./styles.ts";
-import { TreeNodeRow } from "./TreeNodeRow.tsx";
+import { type FileRowEntry, TreeNodeRow } from "./TreeNodeRow.tsx";
 
 type SelectedFile = Pick<SelectedPanelFile, "path" | "staged">;
-export function FileGroup(_props: {
+export function FileGroup<T extends FileRowEntry>(_props: {
 	title: string;
-	files: GitFileEntry[];
+	files: T[];
 	filePresentation?: GitFilePresentation;
 	selected: SelectedFile | null;
-	onPrefetchFile?: (file: GitFileEntry | null) => void;
-	onSelect: (f: GitFileEntry) => void;
+	onPrefetchFile?: (file: T | null) => void;
+	onSelect: (f: T) => void;
 	actionLabel?: string;
 	onAction?: (path: string) => void;
 	onActionAll?: () => void;
@@ -33,18 +29,14 @@ export function FileGroup(_props: {
 }) {
 	const [isCollapsed, setIsCollapsed] = createSignal(false);
 	const [menu, setMenu] = createSignal<{
-		file: GitFileEntry;
+		file: T;
 		x: number;
 		y: number;
 	} | null>(null);
 	const [collapsedDirs, setCollapsedDirs] = createSignal<Set<string>>(
 		new Set(),
 	);
-	const groupRef = {
-		current: null,
-	} as {
-		current: HTMLDivElement | null;
-	};
+	let groupElement: HTMLDivElement | undefined;
 	const toggleDir = (path: string) => {
 		setCollapsedDirs((prev) => {
 			const next = new Set(prev);
@@ -77,7 +69,7 @@ export function FileGroup(_props: {
 	);
 	createEffect(selectionKey, () => {
 		if (!_props.selected) return;
-		groupRef.current
+		groupElement
 			?.querySelector<HTMLElement>('[data-git-file-active="true"]')
 			?.scrollIntoView?.({
 				block: "nearest",
@@ -85,39 +77,21 @@ export function FileGroup(_props: {
 	});
 	const isEmpty = createMemo(() => _props.files.length === 0);
 	const toggleGroup = () => {
-		if (
-			(_props.isCollapsible === undefined ? true : _props.isCollapsible) &&
-			!isEmpty()
-		)
+		if (_props.isCollapsible !== false && !isEmpty())
 			setIsCollapsed(!isCollapsed());
 	};
 	// Independent getters prevent hover/selection changes from invalidating
 	// every tree row through one shared snapshot.
-	const rowProps = {
+	const rowProps = merge(_props, {
 		get visibleFiles() {
 			return visibleFiles();
 		},
 		get visibleCounts() {
 			return visibleCounts();
 		},
-		get selected() {
-			return _props.selected;
-		},
-		get onPrefetchFile() {
-			return _props.onPrefetchFile;
-		},
-		get onSelect() {
-			return _props.onSelect;
-		},
-		get onAction() {
-			return _props.onAction;
-		},
-		get actionLabel() {
-			return _props.actionLabel;
-		},
 		get onContextMenu() {
 			return _props.onAction || _props.onStash || _props.onDiscard
-				? (file: GitFileEntry, event: MouseEvent) =>
+				? (file: T, event: MouseEvent) =>
 						setMenu({
 							file,
 							x: Math.min(event.clientX, window.innerWidth - 224),
@@ -129,17 +103,16 @@ export function FileGroup(_props: {
 			return collapsedDirs();
 		},
 		toggleDir,
-	};
+	});
 	return (
 		<div
-			ref={(element) => (groupRef.current = element)}
+			ref={(element) => (groupElement = element)}
 			{...stylex.attrs(
 				styles.fileGroup,
-				(_props.splitPane === undefined ? false : _props.splitPane) &&
-					styles.splitFileGroup,
+				_props.splitPane && styles.splitFileGroup,
 			)}
 		>
-			{(_props.showHeader === undefined ? true : _props.showHeader) ? (
+			{_props.showHeader !== false ? (
 				<div
 					{...stylex.attrs(
 						styles.groupHeader,
@@ -156,16 +129,12 @@ export function FileGroup(_props: {
 						}}
 						{...stylex.attrs(
 							styles.groupToggle,
-							(_props.isCollapsible === undefined
-								? true
-								: _props.isCollapsible) && !isEmpty()
+							_props.isCollapsible !== false && !isEmpty()
 								? styles.cursorPointer
 								: styles.cursorDefault,
 						)}
 					>
-						{(_props.isCollapsible === undefined
-							? true
-							: _props.isCollapsible) && (
+						{_props.isCollapsible !== false && (
 							<IconChevronRight
 								size={iconSize.sm}
 								{...stylex.attrs(
@@ -222,19 +191,16 @@ export function FileGroup(_props: {
 				<div
 					{...stylex.attrs(
 						styles.groupList,
-						(_props.splitPane === undefined ? false : _props.splitPane) &&
-							styles.splitGroupList,
+						_props.splitPane && styles.splitGroupList,
 					)}
 				>
-					{((_props.viewMode === undefined ? "path" : _props.viewMode) ===
-						"path" ||
+					{((_props.viewMode ?? "path") === "path" ||
 						!_props.filePresentation) && (
 						<For each={_props.files} keyed={(row) => row.path}>
 							{(file) => <TreeNodeRow {...rowProps} pathFile={file()} />}
 						</For>
 					)}
-					{(_props.viewMode === undefined ? "path" : _props.viewMode) ===
-						"tree" &&
+					{(_props.viewMode ?? "path") === "tree" &&
 						!!_props.filePresentation && (
 							<div>
 								{
@@ -254,32 +220,18 @@ export function FileGroup(_props: {
 					x={menu()!.x}
 					y={menu()!.y}
 					title={menu()!.file.path}
-					entries={[
-						...(_props.onAction && _props.actionLabel
-							? [
-									{
-										label: `${_props.actionLabel} file`,
-										run: () => _props.onAction?.(menu()!.file.path),
-									},
-								]
-							: []),
-						...(_props.onStash
-							? [
-									{
-										label: "Stash file",
-										run: () => _props.onStash?.(menu()!.file.path),
-									},
-								]
-							: []),
-						...(_props.onDiscard
-							? [
-									{
-										label: "Discard changes…",
-										run: () => _props.onDiscard?.(menu()!.file.path),
-									},
-								]
-							: []),
-					]}
+					entries={(
+						[
+							[
+								_props.actionLabel && `${_props.actionLabel} file`,
+								_props.onAction,
+							],
+							["Stash file", _props.onStash],
+							["Discard changes…", _props.onDiscard],
+						] as const
+					).flatMap(([label, run]) =>
+						label && run ? [{ label, run: () => run(menu()!.file.path) }] : [],
+					)}
 					onClose={() => setMenu(null)}
 				/>
 			)}

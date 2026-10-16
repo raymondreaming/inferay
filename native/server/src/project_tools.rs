@@ -170,11 +170,7 @@ impl ToolScope {
         }
         let skills = self.runtime.prompts.lock().await.load()?;
         {
-            let store = self
-                .runtime
-                .store
-                .lock()
-                .map_err(|_| "Project store lock failed")?;
+            let store = self.runtime.store()?;
             let automation = self
                 .snapshot
                 .pointer("/automation/id")
@@ -265,11 +261,7 @@ impl ToolScope {
             Request::List => unreachable!(),
         };
         {
-            let store = self
-                .runtime
-                .store
-                .lock()
-                .map_err(|_| "Project store lock failed")?;
+            let store = self.runtime.store()?;
             event(
                 &store.db,
                 &self.run,
@@ -325,11 +317,7 @@ impl ToolScope {
             }
             Ok(result)
         });
-        let store = self
-            .runtime
-            .store
-            .lock()
-            .map_err(|_| "Project store lock failed")?;
+        let store = self.runtime.store()?;
         let outcome = match &result {
             Ok(value) => json!({"callId":call,"result":value}),
             Err(error) => json!({"callId":call,"error":error.to_string()}),

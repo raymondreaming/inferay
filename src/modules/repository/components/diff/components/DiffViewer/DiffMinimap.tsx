@@ -1,8 +1,6 @@
 import type { MinimapSegment } from "@contracts";
-import { domStyle } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For, onSettled } from "solid-js";
-import * as inlineStyles from "./styles.ts";
 import { diffStyles } from "./styles.ts";
 export function DiffMinimap(props: {
 	rowCount: number;
@@ -135,15 +133,17 @@ export function DiffMinimap(props: {
 								? diffStyles.minimapAdd
 								: diffStyles.minimapDelete,
 						)}
-						style={domStyle(
-							inlineStyles.getDiffMinimapMinimapSegmentStyle(
-								seg().side === "left" || seg().side === "full" ? 8 : undefined,
+						style={{
+							left:
+								seg().side === "left" || seg().side === "full"
+									? "8px"
+									: undefined,
+							right:
 								seg().side === "right" || seg().side === "full" ? 0 : undefined,
-								seg().side === "full" ? "auto" : undefined,
-								`${(seg().startLine / props.rowCount) * 100}%`,
-								`max(2px, ${((seg().endLine - seg().startLine) / props.rowCount) * 100}%)`,
-							),
-						)}
+							width: seg().side === "full" ? "auto" : undefined,
+							top: `${(seg().startLine / props.rowCount) * 100}%`,
+							height: `max(2px, ${((seg().endLine - seg().startLine) / props.rowCount) * 100}%)`,
+						}}
 					/>
 				)}
 			</For>
@@ -153,12 +153,11 @@ export function DiffMinimap(props: {
 					diffStyles.minimapThumb,
 					(hovered() || dragging()) && diffStyles.minimapThumbExpanded,
 				)}
-				style={domStyle(
-					inlineStyles.getDiffMinimapMinimapThumbStyle(
-						`calc(${topRatio() * 100}% - max(${topRatio() * 16}px, ${topRatio() * ratio() * 100}%))`,
-						`${ratio() * 100}%`,
-					),
-				)}
+				style={{
+					top: `calc(${topRatio() * 100}% - max(${topRatio() * 16}px, ${topRatio() * ratio() * 100}%))`,
+					height: `${ratio() * 100}%`,
+					"min-height": "16px",
+				}}
 			/>
 		</button>
 	);

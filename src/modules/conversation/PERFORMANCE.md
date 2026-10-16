@@ -26,6 +26,9 @@ updates only the Solid computations that need it.
   Prepare descriptors only when grouping changes; do not retain a second
   per-message descriptor cache. Reuse snapshot ID strings in the grouped rows
   when their values match, instead of retaining JSON-decoded duplicates.
+  Core grouping carries native row indices instead of searching prior history
+  for each edit. Rebuild those indices after trimming. Published row metadata is
+  complete; internal indices and redundant group-ID strings stay off the wire.
 - `ChatViewport` owns the prefix offsets and retained row range in Rust. Send
   measured heights as a numeric buffer only when rows or measurements change;
   scroll updates pass position and viewport height only. Do not serialize the

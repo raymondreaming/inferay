@@ -1,4 +1,4 @@
-import { assignRef, domStyle, GRAPH_KEYBOARD_EVENT } from "@shared/lib/dom.tsx";
+import { assignRef, GRAPH_KEYBOARD_EVENT, px } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, For, onSettled } from "solid-js";
 import { CommitGraphLinesLayer } from "./CommitGraphLinesLayer.tsx";
@@ -7,7 +7,6 @@ import { GraphColumnMenu } from "./GraphColumnMenu.tsx";
 import { HeaderRow } from "./HeaderRow.tsx";
 import { RefContextMenu } from "./RefContextMenu.tsx";
 import { RowContextMenu } from "./RowContextMenu.tsx";
-import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 import {
 	ROW_HEIGHT,
@@ -32,14 +31,10 @@ export const CommitGraph = function CommitGraph(
 		element?.addEventListener(GRAPH_KEYBOARD_EVENT, navigate);
 		return () => element?.removeEventListener(GRAPH_KEYBOARD_EVENT, navigate);
 	});
-	const rootProps = createMemo(() =>
-		stylex.attrs(styles.root, view.embedded && styles.embeddedRoot),
-	);
 	return (
 		<div
 			ref={(_element) => assignRef(view.scrollerRef, _element)}
-			{...rootProps()}
-			class={`${rootProps().class ?? ""} ${view.class}`}
+			{...stylex.attrs(styles.root)}
 			role="listbox"
 			tabindex={0}
 			aria-label="Repository commit history"
@@ -62,32 +57,16 @@ export const CommitGraph = function CommitGraph(
 					view.onLoadMore();
 				}
 			}}
-			onMouseMove={(event) => {
-				const previous = view.mousePositionRef.current;
-				view.mousePositionRef.current = {
-					x: event.clientX,
-					y: event.clientY,
-				};
-				if (
-					!previous ||
-					(previous.x === event.clientX && previous.y === event.clientY)
-				)
-					return;
-				view.pointerMovedRef.current = true;
-				view.keyboardNavigationRef.current = false;
-				const row =
-					event.target instanceof Element
-						? event.target.closest("[data-graph-item]")
-						: null;
-				view.setHoveredRow(row?.getAttribute("data-graph-item") ?? null);
-			}}
+			onMouseMove={view.handleMouseMove}
 			onMouseLeave={() => view.setHoveredRow(null)}
 			onKeyDown={view.navigateRows}
 		>
 			{view.commits.length === 0 ? (
 				<div
 					role="status"
-					style={domStyle(inlineStyles.getCommitGraphDivStyle())}
+					style={{
+						padding: "24px",
+					}}
 				>
 					{view.emptyLabel}
 				</div>
@@ -106,17 +85,15 @@ export const CommitGraph = function CommitGraph(
 				}
 				query={view.query ?? ""}
 				onQueryChange={view.setQuery}
-				matchCount={view.matchingHashes.size}
+				matchCount={view.selectableItems.length}
 			/>
 			{/* Column controls occupy the existing top spacer; lines and nodes share its origin. */}
 			<div
 				{...stylex.attrs(styles.rowsLayer)}
-				style={domStyle(
-					inlineStyles.getCommitGraphRowsLayerStyle(
-						view.totalHeight,
-						view.tableWidth,
-					),
-				)}
+				style={{
+					height: px(view.totalHeight),
+					width: px(view.tableWidth),
+				}}
 			>
 				<HeaderRow
 					graphWidth={view.graphWidth}
@@ -166,9 +143,9 @@ export const CommitGraph = function CommitGraph(
 									onRefDrop={view.onRefDrop}
 									onOpenRefContextMenu={view.openRefContextMenu}
 									onOpenItemContextMenu={view.openItemContextMenu}
-									ghostRef={view.references.get(
-										commit().navigation.containingBranch ?? "",
-									)}
+									ghostRef={
+										view.references[commit().navigation.containingBranch ?? ""]
+									}
 									hiddenRefNames={view.hiddenRefNames}
 									pinnedRefNames={view.pinnedRefNames}
 									historyMatch={
@@ -181,7 +158,6 @@ export const CommitGraph = function CommitGraph(
 									graphStart={view.graphLeft}
 									widths={view.columnWidths}
 									virtualTop={TOP_PADDING + logicalIndex() * ROW_HEIGHT}
-									searchMatch={view.matchingHashes.has(commit().id)}
 									githubAvatar={view.avatarForCommit(commit())}
 								/>
 							);

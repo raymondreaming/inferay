@@ -6,7 +6,7 @@ use crate::{array, string};
 use serde_json::{Value, json};
 use wasm_bindgen::prelude::*;
 
-#[derive(Default, serde::Deserialize, serde::Serialize, ts_rs::TS)]
+#[derive(Default, serde::Serialize, ts_rs::TS)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
@@ -98,29 +98,27 @@ impl ChatReplica {
     }
 }
 impl ChatReplica {
-    fn event(&mut self, message: &Value, pane: &str, current: &Value) -> Value {
+    fn event(&mut self, message: &Value, pane: &str, current: &Value) -> Option<ChatEventPlan> {
         let kind = string(&message["type"]);
         if message["paneId"] != pane
             || !(kind.starts_with("chat:") || kind.starts_with("checkpoint:"))
         {
-            return Value::Null;
+            return None;
         }
-        let admission =
-            serde_json::from_value(self.admit(message)).expect("native transcript admission");
         let mut plan = ChatEventPlan {
-            admission,
+            admission: self.admit(message),
             ..Default::default()
         };
         if matches!(
             plan.admission,
             TranscriptAdmission::Ignore | TranscriptAdmission::Resync { .. }
         ) {
-            return json!(plan);
+            return Some(plan);
         }
         if kind == "chat:control" {
             plan.control = matches!(string(&message["action"]), "cleared" | "exit")
                 .then(|| string(&message["action"]).into());
-            return json!(plan);
+            return Some(plan);
         }
         plan.ready = kind == "chat:sync";
         plan.refresh_workspace = matches!(kind, "chat:summary" | "chat:workspace");
@@ -163,14 +161,14 @@ impl ChatReplica {
             "checkpoint:error" => Some(format!("Revert failed: {}", string(&message["error"]))),
             _ => None,
         };
-        json!(plan)
+        Some(plan)
     }
-    fn resync(&mut self) -> Value {
+    fn resync(&mut self) -> TranscriptAdmission {
         let reconnect = !self.reconnecting;
         self.reconnecting = true;
-        json!({"kind":"resync","reconnect":reconnect})
+        TranscriptAdmission::Resync { reconnect }
     }
-    pub fn admit(&mut self, message: &Value) -> Value {
+    fn admit(&mut self, message: &Value) -> TranscriptAdmission {
         if message["type"] == "chat:sync" && message["modelVersion"] == 1 {
             let Some(revision) = valid_integer(&message["revision"]) else {
                 return self.resync();
@@ -180,7 +178,7 @@ impl ChatReplica {
                     return self.resync();
                 }
                 self.reconnecting = false;
-                return json!({"kind":"none"});
+                return TranscriptAdmission::None;
             }
             if !message["messages"].is_array()
                 || array(&message["messages"])
@@ -193,7 +191,7 @@ impl ChatReplica {
                 return self.resync();
             }
             if !self.reconnecting && self.revision.is_some_and(|current| revision < current) {
-                return json!({"kind":"ignore"});
+                return TranscriptAdmission::Ignore;
             }
             let delete_count = self.messages.len();
             self.messages = array(&message["messages"])
@@ -203,21 +201,19 @@ impl ChatReplica {
             self.epoch = message["epoch"].clone();
             self.revision = Some(revision);
             self.reconnecting = false;
-            return json!({"kind":"sync","start":0,"deleteCount":delete_count});
+            return TranscriptAdmission::Sync {
+                start: 0,
+                delete_count,
+            };
         }
         let Some(update) = message.get("transcriptUpdate") else {
-            return json!({"kind":"none"});
+            return TranscriptAdmission::None;
         };
-        let Some(revision) = valid_integer(&update["revision"]) else {
-            return self.resync();
-        };
-        let Some(start) = valid_integer(&update["start"]).and_then(|v| usize::try_from(v).ok())
-        else {
-            return self.resync();
-        };
-        let Some(delete) =
-            valid_integer(&update["deleteCount"]).and_then(|v| usize::try_from(v).ok())
-        else {
+        let (Some(revision), Some(start), Some(delete)) = (
+            valid_integer(&update["revision"]),
+            valid_integer(&update["start"]).and_then(|v| usize::try_from(v).ok()),
+            valid_integer(&update["deleteCount"]).and_then(|v| usize::try_from(v).ok()),
+        ) else {
             return self.resync();
         };
         if update["version"] != 1
@@ -227,7 +223,7 @@ impl ChatReplica {
             return self.resync();
         }
         if self.revision.is_some_and(|current| revision <= current) {
-            return json!({"kind":"ignore"});
+            return TranscriptAdmission::Ignore;
         }
         let reset = update["reset"] == true;
         if !reset
@@ -272,7 +268,10 @@ impl ChatReplica {
         }
         self.revision = Some(revision);
         self.epoch = update["epoch"].clone();
-        json!({"kind":"patch","start":start,"deleteCount":delete_count})
+        TranscriptAdmission::Patch {
+            start,
+            delete_count,
+        }
     }
 }
 
@@ -352,6 +351,7 @@ pub fn run_status(input: &serde_json::Value) -> serde_json::Value {
 #[cfg(test)]
 mod reconnect_tests {
     use super::*;
+    use TranscriptAdmission::*;
 
     #[test]
     fn event_plan_rejects_wrong_panes_and_stale_sync_side_effects() {
@@ -360,37 +360,58 @@ mod reconnect_tests {
         assert!(
             replica
                 .event(&json!({"type":"chat:done","paneId":"other"}), "pane", &idle)
-                .is_null()
+                .is_none()
         );
-        let sync = json!({"type":"chat:sync","paneId":"pane","modelVersion":1,"epoch":"one","revision":3,"messages":[],"pendingSteers":[{}, {"id":"valid"}]});
-        let plan = replica.event(&sync, "pane", &idle);
-        assert_eq!(plan["ready"], true);
-        assert_eq!(plan["pendingSteers"], json!([1]));
-        let mut stale = sync;
-        stale["revision"] = json!(2);
-        let plan = replica.event(&stale, "pane", &idle);
-        assert_eq!(plan["admission"]["kind"], "ignore");
-        assert_eq!(plan["ready"], false);
-        assert_eq!(plan["pendingSteers"], json!([]));
+        let mut sync = json!({"type":"chat:sync","paneId":"pane","modelVersion":1,"epoch":"one","revision":3,"messages":[],"pendingSteers":[{}, {"id":"valid"}]});
+        let plan = replica.event(&sync, "pane", &idle).unwrap();
+        assert!(plan.ready);
+        assert_eq!(plan.pending_steers, [1]);
+        sync["revision"] = json!(2);
+        let plan = replica.event(&sync, "pane", &idle).unwrap();
+        assert!(matches!(plan.admission, Ignore));
+        assert!(!plan.ready);
+        assert!(plan.pending_steers.is_empty());
     }
 
     #[test]
-    fn unchanged_reconnect_preserves_history_and_accepts_the_next_delta() {
+    fn reconnect_preserves_history_and_rejects_stale_or_gapped_updates() {
         let mut replica = ChatReplica::new();
-        replica.admit(
-            &json!({"type":"chat:sync","modelVersion":1,"epoch":"session",
-            "revision":4,"messages":[{"id":"a","role":"assistant","content":"retained"}]}),
-        );
+        let mut sync = json!({"type":"chat:sync","modelVersion":1,"epoch":"session",
+            "revision":4,"messages":[{"id":"a","role":"assistant","content":"retained"}]});
+        assert!(matches!(
+            replica.admit(&sync),
+            Sync {
+                start: 0,
+                delete_count: 0
+            }
+        ));
         replica.reconnect();
-        let result = replica.admit(&json!({"type":"chat:sync","modelVersion":1,
-            "epoch":"session","revision":4,"unchanged":true,"messages":null}));
-        assert_eq!(result, json!({"kind":"none"}));
+        assert!(matches!(
+            replica.admit(&json!({"type":"chat:sync","modelVersion":1,
+            "epoch":"session","revision":4,"unchanged":true,"messages":null})),
+            None
+        ));
         assert!(!replica.reconnecting);
-        let result = replica.admit(&json!({"transcriptUpdate":{"version":1,"epoch":"session",
+        let mut update = json!({"transcriptUpdate":{"version":1,"epoch":"session",
             "baseRevision":4,"revision":5,"start":0,"deleteCount":1,
-            "messages":[{"message":{"id":"a","role":"assistant"},"appendContent":" tail"}]}}));
-        assert_eq!(result["kind"], "patch");
+            "messages":[{"message":{"id":"a","role":"assistant"},"appendContent":" tail"}]}});
+        assert!(matches!(
+            replica.admit(&update),
+            Patch {
+                start: 0,
+                delete_count: 1
+            }
+        ));
         assert_eq!(replica.messages, ["a"]);
-        assert_eq!(result, json!({"kind":"patch","start":0,"deleteCount":1}));
+        assert!(matches!(replica.admit(&update), Ignore));
+        update["transcriptUpdate"]["revision"] = json!(7);
+        assert!(matches!(replica.admit(&update), Resync { reconnect: true }));
+        assert!(matches!(
+            replica.admit(&update),
+            Resync { reconnect: false }
+        ));
+        sync["epoch"] = json!("next");
+        assert!(matches!(replica.admit(&sync), Sync { .. }));
+        assert!(matches!(replica.admit(&update), Resync { .. }));
     }
 }

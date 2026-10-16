@@ -1,13 +1,13 @@
-import type { RepositoryWorkspaceEntry } from "@contracts";
 import { surfaceStyles } from "@design-system/styles.stylex.ts";
 import * as stylex from "@stylexjs/stylex";
+import type { SidebarChatEntry } from "@workspace/hooks/useWorkspaceState.tsx";
 import { For } from "solid-js";
 import { PaneSummaryItem } from "../WorkspaceSidebar/PaneSummaryItem.tsx";
 import { styles } from "./styles.ts";
 
 /** Reaches the repository's chats while the workspace sidebar stays closed. */
 export function SidebarChatFlyout(props: {
-	entries: RepositoryWorkspaceEntry[];
+	entries: SidebarChatEntry[];
 	activePaneId: string | null;
 	onSelectPane: (groupId: string, paneId: string) => void;
 }) {

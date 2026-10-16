@@ -1,13 +1,11 @@
-import { type CSSProperties, domStyle } from "@shared/lib/dom.tsx";
+import { px } from "@shared/lib/dom.tsx";
 import { resolveFileIconUrl } from "./FolderTypeIcon.tsx";
-import * as inlineStyles from "./styles.ts";
 
 export { FolderTypeIcon, resolveFolderIconUrl } from "./FolderTypeIcon.tsx";
 export function FileTypeIcon(_props: {
 	readonly path: string;
 	readonly size?: number;
 	readonly class?: string;
-	readonly style?: CSSProperties;
 }) {
 	return (
 		<img
@@ -16,13 +14,13 @@ export function FileTypeIcon(_props: {
 			draggable={false}
 			src={resolveFileIconUrl(_props.path)}
 			class={_props.class}
-			style={domStyle(
-				inlineStyles.getFileTypeIconImgStyle(
-					_props.size === undefined ? 15 : _props.size,
-					_props.size === undefined ? 15 : _props.size,
-					_props.style,
-				),
-			)}
+			style={{
+				width: _props.size === undefined ? "15px" : px(_props.size),
+				height: _props.size === undefined ? "15px" : px(_props.size),
+				"flex-shrink": 0,
+				opacity: 0.96,
+				filter: "saturate(0.76) brightness(1.08)",
+			}}
 		/>
 	);
 }

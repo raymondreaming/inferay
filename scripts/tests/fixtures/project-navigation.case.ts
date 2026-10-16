@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import type { AgentSavedState } from "@contracts";
+import type { Workspace } from "@contracts";
 import { createRoot, flush } from "solid-js";
 import {
 	openProjectRepository,
@@ -46,7 +46,7 @@ test("project tabs restore their own section and repository", async () => {
 			{ preconnect: globalThis.fetch.preconnect },
 		),
 	);
-	let state: AgentSavedState = {
+	let state: Workspace = {
 		groups: ["a1", "a2", "b1"].map((id) => ({
 			id: `group-${id}`,
 			name: id,
@@ -64,17 +64,6 @@ test("project tabs restore their own section and repository", async () => {
 			],
 		})),
 		selectedGroupId: "group-a1",
-		themeId: "default",
-		fontSize: 13,
-		fontFamily: "mono",
-		opacity: 1,
-		repositories: {
-			workspaces: [],
-			unassignedEntries: [],
-			activePath: null,
-			activeWorkspace: null,
-			visibleEntries: [],
-		},
 	};
 	configureWorkspaceState({
 		initialize: async () => state,
@@ -113,7 +102,21 @@ test("project tabs restore their own section and repository", async () => {
 	};
 
 	try {
+		expect(workspace().entries.map((entry) => entry.pane.id)).toEqual([
+			"a1",
+			"a2",
+			"b1",
+		]);
+		for (const entry of workspace().entries)
+			expect(entry.pane).toBe(
+				workspace().groups.find((group) => group.id === entry.groupId)!
+					.panes[0],
+			);
 		await select("navigation-a");
+		expect(workspace().entries.map((entry) => entry.pane.id)).toEqual([
+			"a1",
+			"a2",
+		]);
 		expect(projects.view()).toBe("chat");
 		showProjectView("automations");
 		flush();

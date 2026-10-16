@@ -29,10 +29,8 @@ const staticLists = new Map([
 		"modules/workspace/components/WorkspaceSidebar/SidebarWorkspacesSection.tsx",
 		new Set(["GRID_DIMENSIONS"]),
 	],
-	["shared/ui/DotMatrixLoader/DotMatrixRipple.tsx", new Set(["RIPPLE_DOTS"])],
-	["shared/ui/DotMatrixLoader/DotMatrixWeave.tsx", new Set(["WEAVE_DOTS"])],
-	["shared/ui/DotMatrixLoader/index.tsx", new Set(["SPIRAL_DOTS"])],
-	["shared/ui/Icons/shared.tsx", new Set(["pathList"])],
+	["shared/ui/DotMatrixLoader/index.tsx", new Set(["DOTS"])],
+	["shared/ui/Icons/index.tsx", new Set(["pathList"])],
 ]);
 function containsJSX(node: t.Node): boolean {
 	let found = false;

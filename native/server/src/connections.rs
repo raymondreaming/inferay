@@ -261,10 +261,7 @@ async fn handle(
     use axum::http::StatusCode;
     let runtime = state.projects.clone();
     tokio::task::spawn_blocking(move || -> Result<serde_json::Value> {
-        let store = runtime
-            .store
-            .lock()
-            .map_err(|_| "Project store lock failed")?;
+        let store = runtime.store()?;
         let exists: bool = store.db.query_row(
             "SELECT EXISTS(SELECT 1 FROM projects WHERE id=? AND valid=1)",
             [&project],

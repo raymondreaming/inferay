@@ -5,10 +5,9 @@ fn runtime(root: &Path) -> Arc<ProjectRuntime> {
     ProjectRuntime::open(
         root,
         Arc::new(AgentCommandResolver::new(root, root.join("mcp.json"))),
-        Arc::new(tokio::sync::Mutex::new(PromptStore::new(
-            root.join("bundled.json"),
-            root.join("prompts.json"),
-        ))),
+        Arc::new(tokio::sync::Mutex::new(
+            PromptStore::open(root.join("bundled.json"), root.join("prompts.json")).unwrap(),
+        )),
         RuntimePidTracker::new(root.join("pids.json")),
     )
     .unwrap()
@@ -150,8 +149,7 @@ async fn file_runtime_runs_tools_and_retains_artifacts_and_context() {
     assert_eq!(context.1, "Be precise");
     assert_eq!(
         runtime
-            .store
-            .lock()
+            .store()
             .unwrap()
             .db
             .query_row(
@@ -683,11 +681,8 @@ async fn agent_tool_grants_execute_only_approved_library_inputs() {
     let runtime = runtime(profile.path());
     let run = approved_run(&runtime, &automation, "grants").await;
     let snapshot = {
-        let mut store = runtime.store.lock().unwrap();
-        crate::project_runs::claim_next(&mut store.db, profile.path(), &[])
-            .unwrap()
-            .unwrap()
-            .2
+        let mut store = runtime.store().unwrap();
+        store.claim_next(&[]).unwrap().unwrap().2
     };
     let scope = crate::project_tools::ToolScope::new(
         runtime.clone(),
@@ -812,11 +807,8 @@ time.sleep(60)
     let runtime = runtime(profile.path());
     let id = approved_run(&runtime, &automation, "drop-execution").await;
     let snapshot = {
-        let mut store = runtime.store.lock().unwrap();
-        crate::project_runs::claim_next(&mut store.db, profile.path(), &[])
-            .unwrap()
-            .unwrap()
-            .2
+        let mut store = runtime.store().unwrap();
+        store.claim_next(&[]).unwrap().unwrap().2
     };
     let marker = profile
         .path()
@@ -1035,7 +1027,7 @@ print("NETWORK_PROBE", json.dumps(result))
         );
     }
     assert!(dir.join("output/response.md").is_file());
-    let store = runtime.store.lock().unwrap();
+    let store = runtime.store().unwrap();
     let usage: String = store.db.query_row("SELECT payload FROM run_events WHERE run_id=? AND kind='provider_usage' ORDER BY sequence DESC LIMIT 1", [&run], |row| row.get(0)).expect("Real provider must report usage");
     let usage: Value = serde_json::from_str(&usage).unwrap();
     assert_eq!(usage["provider"], provider);
@@ -1908,8 +1900,7 @@ async fn real_scheduled_studio_uses_library_skill_and_required_tools() {
         .await
         .unwrap();
     runtime
-        .store
-        .lock()
+        .store()
         .unwrap()
         .db
         .execute(
@@ -2006,7 +1997,7 @@ async fn history_projects_latest_reported_usage_without_guessing_missing_counts(
     let id = approved_run(&runtime, &automation, "usage-history").await;
     assert!(runtime.run_for_chat(&id).unwrap().usage.is_none());
     {
-        let store = runtime.store.lock().unwrap();
+        let store = runtime.store().unwrap();
         store
             .db
             .execute(
@@ -2093,7 +2084,7 @@ async fn history_keeps_active_work_visible_without_changing_past_pagination() {
     let (project, automation) = definition_files(profile.path(), "print('{}')");
     let runtime = runtime(profile.path());
     let id = approved_run(&runtime, &automation, "active-history").await;
-    let store = runtime.store.lock().unwrap();
+    let store = runtime.store().unwrap();
     store
         .db
         .execute(
@@ -2267,11 +2258,8 @@ async fn mcp_agent_grant_records_outputs_and_revokes_after_library_edit() {
     let runtime = runtime(profile.path());
     let run = approved_run(&runtime, &automation, "mcp-grant").await;
     let snapshot = {
-        let mut store = runtime.store.lock().unwrap();
-        crate::project_runs::claim_next(&mut store.db, profile.path(), &[])
-            .unwrap()
-            .unwrap()
-            .2
+        let mut store = runtime.store().unwrap();
+        store.claim_next(&[]).unwrap().unwrap().2
     };
     let scope = crate::project_tools::ToolScope::new(
         runtime.clone(),
@@ -2420,8 +2408,7 @@ async fn finishing_a_run_preserves_its_open_chat() {
     ] {
         let id = approved_run(&runtime, &automation, key).await;
         runtime
-            .store
-            .lock()
+            .store()
             .unwrap()
             .db
             .execute("UPDATE runs SET status='running' WHERE id=?", [&id])
@@ -2449,8 +2436,7 @@ async fn effect_artifacts_are_durable_deduplicated_and_conflict_safe() {
             first.clone_from(&id);
         }
         runtime
-            .store
-            .lock()
+            .store()
             .unwrap()
             .db
             .execute("UPDATE runs SET status='running' WHERE id=?", [&id])
@@ -2477,12 +2463,7 @@ async fn effect_artifacts_are_durable_deduplicated_and_conflict_safe() {
             .finish(&id, &project, Ok(json!({"artifacts":artifacts})))
             .unwrap();
         assert_eq!(runtime.run_for_chat(&id).unwrap().status, expected_status);
-        let history = runtime
-            .store
-            .lock()
-            .unwrap()
-            .history(&project, None)
-            .unwrap();
+        let history = runtime.store().unwrap().history(&project, None).unwrap();
         assert_eq!(history.effects.len(), 1);
         assert_eq!(history.effects[0].run_id, first);
         assert_eq!(history.effects[0].intent.payload["text"], "Hello");
@@ -2496,8 +2477,7 @@ async fn effect_artifacts_are_durable_deduplicated_and_conflict_safe() {
         }
     }
     let effect = runtime
-        .store
-        .lock()
+        .store()
         .unwrap()
         .history(&project, None)
         .unwrap()
@@ -2507,12 +2487,11 @@ async fn effect_artifacts_are_durable_deduplicated_and_conflict_safe() {
         id: effect.id,
         intent_hash: "stale".into(),
     };
-    assert!(crate::project_effects::dismiss(&runtime.store.lock().unwrap().db, &review).is_err());
+    assert!(crate::project_effects::dismiss(&runtime.store().unwrap().db, &review).is_err());
     review.intent_hash = effect.intent_hash;
-    let dismissed =
-        crate::project_effects::dismiss(&runtime.store.lock().unwrap().db, &review).unwrap();
+    let dismissed = crate::project_effects::dismiss(&runtime.store().unwrap().db, &review).unwrap();
     assert_eq!(
-        crate::project_effects::dismiss(&runtime.store.lock().unwrap().db, &review).unwrap(),
+        crate::project_effects::dismiss(&runtime.store().unwrap().db, &review).unwrap(),
         dismissed
     );
     drop(runtime);
@@ -2701,5 +2680,136 @@ async fn effect_handlers_cannot_enter_ordinary_automation_execution() {
             .history
             .runs
             .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn idle_scheduler_does_not_load_skills_or_take_a_database_write_lock() {
+    let root = tempfile::tempdir().unwrap();
+    let runtime = runtime(root.path());
+    std::fs::write(root.path().join("bundled.json"), b"invalid").unwrap();
+    let writer = rusqlite::Connection::open(root.path().join("projects.sqlite3")).unwrap();
+    writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+    runtime.tick().await.unwrap();
+    writer.execute_batch("ROLLBACK").unwrap();
+    assert_eq!(runtime.capacity.available_permits(), 4);
+    assert_eq!(runtime.background.available_permits(), 2);
+}
+
+#[tokio::test]
+async fn scheduler_obeys_shared_and_background_capacity() {
+    let root = tempfile::tempdir().unwrap();
+    let definitions: Vec<_> = (0..3)
+        .map(|_| definition_files(root.path(), "import time\ntime.sleep(60)\nprint('{}')"))
+        .collect();
+    let runtime = runtime(root.path());
+    let mut runs = Vec::new();
+    for (i, (project, automation)) in definitions.iter().enumerate() {
+        runs.push((
+            project.clone(),
+            approved_run(&runtime, automation, &format!("capacity-{i}")).await,
+        ));
+    }
+    let foreground = runtime
+        .capacity
+        .clone()
+        .acquire_many_owned(3)
+        .await
+        .unwrap();
+    runtime.tick().await.unwrap();
+    assert_eq!(runtime.capacity.available_permits(), 0);
+    assert_eq!(runtime.background.available_permits(), 1);
+    drop(foreground);
+    runtime.tick().await.unwrap();
+    assert_eq!(runtime.capacity.available_permits(), 2);
+    assert_eq!(runtime.background.available_permits(), 0);
+    assert_eq!(
+        runtime
+            .store()
+            .unwrap()
+            .db
+            .query_row(
+                "SELECT count(*) FROM runs WHERE status='queued'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        1
+    );
+    for (_, id) in &runs {
+        runtime
+            .command(ProjectFileCommand::StopRun { id: id.clone() }, true)
+            .await
+            .unwrap();
+    }
+    for (project, id) in runs {
+        assert_eq!(completed(&runtime, &project, &id).await.status, "cancelled");
+    }
+}
+
+#[tokio::test]
+async fn scheduler_starts_due_work_after_an_idle_tick() {
+    let root = tempfile::tempdir().unwrap();
+    let (project, automation) = definition_files(root.path(), "print('{}')");
+    let path = root.path().join(format!(
+        "projects/{project}/plugins/report/automations/report.json"
+    ));
+    let mut definition: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    definition["trigger"] = json!({"kind":"interval","seconds":60});
+    std::fs::write(path, serde_json::to_vec(&definition).unwrap()).unwrap();
+    let runtime = runtime(root.path());
+    let review = runtime
+        .command(
+            ProjectFileCommand::ReviewAutomation {
+                id: automation.clone(),
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    runtime
+        .command(
+            ProjectFileCommand::ApproveAutomation {
+                id: automation.clone(),
+                expected_inputs_hash: review["inputsHash"].as_str().unwrap().into(),
+                enable: true,
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    runtime.tick().await.unwrap();
+    assert_eq!(
+        runtime
+            .store()
+            .unwrap()
+            .db
+            .query_row("SELECT count(*) FROM runs", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    runtime
+        .store()
+        .unwrap()
+        .db
+        .execute(
+            "UPDATE automation_state SET next_due_at=? WHERE automation_id=?",
+            params![now() - 1, automation],
+        )
+        .unwrap();
+    runtime.tick().await.unwrap();
+    let run: String = runtime
+        .store()
+        .unwrap()
+        .db
+        .query_row(
+            "SELECT id FROM runs WHERE automation_id=? AND occurrence_at IS NOT NULL",
+            [&automation],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        completed(&runtime, &project, &run).await.status,
+        "succeeded"
     );
 }

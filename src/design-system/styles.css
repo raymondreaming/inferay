@@ -33,8 +33,7 @@
 	--font-diff: Menlo, Monaco, "Courier New", monospace;
 }
 
-:root,
-[data-inferay-theme="default"] {
+:root {
 	--color-inferay-black: #000000;
 	--color-inferay-dark-gray: #1c1c1e;
 	--color-inferay-gray: #2c2c2e;

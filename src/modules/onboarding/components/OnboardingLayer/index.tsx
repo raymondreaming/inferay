@@ -1,6 +1,6 @@
 import type { OnboardingRect, OnboardingStep } from "@contracts";
 import { useOnboardingTour } from "@onboarding/hooks/useOnboardingTour.tsx";
-import { domStyle, listenWindowEvent } from "@shared/lib/dom.tsx";
+import { listenWindowEvent, px } from "@shared/lib/dom.tsx";
 import { project } from "@shared/lib/native.tsx";
 import { BorderBeamOverlay } from "@shared/ui/BorderBeamOverlay/index.tsx";
 import * as stylex from "@stylexjs/stylex";
@@ -12,7 +12,6 @@ import {
 	Show,
 	untrack,
 } from "solid-js";
-import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 
 interface Rect {
@@ -132,15 +131,13 @@ export function OnboardingLayer() {
 				<div {...stylex.attrs(styles.root)}>
 					<div
 						{...stylex.attrs(styles.spotlight)}
-						style={domStyle(
-							inlineStyles.getSpotlightStyle(
-								rect().x,
-								rect().y,
-								rect().width,
-								rect().height,
-								beamScale(rect().width, rect().height),
-							),
-						)}
+						style={{
+							left: px(rect().x),
+							top: px(rect().y),
+							width: px(rect().width),
+							height: px(rect().height),
+							"--beam-scale": String(beamScale(rect().width, rect().height)),
+						}}
 					>
 						<BorderBeamOverlay active={!step()?.taskDone} />
 					</div>

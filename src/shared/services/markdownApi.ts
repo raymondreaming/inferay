@@ -13,11 +13,25 @@ export function nativeMarkdownStream(
 	) => Promise<Response> = (body, signal) =>
 		sendJson("/api/native/markdown/stream", body, { signal }),
 ) {
-	const cursor = new MarkdownCursor();
+	let cursor: MarkdownCursor | undefined;
+	let pending = 0;
+	let disposed = false;
 	let blocks: MdBlock[] = [];
+	const release = () => {
+		if (!pending && cursor && (disposed || !cursor.active())) {
+			cursor.free();
+			cursor = undefined;
+			blocks = [];
+		}
+	};
 	return {
 		get active() {
-			return cursor.active();
+			return !disposed && (cursor?.active() ?? false);
+		},
+		dispose() {
+			disposed = true;
+			blocks = [];
+			release();
 		},
 		async prepare(
 			text: string,
@@ -25,13 +39,16 @@ export function nativeMarkdownStream(
 			chat: boolean,
 			signal: AbortSignal,
 		) {
+			if (disposed) throw new Error("Markdown renderer was disposed");
 			signal.throwIfAborted();
+			const model = (cursor ??= new MarkdownCursor());
 			const before = blocks;
-			const attempt = cursor.begin(text, chat, streaming, crypto.randomUUID());
+			const attempt = model.begin(text, chat, streaming, crypto.randomUUID());
+			pending++;
 			try {
-				let response = await send(JSON.parse(cursor.request(attempt)), signal);
+				let response = await send(JSON.parse(model.request(attempt)), signal);
 				signal.throwIfAborted();
-				const retry = cursor.retry(
+				const retry = model.retry(
 					attempt,
 					response.status,
 					crypto.randomUUID(),
@@ -51,7 +68,7 @@ export function nativeMarkdownStream(
 					blocks: Array.isArray(patch?.blocks) ? patch.blocks.length : null,
 				};
 				const result: { accepted: boolean; start: number } = JSON.parse(
-					cursor.finish(attempt, response.status, JSON.stringify(metadata)),
+					model.finish(attempt, response.status, JSON.stringify(metadata)),
 				);
 				const next = [
 					...before.slice(0, result.start),
@@ -64,12 +81,14 @@ export function nativeMarkdownStream(
 								},
 							]),
 				];
-				if (result.accepted) blocks = next;
+				if (result.accepted && !disposed) blocks = next;
 				return { version: 1 as const, blocks: next };
 			} catch (cause) {
 				throw cause instanceof Error ? cause : new Error(String(cause));
 			} finally {
-				cursor.discard(attempt);
+				model.discard(attempt);
+				pending--;
+				release();
 			}
 		},
 	};

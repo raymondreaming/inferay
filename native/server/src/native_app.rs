@@ -6,7 +6,7 @@ use std::process::{Child, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::Response;
 use regex::Regex;
 use serde::Serialize;
@@ -273,31 +273,30 @@ fn job_status(job: &mut UpdateJob) -> Value {
     }
 }
 
-pub(super) fn update_status_route(headers: &HeaderMap) -> Response {
+pub(super) fn update_status_route() -> Response {
     let mut jobs = update_jobs().lock().unwrap_or_else(|e| e.into_inner());
     let status = jobs
         .as_mut()
         .map(job_status)
         .unwrap_or_else(|| json!({ "status": "idle" }));
-    json_response(StatusCode::OK, status, headers)
+    json_response(StatusCode::OK, status)
 }
 
-pub(super) fn update_route(headers: &HeaderMap) -> Response {
+pub(super) fn update_route() -> Response {
     let mut jobs = update_jobs().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(job) = jobs.as_mut()
         && job_status(job)["status"] == "updating"
     {
-        return json_response(StatusCode::OK, json!({ "status": "updating" }), headers);
+        return json_response(StatusCode::OK, json!({ "status": "updating" }));
     }
     match run_inferay_update() {
         Ok(job) => {
             *jobs = Some(job);
-            json_response(StatusCode::OK, json!({ "status": "updating" }), headers)
+            json_response(StatusCode::OK, json!({ "status": "updating" }))
         }
         Err(error) => json_response(
             StatusCode::SERVICE_UNAVAILABLE,
             json!({ "status": "error", "error": error }),
-            headers,
         ),
     }
 }

@@ -24,7 +24,3 @@ Start high and go lower only as far as the task needs.
 - Mark anything not built as **planned**. Never describe intended behavior as shipped.
 - Concepts and decisions stay free of source paths and line numbers; architecture and reference cite the owning code.
 - Dated measurements and incident reports do not get their own pages. Fold the lasting lesson into the owning doc.
-
-## Requested progress checkpoints
-
-- [October 7, 2026 harness checklist](checklists/2026-10-07-harness-progress.md): the requested 24-hour implementation and verification record, with unfinished work explicitly separated. This is a historical checkpoint; use the roadmap for current plans.

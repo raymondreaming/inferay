@@ -33,7 +33,7 @@ export function SidebarChatList(_props: {
 	return (
 		<div {...stylex.attrs(styles.workspacePaneList)}>
 			<For
-				each={_props.workspaces.repositories.visibleEntries}
+				each={_props.workspaces.entries}
 				keyed={(entry) => `${entry.groupId}:${entry.pane.id}`}
 				fallback={
 					<div {...stylex.attrs(styles.repositoryEmptyState)}>

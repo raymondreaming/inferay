@@ -1,9 +1,8 @@
 import type { GitGraphRef } from "@contracts";
-import { domStyle } from "@shared/lib/dom.tsx";
+import { px } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { RefBadge } from "./RefBadge.tsx";
 import { RefBadges } from "./RefBadges.tsx";
-import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 
 /** Reference badges and their graph connector for one commit row. */
@@ -27,7 +26,9 @@ export function CommitRefGutter(props: {
 	return (
 		<div
 			class={stylex.attrs(styles.refGutter).class}
-			style={domStyle(inlineStyles.getCommitRowRefGutterStyle(props.width))}
+			style={{
+				width: px(props.width),
+			}}
 		>
 			{props.showWipRef ? (
 				<RefBadge
@@ -62,15 +63,15 @@ export function CommitRefGutter(props: {
 				<span
 					aria-hidden="true"
 					class={stylex.attrs(styles.refConnector).class}
-					style={domStyle({
-						...inlineStyles.getCommitRowRefConnectorStyle(props.color),
+					style={{
+						"background-color": props.color,
 						...(props.showWipRef
 							? {
-									backgroundColor: "transparent",
-									backgroundImage: `repeating-linear-gradient(to right, ${props.color} 0 2px, transparent 2px 3px)`,
+									"background-color": "transparent",
+									"background-image": `repeating-linear-gradient(to right, ${props.color} 0 2px, transparent 2px 3px)`,
 								}
 							: {}),
-					})}
+					}}
 				/>
 			) : null}
 		</div>

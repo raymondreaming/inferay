@@ -1,10 +1,12 @@
+import { iconSize } from "@design-system/styles.stylex.ts";
+import { APP_REGION_NO_DRAG_CLASS } from "@shared/lib/dom.tsx";
 import { traceUi } from "@shared/lib/native.tsx";
+import { ThinkingIndicator } from "@shared/ui/DotMatrixLoader/index.tsx";
+import { IconFolder, IconStop } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { WorkspaceDockHandle } from "@workspace/components/WorkspaceDockHandle/index.tsx";
 import { projects } from "@workspace/hooks/useProjects.tsx";
-import { createEffect, createSignal, onSettled } from "solid-js";
-import { AgentWorkspaceControl } from "../AgentChatHeader/index.tsx";
-import { AgentChatStatusBar } from "../AgentChatStatusBar/index.tsx";
+import { createEffect, createMemo, createSignal, onSettled } from "solid-js";
 import { AgentContextPanel } from "../AgentContextPanel/index.tsx";
 import { ChatComposer } from "../ChatComposer/index.tsx";
 import { AgentChatMessages } from "./AgentChatMessages.tsx";
@@ -26,6 +28,10 @@ export function AgentChatView(props: AgentChatViewProps) {
 		return () => traceUi("pane-unmounted");
 	});
 	const state = useAgentChatState(props);
+	const workspaceName = createMemo(() => {
+		const cwd = state.workspace.visibleCwd;
+		return cwd ? cwd.split("/").pop() || cwd : null;
+	});
 	const [contextOpen, setContextOpen] = createSignal(false);
 	const [configOpen, setConfigOpen] = createSignal(false);
 	const [imageDragActive, setImageDragActive] = createSignal(false);
@@ -86,11 +92,7 @@ export function AgentChatView(props: AgentChatViewProps) {
 			{state.visible() && props.draggable && (
 				<div {...stylex.attrs(styles.dragReveal)}>
 					<div {...stylex.attrs(styles.dragRevealSurface)}>
-						<WorkspaceDockHandle
-							draggable
-							onDragStart={props.onDragStart}
-							onDragEnd={props.onDragEnd}
-						/>
+						<WorkspaceDockHandle onDragStart={props.onDragStart} />
 					</div>
 				</div>
 			)}
@@ -120,12 +122,30 @@ export function AgentChatView(props: AgentChatViewProps) {
 						</div>
 					)}
 					<div {...stylex.attrs(styles.composerContent)}>
-						<AgentChatStatusBar
-							active={state.visible()}
-							isLoading={state.connection.chatUiState.isLoading}
-							startTime={state.connection.chatUiState.startTime}
-							onStop={state.stopGeneration}
-						/>
+						{state.connection.chatUiState.isLoading && (
+							<div data-chat-activity {...stylex.attrs(styles.statusBar)}>
+								<div {...stylex.attrs(styles.activity)}>
+									{state.connection.chatUiState.startTime ? (
+										<ThinkingIndicator
+											active={state.visible()}
+											startTime={state.connection.chatUiState.startTime}
+										/>
+									) : null}
+								</div>
+								<button
+									type="button"
+									onClick={state.stopGeneration}
+									title="Stop generation"
+									aria-label="Stop generation"
+									{...stylex.attrs(styles.stopButton)}
+								>
+									<IconStop
+										size={iconSize.md}
+										{...stylex.attrs(styles.toolIcon)}
+									/>
+								</button>
+							</div>
+						)}
 						{state.settings.configurationError && (
 							<div role="alert">{state.settings.configurationError}</div>
 						)}
@@ -152,17 +172,29 @@ export function AgentChatView(props: AgentChatViewProps) {
 							highlightOverlayRef={state.viewport.highlightOverlayRef}
 							voiceInput={state.voiceInput}
 							workspaceControl={
+								workspaceName() &&
 								!projects
 									.list()
 									.some(
 										(project) =>
 											project.directory === state.workspace.visibleCwd,
 									) ? (
-									<AgentWorkspaceControl
-										cwd={state.workspace.visibleCwd}
-										onAgentContext={() => setContextOpen(true)}
-										isAgentContextOpen={false}
-									/>
+									<button
+										type="button"
+										data-chat-workspace
+										onClick={(event) => {
+											event.stopPropagation();
+											setContextOpen(true);
+										}}
+										{...stylex.attrs(styles.projectButton)}
+										class={`${APP_REGION_NO_DRAG_CLASS} ${stylex.attrs(styles.projectButton).class ?? ""}`}
+										title={state.workspace.visibleCwd}
+									>
+										<IconFolder size={iconSize.sm} />
+										<span {...stylex.attrs(styles.sessionLabel)}>
+											{workspaceName()}
+										</span>
+									</button>
 								) : null
 							}
 						/>

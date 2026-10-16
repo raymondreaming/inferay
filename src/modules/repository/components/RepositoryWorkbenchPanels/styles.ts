@@ -56,8 +56,3 @@ export const styles = stylex.create({
 		cursor: "ew-resize",
 	},
 });
-export function sidebarStyle(width: number) {
-	return {
-		width,
-	};
-}

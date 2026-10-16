@@ -15,6 +15,7 @@ use inferay_core::path_security::{is_safe_relative_path, AllowedPaths};
 use inferay_core::url_encode;
 use path_access::resolve_real_allowed_local_path;
 use std::collections::{HashMap, HashSet};
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
 #[cfg(test)]
 use std::process::Command;
@@ -24,21 +25,18 @@ use std::time::Duration;
 // before cycling. The renderer owns the actual color values.
 const GRAPH_LANE_COUNT: usize = 10;
 
-pub use git_exec::with_git_deadline;
+pub use git_exec::{command as git_command, with_git_deadline};
 pub(crate) use git_exec::{git_failure, remaining_git_time};
 pub use inferay_core::repository::*;
 
 #[derive(Clone, Copy)]
 enum DiffOperation {
-    Removed,
-    Unchanged,
-    Added,
+    Removed(usize),
+    Unchanged(usize, usize),
+    Added(usize),
 }
 
-fn diff_operations<T: PartialEq>(
-    old_lines: &[T],
-    new_lines: &[T],
-) -> Vec<(DiffOperation, Option<usize>, Option<usize>)> {
+fn diff_operations<T: PartialEq>(old_lines: &[T], new_lines: &[T]) -> Vec<DiffOperation> {
     // Trim unchanged boundaries before allocating a bounded comparison table.
     let mut prefix = 0;
     while prefix < old_lines.len()
@@ -55,14 +53,14 @@ fn diff_operations<T: PartialEq>(
     let (m, n) = (old_end - prefix, new_end - prefix);
     let mut diff_ops = Vec::with_capacity(old_lines.len() + new_lines.len());
     for i in 0..prefix {
-        diff_ops.push((DiffOperation::Unchanged, Some(i), Some(i)));
+        diff_ops.push(DiffOperation::Unchanged(i, i));
     }
     if m == 0 || n == 0 || (m + 1).saturating_mul(n + 1) > 1_000_000 {
         for i in prefix..old_end {
-            diff_ops.push((DiffOperation::Removed, Some(i), None));
+            diff_ops.push(DiffOperation::Removed(i));
         }
         for j in prefix..new_end {
-            diff_ops.push((DiffOperation::Added, None, Some(j)));
+            diff_ops.push(DiffOperation::Added(j));
         }
     } else {
         let width = n + 1;
@@ -76,29 +74,25 @@ fn diff_operations<T: PartialEq>(
                 };
             }
         }
-        let mut middle = Vec::new();
+        let middle = diff_ops.len();
         let (mut i, mut j) = (m, n);
         while i > 0 || j > 0 {
             if i > 0 && j > 0 && old_lines[prefix + i - 1] == new_lines[prefix + j - 1] {
-                middle.push((
-                    DiffOperation::Unchanged,
-                    Some(prefix + i - 1),
-                    Some(prefix + j - 1),
-                ));
+                diff_ops.push(DiffOperation::Unchanged(prefix + i - 1, prefix + j - 1));
                 i -= 1;
                 j -= 1;
             } else if j > 0 && (i == 0 || dp[i * width + j - 1] >= dp[(i - 1) * width + j]) {
-                middle.push((DiffOperation::Added, None, Some(prefix + j - 1)));
+                diff_ops.push(DiffOperation::Added(prefix + j - 1));
                 j -= 1;
             } else {
-                middle.push((DiffOperation::Removed, Some(prefix + i - 1), None));
+                diff_ops.push(DiffOperation::Removed(prefix + i - 1));
                 i -= 1;
             }
         }
-        diff_ops.extend(middle.into_iter().rev());
+        diff_ops[middle..].reverse();
     }
     for (i, j) in (old_end..old_lines.len()).zip(new_end..new_lines.len()) {
-        diff_ops.push((DiffOperation::Unchanged, Some(i), Some(j)));
+        diff_ops.push(DiffOperation::Unchanged(i, j));
     }
 
     diff_ops
@@ -800,7 +794,7 @@ fn is_changed(line: &GitDiffLine) -> bool {
 
 fn append_review_rows(result: &mut Vec<GitDiffLine>, rows: &[&GitDiffLine]) {
     for run in rows.chunk_by(|a, b| is_changed(a) == is_changed(b)) {
-        if is_changed(&run[0]) {
+        if is_changed(run[0]) {
             for kind in [GitDiffLineType::Remove, GitDiffLineType::Add] {
                 result.extend(
                     run.iter()
@@ -1082,15 +1076,10 @@ pub fn get_git_repository_operation_state(cwd: &str) -> GitRepositoryOperationSt
     }
 }
 
-fn stable_revision_token(parts: &[String]) -> String {
-    let mut hash = 0xcbf29ce484222325u64;
-    for part in parts {
-        for byte in part.as_bytes().iter().chain(std::iter::once(&0)) {
-            hash ^= u64::from(*byte);
-            hash = hash.wrapping_mul(0x100000001b3);
-        }
-    }
-    format!("{hash:016x}")
+fn stable_revision_token(value: impl Hash) -> String {
+    let mut hash = DefaultHasher::new();
+    value.hash(&mut hash);
+    format!("{:016x}", hash.finish())
 }
 
 struct RemoteCheckout {
@@ -1826,94 +1815,56 @@ pub fn perform_git_graph_action_with_targets(
     ref_operation_result(cwd, action, command.output())
 }
 
-fn github_repository_from_remote(remote_url: &str) -> Option<(String, String)> {
-    let remote_url = remote_url
-        .trim()
-        .trim_end_matches('/')
-        .trim_end_matches(".git");
-    let path = remote_url
-        .split_once("github.com:")
-        .map(|(_, path)| path)
-        .or_else(|| remote_url.split_once("github.com/").map(|(_, path)| path))?;
-    let mut parts = path.trim_matches('/').split('/');
-    let owner = parts.next()?.trim();
-    let repository = parts.next()?.trim();
-    if owner.is_empty() || repository.is_empty() || parts.next().is_some() {
-        return None;
-    }
-    let name = format!("{owner}/{repository}");
-    Some((name.clone(), format!("https://github.com/{name}")))
-}
-
-fn github_pull_request_number(subject: &str) -> Option<u64> {
-    if let Some(number) = subject.strip_prefix("Merge pull request #") {
-        return number
-            .chars()
-            .take_while(char::is_ascii_digit)
-            .collect::<String>()
-            .parse()
-            .ok();
-    }
-    let marker = subject.rfind("(#")?;
-    if !subject.ends_with(')') {
-        return None;
-    }
-    subject[marker + 2..subject.len() - 1].parse().ok()
-}
-
-fn get_commit_provider_metadata(cwd: &str, subject: &str) -> Option<GitCommitProviderMetadata> {
-    let remotes = git_remote_names(cwd);
-    let remote = remotes
-        .iter()
-        .find(|remote| remote.as_str() == "origin")
-        .or_else(|| remotes.first())?;
-    let remote_url = run_git(&["remote", "get-url", remote], cwd)?;
-    let (repository, repository_url) = github_repository_from_remote(&remote_url)?;
-    let pull_request_number = github_pull_request_number(subject);
-    let pull_request_url =
-        pull_request_number.map(|number| format!("{repository_url}/pull/{number}"));
-    Some(GitCommitProviderMetadata {
-        provider: "github".to_string(),
-        repository,
-        pull_request_number,
-        pull_request_url,
-    })
-}
-
-/// Read one change-list format for root commits, revision pairs, and worktrees.
+/// One NUL-delimited change list supplies status, rename paths and line counts.
 fn git_change_files(cwd: &str, from: Option<&str>, to: Option<&str>) -> Vec<GitCommitFile> {
-    let read = |format| {
-        let mut args = if from.is_some() {
-            vec!["diff"]
-        } else {
-            vec!["diff-tree", "--root", "--no-commit-id", "-r"]
-        };
-        args.extend(["--find-renames", format]);
-        args.extend(from);
-        args.extend(to);
-        run_git(&args, cwd).unwrap_or_default()
+    let mut args = if from.is_some() {
+        vec!["diff"]
+    } else {
+        vec!["diff-tree", "--root", "--no-commit-id", "-r"]
     };
-    let stats = parse_numstat(&read("--numstat"));
-    read("--name-status")
-        .lines()
-        .filter_map(|line| {
-            let fields: Vec<_> = line.split('\t').collect();
-            if fields.len() < 2 {
-                return None;
-            }
-            let path = fields.last()?.to_string();
-            let status = fields[0].chars().next()?.to_string();
-            let original_path = matches!(status.as_str(), "R" | "C").then(|| fields[1].to_owned());
-            let (additions, deletions) = stats.get(&path).copied().unwrap_or_default();
-            Some(GitCommitFile {
-                path,
-                original_path,
-                status,
-                additions,
-                deletions,
-            })
-        })
-        .collect()
+    args.extend([
+        "--no-ext-diff",
+        "--no-textconv",
+        "--find-renames",
+        "--raw",
+        "--numstat",
+        "-z",
+    ]);
+    args.extend(from);
+    args.extend(to);
+    let output = run_git(&args, cwd).unwrap_or_default();
+    let mut records = output.split('\0').peekable();
+    let mut files = Vec::new();
+    while let Some(header) = records.next_if(|record| record.starts_with(':')) {
+        let status = header
+            .rsplit(' ')
+            .next()
+            .unwrap_or("")
+            .chars()
+            .next()
+            .unwrap_or('M');
+        let Some(path) = records.next() else { break };
+        let (original_path, path) = if matches!(status, 'R' | 'C') {
+            let Some(destination) = records.next() else {
+                break;
+            };
+            (Some(path.to_owned()), destination)
+        } else {
+            (None, path)
+        };
+        files.push(GitCommitFile {
+            path: path.to_owned(),
+            original_path,
+            status: status.to_string(),
+            additions: 0,
+            deletions: 0,
+        });
+    }
+    let stats = parse_numstat(records);
+    for file in &mut files {
+        (file.additions, file.deletions) = stats.get(&file.path).copied().unwrap_or_default();
+    }
+    files
 }
 
 pub fn get_git_commit_details_for_parent(
@@ -1925,8 +1876,7 @@ pub fn get_git_commit_details_for_parent(
         &[
             "show",
             "-s",
-            "--decorate=full",
-            "--format=%H%x1f%P%x1f%aN%x1f%aE%x1f%aI%x1f%cN%x1f%cE%x1f%cI%x1f%D%x1f%s%x1f%b",
+            "--format=%H%x1f%P%x1f%aN%x1f%aE%x1f%aI%x1f%s%x1f%b",
             hash,
         ],
         cwd,
@@ -1934,7 +1884,7 @@ pub fn get_git_commit_details_for_parent(
     if info.is_empty() {
         return None;
     }
-    let mut info_parts = info.trim_end().splitn(11, '\x1f');
+    let mut info_parts = info.trim_end().splitn(7, '\x1f');
     let full_hash = info_parts.next().unwrap_or("").to_string();
     let parents: Vec<String> = info_parts
         .next()
@@ -1949,39 +1899,19 @@ pub fn get_git_commit_details_for_parent(
     let author = info_parts.next().unwrap_or("").to_string();
     let author_email = info_parts.next().unwrap_or("").to_string();
     let authored_at = info_parts.next().unwrap_or("").to_string();
-    let committer = info_parts.next().unwrap_or("").to_string();
-    let committer_email = info_parts.next().unwrap_or("").to_string();
-    let committed_at = info_parts.next().unwrap_or("").to_string();
-    let _decorations = info_parts.next();
     let message = info_parts.next().unwrap_or("").to_string();
     let body = info_parts.next().unwrap_or("").trim().to_string();
-    let (refs, files, provider) = std::thread::scope(|scope| {
-        let refs = scope.spawn(|| get_graph_refs(cwd).remove(&full_hash).unwrap_or_default());
-        let provider = scope.spawn(|| get_commit_provider_metadata(cwd, &message));
-        let files = git_change_files(cwd, diff_parent.as_deref(), Some(hash));
-        (
-            refs.join().expect("Git refs worker panicked"),
-            files,
-            provider.join().expect("Git provider worker panicked"),
-        )
-    });
+    let files = git_change_files(cwd, diff_parent.as_deref(), Some(hash));
     Some(GitCommitDetails {
         file_presentation: Some(GitFilePresentation::from_paths(
             files.iter().map(|file| file.path.clone()).collect(),
         )),
         hash: full_hash,
-        parents,
-        diff_parent,
         message,
         body,
         author,
         author_email,
         authored_at,
-        committer,
-        committer_email,
-        committed_at,
-        refs,
-        provider,
         files,
     })
 }
@@ -2269,19 +2199,16 @@ fn commit_git_mode(cwd: &str, message: &str, amend: bool) -> GitCommitResult {
 
 pub fn get_git_status(cwd: &str) -> Option<GitStatusResult> {
     let mut status = git_status(cwd, true)?;
-    let mut parts = vec![serde_json::to_string(&status).unwrap_or_default()];
-    for file in &status.files {
-        let path = Path::new(cwd).join(&file.path);
-        parts.push(format!(
-            "{}:{:?}",
-            path.display(),
-            std::fs::metadata(&path)
+    let metadata: Vec<_> = status
+        .files
+        .iter()
+        .map(|file| {
+            std::fs::metadata(Path::new(cwd).join(&file.path))
                 .ok()
                 .map(|metadata| (metadata.len(), metadata.modified().ok()))
-        ));
-    }
-    status.revision = stable_revision_token(&parts);
-    status.file_groups = GitFileGroups::from_files(&status.files);
+        })
+        .collect();
+    status.revision = stable_revision_token((&status, metadata));
     status.file_presentation = Some(GitFilePresentation::from_paths(
         status.files.iter().map(|file| file.path.clone()).collect(),
     ));
@@ -2409,7 +2336,6 @@ fn git_status(cwd: &str, include_stats: bool) -> Option<GitStatusResult> {
 
     Some(GitStatusResult {
         revision: String::new(),
-        file_groups: GitFileGroups::default(),
         file_presentation: None,
         cwd: cwd.to_string(),
         name,
@@ -2490,15 +2416,16 @@ fn get_numstat_entries(
         Some(index) => index.git(cwd, &args),
         None => run_git(&args, cwd),
     };
-    parse_worktree_numstat(&output.unwrap_or_default())
+    parse_numstat(output.as_deref().unwrap_or_default().split('\0'))
         .into_iter()
         .map(|(path, counts)| (format!("{prefix}:{path}"), counts))
         .collect()
 }
 
-fn parse_worktree_numstat(output: &str) -> HashMap<String, (usize, usize)> {
+fn parse_numstat<'a>(
+    mut records: impl Iterator<Item = &'a str>,
+) -> HashMap<String, (usize, usize)> {
     let mut stats = HashMap::new();
-    let mut records = output.split('\0');
     while let Some(record) = records.next().filter(|record| !record.is_empty()) {
         let mut fields = record.splitn(3, '\t');
         let (Some(added), Some(removed), Some(path)) =
@@ -2522,42 +2449,6 @@ fn parse_worktree_numstat(output: &str) -> HashMap<String, (usize, usize)> {
     stats
 }
 
-fn parse_numstat(output: &str) -> HashMap<String, (usize, usize)> {
-    output
-        .lines()
-        .filter_map(|line| {
-            let mut fields = line.split('\t');
-            let added = fields.next()?.parse().unwrap_or(0);
-            let removed = fields.next()?.parse().unwrap_or(0);
-            Some((
-                normalize_numstat_path(fields.next_back()?),
-                (added, removed),
-            ))
-        })
-        .collect()
-}
-
-fn normalize_numstat_path(path: &str) -> String {
-    let Some(arrow_index) = path.find(" => ") else {
-        return path.to_string();
-    };
-    let brace_start = path[..arrow_index].rfind('{');
-    let brace_end = path[arrow_index..]
-        .find('}')
-        .map(|offset| arrow_index + offset);
-    if let (Some(brace_start), Some(brace_end)) = (brace_start, brace_end) {
-        return format!(
-            "{}{}{}",
-            &path[..brace_start],
-            &path[arrow_index + 4..brace_end],
-            &path[brace_end + 1..]
-        )
-        .trim_start_matches('/')
-        .to_string();
-    }
-    path[arrow_index + 4..].trim_start_matches('/').to_string()
-}
-
 fn graph_ref_kind_order(kind: &GitGraphRefKind) -> usize {
     match kind {
         GitGraphRefKind::Head => 0,
@@ -2566,10 +2457,6 @@ fn graph_ref_kind_order(kind: &GitGraphRefKind) -> usize {
         GitGraphRefKind::Tag => 3,
         GitGraphRefKind::Stash => 4,
     }
-}
-
-fn get_graph_refs(cwd: &str) -> HashMap<String, Vec<GitGraphRef>> {
-    get_graph_refs_with_worktrees(cwd, &get_git_worktrees(cwd))
 }
 
 fn get_graph_refs_with_worktrees(
@@ -3304,6 +3191,138 @@ mod graph_layout_tests {
     use super::*;
 
     #[test]
+    fn history_files_preserve_literal_paths_counts_and_selected_merge_parent() {
+        let root = tempfile::tempdir().unwrap();
+        let cwd = root.path().to_str().unwrap();
+        let git = |args: &[&str]| {
+            let output = Command::new("git")
+                .args(args)
+                .current_dir(cwd)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{args:?}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8(output.stdout).unwrap().trim().to_owned()
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.name", "Fixture"]);
+        git(&["config", "user.email", "fixture@example.invalid"]);
+        git(&["config", "commit.gpgsign", "false"]);
+        let unusual = [
+            "tab\tname",
+            "line\nbreak",
+            "unicode-é.txt",
+            "literal => arrow.txt",
+        ];
+        for name in unusual {
+            std::fs::write(root.path().join(name), "first\nsecond\nthird\n").unwrap();
+        }
+        std::fs::write(root.path().join("old.txt"), "rename me\n").unwrap();
+        std::fs::write(root.path().join("deleted.txt"), "delete me\n").unwrap();
+        std::fs::write(root.path().join("binary.dat"), b"old\0data").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "base"]);
+        let base = git(&["rev-parse", "HEAD"]);
+        let initial = get_git_commit_details_for_parent(cwd, &base, None).unwrap();
+        assert_eq!(initial.files.len(), 7);
+        for name in unusual {
+            let file = initial.files.iter().find(|file| file.path == name).unwrap();
+            assert_eq!(
+                (file.status.as_str(), file.additions, file.deletions),
+                ("A", 3, 0)
+            );
+            std::fs::write(root.path().join(name), "first\nchanged\nthird\nadded\n").unwrap();
+        }
+        std::fs::rename(
+            root.path().join("old.txt"),
+            root.path().join("renamed\tfile.txt"),
+        )
+        .unwrap();
+        std::fs::remove_file(root.path().join("deleted.txt")).unwrap();
+        std::fs::write(root.path().join("binary.dat"), b"new\0data").unwrap();
+        std::fs::write(root.path().join("new.txt"), "new\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "changes"]);
+        let head = git(&["rev-parse", "HEAD"]);
+        let details = get_git_commit_details_for_parent(cwd, &head, None).unwrap();
+        assert_eq!(details.files.len(), 8);
+        for name in unusual {
+            let file = details.files.iter().find(|file| file.path == name).unwrap();
+            assert_eq!(
+                (file.status.as_str(), file.additions, file.deletions),
+                ("M", 2, 1)
+            );
+        }
+        for (name, status, added, removed) in [
+            ("binary.dat", "M", 0, 0),
+            ("deleted.txt", "D", 0, 1),
+            ("new.txt", "A", 1, 0),
+            ("renamed\tfile.txt", "R", 0, 0),
+        ] {
+            let file = details.files.iter().find(|file| file.path == name).unwrap();
+            assert_eq!(
+                (file.status.as_str(), file.additions, file.deletions),
+                (status, added, removed)
+            );
+        }
+        let renamed = details
+            .files
+            .iter()
+            .find(|file| file.status == "R")
+            .unwrap();
+        assert_eq!(renamed.original_path.as_deref(), Some("old.txt"));
+        assert_eq!(
+            get_git_comparison_details(cwd, &base, &head).unwrap().files,
+            details.files
+        );
+        let index_before = std::fs::read(root.path().join(".git/index")).unwrap();
+        assert_eq!(
+            get_git_worktree_comparison_details(
+                &AllowedPaths::new(root.path(), root.path(), root.path()).unwrap(),
+                cwd,
+                &base
+            )
+            .unwrap()
+            .files,
+            details.files
+        );
+        assert_eq!(
+            std::fs::read(root.path().join(".git/index")).unwrap(),
+            index_before
+        );
+        let tree = git(&["rev-parse", "HEAD^{tree}"]);
+        let merge = git(&[
+            "commit-tree",
+            &tree,
+            "-p",
+            &base,
+            "-p",
+            &head,
+            "-m",
+            "merge",
+        ]);
+        assert_eq!(
+            get_git_commit_details_for_parent(cwd, &merge, Some(&base))
+                .unwrap()
+                .files,
+            details.files
+        );
+        assert!(get_git_commit_details_for_parent(cwd, &merge, Some(&head))
+            .unwrap()
+            .files
+            .is_empty());
+        assert_eq!(
+            get_git_commit_details_for_parent(cwd, &merge, Some("not-a-parent"))
+                .unwrap()
+                .files,
+            details.files
+        );
+    }
+
+    #[test]
     fn current_ref_matches_branch_and_detached_worktree_head() {
         let root = tempfile::tempdir().unwrap();
         let canonical_root = root.path().canonicalize().unwrap();
@@ -3347,7 +3366,7 @@ mod graph_layout_tests {
             cwd
         );
 
-        let refs = get_graph_refs(cwd);
+        let refs = get_graph_refs_with_worktrees(cwd, &get_git_worktrees(cwd));
         let current = refs[&head]
             .iter()
             .find(|reference| reference.is_head)
@@ -3356,10 +3375,9 @@ mod graph_layout_tests {
         assert_eq!(current.kind, GitGraphRefKind::Head);
         let details = get_git_commit_details_for_parent(cwd, &head, None).unwrap();
         assert_eq!(details.files.len(), 1);
-        assert!(details.refs.iter().any(|reference| reference.is_head));
 
         git(&["checkout", "--detach", "HEAD"]);
-        let refs = get_graph_refs(cwd);
+        let refs = get_graph_refs_with_worktrees(cwd, &get_git_worktrees(cwd));
         let current = refs[&head]
             .iter()
             .find(|reference| reference.is_head)

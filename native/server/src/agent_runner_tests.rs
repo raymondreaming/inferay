@@ -2,6 +2,43 @@ use super::*;
 use std::os::unix::fs::PermissionsExt;
 
 #[tokio::test]
+async fn provider_stderr_preserves_partial_diagnostics_and_read_error() {
+    struct FailedStream;
+    impl AsyncRead for FailedStream {
+        fn poll_read(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+            _: &mut tokio::io::ReadBuf<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Err(std::io::Error::other("read failure")))
+        }
+    }
+    let stream = b"diagnostic \xe2\x82".as_slice().chain(FailedStream);
+    let (text, error) = drain_bounded(stream).await;
+    assert_eq!(text, "diagnostic �");
+    assert_eq!(error.unwrap().to_string(), "read failure");
+}
+
+#[tokio::test]
+async fn provider_stderr_retains_a_unicode_tail_across_read_boundaries() {
+    let (mut writer, reader) = tokio::io::duplex(8192);
+    let writing = tokio::spawn(async move {
+        let mut bytes = vec![b'x'; 300_000];
+        bytes.extend_from_slice("😀".repeat(32_000).as_bytes());
+        bytes.extend_from_slice(&[0xe2, 0x82]); // Incomplete UTF-8 at EOF.
+        for chunk in bytes.chunks(4093) {
+            writer.write_all(chunk).await.unwrap();
+        }
+    });
+    let (text, error) = drain_bounded(reader).await;
+    assert!(error.is_none());
+    writing.await.unwrap();
+    // The final 64,000 UTF-16 units start inside an emoji and end at the
+    // replacement character for the incomplete byte sequence.
+    assert_eq!(text, format!("�{}�", "😀".repeat(31_999)));
+}
+
+#[tokio::test]
 async fn provider_progresses_during_slow_emission_and_drains_before_returning() {
     let (applying, applied) = oneshot::channel();
     let (release, released) = oneshot::channel();
@@ -170,10 +207,10 @@ for line in sys.stdin:
         }
     }
     fn handle(&self) -> AgentProcessHandle {
-        let skills = Arc::new(tokio::sync::Mutex::new(PromptStore::new(
-            self.root.join("bundled.json"),
-            self.root.join("local.json"),
-        )));
+        let skills = Arc::new(tokio::sync::Mutex::new(
+            PromptStore::open(self.root.join("bundled.json"), self.root.join("local.json"))
+                .unwrap(),
+        ));
         let projects = crate::project_runtime::ProjectRuntime::open(
             &self.root,
             Arc::new(crate::agent_command::AgentCommandResolver::new(
@@ -466,18 +503,20 @@ supports_websockets = false
     let binary = resolver.resolve_agent_binary(inferay_core::agent_kind::AgentKind::Codex);
     let mut env = resolver.create_agent_env(inferay_core::agent_kind::AgentKind::Codex);
     env.insert("CODEX_HOME".into(), home.as_os_str().to_owned());
-    let handle =
-        AgentProcessHandle::with_skills(Arc::new(tokio::sync::Mutex::new(PromptStore::new(
+    let handle = AgentProcessHandle::with_skills(Arc::new(tokio::sync::Mutex::new(
+        PromptStore::open(
             root.path().join("bundled.json"),
             root.path().join("skills.json"),
-        ))))
-        .with_sandbox(crate::automation_sandbox::AutomationSandbox::new(
-            &[inferay_core::project_files::Permission::WriteProjectFiles]
-                .into_iter()
-                .collect(),
-            &json!({}),
-            &work,
-        ));
+        )
+        .unwrap(),
+    )))
+    .with_sandbox(crate::automation_sandbox::AutomationSandbox::new(
+        &[inferay_core::project_files::Permission::WriteProjectFiles]
+            .into_iter()
+            .collect(),
+        &json!({}),
+        &work,
+    ));
     let invocation = CodexInvocationContext {
         cwd: work.clone(),
         reference_paths: vec![],
@@ -703,18 +742,20 @@ async fn installed_claude_refuses_native_file_and_shell_tools_in_automation_poli
     ] {
         env.insert(key.into(), value.into());
     }
-    let handle =
-        AgentProcessHandle::with_skills(Arc::new(tokio::sync::Mutex::new(PromptStore::new(
+    let handle = AgentProcessHandle::with_skills(Arc::new(tokio::sync::Mutex::new(
+        PromptStore::open(
             root.path().join("bundled.json"),
             root.path().join("skills.json"),
-        ))))
-        .with_sandbox(crate::automation_sandbox::AutomationSandbox::new(
-            &[inferay_core::project_files::Permission::WriteProjectFiles]
-                .into_iter()
-                .collect(),
-            &json!({}),
-            &work,
-        ));
+        )
+        .unwrap(),
+    )))
+    .with_sandbox(crate::automation_sandbox::AutomationSandbox::new(
+        &[inferay_core::project_files::Permission::WriteProjectFiles]
+            .into_iter()
+            .collect(),
+        &json!({}),
+        &work,
+    ));
     let mut context = AgentProtocolContext::new(work.clone());
     let (sender, mut receiver) = mpsc::channel(PROTOCOL_BUFFER_CAPACITY);
     let drain = tokio::spawn(async move {
@@ -903,11 +944,13 @@ for i in range(2000):
 print(json.dumps({'type':'result','result':'finished'}),flush=True)
 "#).unwrap();
     std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
-    let handle =
-        AgentProcessHandle::with_skills(Arc::new(tokio::sync::Mutex::new(PromptStore::new(
+    let handle = AgentProcessHandle::with_skills(Arc::new(tokio::sync::Mutex::new(
+        PromptStore::open(
             root.path().join("bundled.json"),
             root.path().join("local.json"),
-        ))));
+        )
+        .unwrap(),
+    )));
     let invocation = CodexInvocationContext {
         cwd: root.path().to_owned(),
         reference_paths: vec![],

@@ -1,11 +1,11 @@
 import type { Pane, WorkspaceAgentKind } from "@contracts";
 import type { AgentChatHandle } from "@conversation/components/AgentChatView/index.tsx";
 import { AgentChatView } from "@conversation/components/AgentChatView/index.tsx";
-import { ChatPaneBoundary } from "@conversation/components/ChatPaneBoundary/index.tsx";
 import {
 	isChatAgentKind,
 	loadDefaultChatSettings,
 } from "@shared/lib/native.tsx";
+import { ErrorBoundary } from "@shared/ui/ErrorBoundary/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo } from "solid-js";
 import { styles } from "./styles.ts";
@@ -24,7 +24,6 @@ export const PaneView = function PaneView(props: {
 	chatRef: (paneId: string, handle: AgentChatHandle | null) => void;
 	paneIndex?: number;
 	onHeaderDragStart?: (e: PointerEvent, index: number) => void;
-	onHeaderDragEnd?: () => void;
 	onSetPaneAgentKind?: (paneId: string, agentKind: WorkspaceAgentKind) => void;
 }) {
 	const viewAgentKind = createMemo(() =>
@@ -52,7 +51,7 @@ export const PaneView = function PaneView(props: {
 	return (
 		<div {...stylex.attrs(styles.root)}>
 			<div {...stylex.attrs(styles.agentPane)}>
-				<ChatPaneBoundary>
+				<ErrorBoundary label="Chat pane" contained>
 					<AgentChatView
 						paneId={props.pane.id}
 						cwd={props.pane.cwd}
@@ -66,10 +65,9 @@ export const PaneView = function PaneView(props: {
 						onDirectoryCancel={props.onDirectoryCancel}
 						draggable={props.paneIndex != null && !!props.onHeaderDragStart}
 						onDragStart={handlePaneDragStart}
-						onDragEnd={props.onHeaderDragEnd}
 						ref={handleChatRef}
 					/>
-				</ChatPaneBoundary>
+				</ErrorBoundary>
 			</div>
 		</div>
 	);

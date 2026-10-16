@@ -29,12 +29,15 @@ How Inferay is built. For what the product's concepts mean, read [concepts.md](c
 
 **Contracts.** `scripts/build-presentation.sh` exports Rust types to `build/presentation/contracts` (imported as `@contracts`), builds the presentation crate for `wasm32-unknown-unknown`, runs `wasm-bindgen` and inlines the module so the renderer loads it synchronously. The renderer calls Rust models through one `presentation(op, json)` entry. See [ADR 0001](adr/0001-rust-models-solid-views.md).
 
-Repository status has two query shapes. `/api/git/statuses` returns file lists,
-groups and display metadata for detailed workbenches; `/api/git/summaries` returns
+Commit details read author identity, message and changed files; graph refs and provider metadata stay in the graph/forge queries that consume them. Commit, comparison and working-tree line counts share Git’s NUL-delimited numstat parser. Historical changes combine raw status and numstat in one Git invocation, retaining literal filenames and rename paths.
+
+Repository status has two query shapes. `/api/git/statuses` returns one canonical file list
+and display metadata for detailed workbenches; `/api/git/summaries` returns
 `GitChangeSummary` values keyed by canonical repository path for project navigation.
 Both use the same native Git status and line-count computation, path authorization
-and deduplication. Only the detailed query builds file groups and presentation
-metadata. The core status model owns the summary. Graph preparation computes it
+and deduplication. Only the detailed query builds presentation metadata. The presentation model
+derives staged and unstaged sections from the canonical list; status responses
+do not duplicate file records into groups. The core status model owns the summary. Graph preparation computes it
 once per readable worktree, includes it as `GitWorktree.changeSummary`, and reuses
 it for graph WIP rows. Clean worktrees carry a zero summary; unreadable worktrees
 omit it. This remains available when graph search hides WIP rows.
@@ -92,14 +95,15 @@ returns the ordinary full representation. Unchanged graphs still return 304.
 The renderer applies a delta only to its matching base and keeps unchanged arrays
 and commit objects; failures and cancelled requests never publish a new base.
 This reduces transport and browser reconstruction, not native Git history work.
+Graph presentation includes the maximum commit column; renderer layout sends that scalar and the commit count instead of resending history on resize. History lookups remain independent of geometry, and rendered search rows already belong to the native filtered result. The workbench indexes canonical commit objects once per graph snapshot and shares that lookup with selection reconciliation; retained selections survive filtering but reset across repositories. Resolving selected objects stays in the renderer, without serializing history or worktree status through WASM. Diff prefetch sends only the visible file count and selected index; native adjacency rules return indices into the same file objects.
 
 ## Workspace ownership
 
-The core workspace resolves pane actions by stable pane ID. Selecting, removing or changing a chat does not require the renderer to supply its owning group. The WebAssembly workspace replica owns optimistic selection and acknowledgement rollback; the Solid adapter owns only the request queue and a shared memoized project view. There is no second renderer state setter bypassing that queue.
+The core workspace resolves pane actions by stable pane ID and owns repository/workspace/chat selection rules. Selecting, removing or changing a chat does not require the renderer to supply its owning group. The WebAssembly workspace replica uses those rules with typed, shared snapshots; optimistic edits copy only when necessary, while acknowledged snapshots share ownership. It owns pending intent and acknowledgement rollback; the Solid adapter owns only the request queue and a shared memoized project view. Workspace responses contain the canonical groups and panes once. The presentation model returns visible chat indices into that snapshot; sidebar consumers reference the original pane records. There is no second renderer state setter bypassing that queue.
 
 The chat canvas uses the native grid dock model for layout, pointer placement and scrolling. Panel transitions and optimistic replay use the same typed Rust session. Legacy snapshots are repaired only when read from storage; graph and history display flags are derived rather than persisted. Saved detached document panels still restore, while the unused document-detaching commands and drag controls have been removed. Repository documents and changes remain in the repository workbench; the chat dock has no alternate row layout or auxiliary-panel rendering path. The repository diff rail fills its available area, while the changes sidebar retains its independent resize control.
 
-Native repository commands share the diff engine's `git_exec::command` boundary.
+Native repository and checkpoint commands share the diff engine's Git command boundary.
 On macOS, when the first executable Git on PATH is `/usr/bin/git`, it resolves
 Apple's selected tool with a bounded `xcrun --find git` call and reuses that binary.
 Every call still checks PATH precedence; custom installations, wrappers and
@@ -146,14 +150,16 @@ Everything lives in the profile directory, `~/Library/Application Support/Infera
 | `projects/<id>/` | Managed project files and run directories (`runs/<run>/inputs`, `logs`, `output`) | `project_store.rs`, `project_runtime.rs` |
 | `agent-state.json` | Workspace and panes | `workspace_store.rs` |
 | `client-storage.sqlite3`, `settings.json` | UI preferences, search folders | `client_storage.rs`, `settings_store.rs` |
-| `checkpoints.json` | Checkpoint metadata; file contents go into the repository's Git object store | `checkpoint.rs` |
+| `checkpoints.json` | Checkpoint metadata and changed-file contents; Git repositories retain contents in their object store | `checkpoint.rs` |
 | `agent-context.json`, `mcp-preferences.json`, `mcp-icons.json`, `runtime-pids.json` | Context layers, MCP overrides, icon cache, child-process cleanup | server stores |
 
-Bundled skills ship in the app (`data/prompts.json`). Global custom skills live in `skills.sqlite3`, independently of the project index. On first use, the Skills library imports existing global skill records from `projects.sqlite3`, or the older `prompts.json` when that migration has not happened. The import is transactional and marked once; old sources stay untouched and are never reread after import. Slash commands expand skill chains (`/name`), and `/clear` and `/exit` are handled by the chat connection.
+Workspace persistence returns the core `Workspace` model to internal callers. Title and session mutations save directly without building a JSON snapshot; HTTP workspace reads serialize the model directly, without an intermediate JSON tree; migrations serialize when needed. Every read still validates current file contents, and mutations retain atomic replacement. The HTTP dispatcher owns API authentication and final CORS headers; route errors share the `ApiError` response conversion.
+
+Bundled skills ship in the app (`data/prompts.json`). Global custom skills live in `skills.sqlite3`, independently of the project index. On first use, the Skills library imports existing global skill records from `projects.sqlite3`, or the older `prompts.json` when that migration has not happened. The import is transactional and marked once; old sources stay untouched and are never reread after import. The skill store owns one SQLite connection, initialized when the store opens. Reads query current rows without reopening the database or taking a migration write lock. Slash commands expand skill chains (`/name`), and `/clear` and `/exit` are handled by the chat connection.
 
 ## Projects and automations
 
-- The scheduler (`ProjectRuntime::start`, `project_runtime.rs`) ticks every second: it queues up to 8 due automations, then starts queued runs.
+- The scheduler (`ProjectRuntime::start`, `project_runtime.rs`) checks for queued or due work every second. Idle checks only read SQLite. Active admission loads skills once, queues up to 8 due automations, then starts queued runs; the store owns transactional scheduling and claim checks. Each tick uses one blocking task, releasing the store lock between phases.
 - Admission: 4 operations at once shared with interactive chats, at most 2 of them background runs. One running run per automation.
 - Before a run, `execution_inputs` (`project_index.rs`) captures the current definition, project instructions, selected resources and skills, tool invocation and package file hashes. Approval stores that snapshot’s hash in `automation_state.approved_hash`; queue admission and execution recheck the current snapshot.
 - Tool runs use JSON stdin/stdout by default, or the `cli` interface with literal argument templates, closed stdin and success determined by exit status. Both receive `INFERAY_PROJECT_DIR`, `INFERAY_RUN_ID`, `INFERAY_RUN_OUTPUT`; stdout, stderr and the host-recorded process ID (`process.json`) are retained in run logs. Callers provide reviewed permissions and cancellation checks to the shared runner; it validates inputs and refuses an already-cancelled call before creating execution files. Tool execution owns a process cleanup guard: normal exit, timeout, cancellation, errors and dropped futures release the PID tracker and terminate the private Unix process group. Active leaders also receive process-tree termination. This prevents same-group helpers that ignore SIGTERM from surviving a dropped execution task. Agent runs launch Codex or Claude with the selected skills (without `inferay_projects`) and log to `logs/agent.jsonl`. A finished agent run can be opened as a chat (`project_chat.rs`).

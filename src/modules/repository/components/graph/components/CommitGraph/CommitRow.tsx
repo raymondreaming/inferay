@@ -1,12 +1,11 @@
 import type { GitGraphRef, GitWorktree, GraphCommit } from "@contracts";
 import { runtimeGitGraphLaneColors } from "@design-system/styles.stylex.ts";
-import { ariaValue, domStyle } from "@shared/lib/dom.tsx";
+import { ariaValue, px } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, For } from "solid-js";
 import { CommitGraphCell } from "./CommitGraphCell.tsx";
 import { CommitMessageCell } from "./CommitMessageCell.tsx";
 import { CommitRefGutter } from "./CommitRefGutter.tsx";
-import * as inlineStyles from "./styles.ts";
 import { AVATAR_SIZE, styles } from "./styles.ts";
 import {
 	COLUMN_WIDTH,
@@ -51,7 +50,6 @@ export const CommitRow = function CommitRow(_props: {
 	graphStart: number;
 	widths: ColumnWidths;
 	virtualTop: number;
-	searchMatch: boolean;
 	githubAvatar?: string | null;
 	rowActive: boolean;
 	onRowHover: (itemId: string | null) => void;
@@ -140,18 +138,16 @@ export const CommitRow = function CommitRow(_props: {
 			data-graph-kind={_props.commit.itemKind}
 			data-graph-column={_props.displayColumn}
 			data-history-match={_props.historyMatch ? "true" : "false"}
-			data-search-match={_props.searchMatch ? "true" : "false"}
+			data-search-match="true"
 			tabindex={0}
 			onMouseEnter={() => _props.onRowHover(_props.commit.id)}
 			onMouseLeave={() => _props.onRowHover(null)}
 			class={stylex.attrs(styles.graphRow, styles.virtualRow).class}
-			style={domStyle({
-				...inlineStyles.getCommitRowGraphRowStyle(
-					ROW_HEIGHT,
-					`translateY(${_props.virtualTop}px)`,
-					_props.searchMatch && _props.historyMatch ? 1 : 0.22,
-				),
-			})}
+			style={{
+				height: px(ROW_HEIGHT),
+				transform: `translateY(${_props.virtualTop}px)`,
+				opacity: _props.historyMatch ? 1 : 0.22,
+			}}
 			onClick={(event) =>
 				handleSelect({
 					additive: event.metaKey || event.ctrlKey,
@@ -181,20 +177,19 @@ export const CommitRow = function CommitRow(_props: {
 						data-graph-row-hovered={_props.rowActive ? "true" : "false"}
 						data-graph-row-selected={_props.selected ? "true" : "false"}
 						class={stylex.attrs(styles.nodeAnchoredRowWash).class}
-						style={domStyle(
-							inlineStyles.getCommitRowNodeAnchoredRowWashStyle(
-								nodeAnchoredWashLeft(),
-								0,
-								ROW_HEIGHT,
-								hexToRgba(
-									color(),
-									_props.selected || _props.rowActive ? 0.42 : 0.1,
-								),
+						style={{
+							left: px(nodeAnchoredWashLeft()),
+							top: 0,
+							height: px(ROW_HEIGHT),
+							"background-color": hexToRgba(
+								color(),
+								_props.selected || _props.rowActive ? 0.42 : 0.1,
+							),
+							width:
 								_props.selected || _props.rowActive
 									? `max(0px, calc(100% - ${nodeAnchoredWashLeft()}px))`
-									: Math.max(0, messageStart() - nodeAnchoredWashLeft()),
-							),
-						)}
+									: px(Math.max(0, messageStart() - nodeAnchoredWashLeft())),
+						}}
 					/>
 				)}
 			{
@@ -214,11 +209,9 @@ export const CommitRow = function CommitRow(_props: {
 											<div
 												title={date}
 												class={stylex.attrs(styles.metaCell).class}
-												style={domStyle(
-													inlineStyles.getCommitRowMetaCellStyle(
-														_props.widths.date,
-													),
-												)}
+												style={{
+													width: px(_props.widths.date),
+												}}
 											>
 												{date}
 											</div>
@@ -271,11 +264,9 @@ export const CommitRow = function CommitRow(_props: {
 										return (
 											<div
 												class={stylex.attrs(styles.authorCell).class}
-												style={domStyle(
-													inlineStyles.getCommitRowAuthorCellStyle(
-														_props.widths.author,
-													),
-												)}
+												style={{
+													width: px(_props.widths.author),
+												}}
 											>
 												<span class={stylex.attrs(styles.authorName).class}>
 													{isWip() ? "Workspace" : _props.commit.author}
@@ -289,11 +280,9 @@ export const CommitRow = function CommitRow(_props: {
 													isWip() ? "Uncommitted changes" : _props.commit.hash
 												}
 												class={stylex.attrs(styles.shaCell).class}
-												style={domStyle(
-													inlineStyles.getCommitRowShaCellStyle(
-														_props.widths.sha,
-													),
-												)}
+												style={{
+													width: px(_props.widths.sha),
+												}}
 											>
 												{isWip() ? "" : _props.commit.hash.slice(0, 7)}
 											</div>
@@ -307,7 +296,9 @@ export const CommitRow = function CommitRow(_props: {
 			}
 			<div
 				class={stylex.attrs(styles.rowEndPad).class}
-				style={domStyle(inlineStyles.getCommitRowRowEndPadStyle(TOOLS_WIDTH))}
+				style={{
+					width: px(TOOLS_WIDTH),
+				}}
 			/>
 		</div>
 	);

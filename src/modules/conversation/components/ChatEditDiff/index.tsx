@@ -1,10 +1,9 @@
 import type { NativeChatRender } from "@contracts";
 import { useNearViewport } from "@shared/hooks/useNearViewport.tsx";
-import { assignRef, domStyle } from "@shared/lib/dom.tsx";
+import { assignRef } from "@shared/lib/dom.tsx";
 import { createMemo } from "solid-js";
 import { useNativeEditDiff } from "../../hooks/useNativeEditDiff.tsx";
 import { EditDiffCard } from "./EditDiffCard.tsx";
-import * as inlineStyles from "./styles.ts";
 
 export { MiniEditDiff } from "./MiniEditDiff.tsx";
 
@@ -43,11 +42,10 @@ export function GroupedEditDiff(_props: {
 	return (
 		<div
 			ref={(_element) => assignRef(_source.ref, _element)}
-			style={domStyle(
-				inlineStyles.getGroupedEditDiffDivStyle(
-					showCard() && !_source2.prepared.hasChanges ? 28 : undefined,
-				),
-			)}
+			style={{
+				"min-height":
+					showCard() && !_source2.prepared.hasChanges ? "28px" : undefined,
+			}}
 		>
 			{showCard() && (
 				<EditDiffCard

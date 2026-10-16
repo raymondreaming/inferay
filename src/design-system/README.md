@@ -8,7 +8,7 @@ compatibility exports, or parallel palettes.
 | Theme colors, surface formulas, scene tints, depth effects, global CSS | [styles.css](styles.css) |
 | Typed tokens, shared panel/selection styles, spacing, typography, radius, motion, runtime color values | [styles.stylex.ts](styles.stylex.ts) |
 
-[Appearance settings](../app/hooks/useAppAppearance.tsx) owns selection and persistence,
+[Appearance settings](../modules/settings/hooks/useAppAppearance.tsx) owns selection and persistence,
 not built-in style values. It selects CSS through root data attributes. Only a
 custom image palette writes inline colors, which are cleared when switching
 back to a theme or built-in scene. Settings swatches use the same CSS palettes.
@@ -16,10 +16,8 @@ back to a theme or built-in scene. Settings swatches use the same CSS palettes.
 ## Surface roles
 
 - `color.background`: the page/sidebar.
-- `color.backgroundPanel`: the message box and selected surfaces.
-- `color.backgroundModal`: shared floating surfaces, including Settings, Skills, and menus; opaque black in Black mode and a strong tinted surface in Glass and Scene.
+- `color.backgroundPanel`: message boxes, selected surfaces and shared floating surfaces.
 - `color.backgroundRaised`: menus and raised controls.
-- `color.backgroundSubtle`: the palette's secondary surface.
 
 Black mixes the panel with 45% of the base (about `#181819` in solid mode).
 Black, Scene, and Glass modes resolve these roles in CSS. Floating surfaces blur
@@ -43,7 +41,7 @@ import { selectionAppearance } from "../../../design-system/styles.stylex.ts";
 
 <button
   aria-pressed={selected}
-  {...stylex.props(styles.layout, ...selectionAppearance("sidebar", selected))}
+  {...stylex.attrs(styles.layout, ...selectionAppearance("sidebar", selected))}
 />
 ```
 
@@ -55,7 +53,7 @@ Run `bun run build:renderer`. Check all three background modes and affected sele
 in the browser after visual changes, including initial colors, previews,
 background modes, and clearing custom colors.
 
-The StyleX build hook in `vite.config.ts` fingerprints source files before Vite
-names the CSS asset. Keep this hook: StyleX inserts its final rules after asset
-hashing, and the native server caches asset URLs as immutable. Verify that style-only edits change the stylesheet URL and unchanged sources
-keep it stable.
+Style-only edits must change the compiled stylesheet URL when its contents change,
+since the native server caches asset URLs as immutable. Verify that unchanged
+sources keep it stable. Remove unused typed tokens rather than retaining parallel
+palettes; theme formulas remain in styles.css.

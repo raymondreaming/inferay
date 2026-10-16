@@ -4,7 +4,7 @@ import {
 	surfaceStyles,
 } from "@design-system/styles.stylex.ts";
 import type { RefCell } from "@shared/lib/dom.tsx";
-import { ariaValue, assignRef, domStyle } from "@shared/lib/dom.tsx";
+import { ariaValue, assignRef } from "@shared/lib/dom.tsx";
 import { BorderBeamOverlay } from "@shared/ui/BorderBeamOverlay/index.tsx";
 import { IconButton } from "@shared/ui/IconButton/index.tsx";
 import {
@@ -14,15 +14,7 @@ import {
 	IconStop,
 } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import {
-	createEffect,
-	createMemo,
-	createSignal,
-	type Element,
-	merge,
-	onSettled,
-	Show,
-} from "solid-js";
+import { createEffect, createMemo, createSignal, onSettled } from "solid-js";
 import type { useAgentChatComposerState } from "../../hooks/useAgentChatComposerState.tsx";
 import type { useAgentChatMenus } from "../../hooks/useAgentChatMenus.tsx";
 import type { useSpeechToText } from "../../hooks/useSpeechToText.tsx";
@@ -32,16 +24,13 @@ import { ComposerAttachments } from "./ComposerAttachments.tsx";
 import { ComposerControls } from "./ComposerControls.tsx";
 import { FileMenu } from "./FileMenu.tsx";
 import { MarkdownPreviewDialog } from "./MarkdownPreviewDialog.tsx";
-import { ProviderConfigMenu } from "./ProviderConfigMenu.tsx";
 import { QueuedMessages } from "./QueuedMessages.tsx";
-import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
-import { useAgentConfiguration } from "./useAgentConfiguration.tsx";
 
 export const ChatComposer = function ChatComposer(
 	props: ReturnType<typeof useAgentChatComposerState> &
 		ReturnType<typeof useAgentChatMenus> &
-		ReturnType<Parameters<typeof useAgentConfiguration>[0]> & {
+		Parameters<typeof ComposerControls>[0] & {
 			active?: boolean;
 			input: string;
 			setInput: (value: string) => void;
@@ -49,14 +38,9 @@ export const ChatComposer = function ChatComposer(
 			textareaRef: RefCell<HTMLTextAreaElement | null>;
 			highlightOverlayRef: RefCell<HTMLDivElement | null>;
 			voiceInput?: ReturnType<typeof useSpeechToText>;
-			workspaceControl?: Element;
 			beamActive?: boolean;
 		},
 ) {
-	const view = merge(
-		props,
-		useAgentConfiguration(() => props),
-	);
 	const [messageInputFocused, setMessageInputFocused] = createSignal(false);
 	const usePlainTextarea = createMemo(() => props.input.length > 6000);
 	let fileInput: HTMLInputElement | undefined;
@@ -103,12 +87,12 @@ export const ChatComposer = function ChatComposer(
 					const files = Array.from(input.files || []).filter((file) =>
 						file.type.startsWith("image/"),
 					);
-					await Promise.all(files.map((file) => view.attachImage(file)));
+					await Promise.all(files.map((file) => props.attachImage(file)));
 					input.value = "";
 				}}
 			/>
 
-			{view.attachedImages.length > 0 && <ComposerAttachments {...view} />}
+			{props.attachedImages.length > 0 && <ComposerAttachments {...props} />}
 
 			{
 				<div
@@ -120,13 +104,13 @@ export const ChatComposer = function ChatComposer(
 						{...stylex.attrs(surfaceStyles.panel, styles.inputFrame)}
 					>
 						<BorderBeamOverlay
-							active={view.beamActive || messageInputFocused()}
+							active={props.beamActive || messageInputFocused()}
 						/>
-						{view.fileMenu.show && view.fileResults.length > 0 && (
-							<FileMenu {...view} />
+						{props.fileMenu.show && props.fileResults.length > 0 && (
+							<FileMenu {...props} />
 						)}
-						{view.showCommands && <CommandMenu {...view} />}
-						{view.queuedMessages.length > 0 && <QueuedMessages {...view} />}
+						{props.showCommands && <CommandMenu {...props} />}
+						{props.queuedMessages.length > 0 && <QueuedMessages {...props} />}
 
 						<div {...stylex.attrs(styles.inputRow)}>
 							<div {...stylex.attrs(styles.inputActions)}>
@@ -140,44 +124,44 @@ export const ChatComposer = function ChatComposer(
 								>
 									<IconPlus size={iconSize.xl} />
 								</IconButton>
-								{view.voiceInput && (
+								{props.voiceInput && (
 									<IconButton
 										type="button"
-										onClick={view.voiceInput.toggleListening}
+										onClick={props.voiceInput.toggleListening}
 										variant="ghost"
 										size="md"
 										class={
 											stylex.attrs(
 												styles.noShrink,
-												view.voiceInput.isListening &&
+												props.voiceInput.isListening &&
 													styles.voiceButtonListening,
-												!view.voiceInput.isListening && view.voiceInput.error
+												!props.voiceInput.isListening && props.voiceInput.error
 													? styles.voiceButtonError
 													: null,
 											).class
 										}
 										title={
-											view.voiceInput.error && !view.voiceInput.isListening
-												? view.voiceInput.error
-												: view.voiceInput.isSupported
-													? view.voiceInput.isListening
+											props.voiceInput.error && !props.voiceInput.isListening
+												? props.voiceInput.error
+												: props.voiceInput.isSupported
+													? props.voiceInput.isListening
 														? "Stop voice input"
 														: "Start voice input"
 													: "Voice input is not supported in this browser"
 										}
 										aria-label={ariaValue(
-											view.voiceInput.isListening
+											props.voiceInput.isListening
 												? "Stop voice input"
-												: view.voiceInput.error
-													? view.voiceInput.error
+												: props.voiceInput.error
+													? props.voiceInput.error
 													: "Start voice input",
 										)}
-										aria-pressed={ariaValue(view.voiceInput.isListening)}
-										disabled={!view.voiceInput.isSupported}
+										aria-pressed={ariaValue(props.voiceInput.isListening)}
+										disabled={!props.voiceInput.isSupported}
 									>
-										{view.voiceInput.isListening ? (
+										{props.voiceInput.isListening ? (
 											<IconStop size={iconSize._2md} />
-										) : view.voiceInput.error ? (
+										) : props.voiceInput.error ? (
 											<IconAlertTriangle size={iconSize._2lg} />
 										) : (
 											<IconMic size={iconSize.xl} />
@@ -188,50 +172,52 @@ export const ChatComposer = function ChatComposer(
 
 							<div
 								{...stylex.attrs(styles.textAreaWrap)}
-								style={domStyle(
-									inlineStyles.getChatComposerTextAreaWrapStyle(),
-								)}
+								style={{
+									"max-height": "120px",
+								}}
 							>
 								{!usePlainTextarea() && (
 									<div
 										ref={(_element2) =>
-											assignRef(view.highlightOverlayRef, _element2)
+											assignRef(props.highlightOverlayRef, _element2)
 										}
 										{...stylex.attrs(styles.highlightOverlay)}
-										style={domStyle(
-											inlineStyles.getChatComposerHighlightOverlayStyle(),
-										)}
+										style={{
+											"line-height": "20px",
+											"word-break": "break-word",
+											"overflow-wrap": "break-word",
+										}}
 										aria-hidden="true"
 									>
 										<InputHighlights
-											text={view.input}
-											slashCommandNames={view.slashCommandNames}
+											text={props.input}
+											slashCommandNames={props.slashCommandNames}
 										/>
 									</div>
 								)}
 								<textarea
 									data-chat-composer
 									ref={textarea}
-									value={view.input}
+									value={props.input}
 									onFocus={() => setMessageInputFocused(true)}
 									onBlur={() => setMessageInputFocused(false)}
 									onInput={(e) => {
 										const val = e.currentTarget.value;
-										view.setInput(val);
+										props.setInput(val);
 										const cursor = e.currentTarget.selectionStart ?? val.length;
-										view.handleInputForFileMenu(val, cursor);
-										view.handleInputForSlashMenu(val, cursor);
-										if (view.highlightOverlayRef.current) {
-											view.highlightOverlayRef.current.style.transform = `translateY(-${e.currentTarget.scrollTop}px)`;
+										props.handleInputForFileMenu(val, cursor);
+										props.handleInputForSlashMenu(val, cursor);
+										if (props.highlightOverlayRef.current) {
+											props.highlightOverlayRef.current.style.transform = `translateY(-${e.currentTarget.scrollTop}px)`;
 										}
 									}}
 									onScroll={(e) => {
-										if (view.highlightOverlayRef.current) {
-											view.highlightOverlayRef.current.style.transform = `translateY(-${e.currentTarget.scrollTop}px)`;
+										if (props.highlightOverlayRef.current) {
+											props.highlightOverlayRef.current.style.transform = `translateY(-${e.currentTarget.scrollTop}px)`;
 										}
 									}}
-									onKeyDown={view.handleKeyDown}
-									onPaste={view.handlePaste}
+									onKeyDown={props.handleKeyDown}
+									onPaste={props.handlePaste}
 									placeholder="Message… (/ commands, @ files)"
 									rows={1}
 									aria-label="Message input"
@@ -239,31 +225,28 @@ export const ChatComposer = function ChatComposer(
 									autocorrect="on"
 									autocapitalize="sentences"
 									{...stylex.attrs(styles.textarea)}
-									style={domStyle(
-										inlineStyles.getChatComposerTextareaStyle(
-											usePlainTextarea()
-												? runtimeColor.textMain
-												: "transparent",
-											usePlainTextarea()
-												? runtimeColor.textMain
-												: "transparent",
-										),
-									)}
+									style={{
+										"min-height": "20px",
+										color: usePlainTextarea()
+											? runtimeColor.textMain
+											: "transparent",
+										"caret-color": runtimeColor.textMain,
+										"-webkit-text-fill-color": usePlainTextarea()
+											? runtimeColor.textMain
+											: "transparent",
+										"line-height": "20px",
+										"word-break": "break-word",
+										"overflow-wrap": "break-word",
+									}}
 								/>
 							</div>
 						</div>
-						<ComposerControls {...view} />
+						<ComposerControls {...props} />
 					</div>
 				</div>
 			}
 
-			<Show when={view.activeControl}>
-				{(control) => (
-					<ProviderConfigMenu {...view} activeControl={control()} />
-				)}
-			</Show>
-
-			{view.mdPreview.show && <MarkdownPreviewDialog {...view} />}
+			{props.mdPreview.show && <MarkdownPreviewDialog {...props} />}
 		</>
 	);
 };

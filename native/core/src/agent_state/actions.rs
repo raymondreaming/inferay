@@ -1,5 +1,5 @@
 //! Workspace transitions have no HTTP, filesystem, or renderer dependencies.
-use super::{Group, Pane, Workspace, repository_path};
+use super::{Group, Pane, Workspace, WorkspaceSelection, repository_path};
 use crate::workspace_action::AgentWorkspaceAction;
 
 impl Workspace {
@@ -44,6 +44,34 @@ impl Workspace {
         Ok(())
     }
 
+    /// Returns whether the visible selection changed. Stale targets leave it intact.
+    pub fn select(&mut self, selection: &WorkspaceSelection) -> bool {
+        let Some(group) = self
+            .groups
+            .iter_mut()
+            .find(|group| group.id == selection.group_id)
+        else {
+            return false;
+        };
+        if selection
+            .pane_id
+            .as_ref()
+            .is_some_and(|id| !group.panes.iter().any(|pane| &pane.id == id))
+        {
+            return false;
+        }
+        let changed = self.selected_group_id != selection.group_id
+            || selection
+                .pane_id
+                .as_ref()
+                .is_some_and(|id| group.selected_pane_id.as_ref() != Some(id));
+        if let Some(pane) = &selection.pane_id {
+            group.selected_pane_id = Some(pane.clone());
+        }
+        self.selected_group_id.clone_from(&selection.group_id);
+        changed
+    }
+
     pub fn apply_action(
         &mut self,
         action: &AgentWorkspaceAction,
@@ -59,51 +87,17 @@ impl Workspace {
                 )?;
             }
 
-            SelectRepository { cwd } => {
-                let target = self
-                    .groups
-                    .iter()
-                    .flat_map(|group| {
-                        group
-                            .panes
-                            .iter()
-                            .filter(move |pane| {
-                                pane.cwd
-                                    .as_deref()
-                                    .is_some_and(|path| repository_path(path) == cwd)
-                            })
-                            .map(move |pane| (group, pane))
-                    })
-                    .min_by_key(|(group, pane)| {
-                        if group.id == self.selected_group_id {
-                            0
-                        } else if group.selected_pane_id.as_deref() == Some(&pane.id) {
-                            1
-                        } else {
-                            2
-                        }
-                    })
-                    .map(|(_, pane)| SelectPane {
-                        pane_id: pane.id.clone(),
-                    });
-                if let Some(target) = target {
-                    self.apply_action(&target, default_kind)?;
+            SelectRepository { .. } | SelectWorkspace { .. } | SelectPane { .. } => {
+                if let Some(selection) = self.selection_for(action) {
+                    self.select(&selection);
+                    self.compact();
+                } else {
+                    match action {
+                        SelectWorkspace { .. } => return Err("Workspace not found".into()),
+                        SelectPane { .. } => return Err("Pane not found".into()),
+                        _ => {}
+                    }
                 }
-            }
-            SelectWorkspace { group_id } => {
-                self.group(group_id)?;
-                self.selected_group_id = group_id.clone();
-                self.compact();
-            }
-            SelectPane { pane_id } => {
-                let group = self
-                    .groups
-                    .iter_mut()
-                    .find(|group| group.panes.iter().any(|pane| &pane.id == pane_id))
-                    .ok_or("Pane not found")?;
-                group.selected_pane_id = Some(pane_id.clone());
-                self.selected_group_id = group.id.clone();
-                self.compact();
             }
             AddWorkspace => {
                 self.compact();
@@ -168,12 +162,6 @@ impl Workspace {
                         *target = *value;
                     }
                 }
-            }
-            SetTheme { theme_id } => {
-                if !matches!(theme_id.as_str(), "default" | "midnight") {
-                    return Err("Unknown themeId".into());
-                }
-                self.theme_id = theme_id.clone();
             }
             DirectorySelected {
                 pane_id,

@@ -2,60 +2,48 @@ import { Modal } from "@shared/ui/Modal/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { For } from "solid-js";
 import { styles } from "./styles.ts";
-import type { useChatDiffPanelState } from "./useChatDiffPanelState.tsx";
+import type { useGitOperations } from "./useGitOperations.tsx";
 
-export function GraphActionDialog(
-	_props: Pick<
-		ReturnType<typeof useChatDiffPanelState>,
-		| "graphActionRunning"
-		| "setPendingGraphAction"
-		| "graphActionName"
-		| "setGraphActionName"
-		| "graphActionMessage"
-		| "setGraphActionMessage"
-		| "graphActionResult"
-		| "runGraphAction"
-	> & {
-		returnFocus: () => HTMLElement | null | undefined;
-		pendingGraphAction: NonNullable<
-			ReturnType<typeof useChatDiffPanelState>["pendingGraphAction"]
-		>;
-	} & {
-		pendingGraphActionPresentation: NonNullable<
-			ReturnType<typeof useChatDiffPanelState>["pendingGraphActionPresentation"]
-		>;
-	},
-) {
+export function GraphActionDialog(props: {
+	operations: ReturnType<typeof useGitOperations>;
+	returnFocus: () => HTMLElement | null | undefined;
+	pendingGraphAction: NonNullable<
+		ReturnType<typeof useGitOperations>["state"]["pendingGraphAction"]
+	>;
+	pendingGraphActionPresentation: NonNullable<
+		ReturnType<ReturnType<typeof useGitOperations>["presentation"]>
+	>;
+}) {
+	const operations = props.operations;
+	const { state } = operations;
 	return (
 		<Modal
-			label={_props.pendingGraphActionPresentation.title}
+			label={props.pendingGraphActionPresentation.title}
 			onClose={() => {
-				if (!_props.graphActionRunning) _props.setPendingGraphAction(null);
+				if (!state.graphActionRunning)
+					operations.update({ pendingGraphAction: null });
 			}}
-			closeDisabled={_props.graphActionRunning}
-			returnFocus={_props.returnFocus}
+			closeDisabled={state.graphActionRunning}
+			returnFocus={props.returnFocus}
 			class={stylex.attrs(styles.refActionDialog).class}
 		>
 			<strong {...stylex.attrs(styles.refActionTitle)}>
-				{_props.pendingGraphActionPresentation.title}
+				{props.pendingGraphActionPresentation.title}
 			</strong>
 			<p {...stylex.attrs(styles.refActionCopy)}>
-				{_props.pendingGraphActionPresentation.copy}
-				{_props.pendingGraphAction.target ? (
+				{props.pendingGraphActionPresentation.copy}
+				{props.pendingGraphAction.target ? (
 					<>
 						{" "}
-						Target <code>{_props.pendingGraphAction.target}</code>.
+						Target <code>{props.pendingGraphAction.target}</code>.
 					</>
 				) : null}
-				{_props.pendingGraphAction.targets?.length ? (
+				{props.pendingGraphAction.targets?.length ? (
 					<>
 						{" "}
 						Apply oldest to newest:{" "}
 						{
-							<For
-								each={_props.pendingGraphAction.targets}
-								keyed={(row) => row}
-							>
+							<For each={props.pendingGraphAction.targets} keyed={(row) => row}>
 								{(target, index) => (
 									<code>
 										{index() ? " → " : ""}
@@ -67,46 +55,48 @@ export function GraphActionDialog(
 					</>
 				) : null}
 			</p>
-			{_props.pendingGraphActionPresentation.needsName ? (
+			{props.pendingGraphActionPresentation.needsName ? (
 				<label {...stylex.attrs(styles.graphActionField)}>
 					<span>
-						{_props.pendingGraphActionPresentation.nameLabel ?? "Name"}
+						{props.pendingGraphActionPresentation.nameLabel ?? "Name"}
 					</span>
 					<input
-						value={_props.graphActionName}
+						value={state.graphActionName}
 						onInput={(event) =>
-							_props.setGraphActionName(event.currentTarget.value)
+							operations.update({ graphActionName: event.currentTarget.value })
 						}
 						{...stylex.attrs(styles.graphActionInput)}
 					/>
 				</label>
 			) : null}
-			{_props.pendingGraphActionPresentation.messageLabel ? (
+			{props.pendingGraphActionPresentation.messageLabel ? (
 				<label {...stylex.attrs(styles.graphActionField)}>
-					<span>{_props.pendingGraphActionPresentation.messageLabel}</span>
+					<span>{props.pendingGraphActionPresentation.messageLabel}</span>
 					<textarea
 						rows={2}
-						value={_props.graphActionMessage}
+						value={state.graphActionMessage}
 						onInput={(event) =>
-							_props.setGraphActionMessage(event.currentTarget.value)
+							operations.update({
+								graphActionMessage: event.currentTarget.value,
+							})
 						}
 						{...stylex.attrs(styles.graphActionInput)}
 					/>
 				</label>
 			) : null}
-			{_props.graphActionResult?.error ? (
+			{state.graphActionResult?.error ? (
 				<p {...stylex.attrs(styles.refActionError)}>
 					<strong>
-						{_props.graphActionResult.errorLabel ?? "Git command failed"}:
+						{state.graphActionResult.errorLabel ?? "Git command failed"}:
 					</strong>{" "}
-					{_props.graphActionResult.error}
+					{state.graphActionResult.error}
 				</p>
 			) : null}
 			<div {...stylex.attrs(styles.refActionButtons)}>
 				<button
 					type="button"
-					disabled={_props.graphActionRunning}
-					onClick={() => _props.setPendingGraphAction(null)}
+					disabled={state.graphActionRunning}
+					onClick={() => operations.update({ pendingGraphAction: null })}
 					{...stylex.attrs(styles.refActionSecondary)}
 				>
 					Cancel
@@ -114,20 +104,20 @@ export function GraphActionDialog(
 				<button
 					type="button"
 					disabled={
-						_props.graphActionRunning ||
-						(_props.pendingGraphActionPresentation.needsName &&
-							!_props.graphActionName.trim())
+						state.graphActionRunning ||
+						(props.pendingGraphActionPresentation.needsName &&
+							!state.graphActionName.trim())
 					}
-					onClick={_props.runGraphAction}
+					onClick={operations.runGraphAction}
 					{...stylex.attrs(
-						_props.pendingGraphActionPresentation.danger
+						props.pendingGraphActionPresentation.danger
 							? styles.graphActionDanger
 							: styles.refActionPrimary,
 					)}
 				>
-					{_props.graphActionRunning
+					{state.graphActionRunning
 						? "Working…"
-						: _props.pendingGraphActionPresentation.confirm}
+						: props.pendingGraphActionPresentation.confirm}
 				</button>
 			</div>
 		</Modal>

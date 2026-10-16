@@ -1,5 +1,6 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import type { MdBlock } from "../../build/presentation/contracts/MdBlock.ts";
+import { MarkdownCursor } from "../../src/shared/lib/native.tsx";
 import { nativeMarkdownStream } from "../../src/shared/services/markdownApi.ts";
 
 const block = (content: string): MdBlock => ({
@@ -37,6 +38,7 @@ test("an old request resolving after a replacement cannot overwrite the current 
 	);
 	expect(requests[2].append).toBe("!");
 	expect(requests[2].streamId).toBe(requests[1].streamId);
+	client.dispose();
 });
 
 test("cancellation after native completion cannot commit an unobserved cursor", async () => {
@@ -61,6 +63,7 @@ test("cancellation after native completion cannot commit an unobserved cursor", 
 	);
 	expect(requests[1].text).toBe("lost and found");
 	expect(requests[1].streamId).not.toBe(requests[0].streamId);
+	client.dispose();
 });
 
 test("code appends retain earlier blocks and finalize with a normal replacement", async () => {
@@ -91,4 +94,45 @@ test("code appends retain earlier blocks and finalize with a normal replacement"
 	const final = await client.prepare("```rust\na🙂\n```", false, true, signal);
 	expect(final.blocks).toEqual(appended.blocks);
 	expect(client.active).toBe(false);
+});
+
+test("cursor cleanup is lazy, idempotent, and waits for overlapping reads", async () => {
+	const free = spyOn(MarkdownCursor.prototype, "free");
+	try {
+		const idle = nativeMarkdownStream();
+		idle.dispose();
+		expect(free).not.toHaveBeenCalled();
+		const first = Promise.withResolvers<Response>();
+		const second = Promise.withResolvers<Response>();
+		let calls = 0;
+		const client = nativeMarkdownStream(() =>
+			++calls === 1 ? first.promise : second.promise,
+		);
+		const signal = new AbortController().signal;
+		const old = client.prepare("old", true, true, signal);
+		const fresh = client.prepare("new", true, true, signal);
+		client.dispose();
+		expect(client.active).toBe(false);
+		expect(free).not.toHaveBeenCalled();
+		second.resolve(reply(true, 1, [block("new")]));
+		expect((await fresh).blocks).toEqual([block("new")]);
+		expect(free).not.toHaveBeenCalled();
+		first.resolve(reply(true, 1, [block("old")]));
+		expect((await old).blocks).toEqual([block("old")]);
+		expect(free).toHaveBeenCalledTimes(1);
+		client.dispose();
+		await expect(client.prepare("closed", true, true, signal)).rejects.toThrow(
+			"disposed",
+		);
+		expect(free).toHaveBeenCalledTimes(1);
+		const final = nativeMarkdownStream(async () =>
+			reply(true, 1, [block("done")]),
+		);
+		await final.prepare("done", false, true, signal);
+		expect(free).toHaveBeenCalledTimes(2);
+		final.dispose();
+		expect(free).toHaveBeenCalledTimes(2);
+	} finally {
+		free.mockRestore();
+	}
 });

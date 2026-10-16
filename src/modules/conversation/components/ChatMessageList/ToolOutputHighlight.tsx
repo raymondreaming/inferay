@@ -1,21 +1,21 @@
-import type { ToolOutputSummary } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, Match, Switch } from "solid-js";
 import type { ChatMessage } from "../AgentChatView/useChatConnection.tsx";
 import { styles } from "./styles.ts";
 export function ToolOutputHighlight(_props: {
 	content: string;
-	showOutput?: boolean;
 	render?: ChatMessage["render"];
 }) {
-	const summary = createMemo(() =>
-		getToolOutputSummary(_props.content, _props.render?.summary),
+	const summary = createMemo(
+		() =>
+			_props.render?.summary ?? {
+				type: "text" as const,
+				value: _props.content,
+			},
 	);
 	const trailingOutput = createMemo(() =>
-		(_props.showOutput === undefined ? true : _props.showOutput)
-			? _props.render?.outputStart !== undefined
-				? _props.content.slice(_props.render.outputStart)
-				: ""
+		_props.render?.outputStart !== undefined
+			? _props.content.slice(_props.render.outputStart)
 			: "",
 	);
 	return (
@@ -55,16 +55,5 @@ export function ToolOutputHighlight(_props: {
 				</>
 			)}
 		</>
-	);
-}
-function getToolOutputSummary(
-	content: string,
-	nativeSummary?: ToolOutputSummary | null,
-): ToolOutputSummary {
-	return (
-		nativeSummary ?? {
-			type: "text",
-			value: content,
-		}
 	);
 }

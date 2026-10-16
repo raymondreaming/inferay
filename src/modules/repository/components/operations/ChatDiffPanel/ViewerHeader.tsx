@@ -1,5 +1,8 @@
+import type { DiffViewMode } from "@contracts";
 import { iconSize } from "@design-system/styles.stylex.ts";
 import { FileTypeIcon } from "@explorer/components/FileTypeIcon/index.tsx";
+import type { SelectedFile } from "@repository/components/changes/components/ChangesPanel/index.tsx";
+import type { useGitDiff } from "@repository/hooks/useGitDiff.tsx";
 import { ariaValue } from "@shared/lib/dom.tsx";
 import {
 	IconArrowDown,
@@ -14,53 +17,50 @@ import { Dynamic } from "@solidjs/web";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo } from "solid-js";
 import { styles } from "./styles.ts";
-import type { useChatDiffPanelState } from "./useChatDiffPanelState.tsx";
+import type { useGitOperations } from "./useGitOperations.tsx";
 
-export function ViewerHeader(
-	_props: Pick<
-		ReturnType<typeof useChatDiffPanelState>,
-		| "mainViewMode"
-		| "branch"
-		| "file"
-		| "stats"
-		| "graphActionRunning"
-		| "requestGraphAction"
-		| "onMainViewModeChange"
-		| "onViewModeChange"
-		| "viewMode"
-		| "onToggleZenMode"
-		| "zenMode"
-		| "onClose"
-		| "closeLabel"
-	>,
-) {
+export function ViewerHeader(props: {
+	readonly mainViewMode: "diff" | "graph";
+	readonly branch?: string;
+	readonly file: SelectedFile | null;
+	readonly diff: ReturnType<typeof useGitDiff>["diff"];
+	readonly operations: ReturnType<typeof useGitOperations>;
+	readonly onMainViewModeChange: (mode: "diff" | "graph") => void;
+	readonly viewMode: DiffViewMode;
+	readonly onViewModeChange: (mode: DiffViewMode) => void;
+	readonly zenMode: boolean;
+	readonly onToggleZenMode: () => void;
+	readonly onClose: () => void;
+	readonly closeLabel: string;
+}) {
+	const stats = () => props.diff?.metadata?.stats;
 	return (
 		<header {...stylex.attrs(styles.viewerHeader, styles.viewerHeaderTop)}>
-			{_props.mainViewMode === "graph" && (
-				<span title={_props.branch} {...stylex.attrs(styles.graphTitle)}>
+			{props.mainViewMode === "graph" && (
+				<span title={props.branch} {...stylex.attrs(styles.graphTitle)}>
 					<IconGitBranch size={iconSize.compact} />
-					{_props.branch || "Commit graph"}
+					{props.branch || "Commit graph"}
 				</span>
 			)}
-			{_props.mainViewMode === "diff" && _props.file ? (
-				<DiffFilePath path={_props.file.path} />
+			{props.mainViewMode === "diff" && props.file ? (
+				<DiffFilePath path={props.file.path} />
 			) : null}
-			{_props.mainViewMode === "diff" &&
-			(_props.stats.added > 0 || _props.stats.removed > 0) ? (
+			{props.mainViewMode === "diff" &&
+			((stats()?.added ?? 0) > 0 || (stats()?.removed ?? 0) > 0) ? (
 				<span {...stylex.attrs(styles.viewerStats)}>
-					{_props.stats.added > 0 ? (
+					{(stats()?.added ?? 0) > 0 ? (
 						<span {...stylex.attrs(styles.viewerAdded)}>
-							+{_props.stats.added}
+							+{stats()?.added ?? 0}
 						</span>
 					) : null}
-					{_props.stats.removed > 0 ? (
+					{(stats()?.removed ?? 0) > 0 ? (
 						<span {...stylex.attrs(styles.viewerRemoved)}>
-							-{_props.stats.removed}
+							-{stats()?.removed ?? 0}
 						</span>
 					) : null}
 				</span>
 			) : null}
-			{_props.mainViewMode === "graph" ? (
+			{props.mainViewMode === "graph" ? (
 				<div {...stylex.attrs(styles.graphSyncActions)}>
 					{(["fetch", "pull", "push"] as const).map((action) => {
 						const ActionIcon = createMemo(() =>
@@ -71,9 +71,9 @@ export function ViewerHeader(
 						return (
 							<button
 								type="button"
-								disabled={_props.graphActionRunning}
+								disabled={props.operations.state.graphActionRunning}
 								onClick={() =>
-									_props.requestGraphAction({
+									props.operations.requestGraphAction({
 										action,
 										itemId: "repository",
 									})
@@ -93,14 +93,14 @@ export function ViewerHeader(
 					})}
 				</div>
 			) : null}
-			{_props.mainViewMode !== "graph" ? (
+			{props.mainViewMode !== "graph" ? (
 				<>
 					<span {...stylex.attrs(styles.viewerFloatingDivider)} />
 					<div {...stylex.attrs(styles.viewerModes)}>
 						{(["split", "hunks"] as const).map((mode) => {
 							const select = () => {
-								_props.onMainViewModeChange("diff");
-								_props.onViewModeChange(mode);
+								props.onMainViewModeChange("diff");
+								props.onViewModeChange(mode);
 							};
 							const label = mode === "split" ? "Full file diff" : "Hunk view";
 							return (
@@ -116,7 +116,7 @@ export function ViewerHeader(
 									aria-label={label}
 									{...stylex.attrs(
 										styles.viewerModeButton,
-										_props.viewMode === mode && styles.viewerModeButtonActive,
+										props.viewMode === mode && styles.viewerModeButtonActive,
 									)}
 								>
 									<Dynamic
@@ -133,44 +133,44 @@ export function ViewerHeader(
 			) : null}
 			<button
 				type="button"
-				onClick={_props.onToggleZenMode}
+				onClick={props.onToggleZenMode}
 				title={
-					_props.zenMode
+					props.zenMode
 						? "Restore chats (Esc)"
-						: _props.mainViewMode === "graph"
+						: props.mainViewMode === "graph"
 							? "Expand commit graph"
 							: "Expand diff"
 				}
 				aria-label={
-					_props.zenMode
+					props.zenMode
 						? "Restore chats"
-						: _props.mainViewMode === "graph"
+						: props.mainViewMode === "graph"
 							? "Expand commit graph"
 							: "Expand diff"
 				}
-				aria-pressed={ariaValue(_props.zenMode)}
+				aria-pressed={ariaValue(props.zenMode)}
 				{...stylex.attrs(
 					styles.viewerModeButton,
-					_props.zenMode && styles.viewerModeButtonActive,
+					props.zenMode && styles.viewerModeButtonActive,
 				)}
 			>
-				{_props.zenMode ? (
+				{props.zenMode ? (
 					<IconCollapse size={iconSize.compact} />
 				) : (
 					<IconExpand size={iconSize.compact} />
 				)}
 			</button>
-			{_props.mainViewMode !== "graph" ? (
+			{props.mainViewMode !== "graph" ? (
 				<button
 					type="button"
 					onPointerDown={(event) => {
-						if (event.button === 0 && event.isPrimary) _props.onClose();
+						if (event.button === 0 && event.isPrimary) props.onClose();
 					}}
 					onClick={(event) => {
-						if (event.detail === 0) _props.onClose();
+						if (event.detail === 0) props.onClose();
 					}}
-					title={_props.closeLabel}
-					aria-label={ariaValue(_props.closeLabel)}
+					title={props.closeLabel}
+					aria-label={ariaValue(props.closeLabel)}
 					{...stylex.attrs(styles.viewerClose)}
 				>
 					<IconX size={iconSize.xs} />

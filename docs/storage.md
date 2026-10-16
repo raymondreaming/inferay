@@ -43,6 +43,8 @@ Inferay/
 └── checkpoints.json, mcp-*.json, …   see architecture.md
 ```
 
+Workspace groups, panes, selection and repository order live in `agent-state.json`. Appearance preferences belong only to `client-storage.sqlite3`; obsolete workspace theme, font and opacity fields are ignored when older workspace files are read.
+
 ## The databases
 
 ### `client-storage.sqlite3`

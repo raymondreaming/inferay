@@ -1,6 +1,6 @@
+import type { MemoryGraphNode } from "@contracts";
 import {
 	deleteMemoryItem,
-	type MemoryGraphNode,
 	readMemoryNote,
 } from "@shared/services/memoryApi.ts";
 import { Button } from "@shared/ui/Button/index.tsx";

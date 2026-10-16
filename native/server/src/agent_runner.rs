@@ -444,7 +444,7 @@ async fn run_claude(
     }
     let exit = child.wait().await;
     handle.set_pid(None);
-    let stderr = stderr.await.unwrap_or_default().trim().to_string();
+    let stderr = stderr.await.unwrap_or_default().0.trim().to_string();
     if !exit.as_ref().is_ok_and(std::process::ExitStatus::success)
         && !stderr.is_empty()
         && !handle.is_cancelled()
@@ -1084,7 +1084,7 @@ async fn finish_codex_child(
     pid: Option<u32>,
     handle: &AgentProcessHandle,
     tracker: &RuntimePidTracker,
-    stderr: tokio::task::JoinHandle<String>,
+    stderr: tokio::task::JoinHandle<(String, Option<std::io::Error>)>,
     protocol: (
         &mut AgentProtocolContext,
         &mut CodexProtocolState,
@@ -1102,7 +1102,7 @@ async fn finish_codex_child(
         tracker.untrack_pid(pid);
     }
     handle.set_pid(None);
-    let stderr = stderr.await.unwrap_or_default().trim().to_string();
+    let stderr = stderr.await.unwrap_or_default().0.trim().to_string();
     state.clear_live_diff_state();
     state.finalize_open_block(context);
     if !exit.as_ref().is_ok_and(std::process::ExitStatus::success)
@@ -1160,64 +1160,44 @@ pub(crate) fn spawn_direct(
         .spawn()
 }
 
-async fn drain_bounded(mut stream: impl AsyncRead + Unpin) -> String {
-    let mut text = String::new();
-    let mut buffer = [0_u8; 8192];
+/// Drain diagnostics without retaining the entire stream. Return the tail even
+/// on read failure so each caller can preserve its own error-reporting policy.
+pub(crate) async fn drain_bounded(
+    mut stream: impl AsyncRead + Unpin,
+) -> (String, Option<std::io::Error>) {
+    let mut tail = std::collections::VecDeque::new();
     let mut pending = Vec::new();
+    let mut buffer = [0_u8; 8192];
     loop {
-        match stream.read(&mut buffer).await {
-            Ok(0) | Err(_) => break,
-            Ok(read) => {
-                pending.extend_from_slice(&buffer[..read]);
-                decode_utf8_stream(&mut pending, &mut text, false);
-                text = tail_javascript_chars(&text, MAX_STREAM_CHARS);
+        let (read, error) = match stream.read(&mut buffer).await {
+            Ok(read) => (read, None),
+            Err(error) => (0, Some(error)),
+        };
+        pending.extend_from_slice(&buffer[..read]);
+        let mut consumed = 0;
+        for chunk in pending.utf8_chunks() {
+            consumed += chunk.valid().len();
+            // Keep an incomplete final code point for the next read. Invalid
+            // sequences elsewhere, or at EOF, use the normal lossy replacement.
+            let incomplete = read > 0
+                && consumed + chunk.invalid().len() == pending.len()
+                && std::str::from_utf8(chunk.invalid())
+                    .is_err_and(|error| error.error_len().is_none());
+            tail.extend(chunk.valid().encode_utf16());
+            if !incomplete && !chunk.invalid().is_empty() {
+                tail.push_back(0xfffd);
             }
+            if incomplete {
+                break;
+            }
+            consumed += chunk.invalid().len();
+        }
+        pending.drain(..consumed);
+        tail.drain(..tail.len().saturating_sub(MAX_STREAM_CHARS));
+        if read == 0 {
+            return (String::from_utf16_lossy(tail.make_contiguous()), error);
         }
     }
-    decode_utf8_stream(&mut pending, &mut text, true);
-    text = tail_javascript_chars(&text, MAX_STREAM_CHARS);
-    text
-}
-
-fn decode_utf8_stream(pending: &mut Vec<u8>, output: &mut String, end: bool) {
-    loop {
-        match std::str::from_utf8(pending) {
-            Ok(valid) => {
-                output.push_str(valid);
-                pending.clear();
-                return;
-            }
-            Err(error) => {
-                let valid = error.valid_up_to();
-                if valid > 0 {
-                    output.push_str(
-                        std::str::from_utf8(&pending[..valid]).expect("validated prefix"),
-                    );
-                    pending.drain(..valid);
-                }
-                match error.error_len() {
-                    Some(length) => {
-                        output.push('\u{fffd}');
-                        pending.drain(..length);
-                    }
-                    None if end => {
-                        output.push_str(&String::from_utf8_lossy(pending));
-                        pending.clear();
-                        return;
-                    }
-                    None => return,
-                }
-            }
-        }
-    }
-}
-
-pub(crate) fn tail_javascript_chars(value: &str, max_units: usize) -> String {
-    let units = value.encode_utf16().collect::<Vec<_>>();
-    if units.len() <= max_units {
-        return value.into();
-    }
-    String::from_utf16_lossy(&units[units.len() - max_units..])
 }
 
 fn parse_ndjson(line: &[u8]) -> Option<Value> {
@@ -1424,7 +1404,7 @@ mod runner_tests {
         std::fs::write(&binary, "#!/bin/sh\nprintf '%s\\n' '{\"type\":\"result\",\"result\":\"done\",\"session_id\":\"fixture-session\"}'\n").unwrap();
         std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
         let handle = AgentProcessHandle::with_skills(Arc::new(tokio::sync::Mutex::new(
-            PromptStore::new(root.join("bundled.json"), root.join("local.json")),
+            PromptStore::open(root.join("bundled.json"), root.join("local.json")).unwrap(),
         )));
         let (tx, mut rx) = mpsc::channel(PROTOCOL_BUFFER_CAPACITY);
         let mut context = AgentProtocolContext::new(root.clone());

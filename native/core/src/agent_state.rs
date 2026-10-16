@@ -9,7 +9,13 @@ use serde_json::Value;
 use std::collections::HashSet;
 use uuid::Uuid;
 
-#[derive(Serialize, Deserialize, ts_rs::TS)]
+/// A resolved selection can be applied optimistically without compacting draft panes.
+pub struct WorkspaceSelection {
+    group_id: String,
+    pane_id: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct Workspace {
     groups: Vec<Group>,
@@ -17,14 +23,9 @@ pub struct Workspace {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(as = "Option<Vec<String>>", optional)]
     repository_order: Vec<String>,
-    #[ts(type = "'default' | 'midnight'")]
-    theme_id: String,
-    font_size: f64,
-    font_family: String,
-    opacity: f64,
 }
 
-#[derive(Serialize, Deserialize, ts_rs::TS)]
+#[derive(Clone, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct Group {
     id: String,
@@ -38,7 +39,7 @@ pub struct Group {
 #[derive(Clone, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct Pane {
-    id: String,
+    pub id: String,
     title: String,
     #[ts(type = "'agent' | 'claude' | 'codex'")]
     pub agent_kind: String,
@@ -60,36 +61,7 @@ pub struct Pane {
     pub provider_session_id: Option<String>,
 }
 
-#[derive(Serialize, ts_rs::TS)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentSavedState<'a> {
-    #[serde(flatten)]
-    workspace: &'a Workspace,
-    repositories: RepositoryWorkspaceIndex<'a>,
-}
-#[derive(Clone, Serialize, ts_rs::TS)]
-#[serde(rename_all = "camelCase")]
-pub struct RepositoryWorkspaceEntry<'a> {
-    group_id: &'a str,
-    pane: &'a Pane,
-}
-#[derive(Clone, Serialize, ts_rs::TS)]
-pub struct RepositoryWorkspace<'a> {
-    cwd: &'a str,
-    name: &'a str,
-    entries: Vec<RepositoryWorkspaceEntry<'a>>,
-}
-#[derive(Serialize, ts_rs::TS)]
-#[serde(rename_all = "camelCase")]
-pub struct RepositoryWorkspaceIndex<'a> {
-    workspaces: Vec<RepositoryWorkspace<'a>>,
-    unassigned_entries: Vec<RepositoryWorkspaceEntry<'a>>,
-    active_path: Option<&'a str>,
-    active_workspace: Option<RepositoryWorkspace<'a>>,
-    visible_entries: Vec<RepositoryWorkspaceEntry<'a>>,
-}
-
-fn repository_path(path: &str) -> &str {
+pub fn repository_path(path: &str) -> &str {
     let path = path.trim();
     if path == "/" {
         path
@@ -196,10 +168,6 @@ impl Workspace {
             selected_group_id: group.id.clone(),
             repository_order: Vec::new(),
             groups: vec![group],
-            theme_id: "default".into(),
-            font_size: 13.,
-            font_family: "SF Mono".into(),
-            opacity: 1.,
         }
     }
     pub fn validate(&mut self) -> Result<(), String> {
@@ -435,8 +403,7 @@ mod presentation_tests {
             .apply(&json!({"type":"removePane","paneId":"b-chat"}))
             .unwrap();
         workspace.validate().unwrap();
-        let result = workspace.presentation().unwrap();
-        assert_eq!(result["repositories"]["activePath"], "/c");
+        assert_eq!(workspace.active_cwds(), ["/c"]);
         assert_eq!(workspace.repository_order, ["/a", "/c"]);
     }
 
@@ -457,15 +424,8 @@ mod presentation_tests {
             workspace.validate().unwrap();
             let saved: Workspace =
                 serde_json::from_value(serde_json::to_value(&workspace).unwrap()).unwrap();
-            let result = saved.presentation().unwrap();
-            assert_eq!(result["repositories"]["activePath"], expected);
-            assert_eq!(
-                result["repositories"]["workspaces"]
-                    .as_array()
-                    .unwrap()
-                    .len(),
-                2
-            );
+            assert_eq!(saved.active_cwds(), [expected]);
+            assert_eq!(saved.repository_paths().len(), 2);
         }
     }
 
@@ -484,10 +444,7 @@ mod presentation_tests {
             .unwrap();
         workspace.validate().unwrap();
         assert_eq!(workspace.selected_group_id, "other");
-        assert_eq!(
-            workspace.presentation().unwrap()["repositories"]["activePath"],
-            "/b"
-        );
+        assert_eq!(workspace.active_cwds(), ["/b"]);
     }
 
     #[test]
@@ -523,10 +480,7 @@ mod presentation_tests {
             .apply(&json!({"type":"removePane","paneId":"b-chat"}))
             .unwrap();
         workspace.validate().unwrap();
-        assert_eq!(
-            workspace.presentation().unwrap()["repositories"]["activePath"],
-            "/c"
-        );
+        assert_eq!(workspace.active_cwds(), ["/c"]);
     }
 
     #[test]
@@ -536,71 +490,9 @@ mod presentation_tests {
             .apply(&json!({"type":"removePane","paneId":"a-chat","defaultAgentKind":"claude"}))
             .unwrap();
         workspace.validate().unwrap();
-        let result = workspace.presentation().unwrap();
-        assert_eq!(result["repositories"]["workspaces"], json!([]));
-        assert_eq!(
-            result["repositories"]["visibleEntries"]
-                .as_array()
-                .unwrap()
-                .len(),
-            1
-        );
-        assert_eq!(
-            result["repositories"]["visibleEntries"][0]["pane"]["agentKind"],
-            "claude"
-        );
-    }
-
-    #[test]
-    fn repository_projection_preserves_panes_and_normalizes_paths() {
-        let workspace: Workspace = serde_json::from_value(json!({
-            "groups": [{
-                "id": "group", "name": "Work", "selectedPaneId": "second",
-                "columns": 2, "rows": 1,
-                "panes": [
-                    {"id": "first", "title": "First", "agentKind": "claude", "cwd": " /repo/ "},
-                    {"id": "second", "title": "Second", "agentKind": "codex", "cwd": "/repo"},
-                    {"id": "draft", "title": "Draft", "agentKind": "agent"}
-                ]
-            }],
-            "selectedGroupId": "group", "themeId": "default",
-            "fontSize": 13, "fontFamily": "SF Mono", "opacity": 1
-        }))
-        .unwrap();
-        let response = workspace.presentation().unwrap();
-        let repositories = &response["repositories"];
-        assert_eq!(repositories["workspaces"].as_array().unwrap().len(), 1);
-        assert_eq!(repositories["activePath"], "/repo");
-        assert_eq!(repositories["activeWorkspace"]["name"], "repo");
-        assert_eq!(repositories["visibleEntries"].as_array().unwrap().len(), 2);
-        assert_eq!(repositories["unassignedEntries"][0]["pane"]["id"], "draft");
-        assert_eq!(
-            repositories["visibleEntries"][0]["pane"],
-            response["groups"][0]["panes"][0]
-        );
-        assert!(
-            response["groups"][0]["panes"][0]
-                .get("pendingWorkspacePaths")
-                .is_none()
-        );
-        assert_eq!(
-            response["groups"][0]["panes"][0]["referencePaths"],
-            json!([])
-        );
-    }
-
-    #[test]
-    fn unassigned_selection_exposes_drafts_without_an_active_repository() {
-        let workspace = Workspace::new("codex");
-        let response = workspace.presentation().unwrap();
-        let repositories = &response["repositories"];
-        assert_eq!(repositories["activePath"], Value::Null);
-        assert_eq!(repositories["activeWorkspace"], Value::Null);
-        assert_eq!(repositories["workspaces"], json!([]));
-        assert_eq!(
-            repositories["visibleEntries"],
-            repositories["unassignedEntries"]
-        );
-        assert_eq!(repositories["visibleEntries"].as_array().unwrap().len(), 1);
+        assert!(workspace.repository_paths().is_empty());
+        assert_eq!(workspace.groups.len(), 1);
+        assert_eq!(workspace.groups[0].panes.len(), 1);
+        assert_eq!(workspace.groups[0].panes[0].agent_kind, "claude");
     }
 }

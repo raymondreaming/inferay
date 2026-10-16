@@ -12,34 +12,10 @@ export const styles = stylex.create({
 		position: "relative",
 		minWidth: controlSize._0,
 	},
-	rootShellClosed: {
-		width: controlSize._6,
-	},
-	rootShellOpen: {
-		width: "clamp(160px, 18vw, 240px)",
-		zIndex: layer.searchPopover,
-	},
 	rootPanel: {
 		position: "static",
 		width: controlSize._6,
 		flexShrink: 0,
-	},
-	rootSidebar: {
-		flex: 1,
-		width: "auto",
-	},
-	inputFrame: {
-		display: "flex",
-		height: controlSize._6,
-		alignItems: "center",
-		gap: controlSize._1_5,
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: radius.md,
-		backgroundColor: color.backgroundRaised,
-		backgroundImage: effect.controlDepth,
-		paddingInline: controlSize._2,
 	},
 	searchIcon: {
 		flexShrink: 0,
@@ -59,22 +35,6 @@ export const styles = stylex.create({
 		color: {
 			default: color.textMuted,
 			":hover": color.textMain,
-		},
-	},
-	shellTrigger: {
-		display: "flex",
-		width: controlSize._6,
-		height: controlSize._6,
-		alignItems: "center",
-		justifyContent: "center",
-		borderRadius: radius.md,
-		color: {
-			default: color.textMuted,
-			":hover": color.textMain,
-		},
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.surfaceWhite06,
 		},
 	},
 	input: {
@@ -104,18 +64,9 @@ export const styles = stylex.create({
 		borderRadius: radius.lg,
 		padding: controlSize._1,
 	},
-	menuShell: {
-		left: controlSize._0,
-		width: "max(100%, 330px)",
-	},
 	menuPanel: {
 		left: controlSize._2,
 		right: controlSize._2,
-		width: "auto",
-	},
-	menuSidebar: {
-		left: controlSize._0,
-		right: controlSize._0,
 		width: "auto",
 	},
 	menuSearch: {

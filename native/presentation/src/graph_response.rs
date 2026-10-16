@@ -64,6 +64,7 @@ mod tests {
         let mut parent = GraphCommit {
             id: "parent".into(),
             hash: "parent".into(),
+            column: 12,
             ..Default::default()
         };
         parent.navigation.containing_branch = Some(branch.clone());
@@ -104,6 +105,7 @@ mod tests {
             "child"
         );
         assert_eq!(value["presentation"]["pinnedColumns"], json!([0]));
+        assert_eq!(value["presentation"]["maxColumn"], 12);
         assert_eq!(
             value["presentation"]["reachableHistory"],
             json!(["child", "parent"])
@@ -228,6 +230,7 @@ pub struct GraphSemanticPreferences<'a> {
 #[derive(serde::Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphPresentation<'a> {
+    pub max_column: usize,
     pub references: BTreeMap<&'a str, &'a GitGraphRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -282,6 +285,11 @@ pub fn response<'a>(
         })
         .collect::<Vec<_>>();
     let presentation = GraphPresentation {
+        max_column: commits
+            .iter()
+            .map(|commit| commit.column)
+            .max()
+            .unwrap_or(0),
         default_remote_name: refs
             .values()
             .find(|reference| reference.kind == GitGraphRefKind::RemoteBranch)

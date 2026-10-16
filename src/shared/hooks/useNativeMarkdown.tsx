@@ -7,6 +7,7 @@ import {
 	createEffect,
 	createMemo,
 	createSignal,
+	onSettled,
 	untrack,
 } from "solid-js";
 import { useBackgroundQuery as useQuery } from "./useQueryResource.tsx";
@@ -18,6 +19,7 @@ export function useNativeMarkdown(
 	_chat: Accessor<boolean> = () => false,
 ) {
 	const stream = nativeMarkdownStream();
+	onSettled(() => () => stream.dispose());
 	const [sample, setSample] = createSignal(untrack(_text));
 	const input = createMemo(() => {
 		const _textValue = _text(),
@@ -49,21 +51,11 @@ export function useNativeMarkdown(
 					signal,
 					AbortSignal.timeout(12000),
 				]);
-				if (_streamingValue || stream.active) {
-					const prepared = await stream.prepare(
-						_inputValue,
-						_streamingValue,
-						_chatValue,
-						requestSignal,
-					);
-					return {
-						...prepared,
-						text: _inputValue,
-						chat: _chatValue,
-						streaming: _streamingValue,
-					};
-				}
-				const prepared = await prepareNativeMarkdown(
+				const prepare =
+					_streamingValue || stream.active
+						? stream.prepare
+						: prepareNativeMarkdown;
+				const prepared = await prepare(
 					_inputValue,
 					_streamingValue,
 					_chatValue,

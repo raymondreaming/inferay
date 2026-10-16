@@ -1,8 +1,6 @@
 import { useNativeMarkdown } from "@shared/hooks/useNativeMarkdown.tsx";
-import { domStyle } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { MarkdownBlocks } from "./MarkdownBlocks.tsx";
-import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 
 function findParentScrollContainer(
@@ -49,7 +47,9 @@ export const Markdown = function Markdown(_props: {
 			{_source.loading || _source.error ? (
 				<p
 					{...stylex.attrs(styles.paragraph)}
-					style={domStyle(inlineStyles.getMarkdownParagraphStyle())}
+					style={{
+						"white-space": "pre-wrap",
+					}}
 				>
 					{_props.text}
 				</p>

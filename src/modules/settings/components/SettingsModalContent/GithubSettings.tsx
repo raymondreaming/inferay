@@ -7,12 +7,13 @@ import {
 	useGithubRepos,
 } from "@repository/hooks/useForgeAccounts.tsx";
 import { Button } from "@shared/ui/Button/index.tsx";
-import { IconRefreshCw } from "@shared/ui/Icons/index.tsx";
+import { IconCheck, IconRefreshCw } from "@shared/ui/Icons/index.tsx";
 import {
 	SettingsEmpty,
 	SettingsRow,
 	SettingsSection,
 } from "@shared/ui/SettingsSurface/index.tsx";
+import { Notice } from "@shared/ui/Surface/index.tsx";
 import { TextInput } from "@shared/ui/TextInput/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For } from "solid-js";
@@ -26,10 +27,7 @@ import {
 	SettingsGithubEmptyState,
 	SettingsRepoRow,
 } from "../SettingsGithub/index.tsx";
-import {
-	SettingsErrorBanner,
-	SettingsSuccessBanner,
-} from "../SettingsStatus/index.tsx";
+import { SettingsErrorBanner } from "../SettingsStatus/index.tsx";
 import { styles } from "./styles.ts";
 
 /** GitHub account discovery, repository browsing, and cloning settings. */
@@ -154,7 +152,9 @@ export function GithubSettings() {
 				) : null}
 				{cloneStatus() ? (
 					<div {...stylex.attrs(styles.banner)}>
-						<SettingsSuccessBanner message={cloneStatus()!} />
+						<Notice tone="success" icon={<IconCheck size={iconSize._2md} />}>
+							{cloneStatus()}
+						</Notice>
 					</div>
 				) : null}
 				{accounts.data.length > 0 ? (

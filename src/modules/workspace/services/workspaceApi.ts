@@ -1,8 +1,9 @@
 import type {
 	AgentDirectory,
-	AgentSavedState,
 	AgentWorkspaceAction,
+	AppInfo,
 	DirectoryQuickPicks,
+	Workspace,
 } from "@contracts";
 import {
 	fetchJson,
@@ -34,15 +35,15 @@ export async function searchDirectories(
 	return data.directories ?? [];
 }
 
-export async function initializeWorkspaceState(): Promise<AgentSavedState> {
-	const { state } = await postJson<{ state: AgentSavedState }>(
+export async function initializeWorkspaceState(): Promise<Workspace> {
+	const { state } = await postJson<{ state: Workspace }>(
 		"/api/agent/state/initialize",
 		{},
 	);
 	return state;
 }
 
-export function loadWorkspaceState(): Promise<AgentSavedState | null> {
+export function loadWorkspaceState(): Promise<Workspace | null> {
 	return fetchJson("/api/agent/state", undefined, {
 		message: "Could not load workspace state",
 	});
@@ -50,8 +51,8 @@ export function loadWorkspaceState(): Promise<AgentSavedState | null> {
 
 export async function saveWorkspaceAction(
 	action: AgentWorkspaceAction,
-): Promise<AgentSavedState> {
-	const { state } = await postJson<{ state: AgentSavedState }>(
+): Promise<Workspace> {
+	const { state } = await postJson<{ state: Workspace }>(
 		"/api/agent/state/workspace-action",
 		{ action },
 	);
@@ -63,6 +64,10 @@ export const saveWorkspacePanel: WorkspacePanelPort = (input) =>
 
 export function saveWorkspaceDock<T>(input: object) {
 	return postJson<T>("/api/workspace/dock", input);
+}
+
+export function loadAppInfo() {
+	return fetchJsonOr<AppInfo | null>("/api/app-info", null);
 }
 
 export async function checkNativeUpdate(

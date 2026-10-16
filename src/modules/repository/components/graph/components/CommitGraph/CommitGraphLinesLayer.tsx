@@ -1,5 +1,5 @@
 import type { GraphLines } from "@contracts";
-import { type CSSProperties, domStyle } from "@shared/lib/dom.tsx";
+import { type CSSProperties } from "@shared/lib/dom.tsx";
 import { For } from "solid-js";
 import { GRAPH_DASH_PATTERN, GRAPH_DASH_WIDTH } from "./styles.ts";
 export const CommitGraphLinesLayer = function CommitGraphLinesLayer(_props: {
@@ -19,7 +19,7 @@ export const CommitGraphLinesLayer = function CommitGraphLinesLayer(_props: {
 			class={_props.class}
 			width={_props.width}
 			height={_props.height}
-			style={domStyle(_props.style)}
+			style={_props.style}
 		>
 			{
 				<For each={_props.lines.rails} keyed={false}>
@@ -46,44 +46,34 @@ export const CommitGraphLinesLayer = function CommitGraphLinesLayer(_props: {
 					)}
 				</For>
 			}
-			{
-				<For each={_props.lines.transitions} keyed={false}>
-					{(curve) => (
-						<path
-							data-graph-transition="true"
-							d={curve().path}
-							stroke={curve().color}
-							stroke-dasharray={curve().dashed ? GRAPH_DASH_PATTERN : undefined}
-							stroke-width={
-								curve().dashed ? GRAPH_DASH_WIDTH : _props.lineWidth
-							}
-							stroke-linecap="round"
-							stroke-opacity={1}
-							stroke-linejoin="round"
-							fill="none"
-						/>
-					)}
-				</For>
-			}
-			{
-				<For each={_props.lines.convergences} keyed={false}>
-					{(curve) => (
-						<path
-							data-graph-convergence="true"
-							d={curve().path}
-							stroke={curve().color}
-							stroke-dasharray={curve().dashed ? GRAPH_DASH_PATTERN : undefined}
-							stroke-width={
-								curve().dashed ? GRAPH_DASH_WIDTH : _props.lineWidth
-							}
-							stroke-linecap="round"
-							stroke-opacity={1}
-							stroke-linejoin="round"
-							fill="none"
-						/>
-					)}
-				</For>
-			}
+			<For each={["transitions", "convergences"] as const}>
+				{(kind) => (
+					<For each={_props.lines[kind]} keyed={false}>
+						{(curve) => (
+							<path
+								data-graph-transition={
+									kind === "transitions" ? "true" : undefined
+								}
+								data-graph-convergence={
+									kind === "convergences" ? "true" : undefined
+								}
+								d={curve().path}
+								stroke={curve().color}
+								stroke-dasharray={
+									curve().dashed ? GRAPH_DASH_PATTERN : undefined
+								}
+								stroke-width={
+									curve().dashed ? GRAPH_DASH_WIDTH : _props.lineWidth
+								}
+								stroke-linecap="round"
+								stroke-opacity={1}
+								stroke-linejoin="round"
+								fill="none"
+							/>
+						)}
+					</For>
+				)}
+			</For>
 			{
 				<For each={_props.lines.truncated} keyed={false}>
 					{(segment) => (

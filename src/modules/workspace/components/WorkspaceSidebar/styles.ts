@@ -1,4 +1,3 @@
-import type { CSSProperties } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
 	color,
@@ -267,10 +266,3 @@ export const styles = stylex.create({
 		whiteSpace: "nowrap",
 	},
 });
-export function getWorkspaceSidebarAsideStyle(
-	width: CSSProperties["width"],
-): CSSProperties {
-	return {
-		width: width,
-	} as CSSProperties;
-}

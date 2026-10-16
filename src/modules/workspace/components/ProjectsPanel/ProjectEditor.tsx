@@ -113,15 +113,7 @@ export function ProjectEditor(props: { project?: Project; close: () => void }) {
 						<legend>Repositories</legend>
 						<InlineDirectoryPicker
 							stableHeight
-							multiSelect
-							showStartButton={false}
 							onSelectionChange={setRepositories}
-							onSelect={(path) => {
-								if (path)
-									setRepositories((current) => [
-										...new Set([...current, path]),
-									]);
-							}}
 						/>
 					</fieldset>
 				)}

@@ -2,48 +2,21 @@ use super::*;
 use serde_json::json;
 
 #[test]
-fn corruption_cannot_be_overwritten_and_storage_free_decisions_still_work() {
+fn corrupt_import_is_preserved_and_can_be_repaired() {
     let root = tempfile::tempdir().unwrap();
     let local = root.path().join("local.json");
+    let bundled = root.path().join("bundled.json");
     std::fs::write(&local, b"invalid").unwrap();
-    let store = PromptStore::new(root.path().join("bundled.json"), local.clone());
-    let proposal =
-        json!({"action":"create","name":"Review","command":"review","promptTemplate":"Inspect"});
-    assert!(store.create(proposal.as_object().unwrap(), 42).is_err());
-    assert!(
-        store
-            .proposal(&proposal, &Value::Null, Some("approve"), 42)
-            .is_err()
-    );
+    assert!(PromptStore::open(bundled.clone(), local.clone()).is_err());
     assert_eq!(std::fs::read(&local).unwrap(), b"invalid");
-    assert_eq!(
-        store
-            .create(json!({}).as_object().unwrap(), 42)
-            .unwrap_err()
-            .status,
-        400
-    );
-    assert_eq!(
-        store
-            .proposal(&Value::Null, &Value::Null, None, 42)
-            .unwrap_err()
-            .status,
-        400
-    );
-    store.proposal(&proposal, &Value::Null, None, 42).unwrap();
-    let (_, record) = store
-        .proposal(&proposal, &Value::Null, Some("reject"), 42)
-        .unwrap();
-    store
-        .proposal(&proposal, &record.unwrap(), Some("approve"), 43)
-        .unwrap();
+    std::fs::write(&local, b"[]").unwrap();
     assert!(
-        store
-            .call_tool("unknown", &Value::Null)
-            .unwrap_err()
-            .starts_with("Unknown Inferay tool:")
+        PromptStore::open(bundled, local)
+            .unwrap()
+            .load()
+            .unwrap()
+            .is_empty()
     );
-    assert_eq!(std::fs::read(&local).unwrap(), b"invalid");
 }
 
 #[test]
@@ -65,14 +38,19 @@ fn global_skills_migrate_once_and_survive_project_database_removal() {
     .unwrap();
     db.execute("INSERT INTO project_migrations VALUES('skills-v1',42)", [])
         .unwrap();
-    let store = PromptStore::new(
+    let mut store = PromptStore::open(
         root.path().join("bundled.json"),
         root.path().join("prompts.json"),
-    );
-    store.migrate().unwrap();
+    )
+    .unwrap();
     assert_eq!(store.load().unwrap()[0].id, prompt.id);
     store.delete(&prompt.id).unwrap();
-    store.migrate().unwrap();
+    drop(store);
+    let mut store = PromptStore::open(
+        root.path().join("bundled.json"),
+        root.path().join("prompts.json"),
+    )
+    .unwrap();
     assert!(
         store.load().unwrap().is_empty(),
         "old source must not resurrect deleted skills"
@@ -91,4 +69,33 @@ fn global_skills_migrate_once_and_survive_project_database_removal() {
     assert_eq!(loaded.len(), 1);
     assert_eq!(loaded[0].id, saved.id);
     assert!(!root.path().join("projects.sqlite3").exists());
+}
+
+#[test]
+fn reads_see_commits_without_waiting_for_an_uncommitted_writer() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PromptStore::open(
+        root.path().join("bundled.json"),
+        root.path().join("local.json"),
+    )
+    .unwrap();
+    let writer = rusqlite::Connection::open(root.path().join("skills.sqlite3")).unwrap();
+    writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let prompt = Prompt::custom(
+        json!({"name":"Review","command":"review","promptTemplate":"Inspect"})
+            .as_object()
+            .unwrap(),
+        42,
+    )
+    .unwrap();
+    writer
+        .execute(
+            "INSERT INTO skills VALUES(?,?)",
+            rusqlite::params![prompt.id, serde_json::to_string(&prompt).unwrap()],
+        )
+        .unwrap();
+    // WAL readers see the previous committed state while the writer remains active.
+    assert!(store.load().unwrap().is_empty());
+    writer.execute_batch("COMMIT").unwrap();
+    assert_eq!(store.load().unwrap()[0].id, prompt.id);
 }

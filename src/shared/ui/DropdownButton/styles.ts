@@ -8,7 +8,6 @@ import {
 	radius,
 	shadow,
 } from "../../../design-system/styles.stylex.ts";
-import type { CSSProperties } from "../../lib/dom.tsx";
 export const styles = stylex.create({
 	buttonGhost: {
 		backgroundColor: {
@@ -36,7 +35,19 @@ export const styles = stylex.create({
 		transitionTimingFunction: motion.ease,
 		userSelect: "none",
 	},
+	buttonSmall: {
+		borderWidth: 0,
+		height: controlSize._6,
+		gap: controlSize._1,
+		paddingInline: controlSize._1,
+		minWidth: 0,
+		maxWidth: "100%",
+	},
 	buttonLabel: {
+		minWidth: 0,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
 		fontSize: font.size_2,
 		transitionProperty: "color",
 		transitionDuration: motion.durationBase,
@@ -118,11 +129,6 @@ export const styles = stylex.create({
 		paddingInline: controlSize._3,
 		textAlign: "center",
 	},
-	customOption: {
-		cursor: "pointer",
-		display: "block",
-		width: "100%",
-	},
 	option: {
 		alignItems: "center",
 		backgroundColor: {
@@ -152,6 +158,7 @@ export const styles = stylex.create({
 		flexShrink: 0,
 	},
 	optionContent: {
+		flex: 1,
 		minWidth: controlSize._0,
 	},
 	optionLabel: {
@@ -191,25 +198,3 @@ export const styles = stylex.create({
 		borderTopWidth: 1,
 	},
 });
-export function getDropdownButtonOptionsBoxStyle(
-	maxHeight: CSSProperties["maxHeight"],
-): CSSProperties {
-	return {
-		maxHeight: maxHeight,
-	} as CSSProperties;
-}
-export function getDropdownButtonMenuStyle(
-	top: CSSProperties["top"],
-	bottom: CSSProperties["bottom"],
-	left: CSSProperties["left"],
-	minWidth: CSSProperties["minWidth"],
-	maxHeight: CSSProperties["maxHeight"],
-): CSSProperties {
-	return {
-		top: top,
-		bottom: bottom,
-		left: left,
-		minWidth: minWidth,
-		maxHeight: maxHeight,
-	} as CSSProperties;
-}

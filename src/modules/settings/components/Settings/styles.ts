@@ -1,4 +1,3 @@
-import type { CSSProperties } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
 	breakpoint,
@@ -158,10 +157,3 @@ export const styles = stylex.create({
 		},
 	},
 });
-export function getBackgroundScenePickerBackgroundPreviewStyle(
-	backgroundImage: CSSProperties["backgroundImage"],
-): CSSProperties {
-	return {
-		backgroundImage: backgroundImage,
-	} as CSSProperties;
-}

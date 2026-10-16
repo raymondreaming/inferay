@@ -1,10 +1,8 @@
 import type { CheckpointMeta } from "@contracts";
 import { iconSize } from "@design-system/styles.stylex.ts";
-import { domStyle } from "@shared/lib/dom.tsx";
 import { IconChevronDown, IconClock } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createSignal, For } from "solid-js";
-import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 export function CheckpointMarker(_props: {
 	checkpoint: CheckpointMeta;
@@ -15,11 +13,11 @@ export function CheckpointMarker(_props: {
 		<div {...stylex.attrs(styles.checkpointCard)}>
 			<div
 				{...stylex.attrs(styles.checkpointHeader)}
-				style={domStyle(
-					inlineStyles.getCheckpointMarkerCheckpointHeaderStyle(
-						expanded() ? "1px solid var(--color-inferay-gray-border)" : "none",
-					),
-				)}
+				style={{
+					"border-bottom": expanded()
+						? "1px solid var(--color-inferay-gray-border)"
+						: "none",
+				}}
 			>
 				<button
 					type="button"
@@ -68,15 +66,14 @@ export function CheckpointMarker(_props: {
 							{(f) => (
 								<div {...stylex.attrs(styles.checkpointFile)}>
 									<span
-										style={domStyle(
-											inlineStyles.getCheckpointMarkerSpanStyle(
+										style={{
+											color:
 												f().action === "created"
 													? "#22c55e"
 													: f().action === "deleted"
 														? "#ef4444"
 														: "#eab308",
-											),
-										)}
+										}}
 									>
 										{f().action === "created"
 											? "+"

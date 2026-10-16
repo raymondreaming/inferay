@@ -45,20 +45,18 @@ pub struct NativeChatRender {
     #[ts(type = "1")]
     pub version: u8,
     pub kind: ChatRenderKind,
-    pub group_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub group_end: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub group_leader: Option<bool>,
+    #[serde(skip)]
+    #[ts(skip)]
+    group_start: usize,
+    // First visible edit or most recent visible tool in this group.
+    #[serde(skip)]
+    #[ts(skip)]
+    group_anchor: Option<usize>,
+    pub group_end: usize,
+    pub group_leader: bool,
     pub hidden: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub continues_after: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub row_id: Option<String>,
+    pub continues_after: bool,
+    pub row_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub file_path: Option<String>,
@@ -86,19 +84,20 @@ pub struct NativeChatRender {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub goal: Option<GoalCard>,
+    // Rare approval payloads must not enlarge every ordinary transcript row.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub skill_proposal: Option<SkillProposal>,
+    pub skill_proposal: Option<Box<SkillProposal>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub automation_proposal: Option<crate::projects::LegacyAutomationProposal>,
+    pub automation_proposal: Option<Box<crate::projects::LegacyAutomationProposal>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub automation_definition_proposal: Option<crate::project_files::ProjectFileCommand>,
-    pub plugin_proposal: Option<crate::project_files::ProjectFileCommand>,
+    pub automation_definition_proposal: Option<Box<crate::project_files::ProjectFileCommand>>,
+    pub plugin_proposal: Option<Box<crate::project_files::ProjectFileCommand>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub skill_read: Option<SkillRead>,
+    pub skill_read: Option<Box<SkillRead>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub skill_parts: Option<Vec<ChatSkillPart>>,
@@ -254,18 +253,22 @@ impl ChatMessageBuffer {
                 };
                 let message = &mut self.messages[index];
                 let done = kind == "chat:btw:done";
-                message.content = if done {
-                    truncate_chat_content(
+                let append = if done {
+                    message.content = truncate_chat_content(
                         event["answer"].as_str().unwrap_or_default(),
                         CHAT_SINGLE_MESSAGE_CHAR_LIMIT,
-                    )
+                    );
+                    false
                 } else {
                     append_bounded_chat_content(
-                        &message.content,
+                        &mut message.content,
                         event["text"].as_str().unwrap_or_default(),
                         CHAT_SINGLE_MESSAGE_CHAR_LIMIT,
                     )
                 };
+                if !append {
+                    self.replaced_content.insert(message.id.clone());
+                }
                 message.is_streaming = Some(!done);
                 message.render = None;
                 self.mark_changed(index);
@@ -382,13 +385,13 @@ impl ChatMessageBuffer {
                                 command @ crate::projects::LegacyAutomationProposal::SaveAutomation { .. },
                             ) = serde_json::from_value(value["command"].clone())
                             {
-                                render.automation_proposal = Some(command);
+                                render.automation_proposal = Some(Box::new(command));
                             }
                         if value["type"] == "inferay.automation-definition-proposal"
                             && let Ok(command) = serde_json::from_value(value["command"].clone())
                             && crate::project_files::proposed_automation(&command).is_ok()
                         {
-                            render.automation_definition_proposal = Some(command);
+                            render.automation_definition_proposal = Some(Box::new(command));
                         }
                         if value["type"] == "inferay.plugin-proposal"
                             && let Ok(
@@ -400,10 +403,12 @@ impl ChatMessageBuffer {
                                 }),
                             ) = serde_json::from_value(value["command"].clone())
                         {
-                            render.plugin_proposal = Some(command);
+                            render.plugin_proposal = Some(Box::new(command));
                         }
-                        render.skill_proposal = crate::prompts::cards::chat_skill_proposal(&value);
-                        render.skill_read = crate::prompts::cards::chat_skill_read(&value);
+                        render.skill_proposal =
+                            crate::prompts::cards::chat_skill_proposal(&value).map(Box::new);
+                        render.skill_read =
+                            crate::prompts::cards::chat_skill_read(&value).map(Box::new);
                     }
                     if let Some(name) = message
                         .content
@@ -473,7 +478,8 @@ impl ChatMessageBuffer {
             } else {
                 ChatRenderKind::Message
             };
-            let mut group_id = message.id.clone();
+            render.group_start = index;
+            render.group_anchor = None;
             let mut hidden = false;
             if let Some(previous) = index
                 .checked_sub(1)
@@ -487,53 +493,40 @@ impl ChatMessageBuffer {
                     && previous_render.kind == kind
                     && previous_render.file_path == render.file_path
                 {
-                    group_id.clone_from(&previous_render.group_id);
+                    render.group_start = previous_render.group_start;
+                    render.group_anchor = previous_render.group_anchor;
                 }
             }
             render.kind = kind.clone();
-            render.group_id = group_id;
             render.hidden = hidden;
-            render.continues_after = Some(false);
-            render.group_end = Some(index + 1);
-            render.group_leader = Some(render.group_id == message.id);
-            render.row_id = Some(if kind == ChatRenderKind::EditGroup {
-                format!("edit-group:{}", render.group_id)
+            render.continues_after = false;
+            render.group_end = index + 1;
+            let group_id = &self.messages[render.group_start].id;
+            render.group_leader = *group_id == message.id;
+            render.row_id = if kind == ChatRenderKind::EditGroup {
+                format!("edit-group:{group_id}")
             } else if kind == ChatRenderKind::ToolGroup {
                 format!("tool-group:{}", message.id)
             } else {
                 message.id.clone()
-            });
+            };
+            let leader = render.group_anchor;
+            if !hidden && (kind != ChatRenderKind::EditGroup || leader.is_none()) {
+                render.group_anchor = Some(index);
+            }
+            let continuation = !render.group_leader;
             self.messages[index].render = Some(render);
-            if kind != ChatRenderKind::Message
-                && self.messages[index].render.as_ref().unwrap().group_id != self.messages[index].id
-            {
-                let group_id = self.messages[index]
-                    .render
-                    .as_ref()
-                    .unwrap()
-                    .group_id
-                    .clone();
-                let member = |&candidate: &usize| {
-                    self.messages[candidate].render.as_ref().unwrap().group_id == group_id
-                        && !self.messages[candidate].render.as_ref().unwrap().hidden
-                };
-                let leader = if kind == ChatRenderKind::EditGroup {
-                    (0..index).find(member)
-                } else {
-                    (0..index).rev().find(member)
-                };
-                if let Some(leader) = leader {
-                    if kind == ChatRenderKind::EditGroup {
-                        self.messages[leader].render.as_mut().unwrap().group_end = Some(index + 1);
-                    } else if !hidden {
-                        self.messages[leader]
-                            .render
-                            .as_mut()
-                            .unwrap()
-                            .continues_after = Some(true);
-                    }
-                    self.mark_changed(leader);
+            if continuation && let Some(leader) = leader {
+                if kind == ChatRenderKind::EditGroup {
+                    self.messages[leader].render.as_mut().unwrap().group_end = index + 1;
+                } else if !hidden {
+                    self.messages[leader]
+                        .render
+                        .as_mut()
+                        .unwrap()
+                        .continues_after = true;
                 }
+                self.mark_changed(leader);
             }
         }
     }
@@ -706,16 +699,15 @@ impl ChatMessageBuffer {
             return;
         };
         // Claude's initial empty object is a placeholder for streamed tool input.
-        let prefix = if tool_input && message.content == "{}" {
-            ""
-        } else {
-            &message.content
-        };
-        let next = append_bounded_chat_content(prefix, text, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
-        if !next.starts_with(&message.content) {
+        let placeholder = tool_input && message.content == "{}";
+        if placeholder {
+            message.content.clear();
+        }
+        let append =
+            append_bounded_chat_content(&mut message.content, text, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
+        if !append || (placeholder && !message.content.starts_with("{}")) {
             self.replaced_content.insert(message.id.clone());
         }
-        message.content = next;
         message.render = None;
         self.mark_changed(index);
     }
@@ -858,39 +850,24 @@ fn parse_tool_envelope(content: &str) -> Option<(Value, usize)> {
         .then(|| (value, prefix + stream.byte_offset()))
 }
 
-pub fn trim_messages(messages: &mut Vec<ChatTranscriptMessage>) {
-    if messages.len() > CHAT_MESSAGE_RETAIN_LIMIT {
-        messages.drain(..messages.len() - CHAT_MESSAGE_RETAIN_LIMIT);
-    }
-    for message in messages.iter_mut() {
-        if javascript_length(&message.content) > CHAT_SINGLE_MESSAGE_CHAR_LIMIT {
-            message.content =
-                truncate_chat_content(&message.content, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
-        }
-    }
-    let mut total_chars = messages
-        .iter()
-        .map(|message| javascript_length(&message.content))
-        .sum::<usize>();
-    let mut dropped = 0;
-    while total_chars > CHAT_MESSAGE_CHAR_LIMIT && messages.len() - dropped > 1 {
-        total_chars -= javascript_length(&messages[dropped].content);
-        dropped += 1;
-    }
-    if dropped > 0 {
-        messages.drain(..dropped);
-    }
-}
-
 pub fn truncate_chat_content(content: &str, max_chars: usize) -> String {
     bounded_chat_content(content, "", max_chars)
 }
 
-pub fn append_bounded_chat_content(current: &str, delta: &str, max_chars: usize) -> String {
+/// Append in place when possible; false means the retained prefix was replaced.
+pub fn append_bounded_chat_content(current: &mut String, delta: &str, max_chars: usize) -> bool {
     if delta.is_empty() {
-        return current.to_string();
+        return true;
     }
-    bounded_chat_content(current, delta, max_chars)
+    // UTF-8 bytes bound UTF-16 units from above, avoiding a full scan on normal deltas.
+    if current.len().saturating_add(delta.len()) <= max_chars {
+        current.push_str(delta);
+        return true;
+    }
+    let next = bounded_chat_content(current, delta, max_chars);
+    let append = next.starts_with(current.as_str());
+    *current = next;
+    append
 }
 
 fn bounded_chat_content(current: &str, delta: &str, max_chars: usize) -> String {
@@ -901,19 +878,13 @@ fn bounded_chat_content(current: &str, delta: &str, max_chars: usize) -> String 
     }
     // Both a short tail and a marked truncation share the same append boundary.
     let tail = |count: usize| {
-        if delta_length >= count {
-            javascript_slice(delta, delta_length - count, delta_length)
-        } else {
-            format!(
-                "{}{}",
-                javascript_slice(
-                    current,
-                    current_length.saturating_sub(count - delta_length),
-                    current_length
-                ),
-                delta
-            )
-        }
+        let units = current
+            .encode_utf16()
+            .chain(delta.encode_utf16())
+            .skip(current_length + delta_length - count);
+        let mut tail = Vec::with_capacity(count);
+        tail.extend(units);
+        String::from_utf16_lossy(&tail)
     };
     let marker_length = javascript_length(CHAT_TRUNCATION_MARKER);
     if max_chars <= marker_length {
@@ -1015,6 +986,11 @@ mod output_reference_tests {
     use super::*;
 
     #[test]
+    fn transcript_rows_keep_rare_cards_out_of_inline_storage() {
+        assert!(std::mem::size_of::<ChatTranscriptMessage>() <= 1024);
+    }
+
+    #[test]
     fn standalone_card_reloads_only_valid_automation_writes() {
         let id = "b39bc9f4-870f-42a9-871b-a892278bac52";
         let body = serde_json::json!({"schema":"inferay.automation/1","id":id,"name":"Briefing","trigger":{"kind":"manual"},"overlap":"skip","execution":{"kind":"agent","provider":"codex","instructions":"Review progress","skills":[],"resources":[],"repositories":[],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":300},"may":[]});
@@ -1085,7 +1061,10 @@ mod output_reference_tests {
                 let actual = if delta.is_empty() {
                     truncate_chat_content(&current, limit)
                 } else {
-                    append_bounded_chat_content(&current, delta, limit)
+                    let mut next = current.clone();
+                    let append = append_bounded_chat_content(&mut next, delta, limit);
+                    assert_eq!(append, next.starts_with(&current));
+                    next
                 };
                 assert!(javascript_length(&actual) <= limit, "limit={limit}");
                 if limit >= combined.len() {
@@ -1100,12 +1079,66 @@ mod output_reference_tests {
                 }
             }
         }
-        assert_eq!(append_bounded_chat_content("unchanged", "", 0), "unchanged");
+        let mut unchanged = "unchanged".to_owned();
+        assert!(append_bounded_chat_content(&mut unchanged, "", 0));
+        assert_eq!(unchanged, "unchanged");
         assert_eq!(javascript_slice("a🌳b", 2, 3), "�");
         assert_eq!(javascript_slice("a🌳b", 1, 3), "🌳");
         assert_eq!(javascript_slice("a🌳b", 3, usize::MAX), "b");
         assert_eq!(javascript_slice("a🌳b", 7, 9), "");
         assert_eq!(javascript_slice("a🌳b", 3, 1), "");
+    }
+
+    #[test]
+    fn edit_groups_keep_their_rows_after_history_trimming() {
+        let mut buffer = ChatMessageBuffer::default();
+        buffer.replace_messages(
+            (0..=CHAT_MESSAGE_RETAIN_LIMIT)
+                .map(|index| {
+                    serde_json::from_value(serde_json::json!({
+                        "id": format!("edit-{index}"), "role": "tool", "toolName": "Edit",
+                        "content": serde_json::json!({"file_path": format!("file-{}.rs", index / 3),
+                            "old_string": index.to_string(), "new_string": "updated"}).to_string()
+                    }))
+                    .unwrap()
+                })
+                .collect(),
+        );
+        for (first, end) in [(1, 2), (2, 1)] {
+            let render =
+                serde_json::to_value(buffer.messages()[0].render.as_ref().unwrap()).unwrap();
+            assert_eq!(render["rowId"], format!("edit-group:edit-{first}"));
+            assert_eq!(render["groupLeader"], true);
+            assert_eq!(render["groupEnd"], end);
+            assert_eq!(buffer.messages().len(), CHAT_MESSAGE_RETAIN_LIMIT);
+            buffer.take_update();
+            buffer.push_user("Continue", None);
+        }
+    }
+
+    #[test]
+    fn side_answer_replacements_publish_authoritative_content() {
+        let mut buffer = ChatMessageBuffer::default();
+        buffer.apply_btw_event(
+            "question",
+            &serde_json::json!({"type":"chat:btw:start","question":"Why?"}),
+        );
+        buffer.take_update();
+        buffer.apply_btw_event(
+            "question",
+            &serde_json::json!({"type":"chat:btw:delta","text":"draft"}),
+        );
+        assert_eq!(
+            buffer.take_update().unwrap()["messages"][0]["appendContent"],
+            "draft"
+        );
+        buffer.apply_btw_event(
+            "question",
+            &serde_json::json!({"type":"chat:btw:done","answer":"final answer"}),
+        );
+        let update = buffer.take_update().unwrap();
+        assert_eq!(update["messages"][0]["message"]["content"], "final answer");
+        assert!(update["messages"][0].get("appendContent").is_none());
     }
 
     #[test]

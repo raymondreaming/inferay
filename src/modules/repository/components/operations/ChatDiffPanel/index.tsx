@@ -1,14 +1,19 @@
 import { DiffViewer } from "@repository/components/diff/components/DiffViewer/index.tsx";
-import { DiffViewerBoundary } from "@repository/components/diff/components/DiffViewerBoundary/index.tsx";
+import type { GraphSelectionIntent } from "@repository/components/graph/components/CommitGraph/index.tsx";
 import { CommitGraph } from "@repository/components/graph/components/CommitGraph/index.tsx";
+import type { GraphPreferences } from "@repository/components/graph/components/CommitGraph/useCommitGraphState.tsx";
 import type { useGitGraph } from "@repository/hooks/useGitGraph.tsx";
+import { ErrorBoundary } from "@shared/ui/ErrorBoundary/index.tsx";
 import * as stylex from "@stylexjs/stylex";
+import type { ComponentProps } from "solid-js";
 import { GraphActionDialog } from "./GraphActionDialog.tsx";
 import { OperationToast } from "./OperationToast.tsx";
-import { RefOperationDialog } from "./RefOperationDialog.tsx";
-import { RepositoryOperationBar } from "./RepositoryOperationBar.tsx";
+import {
+	RefOperationDialog,
+	RepositoryOperationBar,
+} from "./RefOperationDialog.tsx";
 import { styles } from "./styles.ts";
-import { useChatDiffPanelState } from "./useChatDiffPanelState.tsx";
+import { useGitOperations } from "./useGitOperations.tsx";
 import { ViewerHeader } from "./ViewerHeader.tsx";
 
 function gitGraphEmptyLabel(graph: ReturnType<typeof useGitGraph>): string {
@@ -26,9 +31,33 @@ function gitGraphEmptyLabel(graph: ReturnType<typeof useGitGraph>): string {
 	}
 }
 export function ChatDiffPanel(
-	props: ReturnType<Parameters<typeof useChatDiffPanelState>[0]>,
+	props: Omit<ComponentProps<typeof ViewerHeader>, "operations"> &
+		ReturnType<Parameters<typeof useGitOperations>[0]> & {
+			readonly loading: boolean;
+			readonly error?: string;
+			readonly graphPreferences: GraphPreferences;
+			readonly onGraphPreferencesChange: (
+				update:
+					| GraphPreferences
+					| ((current: GraphPreferences) => GraphPreferences),
+			) => void;
+			readonly graphLoading: boolean;
+			readonly graphError: string | null;
+			readonly selectionAnnouncement: string;
+			readonly selectedCommitHash: string | null;
+			readonly selectedCommitIds: readonly string[];
+			readonly onSelectCommit: (
+				itemId: string,
+				intent?: GraphSelectionIntent,
+			) => void;
+			readonly onOpenGraphSelection: (itemId: string) => void;
+			readonly onCheckoutRef: (ref: string) => void;
+			readonly onLoadMoreCommits: () => void;
+			readonly startAtFirstChange: boolean;
+		},
 ) {
-	const view = useChatDiffPanelState(() => props);
+	const operations = useGitOperations(() => props);
+	const { state } = operations;
 	let panel: HTMLElement | undefined;
 	const returnGraphFocus = () =>
 		panel?.querySelector<HTMLElement>(
@@ -42,128 +71,123 @@ export function ChatDiffPanel(
 			{...stylex.attrs(styles.viewerPanel)}
 		>
 			<span role="status" aria-live="polite" {...stylex.attrs(styles.srStatus)}>
-				{view.selectionAnnouncement}
+				{props.selectionAnnouncement}
 			</span>
-			<ViewerHeader {...view} />
-			{view.mainViewMode === "graph" ? (
+			<ViewerHeader {...props} operations={operations} />
+			{props.mainViewMode === "graph" ? (
 				<OperationToast
-					phase={view.operationActivity.phase}
+					phase={operations.operationModel().operationActivity.phase}
 					message={
-						view.graphActionRunning && view.pendingGraphActionPresentation
-							? `${view.pendingGraphActionPresentation.confirm} in progress…`
-							: view.operationActivity.message
+						state.graphActionRunning && operations.presentation()
+							? `${operations.presentation()!.confirm} in progress…`
+							: operations.operationModel().operationActivity.message
 					}
 				/>
 			) : null}
 			<div {...stylex.attrs(styles.viewerBody)}>
-				{view.mainViewMode === "graph" ? (
-					view.graphLoading &&
-					view.graph.commits.length === 0 &&
-					!view.graph.searchQuery ? (
+				{props.mainViewMode === "graph" ? (
+					props.graphLoading &&
+					props.graph.commits.length === 0 &&
+					!props.graph.searchQuery ? (
 						<div {...stylex.attrs(styles.viewerEmpty)}>Loading history…</div>
-					) : view.graphError &&
-						view.graph.commits.length === 0 &&
-						!view.graph.searchQuery ? (
-						<div {...stylex.attrs(styles.viewerEmpty)}>{view.graphError}</div>
-					) : view.graph.commits.length === 0 && !view.graph.searchQuery ? (
+					) : props.graphError &&
+						props.graph.commits.length === 0 &&
+						!props.graph.searchQuery ? (
+						<div {...stylex.attrs(styles.viewerEmpty)}>{props.graphError}</div>
+					) : props.graph.commits.length === 0 && !props.graph.searchQuery ? (
 						<div {...stylex.attrs(styles.viewerEmpty)}>
-							{gitGraphEmptyLabel(view.graph)}
+							{gitGraphEmptyLabel(props.graph)}
 						</div>
 					) : (
 						<CommitGraph
-							commits={view.graph.commits}
-							onSearchChange={view.graph.setSearchQuery}
-							searchActive={Boolean(view.graph.searchQuery)}
-							searchQuery={view.graph.searchQuery}
+							commits={props.graph.commits}
+							onSearchChange={props.graph.setSearchQuery}
+							searchActive={Boolean(props.graph.searchQuery)}
+							searchQuery={props.graph.searchQuery}
 							emptyLabel={
-								view.graphLoading
+								props.graphLoading
 									? "Searching history…"
-									: (view.graphError ??
-										view.graph.stateError ??
+									: (props.graphError ??
+										props.graph.stateError ??
 										"No matching commits")
 							}
-							rows={view.graph.rows}
-							presentation={view.graph.presentation}
-							preferences={view.graphPreferences}
-							onPreferencesChange={view.onGraphPreferencesChange}
-							worktrees={view.graph.worktrees}
-							selectedHash={view.selectedCommitHash ?? undefined}
-							selectedIds={view.selectedCommitIds}
-							onSelect={view.onSelectCommit}
-							onOpenSelection={view.onOpenGraphSelection}
-							onCheckoutRef={view.onCheckoutRef}
-							branch={view.branch}
-							embedded
-							hasMore={view.graph.hasMore}
-							loadingMore={view.graph.loading}
-							repositoryKey={view.repositoryKey}
-							fullWidth
-							onLoadMore={view.onLoadMoreCommits}
+							rows={props.graph.rows}
+							presentation={props.graph.presentation}
+							preferences={props.graphPreferences}
+							onPreferencesChange={props.onGraphPreferencesChange}
+							worktrees={props.graph.worktrees}
+							selectedHash={props.selectedCommitHash ?? undefined}
+							selectedIds={props.selectedCommitIds}
+							onSelect={props.onSelectCommit}
+							onOpenSelection={props.onOpenGraphSelection}
+							onCheckoutRef={props.onCheckoutRef}
+							branch={props.branch}
+							hasMore={props.graph.hasMore}
+							loadingMore={props.graph.loading}
+							repositoryKey={props.repositoryKey}
+							onLoadMore={props.onLoadMoreCommits}
 							onRefDrop={(source, target) => {
-								view.setRefOperationResult(null);
-								view.setPendingRefAction({
-									source,
-									target,
+								operations.update({
+									refOperationResult: null,
+									pendingRefAction: { source, target },
 								});
 							}}
-							onGraphAction={view.requestGraphAction}
+							onGraphAction={operations.requestGraphAction}
 							onCompareWithWip={(itemId) => {
-								const wip = view.graph.commits.find(
+								const wip = props.graph.commits.find(
 									(item) =>
 										item.itemKind === "worktreeWip" && item.id === "wip",
 								);
 								if (!wip) return;
-								view.onSelectCommit(wip.id);
-								view.onSelectCommit(itemId, {
+								props.onSelectCommit(wip.id);
+								props.onSelectCommit(itemId, {
 									additive: true,
 									range: false,
 								});
 							}}
 						/>
 					)
-				) : view.diff && view.file ? (
-					<DiffViewerBoundary
-						resetKey={`${view.file.path}:${view.file.staged}`}
+				) : props.diff && props.file ? (
+					<ErrorBoundary
+						label="Diff viewer"
+						contained
+						resetKey={`${props.file.path}:${props.file.staged}`}
 					>
 						<DiffViewer
-							diff={view.diff}
-							filePath={view.file.path}
-							staged={view.file.staged}
-							onClose={view.onClose}
-							hideHeader
-							hideToolbar
-							viewMode={view.viewMode}
-							onViewModeChange={view.onViewModeChange}
-							startAtFirstChange={view.startAtFirstChange}
+							diff={props.diff}
+							filePath={props.file.path}
+							staged={props.file.staged}
+							viewMode={props.viewMode}
+							startAtFirstChange={props.startAtFirstChange}
 						/>
-					</DiffViewerBoundary>
-				) : !view.loading ? (
+					</ErrorBoundary>
+				) : !props.loading ? (
 					<div {...stylex.attrs(styles.viewerEmpty)}>
-						{view.error ?? "No diff available"}
+						{props.error ?? "No diff available"}
 					</div>
 				) : null}
-				{view.mainViewMode === "graph" && view.pendingRefAction ? (
+				{props.mainViewMode === "graph" && state.pendingRefAction ? (
 					<RefOperationDialog
 						returnFocus={returnGraphFocus}
-						{...view}
-						pendingRefAction={view.pendingRefAction}
+						operations={operations}
+						pendingRefAction={state.pendingRefAction}
 					/>
 				) : null}
-				{view.mainViewMode === "graph" &&
-				view.graphActionDialogOpen &&
-				view.pendingGraphAction &&
-				view.pendingGraphActionPresentation ? (
+				{props.mainViewMode === "graph" &&
+				operations.dialogOpen() &&
+				state.pendingGraphAction &&
+				operations.presentation() ? (
 					<GraphActionDialog
 						returnFocus={returnGraphFocus}
-						{...view}
-						pendingGraphActionPresentation={view.pendingGraphActionPresentation}
-						pendingGraphAction={view.pendingGraphAction}
+						operations={operations}
+						pendingGraphActionPresentation={operations.presentation()!}
+						pendingGraphAction={state.pendingGraphAction}
 					/>
 				) : null}
-				{view.mainViewMode === "graph" &&
-				view.operationModel.recoveryTitle &&
-				!view.pendingRefAction ? (
-					<RepositoryOperationBar {...view} />
+				{props.mainViewMode === "graph" &&
+				operations.operationModel().recoveryTitle &&
+				!state.pendingRefAction ? (
+					<RepositoryOperationBar operations={operations} />
 				) : null}
 			</div>
 		</section>

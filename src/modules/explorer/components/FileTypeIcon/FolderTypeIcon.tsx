@@ -1,11 +1,10 @@
-import { domStyle } from "@shared/lib/dom.tsx";
+import { px } from "@shared/lib/dom.tsx";
 import {
 	DEFAULT_FILE,
 	getIconForFile,
 	getIconForFolder,
 	getIconForOpenFolder,
 } from "@yutengjing/vscode-icons";
-import * as inlineStyles from "./styles.ts";
 
 const iconUrl = (iconFileName: string) => `/file-icons/${iconFileName}`;
 export function resolveFileIconUrl(path: string): string {
@@ -33,12 +32,13 @@ export function FolderTypeIcon(_props: {
 				_props.path,
 				_props.open === undefined ? false : _props.open,
 			)}
-			style={domStyle(
-				inlineStyles.getFolderTypeIconImgStyle(
-					_props.size === undefined ? 15 : _props.size,
-					_props.size === undefined ? 15 : _props.size,
-				),
-			)}
+			style={{
+				width: _props.size === undefined ? "15px" : px(_props.size),
+				height: _props.size === undefined ? "15px" : px(_props.size),
+				"flex-shrink": 0,
+				opacity: 0.98,
+				filter: "saturate(0.82) brightness(1.08)",
+			}}
 		/>
 	);
 }

@@ -1,10 +1,9 @@
 import type { MdBlock } from "@contracts";
-import { domStyle } from "@shared/lib/dom.tsx";
+import { px } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, For, Match, Switch } from "solid-js";
 import { CopyablePre } from "./CopyablePre.tsx";
 import { Inline } from "./Inline.tsx";
-import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 
 type MarkdownEvents = {
@@ -71,11 +70,9 @@ function MarkdownBlock(props: MarkdownEvents & { block: MdBlock }) {
 						{(item, index) => (
 							<div
 								{...stylex.attrs(styles.listItem)}
-								style={domStyle(
-									inlineStyles.getMarkdownBlocksListItemStyle(
-										item().indent * 4,
-									),
-								)}
+								style={{
+									"padding-left": px(item().indent * 4),
+								}}
 							>
 								<span {...stylex.attrs(styles.listBullet)}>
 									{item().checked !== undefined
@@ -122,13 +119,13 @@ function MarkdownBlock(props: MarkdownEvents & { block: MdBlock }) {
 											{(cell) => (
 												<td
 													{...stylex.attrs(styles.tableCell)}
-													style={domStyle(
-														inlineStyles.getMarkdownBlocksTableCellStyle(
+													style={{
+														"border-bottom":
 															index < tableRows().length - 2
 																? "1px solid var(--color-inferay-gray-border)"
 																: "none",
-														),
-													)}
+														color: "var(--color-inferay-white)",
+													}}
 												>
 													<Inline
 														tokens={cell()}

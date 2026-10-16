@@ -185,12 +185,7 @@ pub fn move_column(i: &Value) -> Value {
     json!(order)
 }
 pub fn layout(i: &Value) -> Value {
-    let max_column = array(&i["commitColumns"])
-        .iter()
-        .map(|c| number(c) as usize)
-        .max()
-        .unwrap_or(0)
-        .min(100_000);
+    let max_column = (number(&i["maxColumn"]) as usize).min(100_000);
     let mut positions = Vec::new();
     for column in array(&i["pinnedColumns"]) {
         if let Some(column) = column.as_u64().filter(|c| *c <= max_column as u64) {
@@ -232,44 +227,42 @@ pub fn layout(i: &Value) -> Value {
         .take_while(|c| ***c != "graph")
         .map(|c| number(&widths[string(c)]))
         .sum();
-    let height = array(&i["commitColumns"]).len() as f64 * 23.;
+    let height = number(&i["count"]).max(0.).floor() * ROW_HEIGHT;
     let graph_width = number(&widths["graph"]);
     let table_width = content(&widths) + TOOLS_WIDTH;
     json!({"visibleOrder":columns,"displayColumns":display,"graphHeight":height,"graphLeft":left,
         "graphWidth":graph_width,"columnWidths":widths,
         "tableWidth":table_width,"totalHeight":23. + height})
 }
-pub fn path(i: &Value) -> Value {
-    let row = number(&i["row"]);
-    let from = 27. + number(&i["fromCol"]) * 18.;
-    let to = 27. + number(&i["toCol"]) * 18.;
+fn path(row: f64, from: f64, to: f64, convergence: bool) -> String {
+    let from = 27. + from * 18.;
+    let to = 27. + to * 18.;
     let y = row * 23. + 11.5;
     let radius = 9_f64.min((to - from).abs() / 2.);
-    if flag(&i["convergence"]) {
+    if convergence {
         let direction = if to < from { -1. } else { 1. };
-        json!(format!(
+        format!(
             "M {from} {} L {from} {} A {radius} {radius} 0 0 {} {} {y} L {to} {y}",
             row * 23.,
             y - radius,
             if direction < 0. { 1 } else { 0 },
             from + direction * radius
-        ))
+        )
     } else {
         let direction = if from > to { 1. } else { -1. };
-        json!(format!(
+        format!(
             "M {to} {} L {to} {} A {radius} {radius} 0 0 {} {} {y} L {from} {y}",
             y + 23.,
             y + radius,
             if direction > 0. { 1 } else { 0 },
             to + direction * radius
-        ))
+        )
     }
 }
 
 #[derive(serde::Serialize, ts_rs::TS)]
 pub struct GraphLine {
     dashed: bool,
-    key: String,
     row: f64,
     column: f64,
     x: f64,
@@ -280,7 +273,6 @@ pub struct GraphLine {
 #[derive(serde::Serialize, ts_rs::TS)]
 pub struct GraphCurve {
     dashed: bool,
-    key: String,
     path: String,
     color: String,
 }
@@ -292,8 +284,8 @@ pub struct GraphLines {
     truncated: Vec<GraphLine>,
 }
 pub fn lines(i: &Value) -> GraphLines {
+    let colors = array(&i["colors"]);
     let color = |value: &Value| {
-        let colors = array(&i["colors"]);
         colors
             .get(
                 value["colorIndex"]
@@ -304,7 +296,6 @@ pub fn lines(i: &Value) -> GraphLines {
             )
             .and_then(Value::as_str)
             .unwrap_or_default()
-            .to_owned()
     };
     let display = |column: &Value| {
         i["displayColumns"]
@@ -312,37 +303,32 @@ pub fn lines(i: &Value) -> GraphLines {
             .map(number)
             .unwrap_or_else(|| number(column))
     };
-    let segments = |field: &str, prefix: &str| {
+    let segments = |field: &str| {
         array(&i["rows"])
             .iter()
             .flat_map(|row| {
-                array(&row[field])
-                    .iter()
-                    .map(|segment| {
-                        let y = number(&row["row"]) * 23.;
-                        GraphLine {
-                            dashed: flag(&segment["dashed"]),
-                            key: format!("{prefix}-{}-{}", row["row"], segment["column"]),
-                            row: number(&row["row"]),
-                            column: number(&segment["column"]),
-                            x: 27. + display(&segment["column"]) * 18.,
-                            top: y + if field == "truncatedEdges" {
-                                8.
-                            } else if flag(&segment["startsAtNode"]) {
-                                if flag(&segment["dashed"]) { 20.5 } else { 11.5 }
-                            } else {
-                                0.
-                            },
-                            bottom: y
-                                + if field != "truncatedEdges" && flag(&segment["endsAtNode"]) {
-                                    if flag(&segment["dashed"]) { 2.5 } else { 11.5 }
-                                } else {
-                                    23.
-                                },
-                            color: color(segment),
-                        }
-                    })
-                    .collect::<Vec<_>>()
+                array(&row[field]).iter().map(move |segment| {
+                    let y = number(&row["row"]) * 23.;
+                    GraphLine {
+                        dashed: flag(&segment["dashed"]),
+                        row: number(&row["row"]),
+                        column: number(&segment["column"]),
+                        x: 27. + display(&segment["column"]) * 18.,
+                        top: y + if field == "truncatedEdges" {
+                            8.
+                        } else if flag(&segment["startsAtNode"]) {
+                            if flag(&segment["dashed"]) { 20.5 } else { 11.5 }
+                        } else {
+                            0.
+                        },
+                        bottom: y + if field != "truncatedEdges" && flag(&segment["endsAtNode"]) {
+                            if flag(&segment["dashed"]) { 2.5 } else { 11.5 }
+                        } else {
+                            23.
+                        },
+                        color: color(segment).to_owned(),
+                    }
+                })
             })
             .collect()
     };
@@ -350,32 +336,22 @@ pub fn lines(i: &Value) -> GraphLines {
         array(&i["rows"])
             .iter()
             .flat_map(|row| {
-                array(&row[field])
-                    .iter()
-                    .map(|curve| GraphCurve {
-                        dashed: flag(&curve["dashed"]),
-                        key: format!(
-                            "{}{}:{}:{}:{}",
-                            if convergence { "convergence:" } else { "" },
-                            row["row"],
-                            curve["fromColumn"],
-                            curve["toColumn"],
-                            color(curve)
-                        ),
-                        path: string(&path(
-                            &json!({"row":row["row"], "fromCol":display(&curve["fromColumn"]),
-                "toCol":display(&curve["toColumn"]), "convergence":convergence}),
-                        ))
-                        .into(),
-                        color: color(curve),
-                    })
-                    .collect::<Vec<_>>()
+                array(&row[field]).iter().map(move |curve| GraphCurve {
+                    dashed: flag(&curve["dashed"]),
+                    path: path(
+                        number(&row["row"]),
+                        display(&curve["fromColumn"]),
+                        display(&curve["toColumn"]),
+                        convergence,
+                    ),
+                    color: color(curve).to_owned(),
+                })
             })
             .collect()
     };
     GraphLines {
-        rails: segments("rails", "rail"),
-        truncated: segments("truncatedEdges", "truncated"),
+        rails: segments("rails"),
+        truncated: segments("truncatedEdges"),
         transitions: curves("transitions", false),
         convergences: curves("convergences", true),
     }
@@ -428,7 +404,7 @@ mod column_layout_tests {
     #[test]
     fn fullscreen_fills_leftover_width_with_the_message_column() {
         let input = json!({
-            "commitColumns": [0],
+            "count": 1, "maxColumn": 0,
             "pinnedColumns": [],
             "widths": { "graph": 96, "message": 340, "author": 136 },
             "order": ["graph", "message", "author"],
@@ -449,7 +425,7 @@ mod column_layout_tests {
     #[test]
     fn narrow_windows_keep_stored_widths_even_in_fullscreen() {
         let result = layout(&json!({
-            "commitColumns": [0],
+            "count": 1, "maxColumn": 0,
             "pinnedColumns": [],
             "widths": { "graph": 96, "message": 340 },
             "order": ["graph", "message"],
@@ -464,7 +440,7 @@ mod column_layout_tests {
     #[test]
     fn resizing_graph_allows_message_to_cover_distant_lanes() {
         let result = layout(&json!({
-            "commitColumns": [0, 12],
+            "count": 2, "maxColumn": 12,
             "pinnedColumns": [],
             "widths": { "graph": 48, "message": 340 },
             "order": ["graph", "message"],
@@ -473,5 +449,7 @@ mod column_layout_tests {
         assert_eq!(result["graphWidth"], 48.);
         assert_eq!(result["tableWidth"], 420.);
         assert_eq!(result["displayColumns"].as_array().unwrap().len(), 13);
+        assert_eq!(result["graphHeight"], 46.);
+        assert_eq!(result["totalHeight"], 69.);
     }
 }

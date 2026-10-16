@@ -1,4 +1,3 @@
-import type { CSSProperties } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
 	color,
@@ -8,7 +7,6 @@ import {
 	motion,
 	palette,
 	radius,
-	runtimeColor,
 } from "../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
 	hidden: {
@@ -294,49 +292,6 @@ export const styles = stylex.create({
 		paddingInline: controlSize._1,
 		textTransform: "uppercase",
 	},
-	providerConfigButton: {
-		alignItems: "center",
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.controlHover,
-		},
-		backgroundImage: "none",
-		borderColor: color.border,
-		borderRadius: radius.md,
-		borderStyle: "solid",
-		borderWidth: 0,
-		boxShadow: "none",
-		boxSizing: "border-box",
-		color: color.textSoft,
-		display: "inline-flex",
-		flexShrink: 1,
-		fontSize: font.size_2,
-		fontWeight: font.weight_5,
-		gap: controlSize._1,
-		height: controlSize._6,
-		lineHeight: 1,
-		maxWidth: "100%",
-		minWidth: controlSize._0,
-		paddingBlock: controlSize._0,
-		paddingInline: controlSize._1,
-		position: "relative",
-		zIndex: layer.chrome,
-	},
-	providerConfigLabel: {
-		minWidth: controlSize._0,
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
-	},
-	providerConfigChevron: {
-		color: color.textMuted,
-		flexShrink: 0,
-		transitionDuration: motion.durationBase,
-		transitionProperty: "transform",
-	},
-	providerConfigChevronOpen: {
-		transform: "rotate(180deg)",
-	},
 	configControls: {
 		alignItems: "center",
 		display: "flex",
@@ -351,63 +306,6 @@ export const styles = stylex.create({
 		marginLeft: "auto",
 		minWidth: controlSize._0,
 		maxWidth: "100%",
-	},
-	providerConfigMenu: {
-		borderRadius: radius.px10,
-		boxSizing: "border-box",
-		display: "flex",
-		flexDirection: "column",
-		gap: controlSize._0_5,
-		maxHeight: "min(320px, calc(100vh - 160px))",
-		overflowY: "auto",
-		padding: controlSize._1,
-		width: "100%",
-	},
-	providerConfigAnchor: {
-		position: "absolute",
-		left: controlSize._3,
-		bottom: "calc(100% + 6px)",
-		zIndex: layer.composerPopover,
-		width: "220px",
-		maxWidth: "calc(100% - 24px)",
-		pointerEvents: "auto",
-	},
-	providerConfigChoice: {
-		alignItems: "center",
-		justifyContent: "space-between",
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.controlHover,
-		},
-		backgroundImage: "none",
-		borderColor: color.transparent,
-		borderRadius: radius.md,
-		borderStyle: "solid",
-		borderWidth: 0,
-		boxShadow: "none",
-		color: {
-			default: color.textSoft,
-			":hover": color.textMain,
-		},
-		display: "flex",
-		fontSize: font.size_2,
-		fontWeight: font.weight_5,
-		gap: controlSize._2,
-		minHeight: controlSize._7,
-		paddingBlock: controlSize._1,
-		paddingInline: controlSize._2,
-		textAlign: "left",
-		transitionDuration: motion.durationBase,
-		transitionProperty:
-			"background-color, background-image, border-color, box-shadow, color",
-		transitionTimingFunction: motion.ease,
-	},
-	providerConfigChoiceActive: {
-		backgroundColor: color.controlActive,
-		backgroundImage: "none",
-		borderColor: color.border,
-		boxShadow: "none",
-		color: color.textMain,
 	},
 	modalBackdrop: {
 		position: "absolute",
@@ -564,29 +462,3 @@ export const styles = stylex.create({
 		zIndex: layer.content,
 	},
 });
-export function getChatComposerTextAreaWrapStyle(): CSSProperties {
-	return {
-		maxHeight: "120px",
-	} as CSSProperties;
-}
-export function getChatComposerHighlightOverlayStyle(): CSSProperties {
-	return {
-		lineHeight: "20px",
-		wordBreak: "break-word",
-		overflowWrap: "break-word",
-	} as CSSProperties;
-}
-export function getChatComposerTextareaStyle(
-	color: CSSProperties["color"],
-	WebkitTextFillColor: CSSProperties["WebkitTextFillColor"],
-): CSSProperties {
-	return {
-		minHeight: "20px",
-		color: color,
-		caretColor: runtimeColor.textMain,
-		WebkitTextFillColor: WebkitTextFillColor,
-		lineHeight: "20px",
-		wordBreak: "break-word",
-		overflowWrap: "break-word",
-	} as CSSProperties;
-}

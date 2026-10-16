@@ -68,12 +68,11 @@ impl LegacyFixture {
 #[test]
 fn file_scheduler_deduplicates_due_runs_and_rechecks_waiting_inputs() {
     let root = tempfile::tempdir().unwrap();
-    let mut store = LegacyFixture::open(root.path());
+    let store = LegacyFixture::open(root.path());
     let project = store.project("Schedule", "");
     let automation = store.automation(&project);
-    export(&mut store.db, root.path(), &[]).unwrap();
-    replace_definition_tables(&mut store.db).unwrap();
-    crate::project_index::refresh(&mut store.db, root.path(), &[]).unwrap();
+    drop(store);
+    let mut store = crate::project_file_store::FileProjectStore::open(root.path(), &[]).unwrap();
     let inputs =
         crate::project_index::execution_inputs(&store.db, root.path(), &automation, &[]).unwrap();
     let tx = store.db.unchecked_transaction().unwrap();
@@ -92,8 +91,8 @@ fn file_scheduler_deduplicates_due_runs_and_rechecks_waiting_inputs() {
         .db
         .execute("UPDATE automation_state SET next_due_at=?", [time - 1000])
         .unwrap();
-    crate::project_runs::schedule_due(&mut store.db, root.path(), &[], time).unwrap();
-    crate::project_runs::schedule_due(&mut store.db, root.path(), &[], time).unwrap();
+    store.schedule_due(&[], time).unwrap();
+    store.schedule_due(&[], time).unwrap();
     assert_eq!(
         store
             .db
@@ -111,11 +110,7 @@ fn file_scheduler_deduplicates_due_runs_and_rechecks_waiting_inputs() {
             > time
     );
     crate::project_index::disable_automation(&store.db, &automation).unwrap();
-    assert!(
-        crate::project_runs::claim_next(&mut store.db, root.path(), &[])
-            .unwrap()
-            .is_none()
-    );
+    assert!(store.claim_next(&[]).unwrap().is_none());
     assert_eq!(
         store
             .db
@@ -147,16 +142,12 @@ fn file_scheduler_deduplicates_due_runs_and_rechecks_waiting_inputs() {
     let directory = root.path().join("projects").join(project);
     files::write(
         &directory,
-        &format!("plugins/automation-{automation}/helper.py"),
+        &format!("automations/{automation}/helper.py"),
         b"print('changed while queued')",
         None,
     )
     .unwrap();
-    assert!(
-        crate::project_runs::claim_next(&mut store.db, root.path(), &[])
-            .unwrap()
-            .is_none()
-    );
+    assert!(store.claim_next(&[]).unwrap().is_none());
     assert_eq!(
         store
             .db
@@ -177,7 +168,7 @@ fn file_scheduler_deduplicates_due_runs_and_rechecks_waiting_inputs() {
         )
         .unwrap();
     assert_eq!(state, (false, None));
-    crate::project_runs::schedule_due(&mut store.db, root.path(), &[], time + 86400000).unwrap();
+    store.schedule_due(&[], time + 86400000).unwrap();
     assert_eq!(
         store
             .db

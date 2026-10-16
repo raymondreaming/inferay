@@ -1,10 +1,8 @@
 import {
 	applyAppBackgroundSurfaces,
 	applyAppFont,
-	applyAppTheme,
 	loadAppBackgroundSettings,
 	loadAppFontId,
-	loadAppThemeId,
 } from "@settings/hooks/useAppAppearance.tsx";
 import { render } from "@solidjs/web";
 import { RootComponent } from "./app/components/RootComponent/index.tsx";
@@ -75,7 +73,6 @@ if (window.location.pathname !== "/") {
 		`/${window.location.search}${window.location.hash}`,
 	);
 }
-applyAppTheme(loadAppThemeId());
 applyAppFont(loadAppFontId());
 applyAppBackgroundSurfaces(loadAppBackgroundSettings().mode);
 restoreSyntaxTheme();

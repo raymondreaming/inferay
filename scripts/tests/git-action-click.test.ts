@@ -7,14 +7,14 @@ import { project } from "../../src/shared/lib/native.tsx";
 test("one click executes the requested action before reactive state flushes", async () => {
 	const source = readFileSync(
 		new URL(
-			"../../src/modules/repository/components/operations/ChatDiffPanel/useChatDiffPanelState.tsx",
+			"../../src/modules/repository/components/operations/ChatDiffPanel/useGitOperations.tsx",
 			import.meta.url,
 		),
 		"utf8",
 	);
 	const code = new Bun.Transpiler({ loader: "tsx" }).transformSync(
 		source
-			.slice(source.indexOf("export function useChatDiffPanelState"))
+			.slice(source.indexOf("export function useGitOperations"))
 			.replace("export ", ""),
 	);
 	const sent: GitGraphActionRequest[] = [];
@@ -22,18 +22,12 @@ test("one click executes the requested action before reactive state flushes", as
 	const dependencies = {
 		...signals,
 		project,
-		queryClient: {},
 		useQuery: () => ({}),
-		merge: (...sources: object[]) =>
-			Object.assign(
-				{},
-				...sources.map((s) => (typeof s === "function" ? s() : s)),
-			),
 	};
 	// Use client signals: server signals commit immediately and miss the stale-read bug.
 	const create = new Function(
 		...Object.keys(dependencies),
-		`${code}; return useChatDiffPanelState;`,
+		`${code}; return useGitOperations;`,
 	)(...Object.values(dependencies));
 	let dispose = () => {};
 	signals.createRoot((cleanup) => {

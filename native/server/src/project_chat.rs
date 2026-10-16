@@ -96,24 +96,9 @@ pub(super) async fn open(state: &ServerState, request: Request) -> ApiResult {
         let workspace = store
             .read()
             .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
-        let existing = workspace["groups"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find_map(|g| {
-                g["panes"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .find(|p| prior_pane.is_some() && p["id"].as_str() == prior_pane)
-                    .map(|p| {
-                        (
-                            g["id"].as_str().unwrap().to_owned(),
-                            p["id"].as_str().unwrap().to_owned(),
-                        )
-                    })
-            });
-        if let Some((_group_id, pane_id)) = existing {
+        let existing = prior_pane.and_then(|id| workspace.as_ref()?.pane(id));
+        if let Some(pane) = existing {
+            let pane_id = pane.id.clone();
             store
                 .apply_workspace_action(
                     &AgentWorkspaceAction::SelectPane {
@@ -139,12 +124,8 @@ pub(super) async fn open(state: &ServerState, request: Request) -> ApiResult {
                     provider,
                 )
                 .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
-            let group = value["groups"]
-                .as_array()
-                .and_then(|gs| gs.iter().find(|g| g["id"] == value["selectedGroupId"]))
-                .ok_or_else(|| api_error(StatusCode::BAD_REQUEST, "No selected group"))?;
-            let pane = group["selectedPaneId"]
-                .as_str()
+            let pane = value
+                .selected_pane_id()
                 .ok_or_else(|| api_error(StatusCode::BAD_REQUEST, "No selected pane"))?
                 .to_owned();
             store

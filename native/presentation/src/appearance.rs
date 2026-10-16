@@ -2,13 +2,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-#[derive(Clone, Copy, Default, Deserialize, Serialize, ts_rs::TS)]
-#[serde(rename_all = "kebab-case")]
-pub enum AppThemeId {
-    #[default]
-    Default,
-}
-
 #[derive(Clone, Copy, Default, PartialEq, Deserialize, Serialize, ts_rs::TS)]
 #[serde(rename_all = "kebab-case")]
 pub enum AppBackgroundId {
@@ -39,19 +32,6 @@ pub enum AppFontId {
     Manrope,
     IbmPlexSans,
     System,
-}
-
-#[derive(Deserialize, Serialize, ts_rs::TS)]
-pub struct AgentTheme {
-    pub cursor: String,
-    pub separator: String,
-}
-
-#[derive(Deserialize, Serialize, ts_rs::TS)]
-pub struct AppTheme {
-    pub id: AppThemeId,
-    pub name: String,
-    pub theme: AgentTheme,
 }
 
 #[derive(Deserialize, Serialize, ts_rs::TS)]
@@ -89,23 +69,24 @@ pub struct AppBackgroundSettings {
 #[derive(Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct AppearanceCatalog {
-    pub themes: Vec<AppTheme>,
     pub backgrounds: Vec<AppBackground>,
     pub fonts: Vec<AppFont>,
     pub default_background: AppBackgroundSettings,
 }
 
+fn backgrounds() -> Vec<AppBackground> {
+    serde_json::from_value(json!([
+        {"id":"city","name":"City rain","path":"/background-city-rain.png"},
+        {"id":"nature","name":"Night garden","path":"/background-nature-sanctuary.png"},
+        {"id":"orbit","name":"Orbital study","path":"/background-orbital-study.png"},
+        {"id":"signals","name":"Signal field","path":"/inferay-vibespace.png"}
+    ]))
+    .expect("static backgrounds")
+}
+
 pub fn catalog() -> AppearanceCatalog {
     AppearanceCatalog {
-        themes: serde_json::from_value(json!([
-            {"id":"default","name":"Black","theme":{"cursor":"#007AFF","separator":"#111111"}}
-        ])).expect("static themes"),
-        backgrounds: serde_json::from_value(json!([
-            {"id":"city","name":"City rain","path":"/background-city-rain.png"},
-            {"id":"nature","name":"Night garden","path":"/background-nature-sanctuary.png"},
-            {"id":"orbit","name":"Orbital study","path":"/background-orbital-study.png"},
-            {"id":"signals","name":"Signal field","path":"/inferay-vibespace.png"}
-        ])).expect("static backgrounds"),
+        backgrounds: backgrounds(),
         fonts: serde_json::from_value(json!([
             {"id":"vscode","label":"System UI + Menlo","family":"-apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif","editorFamily":"Menlo, Monaco, \"Courier New\", monospace"},
             {"id":"menlo","label":"Menlo","family":"Menlo, Monaco, \"Courier New\", monospace"},
@@ -167,7 +148,6 @@ pub struct BackgroundModel {
     background: AppBackgroundSettings,
     scenes: Vec<AppBackground>,
     background_url: Option<String>,
-    theme_id: AppThemeId,
 }
 
 pub fn background_model(input: &Value) -> BackgroundModel {
@@ -185,7 +165,7 @@ pub fn background_model(input: &Value) -> BackgroundModel {
         }
     }
     let background = normalize_background(&saved);
-    let mut scenes = catalog().backgrounds;
+    let mut scenes = backgrounds();
     scenes.push(AppBackground {
         id: AppBackgroundId::Custom,
         name: "Your image".into(),
@@ -204,12 +184,10 @@ pub fn background_model(input: &Value) -> BackgroundModel {
     } else {
         None
     };
-    let theme_id = AppThemeId::Default;
     BackgroundModel {
         background,
         scenes,
         background_url,
-        theme_id,
     }
 }
 

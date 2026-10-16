@@ -1,7 +1,6 @@
 import type { GraphCommit } from "@contracts";
-import { domStyle } from "@shared/lib/dom.tsx";
+import { px } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
-import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 export function CommitMessageCell(_props: {
 	commit: GraphCommit;
@@ -11,7 +10,9 @@ export function CommitMessageCell(_props: {
 	return (
 		<div
 			{...stylex.attrs(styles.messageCell)}
-			style={domStyle(inlineStyles.getCommitRowMessageCellStyle(_props.width))}
+			style={{
+				width: px(_props.width),
+			}}
 		>
 			{_props.isWip ? (
 				<span data-graph-wip-summary {...stylex.attrs(styles.commitMessage)}>
@@ -46,11 +47,9 @@ export function CommitMessageCell(_props: {
 					) : null}
 					<span
 						{...stylex.attrs(styles.commitMessage)}
-						style={domStyle(
-							inlineStyles.getCommitRowCommitMessageStyle(
-								_props.commit.body ? "64%" : "100%",
-							),
-						)}
+						style={{
+							"max-width": _props.commit.body ? "64%" : "100%",
+						}}
 					>
 						{_props.commit.message}
 					</span>

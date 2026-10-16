@@ -22,20 +22,14 @@ import {
 } from "solid-js";
 import { MarkdownPreview } from "../MarkdownPreview/index.tsx";
 import { BinaryPreview } from "./BinaryPreview.tsx";
-import { DiffHeader } from "./DiffHeader.tsx";
 import { DiffPanels } from "./DiffPanels.tsx";
-import { DiffViewToolbar } from "./DiffViewToolbar.tsx";
 import { diffStyles, LINE_H } from "./styles.ts";
 
 export const DiffViewer = function DiffViewer(props: {
 	diff: HunkDiff;
 	filePath: string;
 	staged: boolean;
-	onClose: () => void;
-	hideHeader?: boolean;
-	viewMode?: DiffViewMode;
-	onViewModeChange?: (viewMode: DiffViewMode) => void;
-	hideToolbar?: boolean;
+	viewMode: DiffViewMode;
 	startAtFirstChange?: boolean;
 }) {
 	const containerRef: RefCell<HTMLDivElement | null> = { current: null };
@@ -44,12 +38,6 @@ export const DiffViewer = function DiffViewer(props: {
 		current: null,
 	};
 	const [pointerMoved, setPointerMoved] = createSignal(false);
-	const [internalViewMode, setInternalViewMode] =
-		createSignal<DiffViewMode>("split");
-	const viewMode = createMemo(() => props.viewMode ?? internalViewMode());
-	const setViewMode = createMemo(
-		() => props.onViewModeChange ?? setInternalViewMode,
-	);
 	const diffIdentity = createMemo(
 		() => `${props.filePath}:${props.staged ? "staged" : "unstaged"}`,
 	);
@@ -66,14 +54,12 @@ export const DiffViewer = function DiffViewer(props: {
 				state,
 		);
 	const _source = navigationState;
-	const stats = createMemo(() => props.diff.metadata.stats);
 	const viewer = createMemo(() => props.diff.viewer);
 	const changeRanges = createMemo(() =>
-		viewMode() === "hunks"
+		props.viewMode === "hunks"
 			? props.diff.metadata.inlineChangeRanges
 			: props.diff.metadata.splitChangeRanges,
 	);
-	const totalChanges = createMemo(() => changeRanges().length);
 	const firstChangeLine = createMemo(() => changeRanges()[0]?.[0]);
 	let initialScrollIdentity: string | null = null;
 	let initialScrollFrame = 0;
@@ -86,7 +72,7 @@ export const DiffViewer = function DiffViewer(props: {
 		clearHighlightTimer = undefined;
 	};
 	createEffect(
-		() => [diffIdentity(), viewMode()] as const,
+		() => [diffIdentity(), props.viewMode] as const,
 		() => {
 			cancelNavigationTimers();
 			return cancelNavigationTimers;
@@ -173,7 +159,7 @@ export const DiffViewer = function DiffViewer(props: {
 				props.startAtFirstChange === undefined
 					? false
 					: props.startAtFirstChange,
-				viewMode(),
+				props.viewMode,
 			] as const,
 		([identity, firstLine, startAtFirstChange, mode]) => {
 			if (initialScrollFrame) {
@@ -221,7 +207,7 @@ export const DiffViewer = function DiffViewer(props: {
 	const Panels = () => (
 		<DiffPanels
 			diff={props.diff}
-			mode={viewer().conflict ? "conflict" : viewMode()}
+			mode={viewer().conflict ? "conflict" : props.viewMode}
 			scrollRef={rightRef}
 			ext={viewer().extension}
 			filePath={props.filePath}
@@ -241,17 +227,9 @@ export const DiffViewer = function DiffViewer(props: {
 				<Show
 					when={viewer().conflict}
 					fallback={
-						<>
-							<Show when={!props.hideToolbar}>
-								<DiffViewToolbar
-									viewMode={viewMode()}
-									onChange={setViewMode()}
-								/>
-							</Show>
-							<div {...stylex.attrs(diffStyles.body)}>
-								<Panels />
-							</div>
-						</>
+						<div {...stylex.attrs(diffStyles.body)}>
+							<Panels />
+						</div>
 					}
 				>
 					<Panels />
@@ -305,21 +283,6 @@ export const DiffViewer = function DiffViewer(props: {
 				viewer().navigable && diffStyles.shellRelative,
 			)}
 		>
-			{!(props.hideHeader === undefined ? false : props.hideHeader) && (
-				<DiffHeader
-					filePath={props.filePath}
-					staged={props.staged}
-					onClose={props.onClose}
-					{...(viewer().navigable
-						? {
-								stats: stats(),
-								totalChanges: totalChanges(),
-								onPrevChange: goToPrevChange,
-								onNextChange: goToNextChange,
-							}
-						: {})}
-				/>
-			)}
 			{body}
 		</div>
 	);

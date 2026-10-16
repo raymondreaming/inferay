@@ -17,6 +17,10 @@ fn directory_selection_transitions_do_not_need_a_store_or_server() {
         "type":"directorySelected","paneId":"p","path":"/new","referencePaths":["/reference"]
     })), "codex").unwrap();
     let value = serde_json::to_value(&state).unwrap();
+    assert!(value.get("themeId").is_none());
+    assert!(value.get("fontSize").is_none());
+    assert!(value.get("fontFamily").is_none());
+    assert!(value.get("opacity").is_none());
     let pane = &value["groups"][0]["panes"][0];
     assert_eq!(pane["cwd"], "/new");
     assert_eq!(pane["referencePaths"], json!(["/reference"]));
@@ -39,7 +43,7 @@ fn directory_selection_transitions_do_not_need_a_store_or_server() {
 #[test]
 fn staged_directories_are_consumed_once_by_the_model() {
     let mut state = Workspace::new("codex");
-    let view = state.presentation().unwrap();
+    let view = serde_json::to_value(&state).unwrap();
     let pane_id = view["groups"][0]["selectedPaneId"].as_str().unwrap();
     state
         .set_pending_workspace(

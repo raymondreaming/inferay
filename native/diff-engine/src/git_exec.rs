@@ -5,7 +5,7 @@ use wait_timeout::ChildExt;
 
 /// Keep Git selection at the process boundary. Avoid Apple's repeated tool
 /// selection overhead without overriding a custom PATH Git.
-pub(crate) fn command() -> Command {
+pub fn command() -> Command {
     #[cfg(target_os = "macos")]
     {
         static SYSTEM_GIT: std::sync::OnceLock<Option<std::path::PathBuf>> =

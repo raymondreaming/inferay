@@ -1,13 +1,14 @@
 import type {
 	AgentWorkspaceAction,
 	Group,
-	RepositoryWorkspaceIndex,
+	Workspace,
 	WorkspaceAgentKind,
 	WorkspaceSnapshot,
 } from "@contracts";
 import { dispatchFocusAgentChatComposer } from "@shared/lib/dom.tsx";
 import {
 	loadDefaultChatSettings,
+	project,
 	saveStoredInput,
 	WorkspaceReplica,
 } from "@shared/lib/native.tsx";
@@ -29,11 +30,9 @@ import {
 } from "./useProjects.tsx";
 
 interface WorkspacePersistencePort {
-	initialize(): Promise<import("@contracts").AgentSavedState>;
-	load(): Promise<import("@contracts").AgentSavedState | null>;
-	save(
-		action: AgentWorkspaceAction,
-	): Promise<import("@contracts").AgentSavedState>;
+	initialize(): Promise<Workspace>;
+	load(): Promise<Workspace | null>;
+	save(action: AgentWorkspaceAction): Promise<Workspace>;
 }
 
 type WorkspaceSession = ReturnType<typeof createWorkspaceSession>;
@@ -47,7 +46,7 @@ export function createWorkspaceSession(
 	const model = new WorkspaceReplica();
 	let snapshot: WorkspaceSnapshot = JSON.parse(model.snapshot());
 	let queue: Promise<unknown> = Promise.resolve();
-	let read: Promise<import("@contracts").AgentSavedState | null> | null = null;
+	let read: Promise<Workspace | null> | null = null;
 	const publish = (next: string) => {
 		snapshot = JSON.parse(next);
 		onSnapshot(snapshot);
@@ -62,7 +61,7 @@ export function createWorkspaceSession(
 		get snapshot() {
 			return snapshot;
 		},
-		load(): Promise<import("@contracts").AgentSavedState | null> {
+		load(): Promise<Workspace | null> {
 			if (read) return read;
 			const current = queue.then(async () => {
 				try {
@@ -112,13 +111,6 @@ export function createWorkspaceSession(
 	};
 }
 
-const EMPTY: RepositoryWorkspaceIndex = {
-	workspaces: [],
-	unassignedEntries: [],
-	activePath: null,
-	activeWorkspace: null,
-	visibleEntries: [],
-};
 const [published, setPublished] = createStore<WorkspaceSnapshot>({
 	state: null,
 	error: null,
@@ -135,10 +127,7 @@ export function configureWorkspaceState(
 		throw new Error("Workspace state is already configured");
 	configuredSession = createWorkspaceSession(
 		port,
-		(next) =>
-			setPublished(
-				reconcile(next, (item) => item.id ?? item.cwd ?? item.pane?.id),
-			),
+		(next) => setPublished(reconcile(next, (item) => item.id)),
 		onSelection,
 	);
 }
@@ -154,7 +143,7 @@ export async function mutateAgentWorkspaceState(action: AgentWorkspaceAction) {
 	const project = projects.catalog()?.projects.find((p) => p.id === projectId);
 	if (action.type === "addPane" && !action.cwd && project)
 		action = { ...action, cwd: project.directory };
-	const rememberChat = (state: import("@contracts").AgentSavedState | null) => {
+	const rememberChat = (state: Workspace | null) => {
 		const group = state?.groups.find((g) => g.id === state.selectedGroupId);
 		if (projectId && group?.selectedPaneId) {
 			const selection = { groupId: group.id, paneId: group.selectedPaneId };
@@ -246,8 +235,12 @@ export const changePaneAgentKind = (
 		agentKind,
 	});
 };
+export interface SidebarChatEntry {
+	groupId: Group["id"];
+	pane: Group["panes"][number];
+}
 export interface SidebarWorkspaceState {
-	repositories: RepositoryWorkspaceIndex;
+	entries: SidebarChatEntry[];
 	groups: Group[];
 	selectedGroupId: string | null;
 }
@@ -275,28 +268,19 @@ const scopedGroups = createMemo(() => {
 		}))
 		.filter((g) => g.panes.length > 0);
 });
-const scopedRepositories = createMemo(() => {
-	const repositories = published.state?.repositories ?? EMPTY;
-	if (!projects.selectedId()) return repositories;
-	const allowed = new Set([
-		...(projects.catalog()?.repositoryPaths ?? []),
-		...scopedGroups().flatMap((g) =>
-			g.panes.map((p) => p.cwd).filter((cwd): cwd is string => !!cwd),
-		),
-	]);
-	return {
-		...repositories,
-		workspaces: repositories.workspaces.filter((r) => allowed.has(r.cwd)),
-		activeWorkspace: allowed.has(repositories.activePath ?? "")
-			? repositories.activeWorkspace
-			: null,
-		activePath: allowed.has(repositories.activePath ?? "")
-			? repositories.activePath
-			: null,
-		visibleEntries: scopedGroups().flatMap((g) =>
+const visibleEntries = createMemo<SidebarChatEntry[]>(() => {
+	const groups = scopedGroups();
+	if (projects.selectedId())
+		return groups.flatMap((g) =>
 			g.panes.map((pane) => ({ groupId: g.id, pane })),
-		),
-	};
+		);
+	return project<[number, number][]>(
+		"workspaceChatEntries",
+		published.state,
+	).map(([group, pane]) => ({
+		groupId: groups[group]!.id,
+		pane: groups[group]!.panes[pane]!,
+	}));
 });
 export function useWorkspaceState(
 	_loadCanonical: Accessor<boolean> = () => true,
@@ -306,8 +290,8 @@ export function useWorkspaceState(
 		get groups() {
 			return scopedGroups();
 		},
-		get repositories() {
-			return scopedRepositories();
+		get entries() {
+			return visibleEntries();
 		},
 		get selectedGroupId() {
 			if (projects.selectedId()) {

@@ -1,16 +1,17 @@
 import type { SidebarResize } from "@contracts";
 import { iconSize } from "@design-system/styles.stylex.ts";
 import { useForgeAccounts } from "@repository/hooks/useForgeAccounts.tsx";
-import { useAppInfo } from "@shared/hooks/useAppInfo.tsx";
+import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
 	CREATE_AGENT_CHAT_EVENT,
 	type CreateAgentChatDetail,
 	type CreateAgentChatTarget,
-	domStyle,
+	dispatchCreateAgentChat,
 	listenWindowEvent,
 	openSettingsModal,
+	px,
 	WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
 	type WorkspaceSidebarCollapsedDetail,
 } from "@shared/lib/dom.tsx";
@@ -21,10 +22,14 @@ import {
 	readStoredValue,
 	writeStoredValue,
 } from "@shared/lib/native.tsx";
-import { IconSettings } from "@shared/ui/Icons/index.tsx";
+import { Button } from "@shared/ui/Button/index.tsx";
+import { IconPlus, IconSettings, IconUser } from "@shared/ui/Icons/index.tsx";
 import { useLocation, useNavigate } from "@solidjs/router";
 import * as stylex from "@stylexjs/stylex";
-import { checkNativeUpdate } from "@workspace/services/workspaceApi.ts";
+import {
+	checkNativeUpdate,
+	loadAppInfo,
+} from "@workspace/services/workspaceApi.ts";
 import {
 	createEffect,
 	createMemo,
@@ -39,11 +44,9 @@ import {
 	useWorkspaceState,
 } from "../../hooks/useWorkspaceState.tsx";
 import { ProjectNavigation } from "../ProjectsPanel/ProjectNavigation.tsx";
-import { SidebarAccountButton } from "./SidebarAccountButton.tsx";
+import { SidebarChatList } from "./SidebarChatList.tsx";
 import type { SidebarUpdateStatus } from "./SidebarFooter.tsx";
 import { SidebarFooter } from "./SidebarFooter.tsx";
-import { SidebarWorkspacesSection } from "./SidebarWorkspacesSection.tsx";
-import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 
 const SIDEBAR_WIDTH_KEY = "main-sidebar-width";
@@ -119,7 +122,10 @@ export function WorkspaceSidebar() {
 	const [updateStatus, setUpdateStatus] =
 		createSignal<SidebarUpdateStatus>("idle");
 	const [updateError, setUpdateError] = createSignal<string>();
-	const _source = useAppInfo();
+	const appInfo = useBackgroundQuery(() => ({
+		queryKey: ["app-info"],
+		queryFn: loadAppInfo,
+	}));
 	const _source2 = useForgeAccounts();
 	const githubAccount = createMemo(
 		() =>
@@ -163,11 +169,6 @@ export function WorkspaceSidebar() {
 			void addChat(target);
 		}),
 	);
-	const updateInfo = createMemo(() => _source.data.update);
-	const updateAvailable = createMemo(() => {
-		const _updateInfoValue = updateInfo();
-		return _updateInfoValue.available && !!_updateInfoValue.url;
-	});
 	let updateTimer: ReturnType<typeof setTimeout> | undefined;
 	let updateRequest: AbortController | undefined;
 	let updateDisposed = false;
@@ -225,11 +226,13 @@ export function WorkspaceSidebar() {
 			aria-label="Workspace sidebar"
 			{...shellProps()}
 			class={`${APP_REGION_DRAG_CLASS} ${shellProps().class ?? ""}`}
-			style={domStyle(
+			style={
 				!showWorkspaceSidebar() || collapsed()
 					? undefined
-					: inlineStyles.getWorkspaceSidebarAsideStyle(resize.width()),
-			)}
+					: {
+							width: px(resize.width()),
+						}
+			}
 		>
 			{showWorkspaceSidebar() && !collapsed() && (
 				<button
@@ -244,15 +247,30 @@ export function WorkspaceSidebar() {
 				<>
 					<ProjectNavigation />
 					<nav aria-label="Workspaces" {...stylex.attrs(styles.nav)}>
-						<SidebarWorkspacesSection
-							workspaces={workspaces()}
-							onSelectPane={selectPane}
-						/>
+						<div {...stylex.attrs(styles.workspaceSection)}>
+							<div {...stylex.attrs(styles.workspaceListScroll)}>
+								<div {...stylex.attrs(styles.workspaceSectionHeader)}>
+									<span {...stylex.attrs(styles.workspaceSectionTitle)}>
+										Chats
+									</span>
+									<Button
+										variant="ghost"
+										size="sm"
+										onClick={() => dispatchCreateAgentChat()}
+									>
+										<IconPlus size={iconSize.md} /> New chat
+									</Button>
+								</div>
+								<SidebarChatList
+									workspaces={workspaces()}
+									onSelectPane={selectPane}
+								/>
+							</div>
+						</div>
 					</nav>
 					<div {...stylex.attrs(styles.sidebarAccountArea)}>
 						<SidebarFooter
-							updateAvailable={updateAvailable()}
-							updateInfo={updateInfo()}
+							updateInfo={appInfo.data?.update}
 							updateStatus={updateStatus()}
 							updateError={updateError()}
 							onUpdate={openUpdate}
@@ -265,7 +283,27 @@ export function WorkspaceSidebar() {
 							<IconSettings size={iconSize.md} />
 							<span>Settings</span>
 						</button>
-						<SidebarAccountButton githubAccount={githubAccount()} />
+						<button
+							type="button"
+							onClick={() => openSettingsModal("github")}
+							{...stylex.attrs(styles.sidebarAccount)}
+							title="Account settings"
+						>
+							{githubAccount()?.avatarUrl ? (
+								<img
+									src={githubAccount()?.avatarUrl ?? undefined}
+									alt=""
+									{...stylex.attrs(styles.sidebarAvatar)}
+								/>
+							) : (
+								<span {...stylex.attrs(styles.sidebarAvatarFallback)}>
+									<IconUser size={iconSize.sm} />
+								</span>
+							)}
+							<span {...stylex.attrs(styles.sidebarUsername)}>
+								{githubAccount()?.login || "GitHub account"}
+							</span>
+						</button>
 					</div>
 				</>
 			) : null}

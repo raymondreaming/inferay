@@ -23,7 +23,6 @@ function formatDetailDate(value?: string | null) {
 export function DetailIdentity(_props: {
 	cwd?: string;
 	hash?: string;
-	label?: string;
 	name?: string | null;
 	email?: string | null;
 	date?: string | null;
@@ -71,11 +70,6 @@ export function DetailIdentity(_props: {
 				</Loading>
 			</span>
 			<span {...stylex.attrs(styles.detailIdentityCopy)}>
-				{_props.label ? (
-					<span {...stylex.attrs(styles.detailIdentityLabel)}>
-						{_props.label}
-					</span>
-				) : null}
 				<strong {...stylex.attrs(styles.authorText)}>
 					<Loading fallback={_props.name || "Unknown author"}>
 						{displayName()}

@@ -1,9 +1,6 @@
 import type { DiffScrollSource, GitDiffLine, MinimapSegment } from "@contracts";
-import {
-	type SyntaxToken,
-	useSyntaxHighlight,
-} from "@shared/hooks/useSyntaxHighlight.tsx";
-import { assignRef, domStyle, type RefCell } from "@shared/lib/dom.tsx";
+import { useSyntaxHighlight } from "@shared/hooks/useSyntaxHighlight.tsx";
+import { assignRef, px, type RefCell } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
 	createEffect,
@@ -15,12 +12,12 @@ import {
 import { DiffGutterRow } from "./DiffGutterRow.tsx";
 import { DiffMinimap } from "./DiffMinimap.tsx";
 import { DiffRow } from "./DiffRow.tsx";
-import * as inlineStyles from "./styles.ts";
 import { DIFF_CONFIG, diffStyles, GUTTER_W, LINE_H } from "./styles.ts";
 
 const SPLIT_RIGHT_INSET = 12;
 const OVERSCAN = DIFF_CONFIG.overscan;
 const MAX_PANEL_CONTENT_WIDTH = 8000;
+const EMPTY_LINE: GitDiffLine = { number: null, content: "", type: "spacer" };
 function roundToDevicePixel(value: number): number {
 	const dpr = window.devicePixelRatio ?? 1;
 	return Math.round(value * dpr) / dpr;
@@ -31,17 +28,12 @@ export const VirtualPanel = function VirtualPanel(props: {
 	maxLineChars: number;
 	ext: string;
 	scrollRef: RefCell<HTMLDivElement | null>;
-	onScroll?: (
-		scrollTop: number,
-		scrollLeft: number,
-		programmatic?: boolean,
-	) => void;
+	onScroll?: (scrollTop: number) => void;
 	disableTokenize: boolean;
 	gutterLines?: GitDiffLine[];
 	showGutter?: boolean;
 	showMinimap?: boolean;
 	minimapSegments?: MinimapSegment[];
-	verticalFollower?: boolean;
 	externalScrollTop?: number;
 	externalScrollSource?: DiffScrollSource;
 	side: "left" | "right" | "single";
@@ -52,17 +44,7 @@ export const VirtualPanel = function VirtualPanel(props: {
 		!(Math.abs(previous - next) > 0.5);
 	const [scrollTop, setScrollTop] = createSignal(0, { equals });
 	const [viewHeight, setViewHeight] = createSignal(600, { equals });
-	const rafRef = {
-		current: 0,
-	} as {
-		current: number;
-	};
-	const lastScrollRef = {
-		current: {
-			left: 0,
-			top: 0,
-		},
-	};
+	let scrollFrame = 0;
 	createEffect(
 		() => props.scrollRef,
 		(scrollRef) => {
@@ -77,26 +59,17 @@ export const VirtualPanel = function VirtualPanel(props: {
 		},
 	);
 	const handleScroll = () => {
-		if (!props.scrollRef.current) return;
-		const { scrollTop: nextTop, scrollLeft: nextLeft } =
-			props.scrollRef.current;
-		props.onScroll?.(nextTop, nextLeft);
-		if (rafRef.current) return;
-		rafRef.current = requestAnimationFrame(() => {
-			rafRef.current = 0;
-			if (!props.scrollRef.current) return;
-			const { scrollTop: st, scrollLeft: sl } = props.scrollRef.current;
-			const last = lastScrollRef.current;
-			const topChanged = Math.abs(last.top - st) > 0.5;
-			const leftChanged = Math.abs(last.left - sl) > 0.5;
-			if (topChanged) {
-				last.top = st;
-				setScrollTop(st);
-			}
-			if (leftChanged) last.left = sl;
+		const element = props.scrollRef.current;
+		if (!element) return;
+		props.onScroll?.(element.scrollTop);
+		if (scrollFrame) return;
+		scrollFrame = requestAnimationFrame(() => {
+			scrollFrame = 0;
+			const element = props.scrollRef.current;
+			if (element) setScrollTop(element.scrollTop);
 		});
 	};
-	onSettled(() => () => cancelAnimationFrame(rafRef.current));
+	onSettled(() => () => cancelAnimationFrame(scrollFrame));
 	const total = createMemo(
 		() =>
 			(props.rowCount === undefined ? props.lines.length : props.rowCount) *
@@ -148,7 +121,6 @@ export const VirtualPanel = function VirtualPanel(props: {
 			// Reapply the clamped target after a file or viewport size changes.
 			if (element.scrollTop !== nextScrollTop)
 				element.scrollTop = nextScrollTop;
-			lastScrollRef.current.top = nextScrollTop;
 			setScrollTop(nextScrollTop);
 		},
 	);
@@ -165,43 +137,15 @@ export const VirtualPanel = function VirtualPanel(props: {
 			Math.min(Math.max(0, lineIndex * LINE_H - height / 2), maxScrollTop),
 		);
 		props.scrollRef.current.scrollTop = nextScrollTop;
-		lastScrollRef.current.top = nextScrollTop;
 		setScrollTop(nextScrollTop);
-		props.onScroll?.(nextScrollTop, props.scrollRef.current.scrollLeft, true);
+		props.onScroll?.(nextScrollTop);
 	};
-	const visibleRows = createMemo(() => {
-		const rows: {
-			line: GitDiffLine;
-			highlightedTokens?: SyntaxToken[];
-			key: number;
-			isHighlighted: boolean;
-		}[] = [];
-		for (let i = start(); i < end(); i++) {
-			const line: GitDiffLine = props.lines[i] ?? {
-				number: null,
-				content: "",
-				type: "spacer",
-			};
-			const isHighlighted =
-				props.highlightedRange !== undefined &&
-				i >= props.highlightedRange[0] &&
-				i < props.highlightedRange[1];
-			const highlightedTokens =
-				_source2.isReady &&
-				!props.disableTokenize &&
-				props.filePath &&
-				_source2.language
-					? _source2.getLineTokens(i)
-					: undefined;
-			rows.push({
-				line,
-				highlightedTokens,
-				key: i,
-				isHighlighted,
-			});
-		}
-		return rows;
-	});
+	const visibleRows = createMemo(() =>
+		Array.from(
+			{ length: Math.max(0, end() - start()) },
+			(_, offset) => start() + offset,
+		),
+	);
 	return (
 		<div {...stylex.attrs(diffStyles.virtualRoot)}>
 			<div
@@ -212,47 +156,39 @@ export const VirtualPanel = function VirtualPanel(props: {
 					diffStyles.virtualScroller,
 					props.side !== "single" && diffStyles.splitScroller,
 				)}
-				style={domStyle(
-					(
-						props.verticalFollower === undefined
-							? false
-							: props.verticalFollower
-					)
-						? inlineStyles.getVirtualPanelVirtualScrollerStyle()
-						: undefined,
-				)}
 			>
 				<div
-					style={domStyle(
-						inlineStyles.getVirtualPanelDivStyle(total(), minContentWidth()),
-					)}
+					style={{
+						height: px(total()),
+						position: "relative",
+						"min-width": px(minContentWidth()),
+					}}
 				>
 					<div
 						{...stylex.attrs(diffStyles.virtualOffsetLayer)}
-						style={domStyle(
-							inlineStyles.getVirtualPanelVirtualOffsetLayerStyle(
-								`translate3d(0, ${start() * LINE_H}px, 0)`,
-								minContentWidth(),
-							),
-						)}
+						style={{
+							transform: `translate3d(0, ${start() * LINE_H}px, 0)`,
+							"min-width": px(minContentWidth()),
+						}}
 					>
 						{(props.showGutter === undefined ? true : props.showGutter) ? (
 							<div {...stylex.attrs(diffStyles.gutterLayer)}>
 								<div
 									{...stylex.attrs(diffStyles.gutterBlock)}
-									style={domStyle(
-										inlineStyles.getVirtualPanelGutterBlockStyle(),
-									)}
+									style={{
+										top: 0,
+									}}
 								>
 									{
-										<For each={visibleRows()} keyed={(row) => row.key}>
+										<For each={visibleRows()} keyed={(index) => index}>
 											{(props2) => (
 												<DiffGutterRow
 													line={
-														props2().line.type === "spacer" &&
-														props.gutterLines?.[props2().key]?.type === "add"
-															? props.gutterLines[props2().key]!
-															: props2().line
+														(props.lines[props2()] ?? EMPTY_LINE).type ===
+															"spacer" &&
+														props.gutterLines?.[props2()]?.type === "add"
+															? props.gutterLines[props2()]!
+															: (props.lines[props2()] ?? EMPTY_LINE)
 													}
 												/>
 											)}
@@ -262,19 +198,29 @@ export const VirtualPanel = function VirtualPanel(props: {
 							</div>
 						) : null}
 						{
-							<For each={visibleRows()} keyed={(row) => row.key}>
+							<For each={visibleRows()} keyed={(index) => index}>
 								{(props3) => (
 									<DiffRow
-										line={props3().line}
-										highlightedTokens={props3().highlightedTokens}
+										line={props.lines[props3()] ?? EMPTY_LINE}
+										highlightedTokens={
+											_source2.isReady &&
+											!props.disableTokenize &&
+											props.filePath &&
+											_source2.language
+												? _source2.getLineTokens(props3())
+												: undefined
+										}
 										syntaxPending={
 											!props.disableTokenize &&
 											!!props.filePath &&
 											!_source2.isReady
 										}
-										isHighlighted={props3().isHighlighted}
+										isHighlighted={
+											props.highlightedRange !== undefined &&
+											props3() >= props.highlightedRange[0] &&
+											props3() < props.highlightedRange[1]
+										}
 										minWidth={minContentWidth()}
-										hideGutter
 										gutterOffset={
 											(props.showGutter === undefined ? true : props.showGutter)
 												? GUTTER_W

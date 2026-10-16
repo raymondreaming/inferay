@@ -1,4 +1,3 @@
-import type { CSSProperties } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
 	color,
@@ -619,38 +618,3 @@ export const styles = stylex.create({
 		width: "100%",
 	},
 });
-export function getCheckpointMarkerCheckpointHeaderStyle(
-	borderBottom: CSSProperties["borderBottom"],
-): CSSProperties {
-	return {
-		borderBottom: borderBottom,
-	} as CSSProperties;
-}
-export function getCheckpointMarkerSpanStyle(
-	color: CSSProperties["color"],
-): CSSProperties {
-	return {
-		color: color,
-	} as CSSProperties;
-}
-export function getChatMessageListDivStyle(
-	height: CSSProperties["height"],
-): CSSProperties {
-	return {
-		height: height,
-		flexShrink: 0,
-	} as CSSProperties;
-}
-export function getChatMessageListDivStyle1(
-	height: CSSProperties["height"],
-): CSSProperties {
-	return {
-		height: height,
-		flexShrink: 0,
-	} as CSSProperties;
-}
-export function getMcpSourceMarkStyle(hue: number): CSSProperties {
-	return {
-		"--mcp-hue": String(hue),
-	} as CSSProperties;
-}

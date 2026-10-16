@@ -127,6 +127,14 @@ pub struct CodexProtocolState {
     command_outputs: HashMap<String, String>,
 }
 
+fn close_block(context: &mut AgentProtocolContext, open: &mut bool) {
+    if std::mem::take(open) {
+        context.emissions.push(ProtocolEmission::Chat(
+            json!({ "type": "content_block_stop" }),
+        ));
+    }
+}
+
 impl CodexProtocolState {
     pub fn handle_notification(
         &mut self,
@@ -328,7 +336,7 @@ impl CodexProtocolState {
     /// user input to the active turn. Subsequent model text starts a fresh
     /// assistant block after the steering message.
     pub fn prepare_for_steering(&mut self, context: &mut AgentProtocolContext) {
-        self.close_assistant(context);
+        close_block(context, &mut self.assistant_open);
     }
 
     pub fn finalize_open_block(&mut self, context: &mut AgentProtocolContext) {
@@ -344,23 +352,7 @@ impl CodexProtocolState {
     }
 
     pub fn close_tool(&mut self, context: &mut AgentProtocolContext) {
-        if !self.tool_open {
-            return;
-        }
-        context.emissions.push(ProtocolEmission::Chat(
-            json!({ "type": "content_block_stop" }),
-        ));
-        self.tool_open = false;
-    }
-
-    fn close_assistant(&mut self, context: &mut AgentProtocolContext) {
-        if !self.assistant_open {
-            return;
-        }
-        context.emissions.push(ProtocolEmission::Chat(
-            json!({ "type": "content_block_stop" }),
-        ));
-        self.assistant_open = false;
+        close_block(context, &mut self.tool_open);
     }
 
     fn start_assistant(&mut self, context: &mut AgentProtocolContext) {
@@ -377,7 +369,7 @@ impl CodexProtocolState {
     }
 
     fn start_tool(&mut self, context: &mut AgentProtocolContext, name: &str, input: Value) {
-        self.close_assistant(context);
+        close_block(context, &mut self.assistant_open);
         self.close_tool(context);
         context.emissions.push(ProtocolEmission::Chat(json!({
             "type": "content_block_start",
@@ -407,8 +399,8 @@ impl CodexProtocolState {
             "delta": { "type": "text_delta", "text": delta }
         })));
 
-        self.last_assistant_message = append_bounded_chat_content(
-            &self.last_assistant_message,
+        append_bounded_chat_content(
+            &mut self.last_assistant_message,
             delta,
             CHAT_SINGLE_MESSAGE_CHAR_LIMIT,
         );
@@ -419,11 +411,11 @@ impl CodexProtocolState {
             if let Some(delta) = text.strip_prefix(&self.last_assistant_message) {
                 self.assistant_delta(context, delta);
             } else {
-                self.close_assistant(context);
+                close_block(context, &mut self.assistant_open);
                 self.emit_result(context, text);
             }
         }
-        self.close_assistant(context);
+        close_block(context, &mut self.assistant_open);
         self.last_assistant_message = truncate_chat_content(text, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
     }
 

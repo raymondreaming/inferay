@@ -133,111 +133,126 @@ pub(crate) fn prepare_file_run(
     )
 }
 
-pub(crate) fn schedule_due(
-    db: &mut Connection,
-    profile: &std::path::Path,
-    skills: &[inferay_core::prompts::Prompt],
-    time: i64,
-) -> Result<()> {
-    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    let due: Vec<(String, i64, String)> = tx.prepare("SELECT a.id,s.next_due_at,a.body FROM automations a JOIN automation_state s ON s.automation_id=a.id JOIN projects p ON p.id=a.project_id WHERE a.valid=1 AND p.valid=1 AND s.enabled=1 AND s.next_due_at<=? AND coalesce(json_extract(a.body,'$.archived'),0)=0 AND coalesce(json_extract(p.body,'$.archived'),0)=0 ORDER BY s.next_due_at,a.id LIMIT 8")?
-        .query_map([time], |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?.collect::<std::result::Result<_,_>>()?;
-    for (id, occurrence, body) in due {
-        let definition: inferay_core::project_files::AutomationDefinition =
-            serde_json::from_str(&body)?;
-        if let Err(error) = prepare_file_run(
-            &tx,
-            profile,
-            &id,
-            &format!("schedule:{id}:{occurrence}"),
-            Some(occurrence),
-            None,
-            skills,
-        ) {
-            tx.execute("UPDATE automation_state SET enabled=0,next_due_at=NULL,error=? WHERE automation_id=?",params![error.to_string(),id])?;
-            continue;
-        }
-        let next = match definition.trigger {
-            inferay_core::project_files::Trigger::Interval { seconds } => {
-                let interval = i64::try_from(seconds)?
-                    .checked_mul(1000)
-                    .ok_or("Schedule interval overflow")?;
-                if interval <= 0 {
-                    return Err("Schedule interval must be positive".into());
-                }
-                let elapsed = time
-                    .checked_sub(occurrence)
-                    .ok_or("Schedule time overflow")?;
-                let steps = (elapsed / interval)
-                    .checked_add(1)
-                    .ok_or("Schedule time overflow")?;
-                Some(
-                    occurrence
-                        .checked_add(
-                            steps
-                                .checked_mul(interval)
-                                .ok_or("Schedule time overflow")?,
-                        )
-                        .ok_or("Schedule time overflow")?,
-                )
-            }
-            trigger => trigger.next_after(time)?,
-        };
-        tx.execute(
-            "UPDATE automation_state SET next_due_at=? WHERE automation_id=? AND enabled=1",
-            params![next, id],
-        )?;
+impl crate::project_file_store::FileProjectStore {
+    /// A read-only hint: admission rechecks all state and approvals transactionally.
+    pub(crate) fn has_pending_runs(&self, time: i64) -> rusqlite::Result<bool> {
+        self.db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM automation_state WHERE enabled=1 AND next_due_at<=?1
+             UNION ALL SELECT 1 FROM runs WHERE status='queued' AND stop_requested_at IS NULL)",
+            [time],
+            |row| row.get(0),
+        )
     }
-    tx.commit()?;
-    Ok(())
-}
-
-pub(crate) fn claim_next(
-    db: &mut Connection,
-    profile: &std::path::Path,
-    skills: &[inferay_core::prompts::Prompt],
-) -> Result<Option<(String, String, Value)>> {
-    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    for _ in 0..8 {
-        let queued: Option<(String,String,String,String,bool)> = tx.query_row("SELECT r.id,r.project_id,r.automation_id,r.snapshot,r.occurrence_at IS NOT NULL FROM runs r WHERE r.status='queued' AND r.stop_requested_at IS NULL AND NOT EXISTS(SELECT 1 FROM runs active WHERE active.automation_id=r.automation_id AND active.status='running') ORDER BY r.requested_at,r.id LIMIT 1",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).optional()?;
-        let Some((id, project, automation, text, scheduled)) = queued else {
-            break;
-        };
-        let snapshot: Value = serde_json::from_str(&text)?;
-        let error = match crate::project_index::approved_inputs(
-            &tx,
-            profile,
-            &automation,
-            scheduled,
-            skills,
-        ) {
-            Ok(current) if current == snapshot => None,
-            Ok(_) => Some("Inputs changed after this run was queued. Review and retry.".to_owned()),
-            Err(error) => Some(error.to_string()),
-        };
-        if let Some(error) = error {
-            tx.execute(
-                "UPDATE runs SET status='failed',finished_at=?,error=? WHERE id=?",
-                params![now(), error, id],
-            )?;
-            event(
+    pub(crate) fn schedule_due(
+        &mut self,
+        skills: &[inferay_core::prompts::Prompt],
+        time: i64,
+    ) -> Result<()> {
+        let tx = self
+            .db
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let due: Vec<(String, i64, String)> = tx.prepare("SELECT a.id,s.next_due_at,a.body FROM automations a JOIN automation_state s ON s.automation_id=a.id JOIN projects p ON p.id=a.project_id WHERE a.valid=1 AND p.valid=1 AND s.enabled=1 AND s.next_due_at<=? AND coalesce(json_extract(a.body,'$.archived'),0)=0 AND coalesce(json_extract(p.body,'$.archived'),0)=0 ORDER BY s.next_due_at,a.id LIMIT 8")?
+            .query_map([time], |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?.collect::<std::result::Result<_,_>>()?;
+        for (id, occurrence, body) in due {
+            let definition: inferay_core::project_files::AutomationDefinition =
+                serde_json::from_str(&body)?;
+            if let Err(error) = prepare_file_run(
                 &tx,
+                &self.root,
                 &id,
-                "failed",
-                &json!({"error":error,"phase":"admission"}),
+                &format!("schedule:{id}:{occurrence}"),
+                Some(occurrence),
+                None,
+                skills,
+            ) {
+                tx.execute("UPDATE automation_state SET enabled=0,next_due_at=NULL,error=? WHERE automation_id=?",params![error.to_string(),id])?;
+                continue;
+            }
+            let next = match definition.trigger {
+                inferay_core::project_files::Trigger::Interval { seconds } => {
+                    let interval = i64::try_from(seconds)?
+                        .checked_mul(1000)
+                        .ok_or("Schedule interval overflow")?;
+                    if interval <= 0 {
+                        return Err("Schedule interval must be positive".into());
+                    }
+                    let elapsed = time
+                        .checked_sub(occurrence)
+                        .ok_or("Schedule time overflow")?;
+                    let steps = (elapsed / interval)
+                        .checked_add(1)
+                        .ok_or("Schedule time overflow")?;
+                    Some(
+                        occurrence
+                            .checked_add(
+                                steps
+                                    .checked_mul(interval)
+                                    .ok_or("Schedule time overflow")?,
+                            )
+                            .ok_or("Schedule time overflow")?,
+                    )
+                }
+                trigger => trigger.next_after(time)?,
+            };
+            tx.execute(
+                "UPDATE automation_state SET next_due_at=? WHERE automation_id=? AND enabled=1",
+                params![next, id],
             )?;
-            continue;
         }
-        tx.execute(
-            "UPDATE runs SET status='running',started_at=? WHERE id=?",
-            params![now(), id],
-        )?;
-        event(&tx, &id, "running", &json!({}))?;
         tx.commit()?;
-        return Ok(Some((id, project, snapshot)));
+        Ok(())
     }
-    tx.commit()?;
-    Ok(None)
+
+    pub(crate) fn claim_next(
+        &mut self,
+        skills: &[inferay_core::prompts::Prompt],
+    ) -> Result<Option<(String, String, Value)>> {
+        let tx = self
+            .db
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        for _ in 0..8 {
+            let queued: Option<(String,String,String,String,bool)> = tx.query_row("SELECT r.id,r.project_id,r.automation_id,r.snapshot,r.occurrence_at IS NOT NULL FROM runs r WHERE r.status='queued' AND r.stop_requested_at IS NULL AND NOT EXISTS(SELECT 1 FROM runs active WHERE active.automation_id=r.automation_id AND active.status='running') ORDER BY r.requested_at,r.id LIMIT 1",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))).optional()?;
+            let Some((id, project, automation, text, scheduled)) = queued else {
+                break;
+            };
+            let snapshot: Value = serde_json::from_str(&text)?;
+            let error = match crate::project_index::approved_inputs(
+                &tx,
+                &self.root,
+                &automation,
+                scheduled,
+                skills,
+            ) {
+                Ok(current) if current == snapshot => None,
+                Ok(_) => {
+                    Some("Inputs changed after this run was queued. Review and retry.".to_owned())
+                }
+                Err(error) => Some(error.to_string()),
+            };
+            if let Some(error) = error {
+                tx.execute(
+                    "UPDATE runs SET status='failed',finished_at=?,error=? WHERE id=?",
+                    params![now(), error, id],
+                )?;
+                event(
+                    &tx,
+                    &id,
+                    "failed",
+                    &json!({"error":error,"phase":"admission"}),
+                )?;
+                continue;
+            }
+            tx.execute(
+                "UPDATE runs SET status='running',started_at=? WHERE id=?",
+                params![now(), id],
+            )?;
+            event(&tx, &id, "running", &json!({}))?;
+            tx.commit()?;
+            return Ok(Some((id, project, snapshot)));
+        }
+        tx.commit()?;
+        Ok(None)
+    }
 }
 
 pub(crate) fn history(

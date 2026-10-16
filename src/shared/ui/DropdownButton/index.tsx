@@ -1,63 +1,28 @@
 import type { DropdownPosition } from "@contracts";
 import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
-import { Portal } from "@solidjs/web";
+import { px } from "@shared/lib/dom.tsx";
+import { Dynamic, Portal } from "@solidjs/web";
 import * as stylex from "@stylexjs/stylex";
 import {
-	createEffect,
 	createMemo,
 	createSignal,
 	type Element,
+	For,
+	onSettled,
 	Show,
 } from "solid-js";
-import { domStyle, hasId } from "../../lib/dom.tsx";
 import { project } from "../../lib/native.tsx";
-import { IconChevronDown } from "../Icons/index.tsx";
-import type {
-	DropdownOption,
-	DropdownOptionRenderer,
-} from "./DropdownCustomOption.tsx";
-import { DropdownOptions } from "./DropdownOptions.tsx";
-import { DropdownSearch } from "./DropdownSearch.tsx";
-import * as inlineStyles from "./styles.ts";
+import { IconCheck, IconChevronDown } from "../Icons/index.tsx";
+import { TextInput } from "../TextInput/index.tsx";
 import { styles } from "./styles.ts";
 
-export type { DropdownOption, DropdownOptionRenderer };
-
-function useDropdownPosition(
-	layout: () => {
-		element: HTMLButtonElement | null;
-		placement: "auto" | "top" | "bottom";
-		rowHeight: number;
-		count: number;
-		maxVisible?: number;
-		minWidth: number;
-	} | null,
-) {
-	const [position, setPosition] = createSignal(
-		project<DropdownPosition>("dropdownPosition", {}),
-	);
-	createEffect(layout, (layout) => {
-		if (!layout?.element) return;
-		const { element, ...options } = layout;
-		const measure = () =>
-			setPosition(
-				project("dropdownPosition", {
-					...options,
-					rect: element.getBoundingClientRect(),
-					width: window.innerWidth,
-					height: window.innerHeight,
-				}),
-			);
-		measure();
-		const observer = new ResizeObserver(measure);
-		observer.observe(element);
-		window.addEventListener("resize", measure);
-		return () => {
-			observer.disconnect();
-			window.removeEventListener("resize", measure);
-		};
-	});
-	return position;
+export interface DropdownOption {
+	iconComponent?: import("solid-js").Component;
+	id: string;
+	label: string;
+	detail?: string;
+	status?: string;
+	icon?: import("solid-js").Element;
 }
 
 export function DropdownButton(props: {
@@ -65,6 +30,9 @@ export function DropdownButton(props: {
 	customOption?: (text: string) => DropdownOption | null;
 	searchPlaceholder?: string;
 	variant?: "default" | "ghost";
+	size?: "sm";
+	title?: string;
+	selectedLabel?: string;
 	disabled?: boolean;
 	label?: string;
 	options: readonly DropdownOption[];
@@ -74,181 +42,294 @@ export function DropdownButton(props: {
 	emptyLabel?: string;
 	minWidth?: number;
 	fullWidth?: boolean;
-	renderOption?: DropdownOptionRenderer;
 	buttonClassName?: string;
-	labelClassName?: string;
 	menuPlacement?: "auto" | "top" | "bottom";
 	maxVisibleOptions?: number;
-	optionHeight?: number;
-	onOpen?: () => void;
+	open?: boolean;
+	onOpenChange?: (open: boolean) => void;
 }) {
-	const [open, setOpen] = createSignal(false);
-	const [search, setSearch] = createSignal("");
-	const [trigger, setTrigger] = createSignal<HTMLButtonElement | null>(null);
-	const menuRef = {
-		current: null,
-	} as {
-		current: HTMLDivElement | null;
+	const [localOpen, setLocalOpen] = createSignal(false);
+	const open = () => props.open ?? localOpen();
+	const setOpen = (value: boolean) => {
+		if (props.open === undefined) setLocalOpen(value);
+		props.onOpenChange?.(value);
 	};
-	const searchRef = {
-		current: null,
-	} as {
-		current: HTMLInputElement | null;
-	};
-	const pos = useDropdownPosition(() =>
-		open()
-			? {
-					element: trigger(),
-					placement: props.menuPlacement ?? "auto",
-					rowHeight: props.optionHeight ?? (props.renderOption ? 34 : 30),
-					count: props.options.length,
-					maxVisible: props.maxVisibleOptions,
-					minWidth: props.minWidth ?? 220,
-				}
-			: null,
-	);
-	createEffect(open, (isOpen) => {
-		if (!isOpen) return;
-		const handleDocumentPointerDown = (event: MouseEvent) => {
-			if (
-				menuRef.current &&
-				!menuRef.current.contains(event.target as Node) &&
-				!trigger()?.contains(event.target as Node)
-			)
-				setOpen(false);
-		};
-		const handleWindowScroll = (event: Event) => {
-			if (!menuRef.current?.contains(event.target as Node)) setOpen(false);
-		};
-		const handleDocumentKeyDown = (event: KeyboardEvent) => {
-			if (event.key === "Escape") {
-				event.preventDefault();
-				event.stopPropagation();
-				setOpen(false);
-				trigger()?.focus();
-			}
-		};
-		document.addEventListener("mousedown", handleDocumentPointerDown);
-		window.addEventListener("scroll", handleWindowScroll, true);
-		document.addEventListener("keydown", handleDocumentKeyDown, true);
-		return () => {
-			document.removeEventListener("mousedown", handleDocumentPointerDown);
-			window.removeEventListener("scroll", handleWindowScroll, true);
-			document.removeEventListener("keydown", handleDocumentKeyDown, true);
-		};
-	});
-
-	const toggle = () => {
-		const _openValue = open();
-		if (!_openValue) {
-			props.onOpen?.();
-			setSearch("");
-		}
-		setOpen(!_openValue);
-	};
+	let trigger!: HTMLButtonElement;
 	const selected = createMemo(() =>
-		props.options.find(hasId.bind(null, props.value)),
+		props.options.find((option) => option.id === props.value),
 	);
 	const buttonProps = createMemo(() =>
 		stylex.attrs(
 			styles.button,
-			(props.fullWidth === undefined ? false : props.fullWidth)
-				? styles.fullWidth
-				: null,
+			props.fullWidth && styles.fullWidth,
 			open() ? styles.buttonOpen : styles.buttonClosed,
 			props.variant === "ghost" && styles.buttonGhost,
+			props.size === "sm" && styles.buttonSmall,
 		),
 	);
-	const showSearch = createMemo(() => props.options.length > 5);
-	createEffect(
-		() => open() && showSearch(),
-		(focus) => {
-			if (!focus) return;
-			const timer = setTimeout(() => searchRef.current?.focus(), 0);
-			return () => clearTimeout(timer);
-		},
+	return (
+		<>
+			<button
+				type="button"
+				disabled={props.disabled}
+				title={props.title}
+				aria-haspopup="menu"
+				aria-label={props.label}
+				aria-expanded={open() ? "true" : "false"}
+				ref={(element) => {
+					trigger = element;
+				}}
+				onClick={() => setOpen(!open())}
+				{...buttonProps()}
+				class={`${buttonProps().class ?? ""} ${props.buttonClassName ?? ""}`}
+			>
+				{props.icon}
+				<span
+					{...stylex.attrs(
+						styles.buttonLabel,
+						props.fullWidth && styles.buttonLabelFull,
+						selected() ? styles.buttonLabelSelected : styles.buttonLabelMuted,
+					)}
+				>
+					{props.selectedLabel ??
+						(selected()?.label || props.placeholder || "Select...")}
+				</span>
+				<IconChevronDown
+					size={iconSize.sm}
+					class={
+						stylex.attrs(styles.chevron, open() && styles.chevronOpen).class
+					}
+				/>
+			</button>
+			<Show when={open()}>
+				<Portal mount={trigger.closest("dialog") ?? document.body}>
+					<DropdownMenu
+						config={props}
+						trigger={trigger}
+						close={() => setOpen(false)}
+					/>
+				</Portal>
+			</Show>
+		</>
 	);
+}
+
+function DropdownMenu(props: {
+	config: Parameters<typeof DropdownButton>[0];
+	trigger: HTMLButtonElement;
+	close: () => void;
+}) {
+	const config = props.config;
+	const [search, setSearch] = createSignal("");
+	const [resize, setResize] = createSignal(0);
+	let menu!: HTMLDivElement;
+	let searchInput: HTMLInputElement | undefined;
+	const showSearch = createMemo(() => config.options.length > 5);
+	const position = createMemo(() => {
+		void resize();
+		return project<DropdownPosition>("dropdownPosition", {
+			placement: config.menuPlacement ?? "auto",
+			rowHeight: 30,
+			count: config.options.length,
+			maxVisible: config.maxVisibleOptions,
+			minWidth: config.minWidth ?? 220,
+			rect: props.trigger.getBoundingClientRect(),
+			width: window.innerWidth,
+			height: window.innerHeight,
+		});
+	});
+	onSettled(() => {
+		const measure = () => setResize((value) => value + 1);
+		const observer = new ResizeObserver(measure);
+		observer.observe(props.trigger);
+		const dismissOutside = (event: Event) => {
+			if (
+				!menu.contains(event.target as Node) &&
+				(event.type === "scroll" ||
+					!props.trigger.contains(event.target as Node))
+			)
+				props.close();
+		};
+		const dismissEscape = (event: KeyboardEvent) => {
+			if (event.key !== "Escape") return;
+			event.preventDefault();
+			event.stopPropagation();
+			props.close();
+			props.trigger.focus();
+		};
+		window.addEventListener("resize", measure);
+		document.addEventListener("mousedown", dismissOutside);
+		window.addEventListener("scroll", dismissOutside, true);
+		document.addEventListener("keydown", dismissEscape, true);
+		return () => {
+			observer.disconnect();
+			window.removeEventListener("resize", measure);
+			document.removeEventListener("mousedown", dismissOutside);
+			window.removeEventListener("scroll", dismissOutside, true);
+			document.removeEventListener("keydown", dismissEscape, true);
+		};
+	});
 	const filtered = createMemo(() => {
-		const _searchValue = search();
-		if (!_searchValue) return props.options;
-		const needle = _searchValue.toLowerCase();
-		const matches = props.options.filter(
-			(o) =>
-				o.label.toLowerCase().includes(needle) ||
-				o.detail?.toLowerCase().includes(needle) ||
-				o.status?.toLowerCase().includes(needle),
+		const text = search();
+		if (!text) return config.options;
+		const needle = text.toLowerCase();
+		const matches = config.options.filter(
+			(option) =>
+				option.label.toLowerCase().includes(needle) ||
+				option.detail?.toLowerCase().includes(needle) ||
+				option.status?.toLowerCase().includes(needle),
 		);
-		const custom = props.customOption?.(_searchValue);
+		const custom = config.customOption?.(text);
 		return custom
-			? [custom, ...matches.filter((o) => o.id !== custom.id)]
+			? [custom, ...matches.filter((option) => option.id !== custom.id)]
 			: matches;
 	});
 	const SearchBox = () => (
 		<Show when={showSearch()}>
-			<DropdownSearch
-				searchRef={searchRef}
-				placeholder={props.searchPlaceholder}
-				search={search()}
-				setSearch={setSearch}
-				setOpen={setOpen}
-			/>
+			<div {...stylex.attrs(styles.searchWrap)}>
+				<TextInput
+					ref={(element) => {
+						searchInput = element;
+						queueMicrotask(() => {
+							if (element.isConnected) element.focus();
+						});
+					}}
+					size="sm"
+					fullWidth
+					value={search()}
+					onInput={(event) => setSearch(event.currentTarget.value)}
+					placeholder={config.searchPlaceholder ?? "Search…"}
+					class={stylex.attrs(styles.searchInput).class}
+				/>
+			</div>
 		</Show>
 	);
 	const OptionsBox = () => (
-		<DropdownOptions
-			maxHeight={Math.max(44, pos().maxH - (showSearch() ? 38 : 0))}
-			filtered={filtered()}
-			search={search()}
-			emptyLabel={props.emptyLabel ?? "No options"}
-			renderOption={props.renderOption}
-			value={props.value}
-			onChange={props.onChange}
-			setOpen={setOpen}
-		/>
-	);
-	const Trigger = () => (
-		<button
-			type="button"
-			disabled={props.disabled === true}
-			aria-label={props.label}
-			aria-expanded={open() ? "true" : "false"}
-			ref={setTrigger}
-			onClick={toggle}
-			{...buttonProps()}
-			class={`${buttonProps().class ?? ""} ${props.buttonClassName ?? ""}`}
+		<div
+			{...stylex.attrs(styles.optionsBox)}
+			style={{
+				"max-height": px(
+					Math.max(44, position().maxH - (showSearch() ? 38 : 0)),
+				),
+			}}
 		>
-			{props.icon}
-			<span
-				class={`${stylex.attrs(styles.buttonLabel, props.fullWidth && styles.buttonLabelFull, selected() ? styles.buttonLabelSelected : styles.buttonLabelMuted).class ?? ""} ${props.labelClassName ?? ""}`}
-			>
-				{selected()?.label || props.placeholder || "Select..."}
-			</span>
-			<IconChevronDown
-				size={iconSize.sm}
-				class={stylex.attrs(styles.chevron, open() && styles.chevronOpen).class}
-			/>
-		</button>
+			{filtered().length === 0 ? (
+				<p {...stylex.attrs(styles.empty)}>
+					{search() ? "No matches" : (config.emptyLabel ?? "No options")}
+				</p>
+			) : (
+				<For each={filtered()} keyed={(row) => row.id}>
+					{(opt) => (
+						<button
+							type="button"
+							role="menuitemradio"
+							aria-checked={opt().id === config.value ? "true" : "false"}
+							tabindex={-1}
+							onClick={() => {
+								config.onChange(opt().id);
+								props.close();
+								props.trigger.focus();
+							}}
+							{...stylex.attrs(
+								styles.option,
+								opt().id === config.value && styles.optionSelected,
+							)}
+						>
+							{(opt().icon || opt().iconComponent) && (
+								<span {...stylex.attrs(styles.optionIcon)}>
+									{opt().iconComponent ? (
+										<Dynamic component={opt().iconComponent} />
+									) : (
+										opt().icon
+									)}
+								</span>
+							)}
+							<div {...stylex.attrs(styles.optionContent)}>
+								<span {...stylex.attrs(styles.optionLabel)}>{opt().label}</span>
+								{opt().detail && (
+									<span
+										{...stylex.attrs(
+											styles.detailBadge,
+											(opt().detail?.includes("★") ||
+												opt().detail?.includes("Best")) &&
+												styles.detailBadgeFeatured,
+										)}
+									>
+										{opt().detail}
+									</span>
+								)}
+								{opt().status && (
+									<span {...stylex.attrs(styles.optionStatus)}>
+										{opt().status}
+									</span>
+								)}
+							</div>
+							{opt().id === config.value && <IconCheck size={iconSize.sm} />}
+						</button>
+					)}
+				</For>
+			)}
+		</div>
 	);
-	const onTop = createMemo(() => pos().placement === "top");
-	const Menu = () => (
+	const onTop = () => position().placement === "top";
+	return (
 		<div
 			popover="manual"
+			role="menu"
+			aria-label={config.label}
+			tabindex={-1}
+			onKeyDown={(event) => {
+				if (event.key === "Tab") {
+					props.trigger.focus();
+					props.close();
+					return;
+				}
+				if (event.target === searchInput && !event.key.startsWith("Arrow"))
+					return;
+				const buttons = Array.from(
+					menu.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]'),
+				);
+				const index = buttons.indexOf(
+					document.activeElement as HTMLButtonElement,
+				);
+				const next =
+					event.key === "Home"
+						? 0
+						: event.key === "End"
+							? buttons.length - 1
+							: event.key === "ArrowDown"
+								? (index + 1) % buttons.length
+								: event.key === "ArrowUp"
+									? index < 0
+										? buttons.length - 1
+										: (index - 1 + buttons.length) % buttons.length
+									: -1;
+				if (next >= 0) {
+					event.preventDefault();
+					buttons[next]?.focus();
+				}
+			}}
 			ref={(element) => {
-				menuRef.current = element;
+				menu = element;
 				queueMicrotask(() => {
-					if (element.isConnected) element.showPopover();
+					if (element.isConnected) {
+						element.showPopover();
+						(
+							searchInput ??
+							menu.querySelector<HTMLButtonElement>('[aria-checked="true"]') ??
+							menu.querySelector<HTMLButtonElement>('[role="menuitemradio"]')
+						)?.focus();
+					}
 				});
 			}}
-			class={`${stylex.attrs(surfaceStyles.overlay, styles.menu).class ?? ""}`}
-			style={domStyle(
-				inlineStyles.getDropdownButtonMenuStyle(
-					onTop() ? undefined : pos().top,
-					onTop() ? pos().bottom : undefined,
-					pos().left,
-					pos().width,
-					pos().maxH,
-				),
-			)}
+			{...stylex.attrs(surfaceStyles.overlay, styles.menu)}
+			style={{
+				top: onTop() ? undefined : px(position().top),
+				bottom: onTop() ? px(position().bottom) : undefined,
+				left: px(position().left),
+				"min-width": px(position().width),
+				"max-height": px(position().maxH),
+			}}
 		>
 			<Show
 				when={onTop()}
@@ -267,15 +348,5 @@ export function DropdownButton(props: {
 				</Show>
 			</Show>
 		</div>
-	);
-	return (
-		<>
-			<Trigger />
-			<Show when={open()}>
-				<Portal mount={trigger()?.closest("dialog") ?? document.body}>
-					<Menu />
-				</Portal>
-			</Show>
-		</>
 	);
 }

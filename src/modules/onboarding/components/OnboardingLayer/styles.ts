@@ -1,4 +1,3 @@
-import type { CSSProperties } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
 	color,
@@ -26,19 +25,3 @@ export const styles = stylex.create({
 		transitionTimingFunction: motion.easeStandard,
 	},
 });
-
-export function getSpotlightStyle(
-	left: CSSProperties["left"],
-	top: CSSProperties["top"],
-	width: CSSProperties["width"],
-	height: CSSProperties["height"],
-	beamScale: number,
-): CSSProperties {
-	return {
-		left,
-		top,
-		width,
-		height,
-		"--beam-scale": String(beamScale),
-	} as CSSProperties;
-}

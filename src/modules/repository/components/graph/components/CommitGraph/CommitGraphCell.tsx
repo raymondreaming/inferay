@@ -1,9 +1,8 @@
 import type { GraphCommit } from "@contracts";
-import { domStyle } from "@shared/lib/dom.tsx";
+import { px } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { AuthorAvatar } from "./AuthorAvatar.tsx";
 import { MergeNode } from "./MergeNode.tsx";
-import * as inlineStyles from "./styles.ts";
 import { GRAPH_DASH_PATTERN, GRAPH_DASH_WIDTH, styles } from "./styles.ts";
 export function CommitGraphCell(_props: {
 	commit: GraphCommit;
@@ -21,26 +20,24 @@ export function CommitGraphCell(_props: {
 	return (
 		<div
 			class={stylex.attrs(styles.graphCell).class}
-			style={domStyle(
-				inlineStyles.getCommitRowGraphCellStyle(_props.graphWidth),
-			)}
+			style={{
+				width: px(_props.graphWidth),
+			}}
 		>
 			{_props.hasConnector ? (
 				<span
 					aria-hidden="true"
 					class={stylex.attrs(styles.refToNodeConnector).class}
-					style={domStyle({
-						...inlineStyles.getCommitRowRefToNodeConnectorStyle(
-							_props.nodeCenter,
-							_props.color,
-						),
+					style={{
+						width: px(_props.nodeCenter),
+						"background-color": _props.color,
 						...(_props.isWip || _props.isStash
 							? {
-									backgroundColor: "transparent",
-									backgroundImage: `repeating-linear-gradient(to right, ${_props.color} 0 2px, transparent 2px 3px)`,
+									"background-color": "transparent",
+									"background-image": `repeating-linear-gradient(to right, ${_props.color} 0 2px, transparent 2px 3px)`,
 								}
 							: {}),
-					})}
+					}}
 				/>
 			) : null}
 			{_props.isWip ? (
@@ -50,7 +47,10 @@ export function CommitGraphCell(_props: {
 					width="18"
 					height="18"
 					class={stylex.attrs(styles.wipNode).class}
-					style={domStyle({ left: _props.nodeLeft, top: _props.nodeTop })}
+					style={{
+						left: px(_props.nodeLeft),
+						top: px(_props.nodeTop),
+					}}
 				>
 					<circle
 						cx="9"

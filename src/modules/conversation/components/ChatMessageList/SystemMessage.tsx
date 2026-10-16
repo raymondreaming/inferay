@@ -1,6 +1,6 @@
 import type { CommandCard, GoalCard } from "@contracts";
 import { iconSize } from "@design-system/styles.stylex.ts";
-import { DotMatrixRipple } from "@shared/ui/DotMatrixLoader/index.tsx";
+import { DotMatrixLoader } from "@shared/ui/DotMatrixLoader/index.tsx";
 import {
 	IconAlertTriangle,
 	IconCheck,
@@ -119,7 +119,7 @@ function GoalSystemCard(_props: { goal: GoalCard }) {
 				)}
 			>
 				{_props.goal.status === "active" ? (
-					<DotMatrixRipple
+					<DotMatrixLoader
 						dotSize={1.35}
 						gap={1}
 						speed={1.1}
@@ -161,7 +161,7 @@ function CommandSystemCard(_props: { command: CommandCard }) {
 	return (
 		<div {...stylex.attrs(styles.goalCard, styles.goalCardActive)}>
 			<span {...stylex.attrs(styles.goalIconSlot, styles.goalIconActive)}>
-				<DotMatrixRipple
+				<DotMatrixLoader
 					dotSize={1.35}
 					gap={1}
 					speed={1.1}

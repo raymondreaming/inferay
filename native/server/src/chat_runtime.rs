@@ -12,7 +12,7 @@ use inferay_core::{
     chat_protocol::{ChatMessageBuffer, ChatTranscriptMessage},
     prompts::commands::ChainStep,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, broadcast};
 use uuid::Uuid;
@@ -23,6 +23,7 @@ use crate::{
     agent_runner::{AgentProcessHandle, RuntimePidTracker},
     chat_persistence::{ChatPersistence, QueuedMessageInfo},
     checkpoint::CheckpointService,
+    encode_chat_event,
     workspace_store::AgentStateStore,
 };
 
@@ -63,7 +64,7 @@ pub type ClientId = u64;
 pub struct ReconnectInput<'a> {
     pub pane_id: &'a str,
     pub client_id: ClientId,
-    pub sender: broadcast::Sender<Value>,
+    pub sender: broadcast::Sender<axum::extract::ws::Utf8Bytes>,
     pub provider: Option<&'a str>,
     pub provider_session_id: Option<&'a str>,
     pub cwd: Option<PathBuf>,
@@ -108,7 +109,7 @@ pub struct SendMessageInput {
     #[serde(skip)]
     pub client_id: Option<ClientId>,
     #[serde(skip)]
-    pub client_sender: Option<broadcast::Sender<Value>>,
+    pub client_sender: Option<broadcast::Sender<axum::extract::ws::Utf8Bytes>>,
     #[serde(skip)]
     pub include_workspace: bool,
 }
@@ -145,7 +146,7 @@ struct ChatSession {
     /// measured at 4.75s of wall clock per turn with eight servers set up.
     mcp_servers: Option<Vec<String>>,
     session_id: Option<String>,
-    clients: HashMap<ClientId, broadcast::Sender<Value>>,
+    clients: HashMap<ClientId, broadcast::Sender<axum::extract::ws::Utf8Bytes>>,
     current_handle: Option<AgentProcessHandle>,
     turn_active: bool,
     run_status: Value,
@@ -224,7 +225,11 @@ impl ChatRuntime {
         self.publish_queue(pane_id, None).await;
     }
 
-    async fn publish_queue(&self, pane_id: &str, recipient: Option<&broadcast::Sender<Value>>) {
+    async fn publish_queue(
+        &self,
+        pane_id: &str,
+        recipient: Option<&broadcast::Sender<axum::extract::ws::Utf8Bytes>>,
+    ) {
         let _publication = self.queue_publication.lock().await;
         let queue = match self.persistence.read_queue(pane_id).await {
             Ok(queue) => queue,
@@ -235,7 +240,7 @@ impl ChatRuntime {
         };
         let message = json!({"type":"chat:queue", "paneId":pane_id, "queue":queue});
         if let Some(sender) = recipient {
-            let _ = sender.send(message);
+            let _ = sender.send(encode_chat_event(message));
         } else if let Some(session) = self.session(pane_id).await {
             self.emit(&session, message).await;
         }
@@ -658,7 +663,7 @@ impl ChatRuntime {
         text: &str,
         cwd: PathBuf,
         client_id: ClientId,
-        sender: broadcast::Sender<Value>,
+        sender: broadcast::Sender<axum::extract::ws::Utf8Bytes>,
         resolver: &AgentCommandResolver,
     ) {
         let session = self
@@ -711,23 +716,29 @@ impl ChatRuntime {
             .await;
         self.ensure_summary(&session).await;
         let checkpoints = self.checkpoints.list_checkpoints(pane_id).await;
-        let (session_message, sync, status) = {
+        #[derive(Serialize)]
+        struct Sync<'a> {
+            #[serde(flatten)]
+            state: Value,
+            messages: Option<&'a [ChatTranscriptMessage]>,
+        }
+        let status = {
             let mut state = session.lock().await;
             state.clients.insert(client_id, sender.clone());
             state.disconnected_at = None;
-            let session_message = state
-                .session_id
-                .as_ref()
-                .map(|id| json!({"type":"chat:session", "paneId":pane_id, "sessionId":id}));
+            if let Some(id) = &state.session_id {
+                let _ = sender.send(encode_chat_event(
+                    json!({"type":"chat:session", "paneId":pane_id, "sessionId":id}),
+                ));
+            }
             let unchanged = cursor.is_some_and(|(epoch, revision)| {
                 epoch == state.message_buffer.epoch() && revision == state.message_buffer.revision()
             });
-            (
-                session_message,
-                json!({
+            let sync = Sync {
+                messages: (!unchanged).then(|| state.message_buffer.messages()),
+                state: json!({
                     "type":"chat:sync", "modelVersion":1, "paneId":pane_id,
                     "unchanged":unchanged,
-                    "messages":(!unchanged).then(|| state.message_buffer.messages()),
                     "epoch":state.message_buffer.epoch(), "revision":state.message_buffer.revision(),
                     "isStreaming":state.turn_active, "checkpoints":checkpoints,
                     "pendingSteers":state.pending_steers.iter().map(|pending| json!({
@@ -736,32 +747,29 @@ impl ChatRuntime {
                         "transient":true
                     })).collect::<Vec<_>>()
                 }),
-                json!({"type":"chat:status","paneId":pane_id,"runStatus":state.run_status}),
-            )
+            };
+            let _ = sender.send(encode_chat_event(&sync));
+            json!({"type":"chat:status","paneId":pane_id,"runStatus":state.run_status})
         };
-        if let Some(message) = session_message {
-            let _ = sender.send(message);
-        }
-        let _ = sender.send(sync);
         self.publish_queue(pane_id, Some(&sender)).await;
-        let _ = sender.send(status);
+        let _ = sender.send(encode_chat_event(status));
     }
 
     /// Repair saved provider-error titles before presenting the sidebar, including unopened chats.
     pub(crate) async fn repair_saved_titles(&self) -> Result<(), String> {
-        let saved = self.workspaces.lock().expect("workspace lock").read()?;
-        let panes: Vec<String> = saved["groups"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .flat_map(|group| group["panes"].as_array().into_iter().flatten())
-            .filter(|pane| {
-                pane["summary"]
-                    .as_str()
-                    .is_some_and(|title| !crate::one_shot::usable_chat_title(title))
-            })
-            .filter_map(|pane| pane["id"].as_str().map(str::to_owned))
-            .collect();
+        let panes: Vec<String> = {
+            let saved = self.workspaces.lock().expect("workspace lock").read()?;
+            saved
+                .iter()
+                .flat_map(|state| state.panes())
+                .filter(|pane| {
+                    pane.summary
+                        .as_deref()
+                        .is_some_and(|title| !crate::one_shot::usable_chat_title(title))
+                })
+                .map(|pane| pane.id.clone())
+                .collect()
+        };
         for id in panes {
             let title = self
                 .persistence
@@ -1537,7 +1545,7 @@ impl ChatRuntime {
         mut message: Value,
         exclude: Option<ClientId>,
     ) {
-        let (senders, update) = {
+        let senders = {
             let mut state = session.lock().await;
             let status = match message["type"].as_str() {
                 Some("chat:user_message") => Some(("thinking".to_owned(), Some(true))),
@@ -1594,26 +1602,29 @@ impl ChatRuntime {
             ) {
                 message["modelVersion"] = json!(1);
             }
-            let update = state.message_buffer.take_update();
-            if let Some(update) = &update {
-                message["transcriptUpdate"] = update.clone();
+            if let Some(update) = state.message_buffer.take_update() {
+                message["transcriptUpdate"] = update;
             }
-            (
-                state
-                    .clients
-                    .iter()
-                    .map(|(id, sender)| (*id, sender.clone()))
-                    .collect::<Vec<_>>(),
-                update,
-            )
+            state
+                .clients
+                .iter()
+                .map(|(id, sender)| (*id, sender.clone()))
+                .collect::<Vec<_>>()
         };
         let persistence_error = self.persist_before_publish(session, &message).await;
+        if senders.is_empty() {
+            return;
+        }
+        let persistence_error = persistence_error.map(encode_chat_event);
+        let encoded = encode_chat_event(&message);
         for (id, sender) in senders {
             if Some(id) != exclude {
-                let _ = sender.send(message.clone());
-            } else if let Some(update) = &update {
-                let _ = sender.send(json!({"type":"chat:model","paneId":message["paneId"],
-                    "modelVersion":1,"transcriptUpdate":update}));
+                let _ = sender.send(encoded.clone());
+            } else if let Some(update) = message.get("transcriptUpdate") {
+                let _ = sender.send(encode_chat_event(
+                    json!({"type":"chat:model","paneId":message["paneId"],
+                    "modelVersion":1,"transcriptUpdate":update}),
+                ));
             }
             if let Some(error) = &persistence_error {
                 let _ = sender.send(error.clone());

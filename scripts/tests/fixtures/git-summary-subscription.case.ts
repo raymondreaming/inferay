@@ -132,7 +132,6 @@ test("the initial graph owns status until success or failure, while unrelated pa
 			ahead: 0,
 			behind: 0,
 			files: [],
-			fileGroups: { staged: [], modified: [], untracked: [] },
 		});
 		const fetch = spyOn(globalThis, "fetch").mockImplementation(
 			Object.assign(

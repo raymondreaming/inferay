@@ -1,24 +1,17 @@
-import type { MemoryGraphNode } from "@shared/services/memoryApi.ts";
+import type { MemoryGraphNode } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
-import { Show } from "solid-js";
-import { memoryIconPath } from "../../../model/memoryGraph.ts";
+import { createMemo, Show } from "solid-js";
+import { type GraphPoint, memoryIconPath } from "../../../model/memoryGraph.ts";
 import { projectDocumentUrl } from "../../../services/projectsApi.ts";
 import { styles } from "./styles.ts";
 
-export type MemoryDot = {
+export function MemoryNode(props: {
 	node: MemoryGraphNode;
 	index: number;
-	x: number;
-	y: number;
-	r: number;
-	w: number;
+	point: GraphPoint | undefined;
+	degree: number;
 	active: boolean;
-	near: boolean;
 	chosen: boolean;
-};
-
-export function MemoryNode(props: {
-	dot: MemoryDot;
 	projectId: string;
 	zoom: number;
 	showLabel: boolean;
@@ -27,68 +20,67 @@ export function MemoryNode(props: {
 	onHover: (id: string | null) => void;
 	onPick: (id: string) => void;
 }) {
+	const r = createMemo(() =>
+		props.node.kind === "source"
+			? 16 + Math.min(4, Math.sqrt(props.degree))
+			: props.node.kind === "image"
+				? 15
+				: 12,
+	);
+	const w = () => (props.node.kind === "image" ? 40 : r() * 2);
 	return (
 		<g
 			data-memory-node
 			{...stylex.attrs(styles.node)}
-			transform={`translate(${props.dot.x} ${props.dot.y})`}
-			onPointerEnter={() => props.onHover(props.dot.node.id)}
+			transform={`translate(${props.point?.x ?? 0} ${props.point?.y ?? 0})`}
+			onPointerEnter={() => props.onHover(props.node.id)}
 			onPointerLeave={() => props.onHover(null)}
 			onPointerDown={(event) => {
 				event.stopPropagation();
-				props.onPick(props.dot.node.id);
+				props.onPick(props.node.id);
 			}}
 		>
 			<title>{props.tooltip}</title>
 			<rect
-				x={-props.dot.w / 2 - 8}
-				y={-props.dot.r - 8}
-				width={props.dot.w + 16}
-				height={props.dot.r * 2 + 16}
+				x={-w() / 2 - 8}
+				y={-r() - 8}
+				width={w() + 16}
+				height={r() * 2 + 16}
 				fill="transparent"
 			/>
-			<Show when={props.dot.node.kind === "image"}>
-				<clipPath id={`memory-clip-${props.dot.index}`}>
-					<rect
-						x={-props.dot.w / 2}
-						y={-props.dot.r}
-						width={props.dot.w}
-						height={props.dot.r * 2}
-						rx={5}
-					/>
+			<Show when={props.node.kind === "image"}>
+				<clipPath id={`memory-clip-${props.index}`}>
+					<rect x={-w() / 2} y={-r()} width={w()} height={r() * 2} rx={5} />
 				</clipPath>
 				<image
-					href={projectDocumentUrl(props.projectId, props.dot.node.path)}
-					x={-props.dot.w / 2}
-					y={-props.dot.r}
-					width={props.dot.w}
-					height={props.dot.r * 2}
+					href={projectDocumentUrl(props.projectId, props.node.path)}
+					x={-w() / 2}
+					y={-r()}
+					width={w()}
+					height={r() * 2}
 					preserveAspectRatio="xMidYMid slice"
-					clip-path={`url(#memory-clip-${props.dot.index})`}
+					clip-path={`url(#memory-clip-${props.index})`}
 				/>
 				<rect
-					x={-props.dot.w / 2}
-					y={-props.dot.r}
-					width={props.dot.w}
-					height={props.dot.r * 2}
+					x={-w() / 2}
+					y={-r()}
+					width={w()}
+					height={r() * 2}
 					rx={5}
-					{...stylex.attrs(
-						styles.frame,
-						props.dot.active && styles.frameActive,
-					)}
+					{...stylex.attrs(styles.frame, props.active && styles.frameActive)}
 				/>
 			</Show>
-			<Show when={props.dot.node.kind !== "image"}>
+			<Show when={props.node.kind !== "image"}>
 				<rect
-					x={-props.dot.w / 2}
-					y={-props.dot.r}
-					width={props.dot.w}
-					height={props.dot.r * 2}
-					rx={props.dot.node.kind === "source" ? props.dot.r : 6}
+					x={-w() / 2}
+					y={-r()}
+					width={w()}
+					height={r() * 2}
+					rx={props.node.kind === "source" ? r() : 6}
 					{...stylex.attrs(
 						styles.tile,
-						props.dot.active && styles.tileActive,
-						props.dot.node.superseded && styles.tileStale,
+						props.active && styles.tileActive,
+						props.node.superseded && styles.tileStale,
 					)}
 				/>
 				<svg
@@ -102,31 +94,28 @@ export function MemoryNode(props: {
 					stroke-width="1.8"
 					stroke-linecap="round"
 					stroke-linejoin="round"
-					{...stylex.attrs(styles.icon, props.dot.active && styles.iconActive)}
+					{...stylex.attrs(styles.icon, props.active && styles.iconActive)}
 				>
-					<path d={memoryIconPath(props.dot.node)} />
+					<path d={memoryIconPath(props.node)} />
 				</svg>
 			</Show>
-			{props.dot.chosen ? (
+			{props.chosen ? (
 				<rect
-					x={-props.dot.w / 2 - 4}
-					y={-props.dot.r - 4}
-					width={props.dot.w + 8}
-					height={props.dot.r * 2 + 8}
-					rx={props.dot.node.kind === "source" ? props.dot.r + 4 : 9}
+					x={-w() / 2 - 4}
+					y={-r() - 4}
+					width={w() + 8}
+					height={r() * 2 + 8}
+					rx={props.node.kind === "source" ? r() + 4 : 9}
 					{...stylex.attrs(styles.ring)}
 				/>
 			) : null}
 			{props.showLabel ? (
 				<text
 					x={0}
-					y={props.dot.r + 15 / props.zoom}
+					y={r() + 15 / props.zoom}
 					text-anchor="middle"
 					font-size={String(11.5 / props.zoom)}
-					{...stylex.attrs(
-						styles.label,
-						props.dot.active && styles.labelActive,
-					)}
+					{...stylex.attrs(styles.label, props.active && styles.labelActive)}
 				>
 					{props.label}
 				</text>

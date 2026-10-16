@@ -89,10 +89,10 @@ fn inline_segments(
 
     let mut old_changed = vec![true; old_tokens.len()];
     let mut new_changed = vec![true; new_tokens.len()];
-    for (op, old_index, new_index) in diff_operations(&old_tokens, &new_tokens) {
-        if matches!(op, DiffOperation::Unchanged) {
-            old_changed[old_index.unwrap()] = false;
-            new_changed[new_index.unwrap()] = false;
+    for op in diff_operations(&old_tokens, &new_tokens) {
+        if let DiffOperation::Unchanged(old_index, new_index) = op {
+            old_changed[old_index] = false;
+            new_changed[new_index] = false;
         }
     }
     let merge = |tokens: Vec<&str>, changed: Vec<bool>| {
@@ -196,21 +196,21 @@ pub fn prepare_edit_diff(
         lines.append(removed);
         lines.append(added);
     };
-    for (op, i, j) in diff_operations(&old, &new) {
+    for op in diff_operations(&old, &new) {
         match op {
-            DiffOperation::Unchanged => flush(&mut removed, &mut added, &mut lines),
-            DiffOperation::Removed => removed.push(PreparedEditLine {
+            DiffOperation::Unchanged(..) => flush(&mut removed, &mut added, &mut lines),
+            DiffOperation::Removed(i) => removed.push(PreparedEditLine {
                 line_type: GitDiffLineType::Remove,
-                text: old[i.unwrap()].to_owned(),
-                old_line_num: i.map(|i| i + 1),
+                text: old[i].to_owned(),
+                old_line_num: Some(i + 1),
                 new_line_num: None,
                 segments: None,
             }),
-            DiffOperation::Added => added.push(PreparedEditLine {
+            DiffOperation::Added(j) => added.push(PreparedEditLine {
                 line_type: GitDiffLineType::Add,
-                text: new[j.unwrap()].to_owned(),
+                text: new[j].to_owned(),
                 old_line_num: None,
-                new_line_num: j.map(|j| j + 1),
+                new_line_num: Some(j + 1),
                 segments: None,
             }),
         }

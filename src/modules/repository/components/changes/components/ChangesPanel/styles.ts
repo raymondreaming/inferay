@@ -1,4 +1,3 @@
-import type { CSSProperties } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
 	color,
@@ -134,11 +133,6 @@ export const styles = stylex.create({
 		width: controlSize._5,
 		transitionProperty: "background-color, border-color, color",
 		transitionDuration: motion.durationFast,
-	},
-	headerIconButtonActive: {
-		backgroundColor: color.controlActive,
-		borderColor: color.borderStrong,
-		color: color.textMain,
 	},
 	commitSection: {
 		display: "flex",
@@ -661,17 +655,3 @@ export const styles = stylex.create({
 		transitionDuration: motion.durationFast,
 	},
 });
-export function getCommitDetailsPanelCommitDescriptionViewportStyle(): CSSProperties {
-	return {
-		maxHeight: "8.4em",
-		overflow: "auto",
-	} as CSSProperties;
-}
-export function getTreeNodeRowTreeRowStyle(
-	paddingLeft: CSSProperties["paddingLeft"],
-): CSSProperties {
-	return {
-		paddingLeft: paddingLeft,
-		paddingRight: 6,
-	} as CSSProperties;
-}

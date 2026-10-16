@@ -1,8 +1,7 @@
 import { rememberLoadedAuthorAvatar } from "@repository/hooks/useGitAuthorAvatars.ts";
-import { domStyle } from "@shared/lib/dom.tsx";
+import { px } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createSignal } from "solid-js";
-import * as inlineStyles from "./styles.ts";
 import { GRAPH_DASH_PATTERN, GRAPH_DASH_WIDTH, styles } from "./styles.ts";
 import { hexToRgba } from "./useCommitGraphState.tsx";
 
@@ -32,14 +31,12 @@ export function AuthorAvatar(_props: {
 			class={
 				stylex.attrs(styles.graphAvatar, _props.stash && styles.stashNode).class
 			}
-			style={domStyle(
-				inlineStyles.getAuthorAvatarGraphAvatarStyle(
-					_props.left,
-					_props.top,
-					_props.stash ? "none" : `1px solid ${_props.color}`,
-					`0 0 2px ${hexToRgba(_props.color, 0.18)}`,
-				),
-			)}
+			style={{
+				left: px(_props.left),
+				top: px(_props.top),
+				border: _props.stash ? "none" : `1px solid ${_props.color}`,
+				"box-shadow": `0 0 2px ${hexToRgba(_props.color, 0.18)}`,
+			}}
 		>
 			{_props.stash ? null : authorInitials(_props.name)}
 			{!_props.stash &&

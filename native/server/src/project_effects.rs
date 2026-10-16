@@ -52,12 +52,7 @@ pub(crate) async fn dismiss_http(
     request: crate::Request,
 ) -> crate::ApiResult {
     let input = crate::api_body::<inferay_core::projects::EffectReviewRequest>(request).await?;
-    let store = state.projects.store.lock().map_err(|_| {
-        crate::api_error(
-            crate::StatusCode::INTERNAL_SERVER_ERROR,
-            "Project store lock failed",
-        )
-    })?;
+    let store = state.projects.store()?;
     let dismissed_at = dismiss(&store.db, &input)
         .map_err(|error| crate::api_error(crate::StatusCode::BAD_REQUEST, error))?;
     Ok(serde_json::json!({"dismissedAt":dismissed_at}))
@@ -157,12 +152,7 @@ pub(crate) async fn inbox_http(
         .ok_or_else(|| crate::api_error(crate::StatusCode::BAD_REQUEST, "projectId is required"))?;
     let automation = crate::query_value(&request, "automationId");
     let before = crate::query_value(&request, "before");
-    let store = state.projects.store.lock().map_err(|_| {
-        crate::api_error(
-            crate::StatusCode::INTERNAL_SERVER_ERROR,
-            "Project store lock failed",
-        )
-    })?;
+    let store = state.projects.store()?;
     let page = inbox(
         &store.db,
         &project,
@@ -179,12 +169,7 @@ pub(crate) async fn cancel_http(
     request: crate::Request,
 ) -> crate::ApiResult {
     let input = crate::api_body::<inferay_core::projects::EffectReviewRequest>(request).await?;
-    let mut store = state.projects.store.lock().map_err(|_| {
-        crate::api_error(
-            crate::StatusCode::INTERNAL_SERVER_ERROR,
-            "Project store lock failed",
-        )
-    })?;
+    let mut store = state.projects.store()?;
     let delivery = outbox::cancel(&mut store.db, &input, now())
         .map_err(|e| crate::api_error(crate::StatusCode::BAD_REQUEST, e))?;
     serde_json::to_value(delivery)

@@ -1,5 +1,5 @@
 import type { ChatListRow, ChatWindow, CheckpointMeta } from "@contracts";
-import { bindImperativeRef, domStyle, type RefCell } from "@shared/lib/dom.tsx";
+import { bindImperativeRef, px, type RefCell } from "@shared/lib/dom.tsx";
 import { ChatViewport, project as rustProject } from "@shared/lib/native.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
@@ -17,7 +17,6 @@ import type {
 	ChatSnapshot,
 } from "../AgentChatView/useChatConnection.tsx";
 import { ChatRenderRow } from "./ChatRenderRow.tsx";
-import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 import {
 	type ChatVirtualizerControls,
@@ -307,11 +306,10 @@ export const ChatMessageList = function ChatMessageList(_props: {
 			{virtual() && (
 				<div
 					aria-hidden="true"
-					style={domStyle(
-						inlineStyles.getChatMessageListDivStyle(
-							layout().offset(mountedWindow().start),
-						),
-					)}
+					style={{
+						height: px(layout().offset(mountedWindow().start)),
+						"flex-shrink": 0,
+					}}
 				/>
 			)}
 			{
@@ -347,12 +345,13 @@ export const ChatMessageList = function ChatMessageList(_props: {
 			{virtual() && (
 				<div
 					aria-hidden="true"
-					style={domStyle(
-						inlineStyles.getChatMessageListDivStyle1(
+					style={{
+						height: px(
 							layout().offset(renderRows().length) -
 								layout().offset(mountedWindow().end),
 						),
-					)}
+						"flex-shrink": 0,
+					}}
 				/>
 			)}
 		</div>

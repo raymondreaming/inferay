@@ -2,17 +2,15 @@ import type { ProjectFileEntry } from "@contracts";
 import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
 import { searchFiles } from "@explorer/services/explorerApi.ts";
 import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
-import { assignRef } from "@shared/lib/dom.tsx";
 import { IconSearch } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { createEffect, createMemo, createSignal, For } from "solid-js";
-import { FileSearchResultRow } from "./FileSearchResultRow.tsx";
+import { createEffect, createSignal, For } from "solid-js";
+import { FileTypeIcon } from "../FileTypeIcon/index.tsx";
 import { styles } from "./styles.ts";
 export type FileSearchResult = ProjectFileEntry;
 export function FileSearch(_props: {
 	readonly cwd?: string | null;
 	readonly onSelect: (file: FileSearchResult) => void;
-	readonly placement?: "shell" | "panel" | "sidebar";
 }) {
 	const [open, setOpen] = createSignal(() => {
 		void _props.cwd;
@@ -44,21 +42,12 @@ export function FileSearch(_props: {
 		return -1;
 	});
 	const loading = () => resultQuery.isFetching;
-	const rootRef = {
-		current: null,
-	} as {
-		current: HTMLDivElement | null;
-	};
-	const panelInputRef = {
-		current: null,
-	} as {
-		current: HTMLInputElement | null;
-	};
-	const selected = createMemo(() => results()[selectedIndex()] ?? null);
+	let root: HTMLDivElement | undefined;
+	let input: HTMLInputElement | undefined;
 	createEffect(open, (isOpen) => {
 		if (!isOpen) return;
 		const close = (event: MouseEvent) => {
-			if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+			if (!root?.contains(event.target as Node)) setOpen(false);
 		};
 		document.addEventListener("mousedown", close);
 		return () => document.removeEventListener("mousedown", close);
@@ -78,7 +67,7 @@ export function FileSearch(_props: {
 			setSelectedIndex((index) => Math.max(0, index - 1));
 		} else if (event.key === "Enter") {
 			event.preventDefault();
-			choose(selected());
+			choose(results()[selectedIndex()] ?? null);
 		} else if (event.key === "Escape") {
 			event.preventDefault();
 			setOpen(false);
@@ -86,147 +75,89 @@ export function FileSearch(_props: {
 	};
 	const openSearch = () => {
 		setSelectedIndex(-1);
-		setOpen(
-			(current) =>
-				(_props.placement === undefined ? "shell" : _props.placement) !==
-					"panel" || !current,
-		);
-		window.setTimeout(() => panelInputRef.current?.focus(), 0);
+		setOpen((current) => !current);
+		window.setTimeout(() => input?.focus(), 0);
 	};
-	const inputProps = createMemo(() => ({
-		ref: (element: HTMLInputElement) => assignRef(panelInputRef, element),
-		type: "text",
-		autoComplete: "off",
-		autoCorrect: "off",
-		autoCapitalize: "off",
-		spellCheck: false,
-		value: query(),
-		onKeyDown: handleKeyDown,
-		...stylex.attrs(styles.input),
-	}));
 	return (
 		<div
-			ref={(element) => (rootRef.current = element)}
-			{...stylex.attrs(
-				styles.root,
-				(_props.placement === undefined ? "shell" : _props.placement) ===
-					"shell"
-					? open()
-						? styles.rootShellOpen
-						: styles.rootShellClosed
-					: (_props.placement === undefined ? "shell" : _props.placement) ===
-							"sidebar"
-						? styles.rootSidebar
-						: styles.rootPanel,
-			)}
+			ref={(element) => (root = element)}
+			{...stylex.attrs(styles.root, styles.rootPanel)}
 		>
-			{(_props.placement === undefined ? "shell" : _props.placement) ===
-				"panel" ||
-			((_props.placement === undefined ? "shell" : _props.placement) ===
-				"shell" &&
-				!open()) ? (
-				<button
-					type="button"
-					disabled={!_props.cwd}
-					onPointerDown={(event) => {
-						if (
-							(_props.placement === undefined ? "shell" : _props.placement) ===
-								"panel" &&
-							event.button === 0 &&
-							event.isPrimary
-						)
-							openSearch();
-					}}
-					onClick={(event) => {
-						if (
-							(_props.placement === undefined ? "shell" : _props.placement) !==
-								"panel" ||
-							event.detail === 0
-						)
-							openSearch();
-					}}
-					title="Search workspace files"
-					aria-label="Search workspace files"
-					{...stylex.attrs(
-						(_props.placement === undefined ? "shell" : _props.placement) ===
-							"panel"
-							? styles.panelTrigger
-							: styles.shellTrigger,
-					)}
-				>
-					<IconSearch size={iconSize.compact} />
-				</button>
-			) : (
-				<div {...stylex.attrs(styles.inputFrame)}>
-					<IconSearch
-						size={iconSize.compact}
-						{...stylex.attrs(styles.searchIcon)}
-					/>
-					<input
-						{...inputProps()}
-						disabled={!_props.cwd}
-						placeholder={
-							_props.cwd
-								? "Search workspace files"
-								: "Open a workspace to search"
-						}
-						onFocus={() => {
-							setSelectedIndex(-1);
-							setOpen(true);
-						}}
-						onInput={(event) => {
-							setQuery(event.currentTarget.value);
-							setSelectedIndex(-1);
-							setOpen(true);
-						}}
-					/>
-				</div>
-			)}
+			<button
+				type="button"
+				disabled={!_props.cwd}
+				onPointerDown={(event) => {
+					if (event.button === 0 && event.isPrimary) openSearch();
+				}}
+				onClick={(event) => {
+					if (event.detail === 0) openSearch();
+				}}
+				title="Search workspace files"
+				aria-label="Search workspace files"
+				{...stylex.attrs(styles.panelTrigger)}
+			>
+				<IconSearch size={iconSize.compact} />
+			</button>
 			{open() && _props.cwd ? (
-				<div
-					{...stylex.attrs(
-						styles.menuAnchor,
-						(_props.placement === undefined ? "shell" : _props.placement) ===
-							"panel"
-							? styles.menuPanel
-							: (_props.placement === undefined
-										? "shell"
-										: _props.placement) === "sidebar"
-								? styles.menuSidebar
-								: styles.menuShell,
-					)}
-				>
+				<div {...stylex.attrs(styles.menuAnchor, styles.menuPanel)}>
 					<div {...stylex.attrs(surfaceStyles.overlay, styles.menu)}>
-						{(_props.placement === undefined ? "shell" : _props.placement) ===
-						"panel" ? (
-							<div {...stylex.attrs(styles.menuSearch)}>
-								<IconSearch
-									size={iconSize.md}
-									{...stylex.attrs(styles.searchIcon)}
-								/>
-								<input
-									{...inputProps()}
-									onInput={(event) => {
-										setQuery(event.currentTarget.value);
-										setSelectedIndex(-1);
-									}}
-									placeholder="Search workspace files"
-								/>
-							</div>
-						) : null}
-						{
-							<For each={results()} keyed={(row) => row.path}>
-								{(result, index) => (
-									<FileSearchResultRow
-										result={result()}
-										index={index()}
-										selectedIndex={selectedIndex()}
-										setSelectedIndex={setSelectedIndex}
-										choose={choose}
-									/>
-								)}
-							</For>
-						}
+						<div {...stylex.attrs(styles.menuSearch)}>
+							<IconSearch
+								size={iconSize.md}
+								{...stylex.attrs(styles.searchIcon)}
+							/>
+							<input
+								ref={(element) => (input = element)}
+								type="text"
+								autocomplete="off"
+								autocorrect="off"
+								autocapitalize="off"
+								spellcheck={false}
+								value={query()}
+								onKeyDown={handleKeyDown}
+								onInput={(event) => {
+									setQuery(event.currentTarget.value);
+									setSelectedIndex(-1);
+								}}
+								placeholder="Search workspace files"
+								{...stylex.attrs(styles.input)}
+							/>
+						</div>
+						<For each={results()} keyed={(row) => row.path}>
+							{(result, index) => {
+								const name = () =>
+									result().path.split("/").pop() || result().path;
+								return (
+									<button
+										type="button"
+										onMouseEnter={() => setSelectedIndex(index())}
+										onPointerDown={(event) => {
+											if (event.button === 0 && event.isPrimary)
+												choose(result());
+										}}
+										onClick={(event) => {
+											if (event.detail === 0) choose(result());
+										}}
+										{...stylex.attrs(
+											styles.result,
+											index() === selectedIndex() && styles.resultActive,
+										)}
+									>
+										<FileTypeIcon path={result().path} size={iconSize.lg} />
+										<span {...stylex.attrs(styles.resultText)}>
+											<strong {...stylex.attrs(styles.resultName)}>
+												{name()}
+											</strong>
+											<small {...stylex.attrs(styles.resultPath)}>
+												{result().path === name()
+													? "Project root"
+													: result().path.slice(0, -(name().length + 1))}
+											</small>
+										</span>
+									</button>
+								);
+							}}
+						</For>
 						{!loading() && results().length === 0 ? (
 							<span {...stylex.attrs(styles.empty)}>No matching files</span>
 						) : null}

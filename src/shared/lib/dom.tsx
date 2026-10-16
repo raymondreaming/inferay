@@ -1,6 +1,5 @@
 import type { JSX } from "@solidjs/web";
 import { QueryClient } from "@tanstack/solid-query";
-import type * as CSS from "csstype";
 import {
 	type Accessor,
 	createEffect,
@@ -12,72 +11,12 @@ import {
 // Class names understood by the native window host.
 export const APP_REGION_DRAG_CLASS = "inferay-app-region-drag";
 export const APP_REGION_NO_DRAG_CLASS = "inferay-app-region-no-drag";
-export type CSSProperties = CSS.Properties<string | number> & {
-	[key: `--${string}`]: string | number | undefined;
-};
+export type CSSProperties = JSX.CSSProperties;
 export type RefCell<T> = {
 	current: T;
 };
 export type StateUpdate<T> = T | ((previous: T) => T);
 export type Dispatch<T> = (value: T) => void;
-const unitless = new Set([
-	"animationIterationCount",
-	"aspectRatio",
-	"borderImageOutset",
-	"borderImageSlice",
-	"borderImageWidth",
-	"columnCount",
-	"fillOpacity",
-	"flex",
-	"flexGrow",
-	"flexShrink",
-	"fontWeight",
-	"gridArea",
-	"gridColumn",
-	"gridColumnEnd",
-	"gridColumnStart",
-	"gridRow",
-	"gridRowEnd",
-	"gridRowStart",
-	"lineHeight",
-	"opacity",
-	"order",
-	"orphans",
-	"scale",
-	"stopOpacity",
-	"strokeDasharray",
-	"strokeDashoffset",
-	"strokeMiterlimit",
-	"strokeOpacity",
-	"strokeWidth",
-	"tabSize",
-	"widows",
-	"zIndex",
-	"zoom",
-]);
-/** Normalize programmatic CSS values for Solid's native DOM style semantics. */
-export function domStyle(
-	style: CSSProperties | JSX.CSSProperties | string | null | undefined,
-): JSX.CSSProperties | string | undefined {
-	if (typeof style === "string" || !style) return style ?? undefined;
-	const result: Record<string, string | number | undefined> = {};
-	for (const [key, value] of Object.entries(style)) {
-		const name = key.startsWith("--")
-			? key
-			: key
-					.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
-					.replace(/^ms-/, "-ms-");
-		result[name] =
-			typeof value === "number" &&
-			value !== 0 &&
-			!unitless.has(key) &&
-			!key.startsWith("--")
-				? `${value}px`
-				: value;
-	}
-	return result as JSX.CSSProperties;
-}
-
 /** Browser facts only; native shortcut configuration owns matching and priority. */
 export function repositoryKeyboardInput(event: KeyboardEvent) {
 	const target = event.target instanceof HTMLElement ? event.target : null;
@@ -170,14 +109,6 @@ export function bindImperativeRef<T>(
 }
 
 export function noop(): void {}
-export function hasId(
-	id: unknown,
-	item: {
-		id: string;
-	},
-): boolean {
-	return item.id === id;
-}
 export function basename(value: string): string {
 	return value.split("/").pop() || value;
 }
@@ -265,18 +196,6 @@ export const queryClient = new QueryClient({
 		},
 	},
 });
-export function createWindowFullscreen(): Accessor<boolean> {
-	return createExternalSignal(
-		(notify) => {
-			const observer = new MutationObserver(notify);
-			observer.observe(document.documentElement, {
-				attributeFilter: ["data-inferay-fullscreen"],
-			});
-			return () => observer.disconnect();
-		},
-		() => document.documentElement.dataset.inferayFullscreen === "true",
-	);
-}
 export function listenWindowEvent<K extends keyof WindowEventMap | string>(
 	type: K,
 	listener: K extends keyof WindowEventMap
@@ -420,3 +339,6 @@ export type DocumentOpenDetail = {
 	readonly cwd: string;
 	readonly path: string;
 };
+export function px(value: number | string | undefined) {
+	return typeof value === "number" ? `${value}px` : value;
+}

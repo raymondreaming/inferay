@@ -66,12 +66,7 @@ export function useOnboardingTour() {
 	const facts = createMemo(() => ({
 		...observed(),
 		hasMessage: openedRepository(),
-		repositoryChosen:
-			observed().folderChosen ||
-			shellState().repositories.workspaces.length > 0 ||
-			shellState().groups.some((group) =>
-				group.panes.some((pane) => !!pane.cwd),
-			),
+		repositoryChosen: observed().folderChosen || openedRepository(),
 	}));
 	const tour = createMemo(() =>
 		project<OnboardingTour>("onboardingTour", {

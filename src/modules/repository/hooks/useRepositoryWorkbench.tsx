@@ -1,4 +1,5 @@
 import type {
+	ChangesPanelProjection,
 	DiffRequest,
 	DiffViewMode,
 	GitActionResponse,
@@ -11,7 +12,6 @@ import type {
 	PanelAction,
 	PanelSession,
 	RepositoryPreferences,
-	RetainedGraphSelection,
 } from "@contracts";
 import {
 	ChangesPanel,
@@ -81,11 +81,7 @@ const GIT_FILE_VIEW_MODE_STORAGE_KEY = "inferay-git-file-view-mode";
 const SIDEBAR_WIDTH_KEY = "agent-workspace-changes-width";
 const DIFF_VIEW_MODE_KEY = "agent-workspace-diff-view-mode";
 
-const EMPTY_FILE_GROUPS = {
-	staged: [],
-	modified: [],
-	untracked: [],
-};
+const EMPTY_FILES: GitFileEntry[] = [];
 
 export function useRepositoryWorkbench(
 	_options: Accessor<{
@@ -246,8 +242,8 @@ export function useRepositoryWorkbench(
 			? (gitStatus.projectMap.get(_sourceValue3.diffViewerCwd) ?? null)
 			: null;
 	});
-	const fileGroups = createMemo(
-		() => project()?.fileGroups ?? EMPTY_FILE_GROUPS,
+	const graphItems = createMemo(
+		() => new Map(graph.commits.map((item) => [item.id, item])),
 	);
 	const selectedGraph = createMemo<{
 		cwd: string | undefined;
@@ -256,26 +252,22 @@ export function useRepositoryWorkbench(
 	}>((previous) => {
 		const cwd = graphCwd(),
 			session = panelSession();
-		const records =
+		const retained = new Map(
 			previous && previous.cwd === cwd
-				? [
-						...previous.items,
-						...(previous.item ? [previous.item] : []),
-						...graph.commits,
-					]
-				: graph.commits;
-		const selection = rustProject<RetainedGraphSelection>(
-			"retainedGraphSelection",
-			{
-				ids: records.map((item) => item.id),
-				selectedIds: session.selectedCommitIds,
-				selectedHash: session.selectedCommitHash,
-			},
+				? previous.items.map((item) => [item.id, item])
+				: [],
 		);
+		if (previous && previous.cwd === cwd && previous.item)
+			retained.set(previous.item.id, previous.item);
+		const lookup = (id: string | null) =>
+			id === null ? null : (graphItems().get(id) ?? retained.get(id) ?? null);
 		return {
 			cwd,
-			items: selection.indices.map((index) => records[index]!),
-			item: selection.index === null ? null : records[selection.index]!,
+			items: session.selectedCommitIds.flatMap((id) => {
+				const item = lookup(id);
+				return item ? [item] : [];
+			}),
+			item: lookup(session.selectedCommitHash),
 		};
 	});
 	const selectedGraphItems = createMemo(() => selectedGraph().items);
@@ -290,12 +282,11 @@ export function useRepositoryWorkbench(
 		})),
 	);
 	const selectedGraphWorktree = createMemo(() => {
-		const index = rustProject<number | null>("repositorySelectedWorktree", {
-			graphVisible: panelSession().graphVisible,
-			item: selectedGraphItem(),
-			worktrees: graph.worktrees,
-		});
-		return index === null ? null : graph.worktrees[index]!;
+		const item = selectedGraphItem();
+		return panelSession().graphVisible && item?.itemKind === "worktreeWip"
+			? (graph.worktrees.find((tree) => tree.path === item.worktreePath) ??
+					null)
+			: null;
 	});
 	const selectedLinkedWorktreeStatus = createMemo(() => {
 		const _selectedGraphWorktreeValue = selectedGraphWorktree();
@@ -304,7 +295,8 @@ export function useRepositoryWorkbench(
 			: null;
 	});
 	const workingTreeFiles = createMemo(
-		() => selectedLinkedWorktreeStatus()?.fileGroups ?? fileGroups(),
+		() =>
+			selectedLinkedWorktreeStatus()?.files ?? project()?.files ?? EMPTY_FILES,
 	);
 	const workingTreePresentation = createMemo(
 		() =>
@@ -413,7 +405,7 @@ export function useRepositoryWorkbench(
 		({ commits, loading, session }) => {
 			if (session.mainViewMode !== "graph" || loading || !commits.length)
 				return;
-			const visible = new Set(commits.map((item) => item.id));
+			const visible = graphItems();
 			if (
 				session.selectedCommitHash &&
 				visible.has(session.selectedCommitHash) &&
@@ -427,21 +419,38 @@ export function useRepositoryWorkbench(
 			});
 		},
 	);
-	const changesModel = createMemo(() =>
-		rustProject<ChangesPanelModel>("changesPanel", {
-			...workingTreeFiles(),
+	const changesModel = createMemo<ChangesPanelModel>(() => {
+		const files = workingTreeFiles();
+		const { commit, comparison } = historyDetails.data;
+		const history = comparison ?? commit;
+		const model = rustProject<ChangesPanelProjection>("changesPanel", {
+			files,
 			filePresentation: workingTreePresentation(),
 			fileViewMode: fileViewMode(),
 			content: panelSession().sidebarContent,
 			selectedCommitHash: panelSession().selectedCommitHash,
 			selectedCommitCount: panelSession().selectedCommitIds.length,
-			commitDetailsLoading: historyDetails.loading,
-			commitDetails: historyDetails.data.commit,
+			historyLoading: historyDetails.loading,
+			historyFiles: history?.files,
+			historyFilePresentation: history?.filePresentation,
 			commitDetailsError: historyDetails.error,
-			comparisonDetailsLoading: historyDetails.loading,
-			comparisonDetails: historyDetails.data.comparison,
-		}),
-	);
+		});
+		return {
+			...model,
+			unstagedFiles: model.unstagedFiles.map((index) => files[index]!),
+			stagedFiles: model.stagedFiles.map((index) => files[index]!),
+			navigableFiles: model.navigableFiles.map((index) => files[index]!),
+			historyDetails:
+				model.historyDetails === "comparison"
+					? comparison
+					: model.historyDetails === "commit"
+						? commit
+						: null,
+			navigableHistoricalFiles: model.navigableHistoricalFiles.map(
+				(index) => history!.files[index]!,
+			),
+		};
+	});
 	const changeActions = useGitChangeActions(() => ({
 		cwd: activeCwd(),
 		refetchStatus: gitStatus.refetch,
@@ -598,10 +607,9 @@ export function useRepositoryWorkbench(
 				selectedCommitCount: session.selectedCommitIds.length,
 				selectedFile: session.selectedFile,
 				loading: historyDetails.loading,
-				files:
-					selectedGraphItem()?.itemKind === "worktreeWip"
-						? changesModel().navigableFiles
-						: changesModel().navigableHistoricalFiles,
+				file: (selectedGraphItem()?.itemKind === "worktreeWip"
+					? changesModel().navigableFiles
+					: changesModel().navigableHistoricalFiles)[0],
 			});
 		},
 		(result) => {
@@ -956,7 +964,6 @@ export function useRepositoryWorkbench(
 						fileViewMode={fileViewMode()}
 						onFileViewModeChange={setFileViewMode}
 						model={changesModel()}
-						graphActive={panelSession().mainViewMode === "graph"}
 						selectedFile={
 							context().selectedFileVisible ? panelSession().selectedFile : null
 						}

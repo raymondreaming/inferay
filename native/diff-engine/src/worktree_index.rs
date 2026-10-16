@@ -360,11 +360,8 @@ mod tests {
             .find(|file| file.path == "another.txt")
             .unwrap();
         assert_eq!((new_file.additions, new_file.deletions), (Some(3), Some(0)));
-        assert!(status
-            .file_groups
-            .untracked
-            .iter()
-            .any(|file| file.path == "another.txt" && file.additions == Some(3)));
+        assert_eq!(new_file.status, "?");
+        assert!(!new_file.staged);
     }
 
     #[test]

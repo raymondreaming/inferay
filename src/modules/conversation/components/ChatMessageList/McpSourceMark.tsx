@@ -1,10 +1,10 @@
 import type { McpToolSource } from "@contracts";
 import { loadMcpIcons } from "@conversation/services/conversationApi.ts";
 import { useQueryResource } from "@shared/hooks/useQueryResource.tsx";
-import { domStyle, queryClient } from "@shared/lib/dom.tsx";
+import { queryClient } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createSignal, onSettled, Show } from "solid-js";
-import { getMcpSourceMarkStyle, styles } from "./styles.ts";
+import { styles } from "./styles.ts";
 
 // One refresh timer for the transcript, regardless of how many tool rows mount.
 const mountedServers = new Map<string, number>();
@@ -50,7 +50,9 @@ export function McpSourceMark(props: { source: McpToolSource }) {
 					styles.toolMilestoneMark,
 					!!mark() && styles.toolMilestoneBrandMark,
 				)}
-				style={domStyle(getMcpSourceMarkStyle(props.source.hue))}
+				style={{
+					"--mcp-hue": String(props.source.hue),
+				}}
 			>
 				<Show when={mark()} keyed fallback={props.source.monogram}>
 					{(src) => (

@@ -41,7 +41,6 @@ export interface AgentChatViewProps {
 	isVisible?: boolean;
 	draggable?: boolean;
 	onDragStart?: (event: PointerEvent) => void;
-	onDragEnd?: () => void;
 	onDirectoryChange?: (
 		paneId: string,
 		cwd: string,

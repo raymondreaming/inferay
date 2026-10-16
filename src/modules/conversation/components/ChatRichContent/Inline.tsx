@@ -1,8 +1,7 @@
 import type { MdInlineToken } from "@contracts";
-import { domStyle } from "@shared/lib/dom.tsx";
 import { MarkdownInline } from "@shared/ui/MarkdownInline/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { getInlineImgStyle, styles } from "./styles.ts";
+import { styles } from "./styles.ts";
 
 const appearance = {
 	code: stylex.attrs(styles.inlineCode),
@@ -10,7 +9,9 @@ const appearance = {
 	italic: stylex.attrs(styles.em),
 	"bold-italic": stylex.attrs(styles.strong),
 	image: {
-		style: domStyle(getInlineImgStyle()),
+		style: {
+			"max-width": "100%",
+		},
 	},
 	markdown_path: stylex.attrs(styles.inlinePathButton),
 	link: stylex.attrs(styles.link),

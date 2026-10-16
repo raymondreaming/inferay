@@ -1,6 +1,6 @@
 import { iconSize } from "@design-system/styles.stylex.ts";
 import { generateCommitMessage } from "@repository/services/gitApi.ts";
-import { DotMatrixWeave } from "@shared/ui/DotMatrixLoader/index.tsx";
+import { DotMatrixLoader } from "@shared/ui/DotMatrixLoader/index.tsx";
 import { IconGitCommit, IconSparkles } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal } from "solid-js";
@@ -59,7 +59,8 @@ export function CommitSection(_props: {
 							{...stylex.attrs(styles.generateMessageButton)}
 						>
 							{generating() ? (
-								<DotMatrixWeave
+								<DotMatrixLoader
+									variant="weave"
 									size={iconSize._2md}
 									dotSize={1.5}
 									gap={1}

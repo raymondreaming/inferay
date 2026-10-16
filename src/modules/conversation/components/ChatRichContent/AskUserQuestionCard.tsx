@@ -1,6 +1,5 @@
 import type { AskUserQuestion } from "@contracts";
 import { iconSize } from "@design-system/styles.stylex.ts";
-import { domStyle } from "@shared/lib/dom.tsx";
 import { project as rustProject } from "@shared/lib/native.tsx";
 import {
 	IconCheck,
@@ -10,7 +9,6 @@ import {
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For } from "solid-js";
 import { CopyablePre } from "./CopyablePre.tsx";
-import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 
 export function AskUserQuestionCard(_props: {
@@ -63,11 +61,9 @@ export function AskUserQuestionCard(_props: {
 						<div {...stylex.attrs(styles.questionPending)}>
 							<span
 								{...stylex.attrs(styles.questionStreamingDot)}
-								style={domStyle(
-									inlineStyles.getAskUserQuestionCardQuestionStreamingDotStyle(
-										accentColor,
-									),
-								)}
+								style={{
+									"background-color": accentColor,
+								}}
 							/>
 							<span>Preparing question</span>
 						</div>
@@ -91,20 +87,16 @@ export function AskUserQuestionCard(_props: {
 											<div {...stylex.attrs(styles.questionHeader)}>
 												<IconHelpCircle
 													size={iconSize.md}
-													style={domStyle(
-														inlineStyles.getChatRichContentIconHelpCircleStyle(
-															accentColor,
-														),
-													)}
+													style={{
+														color: accentColor,
+													}}
 												/>
 												{q().multiSelect && (
 													<span
 														{...stylex.attrs(styles.multiSelectLabel)}
-														style={domStyle(
-															inlineStyles.getChatRichContentMultiSelectLabelStyle(
-																fgDim,
-															),
-														)}
+														style={{
+															color: fgDim,
+														}}
 													>
 														multi-select
 													</span>
@@ -112,11 +104,9 @@ export function AskUserQuestionCard(_props: {
 												{_props.isStreaming && (
 													<span
 														{...stylex.attrs(styles.questionStreamingDot)}
-														style={domStyle(
-															inlineStyles.getChatRichContentQuestionStreamingDotStyle(
-																accentColor,
-															),
-														)}
+														style={{
+															"background-color": accentColor,
+														}}
 													/>
 												)}
 											</div>
@@ -153,27 +143,25 @@ export function AskUserQuestionCard(_props: {
 																				? styles.optionDisabled
 																				: null,
 																		)}
-																		style={domStyle(
-																			inlineStyles.getChatRichContentOptionButtonStyle(
-																				isSelected()
-																					? `${accentColor}50`
-																					: "var(--color-inferay-gray-border)",
-																				submitted() ? "default" : "pointer",
-																			),
-																		)}
+																		style={{
+																			"border-color": isSelected()
+																				? `${accentColor}50`
+																				: "var(--color-inferay-gray-border)",
+																			cursor: submitted()
+																				? "default"
+																				: "pointer",
+																		}}
 																	>
 																		<span
 																			{...stylex.attrs(styles.optionMarker)}
-																			style={domStyle(
-																				inlineStyles.getChatRichContentOptionMarkerStyle(
-																					isSelected()
-																						? accentColor
-																						: `${accentColor}20`,
-																					isSelected()
-																						? accentForeground
-																						: accentColor,
-																				),
-																			)}
+																			style={{
+																				"background-color": isSelected()
+																					? accentColor
+																					: `${accentColor}20`,
+																				color: isSelected()
+																					? accentForeground
+																					: accentColor,
+																			}}
 																		>
 																			{isSelected() ? (
 																				<IconCheck size={iconSize.xs} />
@@ -194,11 +182,9 @@ export function AskUserQuestionCard(_props: {
 																					{...stylex.attrs(
 																						styles.optionDescription,
 																					)}
-																					style={domStyle(
-																						inlineStyles.getChatRichContentOptionDescriptionStyle(
-																							fgMuted,
-																						),
-																					)}
+																					style={{
+																						color: fgMuted,
+																					}}
 																				>
 																					{opt().description}
 																				</p>
@@ -222,14 +208,14 @@ export function AskUserQuestionCard(_props: {
 								onClick={handleSubmit}
 								disabled={!hasSelections()}
 								{...stylex.attrs(styles.sendSelectionsButton)}
-								style={domStyle(
-									inlineStyles.getAskUserQuestionCardSendSelectionsButtonStyle(
-										hasSelections() ? accentColor : `${accentColor}30`,
-										hasSelections() ? accentForeground : fgDim,
-										hasSelections() ? "pointer" : "not-allowed",
-										hasSelections() ? 1 : 0.6,
-									),
-								)}
+								style={{
+									"background-color": hasSelections()
+										? accentColor
+										: `${accentColor}30`,
+									color: hasSelections() ? accentForeground : fgDim,
+									cursor: hasSelections() ? "pointer" : "not-allowed",
+									opacity: hasSelections() ? 1 : 0.6,
+								}}
 							>
 								<IconSend size={iconSize.sm} />
 								Send selections

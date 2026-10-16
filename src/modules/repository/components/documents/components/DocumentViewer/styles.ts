@@ -1,4 +1,3 @@
-import type { CSSProperties } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
 	color,
@@ -187,19 +186,3 @@ export const styles = stylex.create({
 		paddingInline: controlSize._3,
 	},
 });
-export function getSourcePreviewSourceCanvasStyle(
-	height: CSSProperties["height"],
-	minWidth: CSSProperties["minWidth"],
-): CSSProperties {
-	return {
-		height: height,
-		minWidth: minWidth,
-	} as CSSProperties;
-}
-export function getSourcePreviewSourceTableStyle(
-	transform: CSSProperties["transform"],
-): CSSProperties {
-	return {
-		transform: transform,
-	} as CSSProperties;
-}

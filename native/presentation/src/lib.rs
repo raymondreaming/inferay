@@ -46,6 +46,7 @@ fn flag(value: &Value) -> bool {
 
 pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
     Ok(match operation {
+        "workspaceChatEntries" => json!(workbench::workspace_chat_entries(input)),
         "markdownImageSource" => image::source(input),
         "syntaxInput" => json!(inferay_core::syntax::input(
             &Vec::<&str>::deserialize(&input["lines"]).map_err(|e| e.to_string())?,
@@ -81,8 +82,7 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
         "gitActionFailure" => git_actions::failed_operation(input),
         "nextDiffChange" => diff::next_change(input),
         "diffNavigation" => diff::navigation(input)?,
-        "changesPanel" => workbench::changes_panel(input),
-        "visibleFiles" => workbench::visible_files(input),
+        "changesPanel" => json!(workbench::changes_panel(input)),
         "adjacentFile" => workbench::adjacent_file(input),
         "selectionAfterToggle" => workbench::selection_after_toggle(input),
         "historicalQuery" => workbench::historical_query(input),
@@ -90,10 +90,8 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
         "repositoryPreferences" => json!(workbench::preferences(input)),
         "repositoryResize" => workbench::resize(input),
         "repositoryWorkbenchContext" => workbench::context(input),
-        "repositorySelectedWorktree" => workbench::selected_worktree(input),
         "repositoryInteraction" => json!(workbench::interaction(input)),
         "repositoryKeyboardAction" => workbench::keyboard_action(input),
-        "retainedGraphSelection" => json!(workbench::retained_graph_selection(input)),
         "graphFileOpen" => json!(workbench::graph_file_open(input)),
         "diffPrefetchFiles" => diff::diff_prefetch_files(input),
         "diffRequest" => diff::diff_request(input),

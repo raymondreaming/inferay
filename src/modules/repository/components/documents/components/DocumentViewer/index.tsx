@@ -81,7 +81,7 @@ function DocumentSessionView(_props: DocumentViewerProps) {
 					closeFile={closeFile}
 					openFiles={openFiles()}
 				/>
-				<FileSearch cwd={_props.cwd} onSelect={openFile} placement="panel" />
+				<FileSearch cwd={_props.cwd} onSelect={openFile} />
 				<button
 					type="button"
 					onClick={closeViewer}

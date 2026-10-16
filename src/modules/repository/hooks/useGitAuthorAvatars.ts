@@ -13,13 +13,9 @@ type CachedAvatar = { url: string; savedAt: number };
 const AVATAR_CACHE_KEY = "inferay-author-avatars-v1";
 const AVATAR_CACHE_AGE_MS = 24 * 60 * 60_000;
 const MAX_CACHED_AVATARS = 500;
+// Loaded author identities survive rebases and repository switches.
 let cachedAvatars: Record<string, CachedAvatar> = {};
-
-// Author identity survives new commit hashes, rebases, and repository switches.
-const [avatars, setAvatars] = createSignal<{
-	authors: Record<string, string>;
-	commits: Record<string, string>;
-}>({ authors: {}, commits: {} });
+const [avatars, setAvatars] = createSignal(cachedAvatars);
 
 export function hydrateAuthorAvatars() {
 	const now = Date.now();
@@ -40,24 +36,7 @@ export function hydrateAuthorAvatars() {
 			.sort((a, b) => b[1].savedAt - a[1].savedAt)
 			.slice(0, MAX_CACHED_AVATARS),
 	);
-	setAvatars({
-		authors: Object.fromEntries(
-			Object.entries(cachedAvatars).map(([email, value]) => [email, value.url]),
-		),
-		commits: {},
-	});
-}
-
-function rememberAvatars(authors: Record<string, string>) {
-	const now = Date.now();
-	for (const [email, url] of Object.entries(authors))
-		cachedAvatars[email] = { url, savedAt: now };
-	cachedAvatars = Object.fromEntries(
-		Object.entries(cachedAvatars)
-			.sort((a, b) => b[1].savedAt - a[1].savedAt)
-			.slice(0, MAX_CACHED_AVATARS),
-	);
-	writeStoredValue(AVATAR_CACHE_KEY, JSON.stringify(cachedAvatars));
+	setAvatars(cachedAvatars);
 }
 
 export function rememberLoadedAuthorAvatar(
@@ -67,27 +46,30 @@ export function rememberLoadedAuthorAvatar(
 	const key = email?.trim().toLowerCase();
 	if (!key || !url?.startsWith("https://") || cachedAvatars[key]?.url === url)
 		return;
-	setAvatars((previous) =>
-		previous.authors[key] === url
-			? previous
-			: { ...previous, authors: { ...previous.authors, [key]: url } },
+	cachedAvatars[key] = { url, savedAt: Date.now() };
+	cachedAvatars = Object.fromEntries(
+		Object.entries(cachedAvatars)
+			.sort((a, b) => b[1].savedAt - a[1].savedAt)
+			.slice(0, MAX_CACHED_AVATARS),
 	);
-	rememberAvatars({ [key]: url });
+	setAvatars(cachedAvatars);
+	writeStoredValue(AVATAR_CACHE_KEY, JSON.stringify(cachedAvatars));
 }
 
 export function knownAuthorAvatar(email?: string | null) {
-	return avatars().authors[email?.trim().toLowerCase() ?? ""];
+	return avatars()[email?.trim().toLowerCase() ?? ""]?.url;
 }
 
 export function useGitAuthorAvatars(
 	repository: Accessor<string | undefined>,
 	commits: Accessor<readonly AuthorCommit[]>,
 ) {
+	const [resolved, setResolved] = createSignal<Record<string, string>>({});
 	let resolving = false;
 	let pending = false;
 	let lastRequest = "";
 	const avatarForCommit = (commit: AuthorCommit) =>
-		knownAuthorAvatar(commit.authorEmail) ?? avatars().commits[commit.hash];
+		knownAuthorAvatar(commit.authorEmail) ?? resolved()[commit.hash];
 	const requestKey = createMemo(() =>
 		commits()
 			.filter((commit) => !avatarForCommit(commit))
@@ -106,21 +88,18 @@ export function useGitAuthorAvatars(
 		lastRequest = identity;
 		resolving = true;
 		try {
-			const resolved = await resolveGitCommitAvatars(cwd, missing);
-			if (Object.values(resolved).some(Boolean)) {
-				setAvatars((previous) => {
-					const authors = { ...previous.authors };
-					const hashes = { ...previous.commits };
-					for (const commit of missing) {
-						const url = resolved[commit.hash];
-						if (!url) continue;
-						hashes[commit.hash] = url;
-						const email = commit.authorEmail.trim().toLowerCase();
-						if (email) authors[email] = url;
-					}
-					return { authors, commits: hashes };
-				});
-			}
+			const loaded = await resolveGitCommitAvatars(cwd, missing);
+			setResolved((previous) =>
+				Object.fromEntries(
+					commits().flatMap((commit) => {
+						const url =
+							loaded[commit.hash] ??
+							previous[commit.hash] ??
+							knownAuthorAvatar(commit.authorEmail);
+						return url ? [[commit.hash, url]] : [];
+					}),
+				),
+			);
 		} finally {
 			resolving = false;
 			if (pending) {

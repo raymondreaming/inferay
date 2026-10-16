@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use inferay_core::chat_protocol::{ChatTranscriptMessage, trim_messages};
+use inferay_core::chat_protocol::ChatTranscriptMessage;
 use serde_json::Value;
 use tokio::{
     fs,
@@ -27,8 +27,7 @@ pub async fn load_provider_history(
         _ => return None,
     };
     let text = read_tail_page(&path).await?;
-    let mut messages = parse_history(&text, provider);
-    trim_messages(&mut messages);
+    let messages = parse_history(&text, provider);
     (!messages.is_empty()).then_some(messages)
 }
 

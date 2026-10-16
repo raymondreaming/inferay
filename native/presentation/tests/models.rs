@@ -1,4 +1,4 @@
-use inferay_presentation::{panels, project, transcript::ChatReplica};
+use inferay_presentation::{panels, project};
 use serde_json::{Value, json};
 fn render(op: &str, input: Value) -> Value {
     project(op, &input).unwrap()
@@ -172,37 +172,6 @@ fn saved_panels_migrate_diff_sources_and_restore_valid_documents() {
     );
     assert!(session.detached_file_panels.is_empty());
     assert_eq!(panels::PanelSession::read(&json!(session)), session);
-}
-#[test]
-fn transcript_rejects_gaps_wrong_epochs_and_invalid_append_targets() {
-    let mut replica = ChatReplica::new();
-    replica.reconnect();
-    let initial = json!({"type":"chat:sync","modelVersion":1,"epoch":"one","revision":1,"messages":[{"id":"a","role":"assistant","content":"Hi"}]});
-    assert_eq!(replica.admit(&initial)["kind"], "sync");
-    let update = json!({"version":1,"epoch":"one","baseRevision":1,"revision":2,"reset":false,"start":0,"deleteCount":1,"messages":[{"message":{"id":"a","role":"assistant"},"appendContent":" there"}]});
-    let result = replica.admit(&json!({"transcriptUpdate":update}));
-    assert_eq!(result, json!({"kind":"patch","start":0,"deleteCount":1}));
-    assert_eq!(
-        replica.admit(&json!({"transcriptUpdate":update}))["kind"],
-        "ignore"
-    );
-    let mut gap = update.clone();
-    gap["revision"] = json!(4);
-    assert_eq!(
-        replica.admit(&json!({"transcriptUpdate":gap})),
-        json!({"kind":"resync","reconnect":true})
-    );
-    assert_eq!(
-        replica.admit(&json!({"transcriptUpdate":gap}))["reconnect"],
-        false
-    );
-    let mut next = initial.clone();
-    next["epoch"] = json!("two");
-    assert_eq!(replica.admit(&next)["kind"], "sync");
-    assert_eq!(
-        replica.admit(&json!({"transcriptUpdate":update}))["kind"],
-        "resync"
-    );
 }
 #[test]
 fn diff_change_navigation_is_strict_and_wraps_at_both_ends() {

@@ -11,7 +11,7 @@ use axum::http::StatusCode;
 use inferay_core::agent_kind::AgentKind;
 use inferay_core::agent_protocol::{build_claude_invocation_args, truncate_agent_result};
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
 const CLAUDE_HAIKU_MODEL: &str = "claude-haiku-4-5";
@@ -202,15 +202,9 @@ pub(super) async fn run_btw_chat_message(
         )?;
 
         let stdout = child.stdout.take().expect("piped Claude stdout");
-        let mut stderr = child.stderr.take().expect("piped Claude stderr");
-        let stderr_task = tokio::spawn(async move {
-            let mut bytes = Vec::new();
-            stderr.read_to_end(&mut bytes).await?;
-            Ok::<_, std::io::Error>(crate::agent_runner::tail_javascript_chars(
-                &String::from_utf8_lossy(&bytes),
-                64_000,
-            ))
-        });
+        let stderr_task = tokio::spawn(crate::agent_runner::drain_bounded(
+            child.stderr.take().expect("piped Claude stderr"),
+        ));
 
         let mut reader = BufReader::new(stdout);
         let mut line = Vec::new();
@@ -238,8 +232,8 @@ pub(super) async fn run_btw_chat_message(
         }
 
         child.wait().await?;
-        let stderr = stderr_task.await.map_err(std::io::Error::other)??;
-        Ok::<_, std::io::Error>(stderr)
+        let (stderr, error) = stderr_task.await.map_err(std::io::Error::other)?;
+        error.map_or(Ok(stderr), Err)
     }
     .await;
     if full_text.is_empty() {

@@ -1,3 +1,5 @@
+import type { MemoryGraphNode } from "@contracts";
+
 export type GraphInputNode = { id: string; kind: string };
 export type GraphInputEdge = { from: string; to: string };
 export type GraphPoint = { x: number; y: number };
@@ -93,13 +95,10 @@ export function layoutMemoryGraph(
 	return new Map(nodes.map((node, i) => [node.id, { x: x[i], y: y[i] }]));
 }
 
-export type MemoryItem = {
-	id: string;
-	kind: "note" | "image" | "file" | "source";
-	title: string;
-	source: string;
-	size: number;
-};
+export type MemoryItem = Pick<
+	MemoryGraphNode,
+	"id" | "kind" | "title" | "source" | "size"
+>;
 export type MemoryCategory = "all" | "text" | "images" | "files" | "chats";
 export const MEMORY_CATEGORIES: { id: MemoryCategory; label: string }[] = [
 	{ id: "all", label: "All" },

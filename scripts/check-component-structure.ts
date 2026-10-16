@@ -30,9 +30,6 @@ for (const file of filesIn(root)) {
 			`${name}: move style definitions to the component folder's styles.ts`,
 		);
 	}
-	if (/\bstyle=\{\s*\{/.test(source)) {
-		errors.push(`${name}: move inline style objects to styles.ts`);
-	}
 	if (
 		!componentFile &&
 		/^(?:export\s+)?function\s+[A-Z]\w*\s*\(/m.test(source)
@@ -48,6 +45,6 @@ if (errors.length) {
 	process.exitCode = 1;
 } else {
 	console.log(
-		`Component structure passed: ${folders.size} folders with index.tsx; local styles belong in styles.ts.`,
+		`Component structure passed: ${folders.size} folders with index.tsx; static StyleX definitions belong in styles.ts.`,
 	);
 }

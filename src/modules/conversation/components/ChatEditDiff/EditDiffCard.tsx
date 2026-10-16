@@ -1,12 +1,11 @@
 import type { EditDiffWindow, PreparedEditDiff } from "@contracts";
 import { iconSize } from "@design-system/styles.stylex.ts";
 import { useSyntaxHighlight } from "@shared/hooks/useSyntaxHighlight.tsx";
-import { domStyle } from "@shared/lib/dom.tsx";
+import { px } from "@shared/lib/dom.tsx";
 import { project } from "@shared/lib/native.tsx";
 import { IconChevronRight, IconFilePlus } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For, onSettled } from "solid-js";
-import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 export function EditDiffCard(_props: {
 	filePath: string;
@@ -51,13 +50,11 @@ export function EditDiffCard(_props: {
 				type="button"
 				onClick={() => setIsExpanded(!isExpanded())}
 				{...stylex.attrs(styles.header)}
-				style={domStyle(
-					inlineStyles.getEditDiffCardHeaderStyle(
-						isExpanded()
-							? "1px solid var(--color-inferay-gray-border)"
-							: "none",
-					),
-				)}
+				style={{
+					"border-bottom": isExpanded()
+						? "1px solid var(--color-inferay-gray-border)"
+						: "none",
+				}}
 			>
 				<IconChevronRight
 					size={iconSize.sm}
@@ -102,13 +99,11 @@ export function EditDiffCard(_props: {
 				>
 					<div
 						{...stylex.attrs(styles.bodyInner)}
-						style={domStyle(
-							inlineStyles.getEditDiffCardBodyInnerStyle(
-								`max(100%, ${_props.prepared.contentWidthChars}ch)`,
-								window().paddingTop,
-								window().paddingBottom,
-							),
-						)}
+						style={{
+							width: `max(100%, ${_props.prepared.contentWidthChars}ch)`,
+							"padding-top": px(window().paddingTop),
+							"padding-bottom": px(window().paddingBottom),
+						}}
 					>
 						<For
 							each={_props.prepared.lines.slice(window().start, window().end)}
@@ -130,28 +125,24 @@ export function EditDiffCard(_props: {
 											isRemoved() && styles.removedLine,
 											isAdded() && styles.addedLine,
 										)}
-										style={domStyle(
-											inlineStyles.getEditDiffCardDiffLineStyle(
-												isRemoved()
-													? removedBg
-													: isAdded()
-														? addedBg
-														: "transparent",
-												`2px solid ${isRemoved() ? removedBorder : isAdded() ? addedBorder : "transparent"}`,
-											),
-										)}
+										style={{
+											"background-color": isRemoved()
+												? removedBg
+												: isAdded()
+													? addedBg
+													: "transparent",
+											"border-left": `2px solid ${isRemoved() ? removedBorder : isAdded() ? addedBorder : "transparent"}`,
+										}}
 									>
 										<span
 											{...stylex.attrs(styles.sign)}
-											style={domStyle(
-												inlineStyles.getEditDiffCardSignStyle(
-													isRemoved()
-														? "rgba(248,81,73,0.7)"
-														: isAdded()
-															? "rgba(46,160,67,0.7)"
-															: "rgba(255,255,255,0.22)",
-												),
-											)}
+											style={{
+												color: isRemoved()
+													? "rgba(248,81,73,0.7)"
+													: isAdded()
+														? "rgba(46,160,67,0.7)"
+														: "rgba(255,255,255,0.22)",
+											}}
 										>
 											{isRemoved() ? "−" : isAdded() ? "+" : " "}
 										</span>

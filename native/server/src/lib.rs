@@ -98,6 +98,9 @@ mod render_jobs;
 /// beside the server makes renderer contracts follow backend schema changes.
 pub fn export_renderer_types(config: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
     use ts_rs::TS;
+    memory_store::MemoryGraphData::export_all(config)?;
+    memory_store::MemorySearchResponse::export_all(config)?;
+    memory_store::MemoryNoteView::export_all(config)?;
     files::ProjectFileEntry::export_all(config)?;
     files::DirectoryQuickPicks::export_all(config)?;
     markdown_stream::Input::export_all(config)?;
@@ -364,10 +367,10 @@ fn build_router_with_connection_reset(
     let agent_context_store = Arc::new(tokio::sync::Mutex::new(AgentContextStore::new(
         config.user_data_dir.join("agent-context.json"),
     )));
-    let prompt_store = Arc::new(tokio::sync::Mutex::new(PromptStore::new(
-        bundled_prompts,
-        config.user_data_dir.join("prompts.json"),
-    )));
+    let prompt_store = Arc::new(tokio::sync::Mutex::new(
+        PromptStore::open(bundled_prompts, config.user_data_dir.join("prompts.json"))
+            .expect("Could not open local skills"),
+    ));
     let config_manager = Arc::new(tokio::sync::Mutex::new(ConfigManager::new(
         config.user_data_dir.join("settings.json"),
     )));
@@ -376,11 +379,6 @@ fn build_router_with_connection_reset(
     let client_storage = Arc::new(tokio::sync::Mutex::new(client_storage::ClientStorage::new(
         config.user_data_dir.join("client-storage.json"),
     )));
-    prompt_store
-        .try_lock()
-        .expect("skills startup lock")
-        .migrate()
-        .expect("Could not migrate local skills");
     let projects = project_runtime::ProjectRuntime::open(
         &config.user_data_dir,
         agent_command_resolver.clone(),
@@ -389,7 +387,7 @@ fn build_router_with_connection_reset(
     )
     .expect("Could not open local projects: close other instances using this profile");
     if let Ok(saved) = agent_state_store.lock().expect("workspace lock").read()
-        && let Err(error) = projects.migrate_workspace(&saved)
+        && let Err(error) = projects.migrate_workspace(&json!(saved))
     {
         eprintln!("Project workspace migration: {error}");
     }
@@ -445,261 +443,15 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
         if !is_trusted_local_request(request.headers(), &state.auth_token) {
             return text_response(StatusCode::FORBIDDEN, "Forbidden");
         }
-        if request.method() == Method::OPTIONS && path.starts_with("/api/") {
-            let mut response = Response::new(Body::empty());
-            *response.status_mut() = StatusCode::NO_CONTENT;
-            add_cors_headers(response.headers_mut(), &request_headers);
-            return response;
-        }
-        let result = match (path.as_str(), request.method().as_str()) {
-            ("/api/projects", "GET") => {
-                let project = query_value(&request, "projectId");
-                let before = query_value(&request, "before");
-                state
-                    .projects
-                    .catalog(project, before)
-                    .await
-                    .map_err(|e| api_error(StatusCode::BAD_REQUEST, e.to_string()))
-                    .and_then(|v| {
-                        serde_json::to_value(v)
-                            .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, e))
-                    })
-            }
-            ("/api/projects/connections", "GET" | "POST") => {
-                connections::http(&state, request).await
-            }
-            ("/api/projects/run-chat", "POST") => project_chat::open(&state, request).await,
-            ("/api/projects/effects", "GET") => project_effects::inbox_http(&state, request).await,
-            ("/api/projects/effects/cancel", "POST") => {
-                project_effects::cancel_http(&state, request).await
-            }
-            ("/api/projects/effects/dismiss", "POST") => {
-                project_effects::dismiss_http(&state, request).await
-            }
-            ("/api/projects/command", "POST") => project_command(&state, request).await,
-            ("/api/projects/proposal", "POST") => project_proposal(&state, request).await,
-            ("/api/projects/proposal-review", "POST") => {
-                project_proposal_review(&state, request).await
-            }
-            ("/api/memory", "GET") => memory_store::http::list(&state, request).await,
-            ("/api/memory/note", "GET") => memory_store::http::note(&state, request).await,
-            ("/api/memory/graph", "GET") => memory_store::http::graph(&state, request).await,
-            ("/api/memory/delete", "POST") => memory_store::http::delete(&state, request).await,
-            ("/api/memory/save", "POST") => memory_store::http::save(&state, request).await,
-            ("/api/client-storage", "GET") => get_client_storage(&state, request).await,
-            ("/api/client-storage", "POST" | "PUT") => update_client_storage(&state, request).await,
-            ("/api/config/search-folders", "GET") => get_search_folders(&state, request).await,
-            ("/api/prompts", "GET") => list_prompts(&state, request).await,
-            ("/api/prompts/proposal", "POST") => skill_proposal(&state, request).await,
-            ("/api/prompts", "POST") => create_prompt(&state, request).await,
-            ("/api/agent-context", "GET") => get_agent_context(&state, request).await,
-            ("/api/agent-context", "PUT") => update_agent_context(&state, request).await,
-            ("/api/agent/state/initialize", "POST") => {
-                initialize_agent_state(&state, request).await
-            }
-            ("/api/agent/state", "GET") => get_agent_state(&state, request).await,
-            ("/api/agent/state/workspace-action", "POST") => {
-                apply_agent_workspace_action(&state, request).await
-            }
-            ("/api/agent/directories", "GET") => {
-                files::get_agent_directories(&state, request).await
-            }
-            ("/api/forge/accounts", "GET") => forge::handle_request(&state, &path, request).await,
-            ("/api/forge/repos", "GET") => forge::handle_request(&state, &path, request).await,
-            ("/api/forge/commit-avatars", "POST") => {
-                forge::handle_request(&state, &path, request).await
-            }
-            ("/api/forge/clone", "POST") => forge::handle_request(&state, &path, request).await,
-            ("/api/forge/connect", "POST") => forge::handle_request(&state, &path, request).await,
-            ("/api/git/status", "GET") => git_status(&state, request).await,
-            ("/api/git/statuses", "POST") => git_statuses(&state, request).await,
-            ("/api/git/summaries", "POST") => git_summaries(&state, request).await,
-            ("/api/git/branches", "GET") => git_branches(&state, request).await,
-            ("/api/git/branches", "POST") => git_checkout_branch(&state, request).await,
-            ("/api/git/ref-operation", "POST") => git_ref_operation(&state, request).await,
-            ("/api/git/ref-operation-preflight", "POST") => {
-                git_ref_operation_preflight(&state, request).await
-            }
-            ("/api/git/graph-action", "POST") => git_graph_action(&state, request).await,
-            ("/api/git/commit-details", "GET") => git_commit_details(&state, request).await,
-            ("/api/git/comparison-details", "GET" | "POST") => {
-                git_comparison_details(&state, request).await
-            }
-            ("/api/git/stage", "POST") => {
-                git_file_action(&state, request, GitFileAction::Stage).await
-            }
-            ("/api/git/unstage", "POST") => {
-                git_file_action(&state, request, GitFileAction::Unstage).await
-            }
-            ("/api/git/discard", "POST") => {
-                git_file_action(&state, request, GitFileAction::Discard).await
-            }
-            ("/api/git/stash-file", "POST") => {
-                git_file_action(&state, request, GitFileAction::Stash).await
-            }
-            ("/api/git/commit", "POST") => git_commit(&state, request).await,
-
-            ("/api/agent/commands", "GET") => state
-                .prompts
-                .lock()
+        let mut response = if request.method() == Method::OPTIONS && path.starts_with("/api/") {
+            StatusCode::NO_CONTENT.into_response()
+        } else {
+            dispatch_api(&state, &path, request)
                 .await
-                .load()
-                .map_err(ApiError::from)
-                .map(|skills| {
-                    json!(inferay_core::provider_config::composer_commands(
-                        &query_value(&request, "kind").unwrap_or_default(),
-                        &skills,
-                    ))
-                }),
-            ("/api/native/provider-config", "GET") => {
-                // A broken skill library must not prevent startup or local commands.
-                let skills = state.prompts.lock().await.load().unwrap_or_default();
-                let entries = state
-                    .client_storage
-                    .lock()
-                    .await
-                    .select(&["inferay-default-chat-settings"])
-                    .await
-                    .unwrap_or_default();
-                let defaults = entries
-                    .get("inferay-default-chat-settings")
-                    .and_then(Value::as_str)
-                    .and_then(|text| serde_json::from_str::<Value>(text).ok())
-                    .unwrap_or(Value::Null);
-                Ok(json!(inferay_core::provider_config::renderer_catalog(
-                    &defaults, &skills
-                )))
-            }
-            ("/api/native/provider-config", "POST") => {
-                provider_configuration(&state, request).await
-            }
-            ("/api/native/markdown", "POST") => {
-                return api_http_response(native_markdown(request).await, &request_headers);
-            }
-            ("/api/native/markdown/stream", "POST") => {
-                return api_http_response(native_markdown_stream(request).await, &request_headers);
-            }
-            ("/api/native/highlight", "POST") => {
-                return api_http_response(native_highlight(request).await, &request_headers);
-            }
-            ("/api/native/diff", "POST") => {
-                return api_http_response(native_diff(request).await, &request_headers);
-            }
-            ("/api/config/search-folders", "PUT") => update_search_folders(&state, request).await,
-            ("/api/config/background-image", "GET") => {
-                return api_http_response(
-                    get_background_image(&state, request).await,
-                    &request_headers,
-                );
-            }
-            ("/api/config/background-image", "POST") => {
-                update_background_image(&state, request).await
-            }
-            ("/api/config/pick-folder", "POST") => {
-                Ok(json!({"folder": selected_folder_path().await}))
-            }
-
-            ("/api/agents/account-status", "GET") => agent_account::account_status(&state).await,
-            ("/api/agents/mcp-action", "POST") => mcp_connections::act(&state, request).await,
-            ("/api/agents/mcp-status", "GET") => {
-                let kind = match query_value(&request, "provider").as_deref() {
-                    Some("codex") => inferay_core::agent_kind::AgentKind::Codex,
-                    Some("claude") => inferay_core::agent_kind::AgentKind::Claude,
-                    _ => {
-                        return api_http_response(
-                            Err(ApiError(
-                                StatusCode::BAD_REQUEST,
-                                "Unknown agent provider".into(),
-                            )),
-                            &request_headers,
-                        );
-                    }
-                };
-                Ok(json!(mcp_connections::status(
-                    &state,
-                    kind,
-                    query_value(&request, "refresh").as_deref() == Some("true")
-                )))
-            }
-            ("/api/workspace/panels", "POST") => workspace_panels::handle(&state, request).await,
-            ("/api/workspace/dock", "POST") => workspace_dock::handle(&state, request).await,
-
-            ("/api/files/search", "GET") => search_files(&state, request).await,
-            ("/api/mcp-icons", "GET") => Ok(mcp_icons::manifest()),
-            ("/api/mcp-icon", "GET") => {
-                let server = query_value(&request, "server").unwrap_or_default();
-                let response = match mcp_icons::get(&server).await {
-                    Some((mime, bytes)) => {
-                        let mut response = Response::new(Body::from(bytes));
-                        response
-                            .headers_mut()
-                            .insert(CONTENT_TYPE, HeaderValue::from_str(&mime).unwrap());
-                        response.headers_mut().insert(
-                            CACHE_CONTROL,
-                            HeaderValue::from_static("private, max-age=3600"),
-                        );
-                        response.headers_mut().insert(
-                            "content-security-policy",
-                            HeaderValue::from_static("default-src 'none'; sandbox"),
-                        );
-                        response.headers_mut().insert(
-                            "x-content-type-options",
-                            HeaderValue::from_static("nosniff"),
-                        );
-                        Ok(response)
-                    }
-                    None => Err(api_error(StatusCode::NOT_FOUND, "Icon unavailable")),
-                };
-                return api_http_response(response, &request_headers);
-            }
-            ("/api/workspace/documents", "POST") => {
-                workspace_panels::restore_documents(&state, request).await
-            }
-            ("/api/files/content" | "/api/files/preview", "GET") => {
-                get_file_content(&state, request).await
-            }
-            ("/api/upload-temp", "POST") => upload_temp_file(&state, request).await,
-            ("/api/projects/documents", "POST") => upload_project_document(&state, request).await,
-            ("/api/projects/plugin-import", "POST") => upload_plugin_library(&state, request).await,
-            ("/api/projects/document", "GET") => {
-                return api_http_response(
-                    serve_project_document(&state, request).await,
-                    &request_headers,
-                );
-            }
-
-            ("/api/video", "GET" | "HEAD") => {
-                return api_http_response(
-                    local_video::serve(&state, request).await,
-                    &request_headers,
-                );
-            }
-            ("/api/file", "GET") => {
-                return api_http_response(
-                    serve_local_image(&state, request).await,
-                    &request_headers,
-                );
-            }
-            ("/api/git/image", "GET") => {
-                return api_http_response(serve_git_image(&state, request).await, &request_headers);
-            }
-            ("/api/git/graph", "GET") => {
-                return api_http_response(git_graph(&state, request).await, &request_headers);
-            }
-            ("/api/git/diff", "GET") => {
-                return api_http_response(git_diff(&state, request).await, &request_headers);
-            }
-            ("/api/git/generate-commit-message", "POST") => {
-                one_shot::generate_commit_message_route(&state, request).await
-            }
-            ("/api/app-info", "GET") => Ok(json!(native_app::load_app_info(&state).await)),
-            ("/api/native/update", "POST") => return native_app::update_route(&request_headers),
-            ("/api/native/update", "GET") => {
-                return native_app::update_status_route(&request_headers);
-            }
-            _ => dynamic_json_route(&state, &path, request).await,
+                .unwrap_or_else(IntoResponse::into_response)
         };
-        return api_response(result, &request_headers);
+        add_cors_headers(response.headers_mut(), &request_headers);
+        return response;
     }
     if let Some(filename) = public_asset(&path) {
         return serve_file(
@@ -719,10 +471,225 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
     if let Some(response) = serve_dist_path(&state, &path, &request_headers, head_only).await {
         return response;
     }
-    if !path.starts_with("/api/") {
-        return serve_renderer_index(&state, &request_headers, head_only).await;
-    }
-    text_response(StatusCode::NOT_FOUND, "Not found")
+    serve_renderer_index(&state, &request_headers, head_only).await
+}
+async fn dispatch_api(state: &ServerState, path: &str, request: Request) -> ApiResult<Response> {
+    let result = match (path, request.method().as_str()) {
+        ("/api/projects", "GET") => {
+            let project = query_value(&request, "projectId");
+            let before = query_value(&request, "before");
+            state
+                .projects
+                .catalog(project, before)
+                .await
+                .map_err(|e| api_error(StatusCode::BAD_REQUEST, e.to_string()))
+                .and_then(|v| {
+                    serde_json::to_value(v)
+                        .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, e))
+                })
+        }
+        ("/api/projects/connections", "GET" | "POST") => connections::http(state, request).await,
+        ("/api/projects/run-chat", "POST") => project_chat::open(state, request).await,
+        ("/api/projects/effects", "GET") => project_effects::inbox_http(state, request).await,
+        ("/api/projects/effects/cancel", "POST") => {
+            project_effects::cancel_http(state, request).await
+        }
+        ("/api/projects/effects/dismiss", "POST") => {
+            project_effects::dismiss_http(state, request).await
+        }
+        ("/api/projects/command", "POST") => project_command(state, request).await,
+        ("/api/projects/proposal", "POST") => project_proposal(state, request).await,
+        ("/api/projects/proposal-review", "POST") => project_proposal_review(state, request).await,
+        ("/api/memory" | "/api/memory/note" | "/api/memory/graph", "GET") => {
+            return memory_store::http::read(state, request).await;
+        }
+        ("/api/memory/delete", "POST") => memory_store::http::delete(state, request).await,
+        ("/api/memory/save", "POST") => memory_store::http::save(state, request).await,
+        ("/api/client-storage", "GET") => get_client_storage(state, request).await,
+        ("/api/client-storage", "POST" | "PUT") => update_client_storage(state, request).await,
+        ("/api/config/search-folders", "GET") => get_search_folders(state, request).await,
+        ("/api/prompts", "GET") => list_prompts(state, request).await,
+        ("/api/prompts/proposal", "POST") => skill_proposal(state, request).await,
+        ("/api/prompts", "POST") => create_prompt(state, request).await,
+        ("/api/agent-context", "GET") => get_agent_context(state, request).await,
+        ("/api/agent-context", "PUT") => update_agent_context(state, request).await,
+        ("/api/agent/state/initialize", "POST") => initialize_agent_state(state, request).await,
+        ("/api/agent/state", "GET") => return get_agent_state(state, request).await,
+        ("/api/agent/state/workspace-action", "POST") => {
+            apply_agent_workspace_action(state, request).await
+        }
+        ("/api/agent/directories", "GET") => files::get_agent_directories(state, request).await,
+        ("/api/forge/accounts", "GET") => forge::handle_request(state, path, request).await,
+        ("/api/forge/repos", "GET") => forge::handle_request(state, path, request).await,
+        ("/api/forge/commit-avatars", "POST") => forge::handle_request(state, path, request).await,
+        ("/api/forge/clone", "POST") => forge::handle_request(state, path, request).await,
+        ("/api/forge/connect", "POST") => forge::handle_request(state, path, request).await,
+        ("/api/git/status", "GET") => git_status(state, request).await,
+        ("/api/git/statuses", "POST") => git_statuses(state, request).await,
+        ("/api/git/summaries", "POST") => git_summaries(state, request).await,
+        ("/api/git/branches", "GET") => git_branches(state, request).await,
+        ("/api/git/branches", "POST") => git_checkout_branch(state, request).await,
+        ("/api/git/ref-operation", "POST") => git_ref_operation(state, request).await,
+        ("/api/git/ref-operation-preflight", "POST") => {
+            git_ref_operation_preflight(state, request).await
+        }
+        ("/api/git/graph-action", "POST") => git_graph_action(state, request).await,
+        ("/api/git/commit-details", "GET") => git_commit_details(state, request).await,
+        ("/api/git/comparison-details", "GET" | "POST") => {
+            git_comparison_details(state, request).await
+        }
+        ("/api/git/stage", "POST") => git_file_action(state, request, GitFileAction::Stage).await,
+        ("/api/git/unstage", "POST") => {
+            git_file_action(state, request, GitFileAction::Unstage).await
+        }
+        ("/api/git/discard", "POST") => {
+            git_file_action(state, request, GitFileAction::Discard).await
+        }
+        ("/api/git/stash-file", "POST") => {
+            git_file_action(state, request, GitFileAction::Stash).await
+        }
+        ("/api/git/commit", "POST") => git_commit(state, request).await,
+
+        ("/api/agent/commands", "GET") => state
+            .prompts
+            .lock()
+            .await
+            .load()
+            .map_err(ApiError::from)
+            .map(|skills| {
+                json!(inferay_core::provider_config::composer_commands(
+                    &query_value(&request, "kind").unwrap_or_default(),
+                    &skills,
+                ))
+            }),
+        ("/api/native/provider-config", "GET") => {
+            // A broken skill library must not prevent startup or local commands.
+            let skills = state.prompts.lock().await.load().unwrap_or_default();
+            let entries = state
+                .client_storage
+                .lock()
+                .await
+                .select(&["inferay-default-chat-settings"])
+                .await
+                .unwrap_or_default();
+            let defaults = entries
+                .get("inferay-default-chat-settings")
+                .and_then(Value::as_str)
+                .and_then(|text| serde_json::from_str::<Value>(text).ok())
+                .unwrap_or(Value::Null);
+            Ok(json!(inferay_core::provider_config::renderer_catalog(
+                &defaults, &skills
+            )))
+        }
+        ("/api/native/provider-config", "POST") => provider_configuration(state, request).await,
+        ("/api/native/markdown", "POST") => {
+            return native_markdown(request).await;
+        }
+        ("/api/native/markdown/stream", "POST") => {
+            return native_markdown_stream(request).await;
+        }
+        ("/api/native/highlight", "POST") => {
+            return native_highlight(request).await;
+        }
+        ("/api/native/diff", "POST") => {
+            return native_diff(request).await;
+        }
+        ("/api/config/search-folders", "PUT") => update_search_folders(state, request).await,
+        ("/api/config/background-image", "GET") => {
+            return get_background_image(state, request).await;
+        }
+        ("/api/config/background-image", "POST") => update_background_image(state, request).await,
+        ("/api/config/pick-folder", "POST") => Ok(json!({"folder": selected_folder_path().await})),
+
+        ("/api/agents/account-status", "GET") => agent_account::account_status(state).await,
+        ("/api/agents/mcp-action", "POST") => mcp_connections::act(state, request).await,
+        ("/api/agents/mcp-status", "GET") => {
+            let kind = match query_value(&request, "provider").as_deref() {
+                Some("codex") => inferay_core::agent_kind::AgentKind::Codex,
+                Some("claude") => inferay_core::agent_kind::AgentKind::Claude,
+                _ => {
+                    return Err(ApiError(
+                        StatusCode::BAD_REQUEST,
+                        "Unknown agent provider".into(),
+                    ));
+                }
+            };
+            Ok(json!(mcp_connections::status(
+                state,
+                kind,
+                query_value(&request, "refresh").as_deref() == Some("true")
+            )))
+        }
+        ("/api/workspace/panels", "POST") => workspace_panels::handle(state, request).await,
+        ("/api/workspace/dock", "POST") => workspace_dock::handle(state, request).await,
+
+        ("/api/files/search", "GET") => search_files(state, request).await,
+        ("/api/mcp-icons", "GET") => Ok(mcp_icons::manifest()),
+        ("/api/mcp-icon", "GET") => {
+            let server = query_value(&request, "server").unwrap_or_default();
+            let response = match mcp_icons::get(&server).await {
+                Some((mime, bytes)) => {
+                    let mut response = Response::new(Body::from(bytes));
+                    response
+                        .headers_mut()
+                        .insert(CONTENT_TYPE, HeaderValue::from_str(&mime).unwrap());
+                    response.headers_mut().insert(
+                        CACHE_CONTROL,
+                        HeaderValue::from_static("private, max-age=3600"),
+                    );
+                    response.headers_mut().insert(
+                        "content-security-policy",
+                        HeaderValue::from_static("default-src 'none'; sandbox"),
+                    );
+                    response.headers_mut().insert(
+                        "x-content-type-options",
+                        HeaderValue::from_static("nosniff"),
+                    );
+                    Ok(response)
+                }
+                None => Err(api_error(StatusCode::NOT_FOUND, "Icon unavailable")),
+            };
+            return response;
+        }
+        ("/api/workspace/documents", "POST") => {
+            workspace_panels::restore_documents(state, request).await
+        }
+        ("/api/files/content" | "/api/files/preview", "GET") => {
+            get_file_content(state, request).await
+        }
+        ("/api/upload-temp", "POST") => upload_temp_file(state, request).await,
+        ("/api/projects/documents", "POST") => upload_project_document(state, request).await,
+        ("/api/projects/plugin-import", "POST") => upload_plugin_library(state, request).await,
+        ("/api/projects/document", "GET") => {
+            return serve_project_document(state, request).await;
+        }
+
+        ("/api/video", "GET" | "HEAD") => {
+            return local_video::serve(state, request).await;
+        }
+        ("/api/file", "GET") => {
+            return serve_local_image(state, request).await;
+        }
+        ("/api/git/image", "GET") => {
+            return serve_git_image(state, request).await;
+        }
+        ("/api/git/graph", "GET") => {
+            return git_graph(state, request).await;
+        }
+        ("/api/git/diff", "GET") => {
+            return git_diff(state, request).await;
+        }
+        ("/api/git/generate-commit-message", "POST") => {
+            one_shot::generate_commit_message_route(state, request).await
+        }
+        ("/api/app-info", "GET") => Ok(json!(native_app::load_app_info(state).await)),
+        ("/api/native/update", "POST") => return Ok(native_app::update_route()),
+        ("/api/native/update", "GET") => {
+            return Ok(native_app::update_status_route());
+        }
+        _ => dynamic_json_route(state, path, request).await,
+    };
+    result.map(|value| json_response(StatusCode::OK, value))
 }
 async fn dynamic_json_route(state: &ServerState, path: &str, request: Request) -> ApiResult {
     if let Some(id) = prompt_path(path) {
@@ -861,13 +828,14 @@ async fn initialize_agent_state(state: &ServerState, _request: Request) -> ApiRe
     Ok(json!({"state":value}))
 }
 
-async fn get_agent_state(state: &ServerState, _request: Request) -> ApiResult {
+async fn get_agent_state(state: &ServerState, _request: Request) -> ApiResult<Response> {
     state.chat_runtime.repair_saved_titles().await?;
     state
         .agent_state_store
         .lock()
         .expect("agent state lock poisoned")
         .read()
+        .map(|state| json_response(StatusCode::OK, state))
         .map_err(Into::into)
 }
 
@@ -899,14 +867,10 @@ impl From<tokio::task::JoinError> for ApiError {
         api_error(StatusCode::INTERNAL_SERVER_ERROR, error)
     }
 }
-fn api_response(result: ApiResult, headers: &HeaderMap) -> Response {
-    match result {
-        Ok(value) => json_response(StatusCode::OK, value, headers),
-        Err(ApiError(status, message)) => json_response(status, json!({"error":message}), headers),
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        json_response(self.0, json!({"error":self.1}))
     }
-}
-fn api_http_response(result: ApiResult<Response>, headers: &HeaderMap) -> Response {
-    result.unwrap_or_else(|error| api_response(Err(error), headers))
 }
 impl From<std::io::Error> for ApiError {
     fn from(error: std::io::Error) -> Self {
@@ -1188,14 +1152,12 @@ async fn git_graph(state: &ServerState, request: Request) -> ApiResult<Response>
         render_jobs::release_previous(&scope, &rendered.etag);
         let current = rendered.clone();
         let delta = match previous {
-            Some(previous) if previous.etag != rendered.etag => {
-                render_jobs::run(move || {
-                    native_git::graph_delta(&previous.body, &current.body)
-                        .map(|body| (previous.etag, body))
-                })
-                .await
-                .unwrap_or(None)
-            }
+            Some(previous) if previous.etag != rendered.etag => render_jobs::run(move || {
+                native_git::graph_delta(&previous.body, &current.body)
+                    .map(|body| (previous.etag, body))
+            })
+            .await
+            .unwrap_or(None),
             _ => None,
         };
         Ok::<_, String>((rendered, hit, delta))
@@ -1822,12 +1784,10 @@ async fn serve_local_image(state: &ServerState, request: Request) -> ApiResult<R
         "x-content-type-options",
         HeaderValue::from_static("nosniff"),
     );
-    add_cors_headers(response.headers_mut(), &request_headers);
     Ok(response)
 }
 
 async fn serve_git_image(state: &ServerState, request: Request) -> ApiResult<Response> {
-    let request_headers = request.headers().clone();
     let invalid = || {
         api_error(
             StatusCode::BAD_REQUEST,
@@ -1868,7 +1828,6 @@ async fn serve_git_image(state: &ServerState, request: Request) -> ApiResult<Res
         "x-content-type-options",
         HeaderValue::from_static("nosniff"),
     );
-    add_cors_headers(response.headers_mut(), &request_headers);
     Ok(response)
 }
 
@@ -1905,15 +1864,12 @@ fn is_background_content_type(content_type: &str) -> bool {
     )
 }
 
-async fn get_background_image(state: &ServerState, request: Request) -> ApiResult<Response> {
-    let request_headers = request.headers().clone();
+async fn get_background_image(state: &ServerState, _request: Request) -> ApiResult<Response> {
     let file_path = state.background_dir.join("custom-background");
     let bytes = match tokio::fs::read(&file_path).await {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let mut response = text_response(StatusCode::NOT_FOUND, "Not found");
-            add_cors_headers(response.headers_mut(), &request_headers);
-            return Ok(response);
+            return Ok(text_response(StatusCode::NOT_FOUND, "Not found"));
         }
         Err(error) => return Err(error.into()),
     };
@@ -1931,7 +1887,6 @@ async fn get_background_image(state: &ServerState, request: Request) -> ApiResul
     response
         .headers_mut()
         .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    add_cors_headers(response.headers_mut(), &request_headers);
     Ok(response)
 }
 
@@ -2289,7 +2244,6 @@ fn default_user_data_directory() -> PathBuf {
 }
 
 async fn native_markdown_stream(request: Request) -> ApiResult<Response> {
-    let headers = request.headers().clone();
     let bytes = to_bytes(request.into_body(), markdown::MAX_PARSE_BYTES * 6 + 1024)
         .await
         .map_err(|_| {
@@ -2305,7 +2259,7 @@ async fn native_markdown_stream(request: Request) -> ApiResult<Response> {
             .map(|patch| serde_json::to_vec(&patch).expect("Markdown patch serialization"))
     });
     match tokio::time::timeout(std::time::Duration::from_secs(10), job).await {
-        Ok(Ok(Ok(body))) => Ok(json_bytes_response(StatusCode::OK, body.into(), &headers)),
+        Ok(Ok(Ok(body))) => Ok(json_bytes_response(StatusCode::OK, body.into())),
         Ok(Ok(Err(markdown_stream::Error::Resync))) => Err(api_error(
             StatusCode::CONFLICT,
             "Markdown stream needs a full reset",
@@ -2331,7 +2285,6 @@ async fn native_markdown(request: Request) -> ApiResult<Response> {
         #[serde(default)]
         chat: bool,
     }
-    let headers = request.headers().clone();
     // A JSON escape can expand one input byte into six wire bytes.
     let bytes = match to_bytes(request.into_body(), MAX_TEXT_BYTES * 6 + 1024).await {
         Ok(bytes) => bytes,
@@ -2370,7 +2323,7 @@ async fn native_markdown(request: Request) -> ApiResult<Response> {
     });
     match tokio::time::timeout(std::time::Duration::from_secs(10), job).await {
         Ok(Ok((Some(body), hit))) => {
-            let mut response = json_bytes_response(StatusCode::OK, body.body, &headers);
+            let mut response = json_bytes_response(StatusCode::OK, body.body);
             response.headers_mut().insert(
                 "x-render-cache",
                 HeaderValue::from_static(if hit { "hit" } else { "miss" }),
@@ -2395,7 +2348,6 @@ async fn native_highlight(request: Request) -> ApiResult<Response> {
         #[serde(default)]
         preview: bool,
     }
-    let headers = request.headers().clone();
     // A JSON escape can expand one input byte into six wire bytes.
     let Ok(bytes) = to_bytes(request.into_body(), MAX_TEXT_BYTES * 6 + 1024).await else {
         return Err(api_error(
@@ -2426,7 +2378,7 @@ async fn native_highlight(request: Request) -> ApiResult<Response> {
         classify,
     );
     match tokio::time::timeout(std::time::Duration::from_secs(10), job).await {
-        Ok(Ok((Some(body), _))) => Ok(json_bytes_response(StatusCode::OK, body.body, &headers)),
+        Ok(Ok((Some(body), _))) => Ok(json_bytes_response(StatusCode::OK, body.body)),
         _ => Err(api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "Syntax highlighting unavailable",
@@ -2435,7 +2387,6 @@ async fn native_highlight(request: Request) -> ApiResult<Response> {
 }
 
 async fn native_diff(request: Request) -> ApiResult<Response> {
-    let request_headers = request.headers().clone();
     let body: NativeDiffBody = api_body(request).await?;
     let before = body.before.unwrap_or_default();
     let after = body.after.unwrap_or_default();
@@ -2463,11 +2414,7 @@ async fn native_diff(request: Request) -> ApiResult<Response> {
         })
     });
     match tokio::time::timeout(std::time::Duration::from_secs(10), task).await {
-        Ok(Ok(Ok(bytes))) => Ok(json_bytes_response(
-            StatusCode::OK,
-            bytes.into(),
-            &request_headers,
-        )),
+        Ok(Ok(Ok(bytes))) => Ok(json_bytes_response(StatusCode::OK, bytes.into())),
         Ok(Ok(Err(error))) => Err(api_error(StatusCode::UNPROCESSABLE_ENTITY, error)),
         _ => Err(api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -2512,7 +2459,6 @@ fn cached_render_response(
         } else {
             body
         },
-        headers,
     );
     response
         .headers_mut()
@@ -2532,28 +2478,19 @@ fn cached_render_response(
     response
 }
 
-fn json_bytes_response(
-    status: StatusCode,
-    body: axum::body::Bytes,
-    request_headers: &HeaderMap,
-) -> Response {
+fn json_bytes_response(status: StatusCode, body: axum::body::Bytes) -> Response {
     let mut response = Response::new(Body::from(body));
     *response.status_mut() = status;
     response.headers_mut().insert(
         CONTENT_TYPE,
         HeaderValue::from_static("application/json;charset=utf-8"),
     );
-    add_cors_headers(response.headers_mut(), request_headers);
     response
 }
 
-fn json_response(
-    status: StatusCode,
-    value: serde_json::Value,
-    request_headers: &HeaderMap,
-) -> Response {
-    let body = serde_json::to_vec(&value).expect("JSON value serialization cannot fail");
-    json_bytes_response(status, body.into(), request_headers)
+fn json_response(status: StatusCode, value: impl Serialize) -> Response {
+    let body = serde_json::to_vec(&value).expect("JSON response serialization");
+    json_bytes_response(status, body.into())
 }
 
 async fn serve_dist_path(
@@ -2704,49 +2641,51 @@ async fn native_websocket(
         .into_response()
 }
 
+fn encode_chat_event(message: impl Serialize) -> axum::extract::ws::Utf8Bytes {
+    serde_json::to_string(&message)
+        .expect("chat event serialization")
+        .into()
+}
+
 async fn serve_native_websocket(state: ServerState, socket: WebSocket) {
     let client_id = state.next_client_id.fetch_add(1, Ordering::Relaxed);
     let (sender, mut outgoing) = broadcast::channel(512);
     let mut connection_reset = state.connection_reset.subscribe();
     let (mut sink, mut stream) = socket.split();
-    let (control_tx, mut control_rx) = tokio::sync::mpsc::channel(8);
     {
         // Keep command order on this connection, while allowing output for all
         // panes to drain during a slow reconnect or state operation.
         let read = async {
             while let Some(incoming) = stream.next().await {
                 match incoming {
-                    Ok(AxumMessage::Text(text)) => {
-                        if let Ok(message) = serde_json::from_str::<Value>(&text) {
-                            handle_native_websocket_message(&state, client_id, &sender, message)
-                                .await;
+                    Ok(message @ (AxumMessage::Text(_) | AxumMessage::Binary(_))) => {
+                        if let Ok(message) = serde_json::from_slice::<Value>(&message.into_data())
+                            && let Err(error) = handle_native_websocket_message(
+                                &state, client_id, &sender, &message,
+                            )
+                            .await
+                        {
+                            let pane = message
+                                .get("paneId")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default();
+                            let _ = sender.send(encode_chat_event(
+                                json!({"type":"chat:error", "paneId":pane, "error":error}),
+                            ));
                         }
                     }
-                    Ok(AxumMessage::Binary(bytes)) => {
-                        if let Ok(message) = serde_json::from_slice::<Value>(&bytes) {
-                            handle_native_websocket_message(&state, client_id, &sender, message)
-                                .await;
-                        }
-                    }
-                    Ok(AxumMessage::Ping(bytes)) => {
-                        if control_tx.send(AxumMessage::Pong(bytes)).await.is_err() {
-                            break;
-                        }
-                    }
-                    Ok(AxumMessage::Pong(_)) => {}
+                    // Axum/Tungstenite owns ping responses, including flushing them.
+                    Ok(AxumMessage::Ping(_) | AxumMessage::Pong(_)) => {}
                     Ok(AxumMessage::Close(_)) | Err(_) => break,
                 }
             }
         };
         let write = async {
             loop {
-                let message = tokio::select! {
-                    Some(control) = control_rx.recv() => control,
-                    message = outgoing.recv() => match message {
-                        Ok(message) => AxumMessage::Text(message.to_string().into()),
-                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                        Err(broadcast::error::RecvError::Closed) => break,
-                    },
+                let message = match outgoing.recv().await {
+                    Ok(message) => AxumMessage::Text(message),
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => break,
                 };
                 if sink.send(message).await.is_err() {
                     break;
@@ -2766,11 +2705,14 @@ async fn serve_native_websocket(state: ServerState, socket: WebSocket) {
 async fn handle_native_websocket_message(
     state: &ServerState,
     client_id: chat_runtime::ClientId,
-    sender: &broadcast::Sender<Value>,
-    message: Value,
-) {
+    sender: &broadcast::Sender<axum::extract::ws::Utf8Bytes>,
+    message: &Value,
+) -> Result<(), String> {
+    let send = |message: Value| {
+        let _ = sender.send(encode_chat_event(message));
+    };
     let Some(message_type) = message.get("type").and_then(Value::as_str) else {
-        return;
+        return Ok(());
     };
     let pane_id = message
         .get("paneId")
@@ -2786,7 +2728,7 @@ async fn handle_native_websocket_message(
         let args = parts.next().unwrap_or_default().trim();
         let command_input = || {
             let mut input =
-                chat_runtime::SendMessageInput::deserialize(&message).unwrap_or_default();
+                chat_runtime::SendMessageInput::deserialize(message).unwrap_or_default();
             if input.agent_kind.is_empty() {
                 input.agent_kind = "claude".into();
             }
@@ -2797,21 +2739,13 @@ async fn handle_native_websocket_message(
             input
         };
         if name == "exit" {
-            let _ = sender.send(json!({"type":"chat:control","paneId":pane_id,"action":"exit"}));
-            return;
+            send(json!({"type":"chat:control","paneId":pane_id,"action":"exit"}));
+            return Ok(());
         }
         if name == "clear" {
-            match state.chat_runtime.destroy_session(pane_id).await {
-                Ok(()) => {
-                    let _ = sender
-                        .send(json!({"type":"chat:control","paneId":pane_id,"action":"cleared"}));
-                }
-                Err(error) => {
-                    let _ =
-                        sender.send(json!({"type":"chat:error","paneId":pane_id,"error":error}));
-                }
-            }
-            return;
+            state.chat_runtime.destroy_session(pane_id).await?;
+            send(json!({"type":"chat:control","paneId":pane_id,"action":"cleared"}));
+            return Ok(());
         }
         if name == "help" {
             let skills = state.prompts.lock().await.load().unwrap_or_default();
@@ -2828,7 +2762,7 @@ async fn handle_native_websocket_message(
                 .chat_runtime
                 .publish_command_response(command_input(), &help)
                 .await;
-            return;
+            return Ok(());
         }
         if name == "btw" {
             if args.is_empty() {
@@ -2849,29 +2783,25 @@ async fn handle_native_websocket_message(
                         .await;
                 });
             }
-            return;
+            return Ok(());
         }
     }
     match message_type {
         "chat:destroy" if !pane_id.is_empty() => {
-            if let Err(error) = state.chat_runtime.destroy_session(pane_id).await {
-                let _ = sender.send(json!({"type":"chat:error", "paneId":pane_id, "error":format!("Could not clear saved chat: {error}")}));
-                return;
-            }
-            let result = (|| {
-                let store = state
-                    .agent_state_store
-                    .lock()
-                    .expect("agent state lock poisoned");
-                if store.pane(pane_id)?.is_some() {
-                    store.set_pane_provider_session(pane_id, None)?;
-                }
-                Ok::<_, String>(())
-            })();
-            if let Err(error) = result {
-                let _ = sender.send(json!({"type":"chat:error", "paneId":pane_id, "error":error}));
+            state
+                .chat_runtime
+                .destroy_session(pane_id)
+                .await
+                .map_err(|error| format!("Could not clear saved chat: {error}"))?;
+            let store = state
+                .agent_state_store
+                .lock()
+                .expect("agent state lock poisoned");
+            if store.pane(pane_id)?.is_some() {
+                store.set_pane_provider_session(pane_id, None)?;
             }
         }
+
         "chat:unsubscribe" if !pane_id.is_empty() => {
             state
                 .chat_runtime
@@ -2883,14 +2813,8 @@ async fn handle_native_websocket_message(
                 .agent_state_store
                 .lock()
                 .expect("agent state lock poisoned")
-                .pane(pane_id);
-            let pane = match pane {
-                Ok(pane) => pane,
-                Err(error) => {
-                    let _ = sender.send(json!({"type":"chat:error","paneId":pane_id,"error":format!("Could not restore saved workspace: {error}")}));
-                    return;
-                }
-            };
+                .pane(pane_id)
+                .map_err(|error| format!("Could not restore saved workspace: {error}"))?;
             state
                 .chat_runtime
                 .reconnect(chat_runtime::ReconnectInput {
@@ -2918,7 +2842,7 @@ async fn handle_native_websocket_message(
             state.chat_runtime.stop_generation(pane_id).await;
         }
         "chat:workspace" if !pane_id.is_empty() => {
-            let result = serde_json::from_value::<Vec<String>>(message["paths"].clone())
+            serde_json::from_value::<Vec<String>>(message["paths"].clone())
                 .map_err(|error| error.to_string())
                 .and_then(|paths| {
                     let paths = normalize_chat_paths(state, &paths)
@@ -2930,41 +2854,23 @@ async fn handle_native_websocket_message(
                         .lock()
                         .expect("agent state lock poisoned")
                         .set_pending_workspace(pane_id, paths)
-                });
-            if let Err(error) = result {
-                let _ = sender.send(json!({"type":"chat:error","paneId":pane_id,"error":error}));
-            }
+                })?;
         }
         "chat:send" if !pane_id.is_empty() => {
-            let mut input = match chat_runtime::SendMessageInput::deserialize(&message) {
-                Ok(input) => input,
-                Err(error) => {
-                    let _ = sender.send(json!({"type":"chat:error","paneId":pane_id,"error":format!("Invalid chat request: {error}")}));
-                    return;
-                }
-            };
+            let mut input = chat_runtime::SendMessageInput::deserialize(message)
+                .map_err(|error| format!("Invalid chat request: {error}"))?;
             if message.get("agentKind").is_none() {
                 input.agent_kind = "claude".into();
             }
-            let settings = {
-                state
-                    .client_storage
-                    .lock()
-                    .await
-                    .select(&[
-                        &format!("inferay-chat-model-{pane_id}"),
-                        &format!("inferay-chat-reasoning-{pane_id}"),
-                    ])
-                    .await
-            };
-            let settings = match settings {
-                Ok(settings) => settings,
-                Err(error) => {
-                    let _ =
-                        sender.send(json!({"type":"chat:error","paneId":pane_id,"error":error}));
-                    return;
-                }
-            };
+            let settings = state
+                .client_storage
+                .lock()
+                .await
+                .select(&[
+                    &format!("inferay-chat-model-{pane_id}"),
+                    &format!("inferay-chat-reasoning-{pane_id}"),
+                ])
+                .await?;
             input.model = settings
                 .get(&format!("inferay-chat-model-{pane_id}"))
                 .and_then(Value::as_str)
@@ -2980,20 +2886,12 @@ async fn handle_native_websocket_message(
                     .agent_state_store
                     .lock()
                     .expect("agent state lock poisoned")
-                    .consume_pending_workspace(pane_id);
-                match pending {
-                    Ok(Some((cwd, references))) => {
-                        input.cwd = PathBuf::from(cwd);
-                        input.reference_paths = references.into_iter().map(PathBuf::from).collect();
-                        input.reference_paths_provided = true;
-                        let _ = sender.send(json!({"type":"chat:workspace","paneId":pane_id}));
-                    }
-                    Ok(None) => {}
-                    Err(error) => {
-                        let _ = sender
-                            .send(json!({"type":"chat:error","paneId":pane_id,"error":error}));
-                        return;
-                    }
+                    .consume_pending_workspace(pane_id)?;
+                if let Some((cwd, references)) = pending {
+                    input.cwd = PathBuf::from(cwd);
+                    input.reference_paths = references.into_iter().map(PathBuf::from).collect();
+                    input.reference_paths_provided = true;
+                    send(json!({"type":"chat:workspace","paneId":pane_id}));
                 }
             }
             input.cwd_provided = !input.cwd.as_os_str().is_empty();
@@ -3010,7 +2908,7 @@ async fn handle_native_websocket_message(
         }
         "chat:btw" if !pane_id.is_empty() => {
             let Some(text) = message.get("text").and_then(Value::as_str) else {
-                return;
+                return Ok(());
             };
             let cwd = normalize_chat_cwd(state, message["cwd"].as_str().map(Path::new));
             let pane_id = pane_id.to_string();
@@ -3026,7 +2924,7 @@ async fn handle_native_websocket_message(
         }
         "checkpoint:revert" if !pane_id.is_empty() => {
             let Some(checkpoint_id) = message.get("checkpointId").and_then(Value::as_str) else {
-                return;
+                return Ok(());
             };
             let result = state
                 .checkpoint_service
@@ -3044,10 +2942,11 @@ async fn handle_native_websocket_message(
             } else {
                 response["error"] = json!(result.error);
             }
-            let _ = sender.send(response);
+            send(response);
         }
         _ => {}
     }
+    Ok(())
 }
 
 fn normalize_chat_cwd(state: &ServerState, value: Option<&Path>) -> PathBuf {
@@ -3238,14 +3137,38 @@ mod file_http_tests {
                 .get(url.clone())
                 .header("x-inferay-auth", &auth)
                 .header("sec-fetch-site", "same-origin")
+                .header("origin", "http://localhost:9999")
         };
+        for request in [
+            client.get(url.clone()),
+            client
+                .get(url.clone())
+                .header("x-inferay-auth", &auth)
+                .header("origin", "https://example.invalid"),
+        ] {
+            let forbidden = request.send().await.unwrap();
+            assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+            assert!(
+                !forbidden
+                    .headers()
+                    .contains_key(ACCESS_CONTROL_ALLOW_ORIGIN)
+            );
+        }
         let first = get().send().await.unwrap();
         assert_eq!(first.status(), StatusCode::OK);
+        assert_eq!(
+            first.headers()[ACCESS_CONTROL_ALLOW_ORIGIN],
+            "http://localhost:9999"
+        );
         let etag = first.headers()["etag"].clone();
         assert!(!first.bytes().await.unwrap().is_empty());
         std::fs::write(repository.join("unrelated.txt"), "other edit\n").unwrap();
         let unchanged = get().header("if-none-match", &etag).send().await.unwrap();
         assert_eq!(unchanged.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(
+            unchanged.headers()[ACCESS_CONTROL_ALLOW_ORIGIN],
+            "http://localhost:9999"
+        );
         assert!(unchanged.bytes().await.unwrap().is_empty());
         std::fs::write(&file, "second\n").unwrap();
         let changed = get().header("if-none-match", &etag).send().await.unwrap();
@@ -3256,6 +3179,10 @@ mod file_http_tests {
         std::fs::write(&file, "base\n").unwrap();
         let clean = get().header("if-none-match", &etag).send().await.unwrap();
         assert_eq!(clean.status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            clean.headers()[ACCESS_CONTROL_ALLOW_ORIGIN],
+            "http://localhost:9999"
+        );
         assert!(clean.text().await.unwrap().contains("File is not changed"));
         let image_path = repository.join("new.png");
         std::fs::write(&image_path, b"first image").unwrap();
@@ -3270,6 +3197,7 @@ mod file_http_tests {
                 .get(url.clone())
                 .header("x-inferay-auth", &auth)
                 .header("sec-fetch-site", "same-origin")
+                .header("origin", "http://localhost:9999")
         };
         let first = image_get().send().await.unwrap();
         assert_eq!(first.status(), StatusCode::OK);
@@ -3584,7 +3512,7 @@ mod saved_title_tests {
         std::fs::create_dir_all(&profile).unwrap();
         let store = AgentStateStore::new(profile.join("agent-state.json"));
         let workspace = store.initialize("codex").unwrap();
-        let id = workspace["groups"][0]["panes"][0]["id"].as_str().unwrap();
+        let id = workspace.selected_pane_id().unwrap();
         store
             .set_pane_summary(
                 id,

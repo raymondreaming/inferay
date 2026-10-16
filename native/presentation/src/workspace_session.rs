@@ -1,23 +1,26 @@
 //! Optimistic workspace selection and acknowledgement policy. HTTP ordering stays in JS.
 use crate::wasm_json;
-use crate::workbench::{WorkspaceSelection, workspace_mutation_plan, workspace_selection};
-use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
-use std::collections::HashSet;
+use inferay_core::{
+    agent_state::{Workspace, WorkspaceSelection},
+    workspace_action::AgentWorkspaceAction,
+};
+use serde::Serialize;
+use serde_json::json;
+use std::{collections::HashSet, rc::Rc};
 use ts_rs::TS;
 use wasm_bindgen::prelude::*;
 
-#[derive(Default, Serialize, Deserialize, TS)]
+#[derive(Default, Serialize, TS)]
 pub struct WorkspaceSnapshot {
-    #[ts(as = "Option<inferay_core::agent_state::AgentSavedState<'static>>")]
-    state: Value,
+    #[ts(as = "Option<Workspace>")]
+    state: Option<Rc<Workspace>>,
     error: Option<String>,
 }
 #[wasm_bindgen]
 #[derive(Default)]
 pub struct WorkspaceReplica {
     snapshot: WorkspaceSnapshot,
-    canonical: Value,
+    canonical: Option<Rc<Workspace>>,
     pending: Option<(u32, WorkspaceSelection)>,
     structural: HashSet<u32>,
     sequence: u32,
@@ -32,16 +35,22 @@ impl WorkspaceReplica {
         wasm_json::stringify(&self.snapshot, "workspace snapshot")
     }
     pub fn begin(&mut self, action: &str) -> Result<String, JsValue> {
-        let action: Value = wasm_json::parse(action)?;
-        let plan = workspace_mutation_plan(&self.snapshot.state, &action);
-        if plan.unchanged && self.structural.is_empty() && self.snapshot.error.is_none() {
+        let action: AgentWorkspaceAction = wasm_json::parse(action)?;
+        let selection = self
+            .snapshot
+            .state
+            .as_ref()
+            .and_then(|state| state.selection_for(&action));
+        let unchanged = selection.as_ref().is_some_and(|selection| {
+            !Rc::make_mut(self.snapshot.state.as_mut().unwrap()).select(selection)
+        });
+        if unchanged && self.structural.is_empty() && self.snapshot.error.is_none() {
             return Ok("null".into());
         }
         self.sequence += 1;
-        let selecting = plan.selection.is_some();
-        if let Some(selection) = plan.selection {
+        let selecting = selection.is_some();
+        if let Some(selection) = selection {
             self.pending = Some((self.sequence, selection));
-            self.overlay();
         } else {
             self.structural.insert(self.sequence);
         }
@@ -58,7 +67,7 @@ impl WorkspaceReplica {
     }
     pub fn fail(&mut self, request: Option<u32>) -> String {
         self.clear(request);
-        if request.is_some() && !self.canonical.is_null() {
+        if request.is_some() && self.canonical.is_some() {
             self.snapshot.state = self.canonical.clone();
             self.overlay();
         }
@@ -88,9 +97,9 @@ impl WorkspaceReplica {
     }
     fn overlay(&mut self) {
         if let Some((_, selection)) = &self.pending
-            && !self.snapshot.state.is_null()
+            && let Some(state) = &mut self.snapshot.state
         {
-            workspace_selection(&mut self.snapshot.state, selection);
+            Rc::make_mut(state).select(selection);
         }
     }
 }

@@ -1,8 +1,7 @@
-import { domStyle } from "@shared/lib/dom.tsx";
+import { px } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For } from "solid-js";
 import { ColumnResizeHandle } from "./ColumnResizeHandle.tsx";
-import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 import {
 	COLUMN_WIDTH,
@@ -45,10 +44,10 @@ export function HeaderRow(_props: {
 			onMouseEnter={() => setHovered(true)}
 			onMouseLeave={() => setHovered(false)}
 			{...stylex.attrs(styles.header)}
-			style={domStyle({
-				...inlineStyles.getHeaderRowHeaderStyle(headerWidth()),
-				height: TOP_PADDING,
-			})}
+			style={{
+				width: px(headerWidth()),
+				height: px(TOP_PADDING),
+			}}
 		>
 			{
 				<For each={visibleOrder()} keyed={(row) => row}>
@@ -80,8 +79,8 @@ export function HeaderRow(_props: {
 										_props.onMoveColumn(source, column());
 								}}
 								{...stylex.attrs(styles.headerCell, styles.draggableHeader)}
-								style={domStyle({
-									...inlineStyles.getHeaderRowHeaderCellStyle(
+								style={{
+									width: px(
 										columnWidth(column()) +
 											(visibleOrder()[visibleOrder().indexOf(column()) + 1] ===
 											"graph"
@@ -91,11 +90,11 @@ export function HeaderRow(_props: {
 												? GRAPH_PADDING + COLUMN_WIDTH / 2
 												: 0),
 									),
-									marginLeft:
+									"margin-left":
 										column() === "graph" && visibleOrder()[0] === "graph"
-											? GRAPH_PADDING + COLUMN_WIDTH / 2
+											? px(GRAPH_PADDING + COLUMN_WIDTH / 2)
 											: 0,
-								})}
+								}}
 							>
 								<span
 									{...stylex.attrs(

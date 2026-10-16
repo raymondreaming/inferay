@@ -37,7 +37,7 @@ const SKIP_DIRS: &[&str] = &[
     ".cache",
 ];
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct FileSnapshot {
     relative_path: String,
@@ -56,8 +56,8 @@ struct Checkpoint {
     timestamp: u64,
     user_message: String,
     #[serde(default, skip_serializing)]
-    before_snapshot: HashMap<String, Option<String>>,
-    changed_files: Vec<FileSnapshot>,
+    before_snapshot: Arc<HashMap<String, Option<String>>>,
+    changed_files: Arc<[FileSnapshot]>,
     reverted: bool,
     #[serde(default)]
     after_message_id: Option<String>,
@@ -205,6 +205,14 @@ impl CheckpointService {
             .await
     }
 
+    async fn checkpoint(&self, id: &str) -> Option<Checkpoint> {
+        self.checkpoints()
+            .await
+            .iter()
+            .find(|cp| cp.id == id)
+            .cloned()
+    }
+
     pub async fn create_checkpoint(
         &self,
         pane_id: String,
@@ -218,18 +226,17 @@ impl CheckpointService {
         let id = Uuid::new_v4().to_string();
         let git_root = get_git_root(&safe_cwd).await;
 
-        let (head_sha, before_snapshot) = if let Some(git_root) = git_root.as_ref() {
-            if !is_within_directory(&safe_cwd, git_root) {
-                return Err("Checkpoint cwd is outside git root".to_owned());
-            }
-            let cwd_relative = path_relative(git_root, &safe_cwd);
-            (
-                get_head_sha(git_root).await,
-                capture_git_snapshot(git_root, &cwd_relative).await?,
-            )
-        } else {
-            (None, capture_file_snapshot(&safe_cwd).await?)
+        if git_root
+            .as_ref()
+            .is_some_and(|root| !is_within_directory(&safe_cwd, root))
+        {
+            return Err("Checkpoint cwd is outside git root".to_owned());
+        }
+        let head_sha = match &git_root {
+            Some(root) => get_head_sha(root).await,
+            None => None,
         };
+        let before_snapshot = Arc::new(capture_snapshot(&safe_cwd, git_root.as_deref()).await?);
 
         let checkpoint = Checkpoint {
             id: id.clone(),
@@ -240,7 +247,7 @@ impl CheckpointService {
             timestamp: now_millis(),
             user_message,
             before_snapshot,
-            changed_files: Vec::new(),
+            changed_files: Arc::default(),
             reverted: false,
             after_message_id: None,
         };
@@ -260,27 +267,20 @@ impl CheckpointService {
         touched_paths: &[String],
         after_message_id: Option<String>,
     ) -> Result<Option<CheckpointMeta>, String> {
-        let checkpoint = {
-            let store = self.checkpoints().await;
-            store.iter().find(|cp| cp.id == checkpoint_id).cloned()
-        };
-        let Some(mut checkpoint) = checkpoint else {
+        let Some(checkpoint) = self.checkpoint(checkpoint_id).await else {
             return Ok(None);
         };
 
         let root = checkpoint.root();
         let mut seen = HashSet::new();
-        let mut paths = Vec::new();
-        for path in touched_paths {
-            if let Some(relative) = checkpoint.relative_path(Path::new(path))?
-                && seen.insert(relative.clone())
-            {
-                paths.push(relative);
-            }
-        }
-
         let mut changed_files = Vec::new();
-        for path in paths {
+        for path in touched_paths {
+            let Some(path) = checkpoint.relative_path(Path::new(path))? else {
+                continue;
+            };
+            if !seen.insert(path.clone()) {
+                continue;
+            }
             let before = checkpoint.before(&path).await;
             let after_content = safe_read_file(&root.join(&path)).await;
             let after = if checkpoint.git_root.is_some() {
@@ -300,25 +300,23 @@ impl CheckpointService {
             }
         }
 
-        checkpoint.changed_files = changed_files;
-        checkpoint.after_message_id = after_message_id;
-        let meta = to_meta(&checkpoint);
-        {
+        drop(checkpoint);
+        let meta = {
             let mut store = self.checkpoints().await;
-            if let Some(current) = store.iter_mut().find(|cp| cp.id == checkpoint_id) {
-                current.changed_files = checkpoint.changed_files;
-                current.after_message_id = checkpoint.after_message_id;
-            }
-        }
+            let Some(current) = store.iter_mut().find(|cp| cp.id == checkpoint_id) else {
+                return Ok(None);
+            };
+            current.changed_files = changed_files.into();
+            current.after_message_id = after_message_id;
+            current.before_snapshot = Arc::default();
+            to_meta(current)
+        };
         self.save().await?;
         Ok(Some(meta))
     }
 
     pub async fn revert_to_checkpoint(&self, checkpoint_id: &str, pane_id: &str) -> RevertResult {
-        let checkpoint = {
-            let store = self.checkpoints().await;
-            store.iter().find(|cp| cp.id == checkpoint_id).cloned()
-        };
+        let checkpoint = self.checkpoint(checkpoint_id).await;
         let Some(checkpoint) = checkpoint.filter(|checkpoint| checkpoint.pane_id == pane_id) else {
             return revert_error("Checkpoint not found", Vec::new());
         };
@@ -328,7 +326,7 @@ impl CheckpointService {
 
         let root = checkpoint.root();
         let mut restored_files = Vec::new();
-        for file in &checkpoint.changed_files {
+        for file in checkpoint.changed_files.iter() {
             let full_path = root.join(&file.relative_path);
             let result = if file.blob_before.is_none() && file.blob_after.is_some() {
                 tokio::fs::remove_file(&full_path).await
@@ -404,13 +402,7 @@ impl CheckpointService {
         checkpoint_id: &str,
         touched_paths: Option<&[PathBuf]>,
     ) -> Vec<CheckpointInlineDiff> {
-        let checkpoint = self
-            .checkpoints()
-            .await
-            .iter()
-            .find(|cp| cp.id == checkpoint_id)
-            .cloned();
-        let Some(checkpoint) = checkpoint else {
+        let Some(checkpoint) = self.checkpoint(checkpoint_id).await else {
             return Vec::new();
         };
         let files: Vec<_> = if let Some(paths) = touched_paths {
@@ -526,16 +518,43 @@ fn parse_porcelain(output: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-async fn capture_git_snapshot(
-    git_root: &Path,
-    cwd_relative: &Path,
+async fn capture_snapshot(
+    cwd: &Path,
+    git_root: Option<&Path>,
 ) -> Result<HashMap<String, Option<String>>, String> {
+    let Some(root) = git_root else {
+        let cwd = cwd.to_owned();
+        return tokio::task::spawn_blocking(move || {
+            if !cwd.is_dir() {
+                return Err("Checkpoint directory is unavailable".to_owned());
+            }
+            WalkDir::new(&cwd)
+                .min_depth(1)
+                .into_iter()
+                .filter_entry(|entry| !SKIP_DIRS.iter().any(|name| entry.file_name() == *name))
+                .filter_map(|entry| match entry {
+                    Ok(entry) if entry.file_type().is_file() => {
+                        read_file(entry.path()).map(|content| {
+                            Ok((
+                                path_to_string(&path_relative(&cwd, entry.path())),
+                                Some(content),
+                            ))
+                        })
+                    }
+                    Ok(_) => None,
+                    Err(error) => Some(Err(error.to_string())),
+                })
+                .collect()
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+    };
     let mut args = vec!["-c", "core.fsmonitor=false", "status", "--porcelain"];
-    let relative_string = path_to_string(cwd_relative);
-    if !relative_string.is_empty() {
-        args.extend(["--", &relative_string]);
+    let relative = path_to_string(&path_relative(root, cwd));
+    if !relative.is_empty() {
+        args.extend(["--", &relative]);
     }
-    let output = run_git(&args, git_root, None)
+    let output = run_git(&args, root, None)
         .await
         .map_err(|_| "Unable to capture Git working tree state".to_owned())?;
     let mut snapshot = HashMap::new();
@@ -543,59 +562,33 @@ async fn capture_git_snapshot(
         if is_binary(Path::new(&path)) || is_skipped_path(Path::new(&path)) {
             continue;
         }
-        if status.as_bytes().first() == Some(&b'D') || status.as_bytes().get(1) == Some(&b'D') {
-            snapshot.insert(path, None);
+        let content = if status.as_bytes().contains(&b'D') {
+            None
         } else {
-            let content = safe_read_file(&git_root.join(&path)).await;
-            let blob = match content {
-                Some(content) => Some(store_blob(git_root, &content).await?),
-                None => None,
-            };
-            snapshot.insert(path, blob);
-        }
-    }
-    Ok(snapshot)
-}
-
-async fn capture_file_snapshot(cwd: &Path) -> Result<HashMap<String, Option<String>>, String> {
-    let root = cwd.to_owned();
-    let files = tokio::task::spawn_blocking(move || {
-        if !root.is_dir() {
-            return Err("Checkpoint directory is unavailable".to_owned());
-        }
-        WalkDir::new(root)
-            .min_depth(1)
-            .into_iter()
-            .filter_entry(|entry| !SKIP_DIRS.iter().any(|name| entry.file_name() == *name))
-            .filter_map(|entry| match entry {
-                Ok(entry) if entry.file_type().is_file() && !is_binary(entry.path()) => {
-                    Some(Ok(entry.into_path()))
-                }
-                Ok(_) => None,
-                Err(error) => Some(Err(error.to_string())),
-            })
-            .collect::<Result<Vec<_>, String>>()
-    })
-    .await
-    .map_err(|error| error.to_string())??;
-    let mut snapshot = HashMap::new();
-    for path in files {
-        if let Some(content) = safe_read_file(&path).await {
-            snapshot.insert(path_to_string(&path_relative(cwd, &path)), Some(content));
-        }
+            safe_read_file(&root.join(&path)).await
+        };
+        let blob = match content {
+            Some(content) => Some(store_blob(root, &content).await?),
+            None => None,
+        };
+        snapshot.insert(path, blob);
     }
     Ok(snapshot)
 }
 
 async fn safe_read_file(path: &Path) -> Option<String> {
-    if is_binary(path) {
+    let path = path.to_owned();
+    tokio::task::spawn_blocking(move || read_file(&path))
+        .await
+        .ok()
+        .flatten()
+}
+
+fn read_file(path: &Path) -> Option<String> {
+    if is_binary(path) || std::fs::metadata(path).ok()?.len() > MAX_FILE_SIZE {
         return None;
     }
-    let metadata = tokio::fs::metadata(path).await.ok()?;
-    if metadata.len() > MAX_FILE_SIZE {
-        return None;
-    }
-    let bytes = tokio::fs::read(path).await.ok()?;
+    let bytes = std::fs::read(path).ok()?;
     Some(String::from_utf8_lossy(&bytes).into_owned())
 }
 
@@ -638,7 +631,10 @@ async fn resolve_content(checkpoint: &Checkpoint, blob_or_content: &str) -> Opti
 }
 
 async fn run_git(args: &[&str], cwd: &Path, input: Option<&str>) -> Result<String, String> {
-    let mut child = Command::new("git")
+    let command = tokio::task::spawn_blocking(inferay_native_diff::git_command)
+        .await
+        .map_err(|error| error.to_string())?;
+    let mut child = Command::from(command)
         .args(args)
         .current_dir(cwd)
         .kill_on_drop(true)
@@ -710,5 +706,99 @@ fn revert_error(error: impl Into<String>, restored_files: Vec<String>) -> Revert
         ok: false,
         restored_files,
         error: Some(error.into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn snapshots_preserve_preexisting_edits_and_restore_after_restart() {
+        for git in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let root = temp.path().canonicalize().unwrap();
+            let cwd = root.join("project");
+            std::fs::create_dir(&cwd).unwrap();
+            for name in ["clean", "dirty", "deleted"] {
+                std::fs::write(cwd.join(name), "original\n").unwrap();
+            }
+            if git {
+                for args in [
+                    vec!["init", "-q"],
+                    vec!["add", "."],
+                    vec![
+                        "-c",
+                        "user.name=Fixture",
+                        "-c",
+                        "user.email=fixture@example.test",
+                        "commit",
+                        "-qm",
+                        "Initial",
+                    ],
+                ] {
+                    run_git(&args, &cwd, None).await.unwrap();
+                }
+            }
+            std::fs::write(cwd.join("dirty"), "user edit\n").unwrap();
+            std::fs::remove_file(cwd.join("deleted")).unwrap();
+            let service = || {
+                CheckpointService::new(
+                    AllowedPaths::new(&root, &root, &root).unwrap(),
+                    root.join("checkpoints.json"),
+                    root.join("storage.sqlite3"),
+                )
+            };
+            let checkpoints = service();
+            let id = checkpoints
+                .create_checkpoint("pane".into(), &cwd, "Edit".into())
+                .await
+                .unwrap();
+            let snapshot = Arc::downgrade(&checkpoints.checkpoints().await[0].before_snapshot);
+            let paths: Vec<_> = ["clean", "dirty", "deleted", "new"]
+                .map(|name| cwd.join(name))
+                .into();
+            for path in &paths {
+                std::fs::write(path, "agent edit\n").unwrap();
+            }
+            let diffs = checkpoints.get_inline_diffs(&id, Some(&paths)).await;
+            assert_eq!(diffs.len(), 2);
+            assert_eq!(diffs[0].old_string, "original\n");
+            assert_eq!(diffs[1].old_string, "user edit\n");
+            let paths = paths
+                .iter()
+                .map(|path| path.to_string_lossy().into_owned())
+                .collect::<Vec<_>>();
+            let meta = checkpoints
+                .finalize_checkpoint(&id, &paths, Some("message".into()))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(meta.changed_file_count, 4);
+            assert!(snapshot.upgrade().is_none());
+            assert_eq!(checkpoints.get_inline_diffs(&id, None).await, diffs);
+            drop(checkpoints);
+            let reopened = service();
+            assert_eq!(reopened.list_checkpoints("pane").await.len(), 1);
+            assert_eq!(reopened.get_inline_diffs(&id, None).await, diffs);
+            assert!(!reopened.revert_to_checkpoint(&id, "other-pane").await.ok);
+            assert_eq!(
+                std::fs::read_to_string(cwd.join("dirty")).unwrap(),
+                "agent edit\n"
+            );
+            assert!(reopened.revert_to_checkpoint(&id, "pane").await.ok);
+            assert_eq!(
+                std::fs::read_to_string(cwd.join("clean")).unwrap(),
+                "original\n"
+            );
+            assert_eq!(
+                std::fs::read_to_string(cwd.join("dirty")).unwrap(),
+                "user edit\n"
+            );
+            assert!(!cwd.join("deleted").exists());
+            assert!(!cwd.join("new").exists());
+            reopened.clear_checkpoints("pane").await.unwrap();
+            assert!(reopened.list_checkpoints("pane").await.is_empty());
+        }
     }
 }

@@ -97,5 +97,5 @@ export function AppHeader() {
 			run: () => openSkills(),
 		},
 	];
-	return <CommandPalette commands={commands} showTrigger={false} />;
+	return <CommandPalette commands={commands} />;
 }

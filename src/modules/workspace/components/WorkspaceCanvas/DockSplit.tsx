@@ -1,7 +1,6 @@
-import { ariaValue, domStyle } from "@shared/lib/dom.tsx";
+import { ariaValue } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { type Element, Show } from "solid-js";
-import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 export function DockSplit(_props: {
 	direction: "horizontal" | "vertical";
@@ -26,9 +25,10 @@ export function DockSplit(_props: {
 		>
 			<div
 				{...stylex.attrs(styles.dockBranch)}
-				style={domStyle(
-					inlineStyles.getWorkspaceCanvasDockBranchStyle(_props.ratio),
-				)}
+				style={{
+					"flex-basis": 0,
+					"flex-grow": _props.ratio,
+				}}
 			>
 				{_props.first}
 			</div>
@@ -63,9 +63,10 @@ export function DockSplit(_props: {
 			</Show>
 			<div
 				{...stylex.attrs(styles.dockBranch)}
-				style={domStyle(
-					inlineStyles.getWorkspaceCanvasDockBranchStyle(1 - _props.ratio),
-				)}
+				style={{
+					"flex-basis": 0,
+					"flex-grow": 1 - _props.ratio,
+				}}
 			>
 				{_props.second}
 			</div>

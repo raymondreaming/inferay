@@ -1,4 +1,3 @@
-import type { CSSProperties } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
 	color,
@@ -74,41 +73,3 @@ export const styles = stylex.create({
 	},
 });
 export const shellThemeProps = stylex.attrs(styles.shell);
-export function getAppLayoutDivStyle(
-	inferayappbackground: string | number | undefined,
-	inferayglassblur: string | number | undefined,
-	inferaypanelbackdrop: string | number | undefined,
-): CSSProperties {
-	return {
-		"--inferay-app-background": inferayappbackground,
-		"--inferay-glass-blur": inferayglassblur,
-		"--inferay-panel-backdrop": inferaypanelbackdrop,
-	} as CSSProperties;
-}
-export function getAppLayoutBackgroundLayerStyle(
-	backgroundImage: CSSProperties["backgroundImage"],
-	filter: CSSProperties["filter"],
-): CSSProperties {
-	return {
-		backgroundImage: backgroundImage,
-		filter: filter,
-	} as CSSProperties;
-}
-export function getAppLayoutGlassBackdropStyle(
-	WebkitBackdropFilter: CSSProperties["WebkitBackdropFilter"],
-	backdropFilter: CSSProperties["backdropFilter"],
-	backgroundColor: CSSProperties["backgroundColor"],
-): CSSProperties {
-	return {
-		WebkitBackdropFilter: WebkitBackdropFilter,
-		backdropFilter: backdropFilter,
-		backgroundColor: backgroundColor,
-	} as CSSProperties;
-}
-export function getAppLayoutBackgroundShadeStyle(
-	background: CSSProperties["background"],
-): CSSProperties {
-	return {
-		background: background,
-	} as CSSProperties;
-}

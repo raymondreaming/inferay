@@ -4,27 +4,30 @@ import type {
 	SelectedPanelFile,
 } from "@contracts";
 import { iconSize } from "@design-system/styles.stylex.ts";
-import { ariaValue, domStyle } from "@shared/lib/dom.tsx";
-import { IconChevronRight, IconFolderFill } from "@shared/ui/Icons/index.tsx";
+import { ariaValue } from "@shared/lib/dom.tsx";
+import {
+	IconChevronRight,
+	IconFolderFill,
+	IconMinus,
+	IconPlus,
+} from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For, Show } from "solid-js";
-import { FileActionIcon } from "./FileActionIcon.tsx";
-import { FileDiffStats } from "./FileDiffStats.tsx";
-import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 
 type SelectedFile = Pick<SelectedPanelFile, "path" | "staged">;
-export function TreeNodeRow(props: {
+export type FileRowEntry = Omit<GitFileEntry, "staged"> & { staged?: boolean };
+export function TreeNodeRow<T extends FileRowEntry>(props: {
 	node?: GitFileTreeNode;
-	pathFile?: GitFileEntry;
-	visibleFiles: Map<string, GitFileEntry>;
+	pathFile?: T;
+	visibleFiles: Map<string, T>;
 	visibleCounts: Uint32Array;
 	depth?: number;
 	selected: SelectedFile | null;
-	onPrefetchFile?: (file: GitFileEntry | null) => void;
-	onSelect: (f: GitFileEntry) => void;
+	onPrefetchFile?: (file: T | null) => void;
+	onSelect: (f: T) => void;
 	onAction?: (path: string) => void;
-	onContextMenu?: (file: GitFileEntry, event: MouseEvent) => void;
+	onContextMenu?: (file: T, event: MouseEvent) => void;
 	actionLabel?: string;
 	collapsedDirs: Set<string>;
 	toggleDir: (path: string) => void;
@@ -55,7 +58,7 @@ export function TreeNodeRow(props: {
 		return (
 			_fileValue &&
 			_sourceValue3.selected?.path === _fileValue.path &&
-			_sourceValue3.selected?.staged === _fileValue.staged
+			_sourceValue3.selected?.staged === (_fileValue.staged ?? false)
 		);
 	});
 	const selectTreeNode = () => {
@@ -75,13 +78,14 @@ export function TreeNodeRow(props: {
 					props.node ? styles.treeRow : styles.pathRow,
 					active() && styles.fileRowActive,
 				)}
-				style={domStyle(
+				style={
 					props.node
-						? inlineStyles.getTreeNodeRowTreeRowStyle(
-								`${4 + (props.depth === undefined ? 0 : props.depth) * 9}px`,
-							)
-						: undefined,
-				)}
+						? {
+								"padding-left": `${4 + (props.depth === undefined ? 0 : props.depth) * 9}px`,
+								"padding-right": "6px",
+							}
+						: undefined
+				}
 				onMouseEnter={() => {
 					const _fileValue3 = file();
 					if (!_fileValue3) return;
@@ -153,21 +157,29 @@ export function TreeNodeRow(props: {
 										</span>
 									)}
 									<span {...stylex.attrs(styles.pathFileName)}>
-										{(() => {
-											const _separatorValue2 = separator(),
-												_fileValue4 = file();
-											if (!_fileValue4) return null;
-											return _separatorValue2 >= 0
-												? _fileValue4.path.slice(_separatorValue2)
-												: _fileValue4.path;
-										})()}
+										{file()?.path.slice(Math.max(0, separator()))}
 									</span>
 								</span>
 							)}
-							<FileDiffStats
-								file={file()!}
-								hidden={hovered() && !!props.onAction}
-							/>
+							{file()?.additions || file()?.deletions ? (
+								<span
+									{...stylex.attrs(
+										styles.fileStats,
+										hovered() && !!props.onAction && styles.fileStatsHidden,
+									)}
+								>
+									{!!file()?.additions && (
+										<span {...stylex.attrs(styles.addedText)}>
+											+{file()!.additions}
+										</span>
+									)}
+									{!!file()?.deletions && (
+										<span {...stylex.attrs(styles.deletedText)}>
+											-{file()!.deletions}
+										</span>
+									)}
+								</span>
+							) : null}
 						</>
 					) : null}
 				</button>
@@ -184,7 +196,11 @@ export function TreeNodeRow(props: {
 						)}
 						aria-label={ariaValue(`${props.actionLabel} ${file()!.path}`)}
 					>
-						<FileActionIcon actionLabel={props.actionLabel} />
+						{props.actionLabel === "Unstage" ? (
+							<IconMinus size={11} />
+						) : (
+							<IconPlus size={11} />
+						)}
 					</button>
 				)}
 			</div>

@@ -22,7 +22,7 @@ use std::{
 use tokio::{io::AsyncWriteExt, sync::Semaphore};
 
 pub(crate) struct ProjectRuntime {
-    pub store: Mutex<FileProjectStore>,
+    store: Mutex<FileProjectStore>,
     pub capacity: Arc<Semaphore>,
     background: Arc<Semaphore>,
     resolver: Arc<AgentCommandResolver>,
@@ -54,6 +54,13 @@ impl ProjectRuntime {
             connections: Arc::new(crate::connections::Store::open(root)?),
         }))
     }
+    pub(crate) fn store(
+        &self,
+    ) -> std::result::Result<std::sync::MutexGuard<'_, FileProjectStore>, String> {
+        self.store
+            .lock()
+            .map_err(|_| "Project store lock failed".into())
+    }
     pub fn start(self: &Arc<Self>) {
         let weak = Arc::downgrade(self);
         tokio::spawn(async move {
@@ -67,7 +74,7 @@ impl ProjectRuntime {
         });
     }
     pub fn attach_run_chat(&self, id: &str, pane: &str) -> Result<()> {
-        let store = self.store.lock().map_err(|_| "Project store lock failed")?;
+        let store = self.store()?;
         store.db.execute(
             "UPDATE runs SET result=json_set(COALESCE(result,'{}'),'$.chatPaneId',?2) WHERE id=?1",
             params![id, pane],
@@ -75,7 +82,7 @@ impl ProjectRuntime {
         Ok(())
     }
     pub fn run_for_chat(&self, id: &str) -> Result<ProjectRun> {
-        let store = self.store.lock().map_err(|_| "Project store lock failed")?;
+        let store = self.store()?;
         let mut runs = project_store::rows::<ProjectRun>(
             &store.db,
             "SELECT json_object('id',id,'projectId',project_id,'automationId',automation_id,'name',name,'status',status,'requestedAt',requested_at,'startedAt',started_at,'finishedAt',finished_at,'result',json(result),'error',error,'snapshot',json(snapshot),'directory',?2||'/projects/'||project_id||'/runs/'||id) FROM runs WHERE id=?1",
@@ -94,7 +101,7 @@ impl ProjectRuntime {
         let skills = self.prompts.lock().await.load()?;
         let this = self.clone();
         tokio::task::spawn_blocking(move || {
-            let mut store = this.store.lock().map_err(|_| "Project store lock failed")?;
+            let mut store = this.store()?;
             let catalog = store.catalog(project.as_deref(), &skills)?;
             let history = store.history(project.as_deref().unwrap_or(""), before.as_deref())?;
             let conversation_projects = store.db.prepare("SELECT pane_id,project_id FROM project_conversations ORDER BY pane_id LIMIT 4096")?
@@ -109,7 +116,7 @@ impl ProjectRuntime {
             .try_lock()
             .map_err(|_| "Skills startup lock unavailable")?
             .load()?;
-        let mut store = self.store.lock().map_err(|_| "Project store lock failed")?;
+        let mut store = self.store()?;
         let root = store.root.clone();
         crate::project_migration::workspace_projects(&mut store.db, &root, state, &skills)
     }
@@ -124,7 +131,7 @@ impl ProjectRuntime {
             if !path.starts_with("memory/documents/") {
                 return Err("Choose a project document".into());
             }
-            let store = this.store.lock().map_err(|_| "Project store lock failed")?;
+            let store = this.store()?;
             let root = store.project_dir(&project_id)?;
             crate::project_definitions::read(&root, &path, 20 * 1024 * 1024)
         })
@@ -145,7 +152,7 @@ impl ProjectRuntime {
         }
         let this = self.clone();
         tokio::task::spawn_blocking(move || {
-            let store = this.store.lock().map_err(|_| "Project store lock failed")?;
+            let store = this.store()?;
             let root = store.project_dir(&project_id)?;
             let path = format!("memory/documents/{name}");
             let hash = crate::project_definitions::write(&root, &path, &bytes, None)?;
@@ -162,7 +169,7 @@ impl ProjectRuntime {
     ) -> Result<Value> {
         let this = self.clone();
         tokio::task::spawn_blocking(move || {
-            let store = this.store.lock().map_err(|_| "Project store lock failed")?;
+            let store = this.store()?;
             let root = store.project_dir(&project_id)?;
             let id = crate::project_definitions::import_library(&root, &name, &originals)?;
             Ok(json!({"id":id}))
@@ -182,7 +189,7 @@ impl ProjectRuntime {
             unreachable!()
         };
         let skills = self.prompts.lock().await.load()?;
-        let store = self.store.lock().map_err(|_| "Project store lock failed")?;
+        let store = self.store()?;
         let root = store.project_dir(project_id)?;
         let target = crate::project_definitions::managed_path(&root, path, false)?;
         let current = match std::fs::read(target) {
@@ -205,7 +212,7 @@ impl ProjectRuntime {
 
     pub async fn preview_plugin(self: &Arc<Self>, command: &ProjectFileCommand) -> Result<()> {
         let skills = self.prompts.lock().await.load()?;
-        let store = self.store.lock().map_err(|_| "Project store lock failed")?;
+        let store = self.store()?;
         let globals = skills.iter().map(|s| format!("global:{}", s.id)).collect();
         match command {
             ProjectFileCommand::CreatePlugin {
@@ -250,7 +257,7 @@ impl ProjectRuntime {
         let skills = self.prompts.lock().await.load()?;
         let this = self.clone();
         tokio::task::spawn_blocking(move || {
-            let store = this.store.lock().map_err(|_| "Project store lock failed")?;
+            let store = this.store()?;
             let root = store.project_dir(&project_id)?;
             let globals = skills
                 .iter()
@@ -268,7 +275,7 @@ impl ProjectRuntime {
         let skills = self.prompts.lock().await.load()?;
         let this = self.clone();
         tokio::task::spawn_blocking(move || {
-            let mut store = this.store.lock().map_err(|_| "Project store lock failed")?;
+            let mut store = this.store()?;
             crate::project_proposals::resolve(&mut store, request, &skills)
         })
         .await?
@@ -277,13 +284,7 @@ impl ProjectRuntime {
     pub async fn command(self: &Arc<Self>, cmd: ProjectFileCommand, host: bool) -> Result<Value> {
         let skills = self.prompts.lock().await.load()?;
         let this = self.clone();
-        tokio::task::spawn_blocking(move || {
-            this.store
-                .lock()
-                .map_err(|_| "Project store lock failed")?
-                .command(cmd, host, &skills)
-        })
-        .await?
+        tokio::task::spawn_blocking(move || this.store()?.command(cmd, host, &skills)).await?
     }
     pub async fn context(
         &self,
@@ -291,53 +292,42 @@ impl ProjectRuntime {
         cwd: &Path,
     ) -> Result<Option<(String, String, PathBuf)>> {
         let skills = self.prompts.lock().await.load()?;
-        self.store
-            .lock()
-            .map_err(|_| "Project store lock failed")?
-            .context(pane, cwd, &skills)
+        self.store()?.context(pane, cwd, &skills)
     }
     async fn tick(self: &Arc<Self>) -> Result<()> {
-        let skills = self.prompts.lock().await.load()?;
         let this = self.clone();
-        let scheduled_skills = skills.clone();
         tokio::task::spawn_blocking(move || -> Result<()> {
-            let mut store = this.store.lock().map_err(|_| "Project store lock failed")?;
-            let root = store.root.clone();
-            crate::project_runs::schedule_due(&mut store.db, &root, &scheduled_skills, now())
+            if !this.store()?.has_pending_runs(now())? {
+                return Ok(());
+            }
+            let skills = this.prompts.blocking_lock().load()?;
+            this.store()?.schedule_due(&skills, now())?;
+            for _ in 0..2 {
+                let Ok(background) = this.background.clone().try_acquire_owned() else {
+                    break;
+                };
+                let Ok(capacity) = this.capacity.clone().try_acquire_owned() else {
+                    break;
+                };
+                let selected = this.store()?.claim_next(&skills)?;
+                let Some((id, project, snapshot)) = selected else {
+                    break;
+                };
+                let runtime = this.clone();
+                tokio::spawn(async move {
+                    let _permits = (background, capacity);
+                    let result = runtime.execute(&id, &project, &snapshot).await;
+                    if let Err(e) = runtime.finish(&id, &project, result) {
+                        eprintln!("Run completion retained for recovery: {e}");
+                    }
+                });
+            }
+            Ok(())
         })
-        .await??;
-        for _ in 0..2 {
-            let Ok(background) = self.background.clone().try_acquire_owned() else {
-                break;
-            };
-            let Ok(capacity) = self.capacity.clone().try_acquire_owned() else {
-                break;
-            };
-            let this = self.clone();
-            let skills = skills.clone();
-            let selected = tokio::task::spawn_blocking(move || {
-                let mut store = this.store.lock().map_err(|_| "Project store lock failed")?;
-                let root = store.root.clone();
-                crate::project_runs::claim_next(&mut store.db, &root, &skills)
-            })
-            .await??;
-            let Some((id, project, snapshot)) = selected else {
-                break;
-            };
-            let this = self.clone();
-            tokio::spawn(async move {
-                let _permits = (background, capacity);
-                let result = this.execute(&id, &project, &snapshot).await;
-                if let Err(e) = this.finish(&id, &project, result) {
-                    eprintln!("Run completion retained for recovery: {e}");
-                }
-            });
-        }
-        Ok(())
+        .await?
     }
     pub(crate) fn stopped(&self, id: &str) -> bool {
-        self.store
-            .lock()
+        self.store()
             .ok()
             .and_then(|s| {
                 s.db.query_row(
@@ -356,7 +346,7 @@ impl ProjectRuntime {
             .ok_or("Run is missing its file-backed automation definition")?;
         let skills = self.prompts.lock().await.load()?;
         let root = {
-            let store = self.store.lock().map_err(|_| "Project store lock failed")?;
+            let store = self.store()?;
             let current = crate::project_index::approved_inputs(
                 &store.db,
                 &store.root,
@@ -494,7 +484,8 @@ impl ProjectRuntime {
                 );
                 let invocation=CodexInvocationContext{cwd:dir.join("output"),reference_paths:vec![],images:vec![],model:model.clone(),reasoning_level:reasoning_level.clone(),developer_instructions:Some("Run the explicitly requested project automation. Do not enable schedules or expand permissions. Report failures truthfully.".into()),session_id:None,mcp_servers:Some(vec![])};
                 let mut protocol = AgentProtocolContext::new(cwd.clone());
-                let (sender, mut receiver) = tokio::sync::mpsc::channel(agent_runner::PROTOCOL_BUFFER_CAPACITY);
+                let (sender, mut receiver) =
+                    tokio::sync::mpsc::channel(agent_runner::PROTOCOL_BUFFER_CAPACITY);
                 let log = dir.join("logs/agent.jsonl");
                 let waiting = Arc::new(std::sync::atomic::AtomicBool::new(false));
                 let waiting_signal = waiting.clone();
@@ -541,10 +532,7 @@ impl ProjectRuntime {
                         if let Some(usage) =
                             usage.filter(|usage| Some(usage) != last_usage.as_ref())
                         {
-                            let store = event_runtime
-                                .store
-                                .lock()
-                                .map_err(|_| "Project store lock failed")?;
+                            let store = event_runtime.store()?;
                             event(&store.db, &event_run_id, "provider_usage", &usage)?;
                             last_usage = Some(usage);
                         }
@@ -614,7 +602,7 @@ impl ProjectRuntime {
         }
     }
     fn finish(&self, id: &str, project: &str, result: Result<Value>) -> Result<()> {
-        let mut store = self.store.lock().map_err(|_| "Project store lock failed")?;
+        let mut store = self.store()?;
         let root = store
             .root
             .join("projects")

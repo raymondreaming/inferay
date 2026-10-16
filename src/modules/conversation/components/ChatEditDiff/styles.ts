@@ -1,4 +1,3 @@
-import type { CSSProperties } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
 	color,
@@ -127,51 +126,3 @@ export const styles = stylex.create({
 		color: color.textMain,
 	},
 });
-export function getEditDiffCardHeaderStyle(
-	borderBottom: CSSProperties["borderBottom"],
-): CSSProperties {
-	return {
-		borderBottom: borderBottom,
-	} as CSSProperties;
-}
-export function getEditDiffCardBodyInnerStyle(
-	width: CSSProperties["width"],
-	paddingTop: CSSProperties["paddingTop"],
-	paddingBottom: CSSProperties["paddingBottom"],
-): CSSProperties {
-	return {
-		width: width,
-		paddingTop: paddingTop,
-		paddingBottom: paddingBottom,
-	} as CSSProperties;
-}
-export function getEditDiffCardDiffLineStyle(
-	backgroundColor: CSSProperties["backgroundColor"],
-	borderLeft: CSSProperties["borderLeft"],
-): CSSProperties {
-	return {
-		backgroundColor: backgroundColor,
-		borderLeft: borderLeft,
-	} as CSSProperties;
-}
-export function getEditDiffCardSignStyle(
-	color: CSSProperties["color"],
-): CSSProperties {
-	return {
-		color: color,
-	} as CSSProperties;
-}
-export function getMiniEditDiffDivStyle(
-	minHeight: CSSProperties["minHeight"],
-): CSSProperties {
-	return {
-		minHeight: minHeight,
-	} as CSSProperties;
-}
-export function getGroupedEditDiffDivStyle(
-	minHeight: CSSProperties["minHeight"],
-): CSSProperties {
-	return {
-		minHeight: minHeight,
-	} as CSSProperties;
-}

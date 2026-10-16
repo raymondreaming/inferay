@@ -4,8 +4,7 @@ import { IconRefreshCw } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { styles } from "./styles.ts";
 export function SidebarFooter(_props: {
-	updateAvailable: boolean;
-	updateInfo: AppInfo["update"];
+	updateInfo?: AppInfo["update"];
 	updateStatus: SidebarUpdateStatus;
 	updateError?: string;
 	onUpdate: () => void;
@@ -13,7 +12,10 @@ export function SidebarFooter(_props: {
 	return (
 		<>
 			{(() => {
-				if (!_props.updateAvailable && _props.updateStatus === "idle")
+				if (
+					(!_props.updateInfo?.available || !_props.updateInfo.url) &&
+					_props.updateStatus === "idle"
+				)
 					return null;
 				return (
 					<div>
@@ -37,7 +39,7 @@ export function SidebarFooter(_props: {
 										? "Installed — reopen Inferay"
 										: _props.updateStatus === "error"
 											? "Try update again"
-											: `Update to ${_props.updateInfo.latestVersion}`}
+											: `Update to ${_props.updateInfo?.latestVersion}`}
 							</span>
 						</button>
 						{_props.updateError && (

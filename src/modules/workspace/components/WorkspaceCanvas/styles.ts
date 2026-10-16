@@ -1,4 +1,3 @@
-import type { CSSProperties } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import {
 	color,
@@ -141,20 +140,3 @@ export const styles = stylex.create({
 		inset: controlSize._3,
 	},
 });
-export function getWorkspaceCanvasDockBranchStyle(
-	flexGrow: CSSProperties["flexGrow"],
-): CSSProperties {
-	return {
-		flexBasis: 0,
-		flexGrow: flexGrow,
-	} as CSSProperties;
-}
-export function getWorkspaceCanvasDockCanvasStyle(
-	minHeight: CSSProperties["minHeight"],
-	width: CSSProperties["width"],
-): CSSProperties {
-	return {
-		minHeight: minHeight,
-		width: width,
-	} as CSSProperties;
-}

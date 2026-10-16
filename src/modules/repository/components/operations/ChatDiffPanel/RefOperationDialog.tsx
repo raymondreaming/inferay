@@ -1,93 +1,126 @@
+import { surfaceStyles } from "@design-system/styles.stylex.ts";
 import { Modal } from "@shared/ui/Modal/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { For } from "solid-js";
 import { styles } from "./styles.ts";
-import type { useChatDiffPanelState } from "./useChatDiffPanelState.tsx";
+import type { useGitOperations } from "./useGitOperations.tsx";
 
-export function RefOperationDialog(
-	_props: Pick<
-		ReturnType<typeof useChatDiffPanelState>,
-		| "refOperationResult"
-		| "refPreflightError"
-		| "refPreflightRunning"
-		| "operationModel"
-		| "refOperationRunning"
-		| "runRefOperation"
-		| "setPendingRefAction"
-	> & {
-		returnFocus: () => HTMLElement | null | undefined;
-		pendingRefAction: NonNullable<
-			ReturnType<typeof useChatDiffPanelState>["pendingRefAction"]
-		>;
-	},
-) {
+export function RefOperationDialog(props: {
+	operations: ReturnType<typeof useGitOperations>;
+	returnFocus: () => HTMLElement | null | undefined;
+	pendingRefAction: NonNullable<
+		ReturnType<typeof useGitOperations>["state"]["pendingRefAction"]
+	>;
+}) {
+	const operations = props.operations;
+	const { state } = operations;
+	const preflightError = () =>
+		operations.preflight.error
+			? operations.preflight.error.message ||
+				"Unable to check branch operations"
+			: null;
 	return (
 		<Modal
 			label={"Choose branch operation"}
 			onClose={() => {
-				if (!_props.refOperationRunning) _props.setPendingRefAction(null);
+				if (!state.refOperationRunning)
+					operations.update({ pendingRefAction: null });
 			}}
-			closeDisabled={_props.refOperationRunning}
-			returnFocus={_props.returnFocus}
+			closeDisabled={state.refOperationRunning}
+			returnFocus={props.returnFocus}
 			class={stylex.attrs(styles.refActionDialog).class}
 		>
 			<strong {...stylex.attrs(styles.refActionTitle)}>
 				Move branch history
 			</strong>
 			<p {...stylex.attrs(styles.refActionCopy)}>
-				Source <code>{_props.pendingRefAction.source}</code> → target{" "}
-				<code>{_props.pendingRefAction.target}</code>
+				Source <code>{props.pendingRefAction.source}</code> → target{" "}
+				<code>{props.pendingRefAction.target}</code>
 			</p>
-			{_props.refOperationResult?.error || _props.refPreflightError ? (
+			{state.refOperationResult?.error || preflightError() ? (
 				<p {...stylex.attrs(styles.refActionError)}>
 					<strong>
-						{_props.refOperationResult?.errorLabel ?? "Git command failed"}:
+						{state.refOperationResult?.errorLabel ?? "Git command failed"}:
 					</strong>{" "}
-					{_props.refOperationResult?.error || _props.refPreflightError}
+					{state.refOperationResult?.error || preflightError()}
 				</p>
 			) : null}
-			{_props.operationModel.conflictMessage ? (
+			{operations.operationModel().conflictMessage ? (
 				<p {...stylex.attrs(styles.refActionCopy)}>
-					{_props.operationModel.conflictMessage}
+					{operations.operationModel().conflictMessage}
 				</p>
 			) : null}
-			{!_props.operationModel.conflictMessage && _props.refPreflightRunning ? (
+			{!operations.operationModel().conflictMessage &&
+			operations.preflight.isFetching ? (
 				<p {...stylex.attrs(styles.refActionCopy)}>
 					Checking valid operations…
 				</p>
 			) : null}
-			{_props.operationModel.blockedReason ? (
+			{operations.operationModel().blockedReason ? (
 				<p {...stylex.attrs(styles.refActionError)}>
-					{_props.operationModel.blockedReason}
+					{operations.operationModel().blockedReason}
 				</p>
 			) : null}
-			<div {...stylex.attrs(styles.refActionButtons)}>
-				{
-					<For each={_props.operationModel.actions} keyed={(row) => row.label}>
-						{(action) => (
-							<button
-								type="button"
-								disabled={_props.refOperationRunning}
-								onClick={() =>
-									action().operation
-										? _props.runRefOperation(
-												action().operation!,
-												action().phase,
-											)
-										: _props.setPendingRefAction(null)
-								}
-								{...stylex.attrs(
-									action().primary
-										? styles.refActionPrimary
-										: styles.refActionSecondary,
-								)}
-							>
-								{action().label}
-							</button>
-						)}
-					</For>
-				}
-			</div>
+			<RefOperationButtons operations={operations} />
 		</Modal>
+	);
+}
+
+export function RepositoryOperationBar(props: {
+	operations: ReturnType<typeof useGitOperations>;
+}) {
+	const operations = props.operations;
+	return (
+		<div
+			role="status"
+			{...stylex.attrs(surfaceStyles.overlay, styles.repositoryOperationBar)}
+		>
+			<div {...stylex.attrs(styles.repositoryOperationCopy)}>
+				<strong>{operations.operationModel().recoveryTitle}</strong>
+				<span>{operations.operationModel().recoveryMessage}</span>
+			</div>
+			<RefOperationButtons operations={operations} recovery />
+		</div>
+	);
+}
+
+function RefOperationButtons(props: {
+	operations: ReturnType<typeof useGitOperations>;
+	recovery?: boolean;
+}) {
+	const operations = props.operations;
+	return (
+		<div {...stylex.attrs(styles.refActionButtons)}>
+			<For
+				each={
+					props.recovery
+						? operations.operationModel().recoveryActions
+						: operations.operationModel().actions
+				}
+				keyed={(row) => row.label}
+			>
+				{(action) => (
+					<button
+						type="button"
+						disabled={operations.state.refOperationRunning || action().disabled}
+						onClick={() =>
+							action().operation
+								? operations.runRefOperation(
+										action().operation!,
+										action().phase,
+									)
+								: operations.update({ pendingRefAction: null })
+						}
+						{...stylex.attrs(
+							action().primary
+								? styles.refActionPrimary
+								: styles.refActionSecondary,
+						)}
+					>
+						{action().label}
+					</button>
+				)}
+			</For>
+		</div>
 	);
 }

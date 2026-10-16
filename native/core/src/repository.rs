@@ -29,7 +29,7 @@ pub struct GraphNavigation {
 /// histories. Avoid copying an ID for every ancestor of every branch.
 pub type GraphAncestry = BTreeMap<String, Vec<[usize; 2]>>;
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[derive(Clone, Debug, Hash, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GitFileEntry {
     pub status: String,
@@ -46,7 +46,7 @@ pub struct GitFileEntry {
     pub deletions: Option<usize>,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[derive(Clone, Debug, Hash, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GitStatusResult {
     #[serde(default)]
@@ -58,8 +58,6 @@ pub struct GitStatusResult {
     pub ahead: usize,
     pub behind: usize,
     pub files: Vec<GitFileEntry>,
-    #[serde(default)]
-    pub file_groups: GitFileGroups,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub file_presentation: Option<GitFilePresentation>,
@@ -221,37 +219,15 @@ pub struct GitCommitFile {
 #[serde(rename_all = "camelCase")]
 pub struct GitCommitDetails {
     pub hash: String,
-    pub parents: Vec<String>,
-    pub diff_parent: Option<String>,
     pub message: String,
     pub body: String,
     pub author: String,
     pub author_email: String,
     pub authored_at: String,
-    pub committer: String,
-    pub committer_email: String,
-    pub committed_at: String,
-    pub refs: Vec<GitGraphRef>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub provider: Option<GitCommitProviderMetadata>,
     pub files: Vec<GitCommitFile>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub file_presentation: Option<GitFilePresentation>,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
-#[serde(rename_all = "camelCase")]
-pub struct GitCommitProviderMetadata {
-    pub provider: String,
-    pub repository: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub pull_request_number: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub pull_request_url: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
@@ -502,7 +478,7 @@ pub enum GitRepositorySnapshotState {
     CommandFailed,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[derive(Clone, Debug, Hash, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GitFileTreeNode {
     pub name: String,
@@ -510,35 +486,12 @@ pub struct GitFileTreeNode {
     pub children: Vec<GitFileTreeNode>,
     pub file_range: [usize; 2],
 }
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
+#[derive(Clone, Debug, Hash, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GitFilePresentation {
     pub path_order: Vec<String>,
     pub tree_order: Vec<String>,
     pub tree: Vec<GitFileTreeNode>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize, ts_rs::TS)]
-pub struct GitFileGroups {
-    pub staged: Vec<GitFileEntry>,
-    pub modified: Vec<GitFileEntry>,
-    pub untracked: Vec<GitFileEntry>,
-}
-impl GitFileGroups {
-    pub fn from_files(files: &[GitFileEntry]) -> Self {
-        let mut groups = Self::default();
-        for file in files {
-            let group = if file.staged {
-                &mut groups.staged
-            } else if file.status == "?" {
-                &mut groups.untracked
-            } else {
-                &mut groups.modified
-            };
-            group.push(file.clone());
-        }
-        groups
-    }
 }
 
 #[derive(Default)]

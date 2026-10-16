@@ -11,8 +11,8 @@ import type { AgentChatHandle } from "@conversation/components/AgentChatView/ind
 import {
 	captureEvent,
 	createPointerResize,
-	domStyle,
 	lockPointerSelection,
+	px,
 } from "@shared/lib/dom.tsx";
 import { DockSession, project, readStoredValue } from "@shared/lib/native.tsx";
 import * as stylex from "@stylexjs/stylex";
@@ -32,7 +32,6 @@ import { DockSplit } from "./DockSplit.tsx";
 
 type DockSplitNode = Extract<DockTree, { readonly type: "split" }>;
 
-import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 
 function createDockLayout(input: () => DockRequest, active: () => boolean) {
@@ -481,7 +480,6 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 		chatRef: props.onChatRef,
 		paneIndex,
 		onHeaderDragStart: handleHeaderDragStart,
-		onHeaderDragEnd: clearDragState,
 		onSetPaneAgentKind: props.onSetPaneAgentKind,
 	});
 	return (
@@ -617,12 +615,10 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 								styles.dockCanvas,
 								layout().canvas.sparse && styles.dockCanvasSparse,
 							)}
-							style={domStyle(
-								inlineStyles.getWorkspaceCanvasDockCanvasStyle(
-									layout().canvas.minHeight,
-									layout().canvas.width,
-								),
-							)}
+							style={{
+								"min-height": px(layout().canvas.minHeight),
+								width: px(layout().canvas.width),
+							}}
 						>
 							{
 								<Show when={renderedDockTree()}>

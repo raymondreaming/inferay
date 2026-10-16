@@ -1,9 +1,10 @@
+import { iconSize } from "@design-system/styles.stylex.ts";
 import { captureEvent } from "@shared/lib/dom.tsx";
+import { IconArrowDown } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
+import { InlineDirectoryPicker } from "@workspace/components/InlineDirectoryPicker/index.tsx";
 import { onSettled } from "solid-js";
 import { ChatMessageList } from "../ChatMessageList/index.tsx";
-import { ChatWorkspacePicker } from "./ChatWorkspacePicker.tsx";
-import { ScrollToLatestButton } from "./ScrollToLatestButton.tsx";
 import { styles } from "./styles.ts";
 import type {
 	AgentChatState,
@@ -44,13 +45,25 @@ export function AgentChatMessages(
 					!props.configOpen &&
 					props.isSelected !== false &&
 					props.onDirectoryChange && (
-						<ChatWorkspacePicker
-							savePendingWorkspaceSelection={
-								props.state.workspace.savePendingWorkspaceSelection
-							}
-							onDirectoryCancel={props.onDirectoryCancel}
-							paneId={props.paneId}
-						/>
+						<div {...stylex.attrs(styles.directoryPickerWrap)}>
+							<div
+								class="inferay-directory-picker-modal"
+								role="dialog"
+								aria-label="Choose workspace folders"
+							>
+								<div {...stylex.attrs(styles.directoryPickerInner)}>
+									<InlineDirectoryPicker
+										onCancel={() => {
+											props.state.workspace.savePendingWorkspaceSelection([]);
+											props.onDirectoryCancel?.(props.paneId);
+										}}
+										onSelectionChange={
+											props.state.workspace.savePendingWorkspaceSelection
+										}
+									/>
+								</div>
+							</div>
+						</div>
 					)}
 				<ChatMessageList
 					active={props.state.visible()}
@@ -71,9 +84,22 @@ export function AgentChatMessages(
 				/>
 			</div>
 			{!props.state.viewport.isAtBottom && (
-				<ScrollToLatestButton
-					scrollToBottom={props.state.viewport.scrollToBottom}
-				/>
+				<button
+					type="button"
+					onPointerDown={(event) => {
+						if (event.button === 0 && event.isPrimary)
+							props.state.viewport.scrollToBottom();
+					}}
+					onClick={(event) => {
+						if (event.detail === 0) props.state.viewport.scrollToBottom();
+					}}
+					{...stylex.attrs(styles.scrollButton)}
+				>
+					<IconArrowDown
+						size={iconSize.md}
+						{...stylex.attrs(styles.scrollIcon)}
+					/>
+				</button>
 			)}
 		</div>
 	);

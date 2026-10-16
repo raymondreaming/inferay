@@ -1,9 +1,8 @@
 import type { FileContent } from "@contracts";
 import { useSyntaxHighlight } from "@shared/hooks/useSyntaxHighlight.tsx";
-import { domStyle } from "@shared/lib/dom.tsx";
+import { px } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, createMemo, createSignal, For } from "solid-js";
-import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 
 const SOURCE_LINE_HEIGHT = 14;
@@ -47,12 +46,10 @@ export const SourcePreview = function SourcePreview(_props: {
 		lines: lines(),
 	}));
 	const visibleLines = createMemo(() =>
-		lines()
-			.slice(start(), end())
-			.map((value, offset) => ({
-				value,
-				index: start() + offset,
-			})),
+		Array.from(
+			{ length: Math.max(0, end() - start()) },
+			(_, offset) => start() + offset,
+		),
 	);
 	const minContentChars = createMemo(() => {
 		let longest = 0;
@@ -101,29 +98,24 @@ export const SourcePreview = function SourcePreview(_props: {
 		>
 			<div
 				{...stylex.attrs(styles.sourceCanvas)}
-				style={domStyle(
-					inlineStyles.getSourcePreviewSourceCanvasStyle(
-						lines().length * SOURCE_LINE_HEIGHT + 16,
-						`max(100%, ${minContentChars()}ch)`,
-					),
-				)}
+				style={{
+					height: px(lines().length * SOURCE_LINE_HEIGHT + 16),
+					"min-width": `max(100%, ${minContentChars()}ch)`,
+				}}
 			>
 				<div
 					{...stylex.attrs(styles.sourceTable)}
-					style={domStyle(
-						inlineStyles.getSourcePreviewSourceTableStyle(
-							`translate3d(0, ${start() * SOURCE_LINE_HEIGHT + 8}px, 0)`,
-						),
-					)}
+					style={{
+						transform: `translate3d(0, ${start() * SOURCE_LINE_HEIGHT + 8}px, 0)`,
+					}}
 				>
 					{
-						<For each={visibleLines()} keyed={(row) => row.index}>
-							{(value) => {
-								const absoluteIndex = createMemo(() => value().index);
+						<For each={visibleLines()} keyed={(index) => index}>
+							{(absoluteIndex) => {
 								const tokens = createMemo(() =>
 									_source.isReady &&
 									_source.language &&
-									value().value.length <= MAX_SOURCE_LINE_CHARS
+									lines()[absoluteIndex()]!.length <= MAX_SOURCE_LINE_CHARS
 										? _source.getLineTokens(absoluteIndex())
 										: undefined,
 								);
@@ -142,7 +134,7 @@ export const SourcePreview = function SourcePreview(_props: {
 													)}
 												</For>
 											) : (
-												visibleLineContent(value().value)
+												visibleLineContent(lines()[absoluteIndex()]!)
 											)}
 										</span>
 									</div>

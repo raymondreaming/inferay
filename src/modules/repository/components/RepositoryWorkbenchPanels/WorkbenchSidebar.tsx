@@ -1,7 +1,7 @@
-import { captureEvent, domStyle } from "@shared/lib/dom.tsx";
+import { captureEvent, px } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import type { Element } from "solid-js";
-import { sidebarStyle, styles } from "./styles.ts";
+import { styles } from "./styles.ts";
 export function WorkbenchSidebar(_props: {
 	ref?: (element: HTMLElement) => void;
 	onFocus: () => void;
@@ -34,7 +34,9 @@ export function WorkbenchSidebar(_props: {
 			tabindex={-1}
 			aria-label="Changes sidebar"
 			{...stylex.attrs(styles.sidebarShell)}
-			style={domStyle(sidebarStyle(_props.visible ? _props.width : 0))}
+			style={{
+				width: _props.visible ? px(_props.width) : 0,
+			}}
 		>
 			{_props.error ? (
 				<div role="alert" {...stylex.attrs(styles.persistenceError)}>

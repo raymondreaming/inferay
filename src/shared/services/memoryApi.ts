@@ -1,19 +1,13 @@
-import type { MemoryHit, MemoryNote, MemoryNoteInput } from "@contracts";
+import type {
+	MemoryGraphData,
+	MemoryNote,
+	MemoryNoteInput,
+	MemoryNoteView,
+	MemorySearchResponse,
+} from "@contracts";
 import { fetchJson, postJson } from "@shared/lib/native.tsx";
 
 export type MemoryScope = { projectId?: string; paneId?: string };
-export type MemoryListing = {
-	projectId: string;
-	listing: { hits: MemoryHit[]; total: number; errors: string[] };
-};
-export type MemoryNoteView = {
-	note: MemoryNote;
-	path: string;
-	supersededBy: string | null;
-	linksOut: MemoryHit[];
-	linksIn: MemoryHit[];
-};
-
 function scopeQuery(scope: MemoryScope, extra: Record<string, string> = {}) {
 	const query = new URLSearchParams(extra);
 	if (scope.projectId) query.set("projectId", scope.projectId);
@@ -22,7 +16,7 @@ function scopeQuery(scope: MemoryScope, extra: Record<string, string> = {}) {
 }
 
 export function searchMemory(scope: MemoryScope, q = "", tag = "") {
-	return fetchJson<MemoryListing>(
+	return fetchJson<MemorySearchResponse>(
 		`/api/memory?${scopeQuery(scope, { q, tag, limit: "50" })}`,
 		undefined,
 		{ server: true },
@@ -60,28 +54,6 @@ export function memoryTitle(text: string) {
 			.find((row) => row.length > 0) ?? "Saved from chat";
 	return line.length > 80 ? `${line.slice(0, 77).trimEnd()}…` : line;
 }
-
-export type MemoryGraphNode = {
-	id: string;
-	kind: "note" | "image" | "file" | "source";
-	title: string;
-	source: string;
-	created: string;
-	path: string;
-	tags: string[];
-	superseded: boolean;
-	size: number;
-};
-export type MemoryGraphEdge = {
-	from: string;
-	to: string;
-	kind: "source" | "link" | "supersedes";
-};
-export type MemoryGraphData = {
-	nodes: MemoryGraphNode[];
-	edges: MemoryGraphEdge[];
-	truncated: boolean;
-};
 
 export function loadMemoryGraph(projectId: string) {
 	return fetchJson<MemoryGraphData>(

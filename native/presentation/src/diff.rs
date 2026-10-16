@@ -273,24 +273,20 @@ pub fn diff_request(i: &Value) -> Value {
 
 /// Warm adjacent keyboard targets in the caller's visible order.
 pub fn diff_prefetch_files(i: &Value) -> Value {
-    let files = array(&i["files"]);
-    let selected = &i["selected"];
-    let current = files
-        .iter()
-        .position(|f| f["path"] == selected["path"] && f["staged"] == selected["staged"]);
-    let mut targets = Vec::new();
-    if let Some(index) = current {
-        for next in [
-            (index + 1) % files.len(),
-            (index + files.len() - 1) % files.len(),
-        ] {
-            if next != index && !targets.contains(&files[next]) {
-                targets.push(files[next].clone());
-            }
-        }
+    let count = i["count"].as_u64().unwrap_or(0) as usize;
+    let current = i["current"]
+        .as_u64()
+        .map(|index| index as usize)
+        .filter(|index| *index < count);
+    let mut targets = if let Some(index) = current {
+        [(index + 1) % count, (index + count - 1) % count]
+            .into_iter()
+            .filter(|next| *next != index)
+            .collect::<Vec<_>>()
     } else {
-        targets.extend(files.iter().take(2).cloned());
-    }
+        (0..count.min(2)).collect()
+    };
+    targets.dedup();
     json!(targets)
 }
 
@@ -298,20 +294,21 @@ pub fn diff_prefetch_files(i: &Value) -> Value {
 mod prefetch_tests {
     use super::*;
     #[test]
-    fn neighbors_preserve_stage_identity_wrap_and_remain_bounded() {
-        let files = json!([{"path":"a","staged":false},{"path":"a","staged":true},{"path":"b","staged":true}]);
-        assert_eq!(
-            diff_prefetch_files(&json!({"files":files,"selected":files[0]})),
-            json!([files[1], files[2]])
-        );
-        assert_eq!(
-            diff_prefetch_files(&json!({"files":files,"selected":files[2]})),
-            json!([files[0], files[1]])
-        );
-        assert_eq!(
-            diff_prefetch_files(&json!({"files":[files[0]],"selected":files[0]})),
-            json!([])
-        );
-        assert_eq!(diff_prefetch_files(&json!({"files":[]})), json!([]));
+    fn neighbor_indices_wrap_without_prefetching_the_selected_file_twice() {
+        for (count, current, expected) in [
+            (3, 0, vec![1, 2]),
+            (3, 2, vec![0, 1]),
+            (2, 0, vec![1]),
+            (1, 0, vec![]),
+            (0, -1, vec![]),
+            (1, -1, vec![0]),
+            (3, -1, vec![0, 1]),
+            (3, 3, vec![0, 1]),
+        ] {
+            assert_eq!(
+                diff_prefetch_files(&json!({"count": count, "current": current})),
+                json!(expected)
+            );
+        }
     }
 }

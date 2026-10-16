@@ -23,7 +23,6 @@ interface CommandPaletteItem {
 }
 export function CommandPalette(_props: {
 	commands: readonly CommandPaletteItem[];
-	showTrigger?: boolean;
 }) {
 	const [open, setOpen] = createSignal(false);
 	const [query, setQuery] = createSignal("");
@@ -74,19 +73,6 @@ export function CommandPalette(_props: {
 	};
 	return (
 		<>
-			{(_props.showTrigger === undefined ? true : _props.showTrigger) ? (
-				<button
-					type="button"
-					onClick={() => setOpen(true)}
-					class={`${APP_REGION_NO_DRAG_CLASS} ${stylex.attrs(styles.trigger).class ?? ""}`}
-					aria-label="Open command palette"
-					title="Open command palette (⌘K)"
-				>
-					<IconSearch size={14} />
-					<span {...stylex.attrs(styles.triggerLabel)}>Command</span>
-					<kbd {...stylex.attrs(styles.shortcut)}>⌘K</kbd>
-				</button>
-			) : null}
 			{open() ? (
 				<div
 					role="presentation"

@@ -60,7 +60,6 @@ export function RepositoryWorkspaceBar() {
 		undefined,
 	);
 	const [chatFlyoutHovered, setChatFlyoutHovered] = createSignal(false);
-	const projection = createMemo(() => state().repositories);
 	const panelVisibility = usePanelVisibility();
 	const panelState = useBackgroundQuery(() => ({
 		...panelQuery(projects.repositoryPath() ?? ""),
@@ -171,7 +170,7 @@ export function RepositoryWorkspaceBar() {
 				</button>
 				{chatFlyoutOpen() ? (
 					<SidebarChatFlyout
-						entries={projection().visibleEntries}
+						entries={state().entries}
 						activePaneId={activePaneId()}
 						onSelectPane={selectPane}
 					/>

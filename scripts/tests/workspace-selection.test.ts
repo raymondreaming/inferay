@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import type { Workspace } from "@contracts";
 import { createWorkspaceSession } from "@workspace/hooks/useWorkspaceState.tsx";
 
 // Exercise the production queue through its injected persistence port.
@@ -15,7 +16,7 @@ function model(send: (path: string, body: any) => Promise<any>) {
 		mutateAgentWorkspaceState: session.mutate,
 	};
 }
-function initialState() {
+function initialState(): Workspace {
 	return {
 		groups: [
 			{
@@ -29,6 +30,7 @@ function initialState() {
 						agentKind: "claude",
 						cwd: "/repo",
 						referencePaths: [],
+						pendingCwd: false,
 					},
 				],
 				columns: 1,
@@ -36,17 +38,6 @@ function initialState() {
 			},
 		],
 		selectedGroupId: "g",
-		themeId: "default",
-		fontSize: 13,
-		fontFamily: "SF Mono",
-		opacity: 1,
-		repositories: {
-			workspaces: [],
-			unassignedEntries: [],
-			activePath: "/repo",
-			activeWorkspace: null,
-			visibleEntries: [],
-		},
 	};
 }
 
@@ -121,4 +112,29 @@ test("selection after queued creation is preserved even when it matches the old 
 	const selected = await selecting;
 	expect(sent).toEqual(["addPane", "selectPane"]);
 	expect(selected?.groups[0]?.selectedPaneId).toBe("a");
+});
+
+test("an older failed save preserves the latest optimistic selection", async () => {
+	const state = initialState();
+	state.groups[0]!.panes.push({ ...state.groups[0]!.panes[0]!, id: "b" });
+	const first = Promise.withResolvers<typeof state>();
+	const second = Promise.withResolvers<typeof state>();
+	let requests = 0;
+	const session = createWorkspaceSession({
+		initialize: async () => state,
+		load: async () => state,
+		save: () => (++requests === 1 ? first.promise : second.promise),
+	});
+	await session.initialize();
+	const selectingB = session.mutate({ type: "selectPane", paneId: "b" });
+	expect(session.snapshot.state?.groups[0]?.selectedPaneId).toBe("b");
+	const selectingA = session.mutate({ type: "selectPane", paneId: "a" });
+	expect(session.snapshot.state?.groups[0]?.selectedPaneId).toBe("a");
+	first.reject(new Error("Save failed"));
+	expect(await selectingB).toBeNull();
+	expect(session.snapshot.state?.groups[0]?.selectedPaneId).toBe("a");
+	second.resolve(state);
+	expect((await selectingA)?.groups[0]?.selectedPaneId).toBe("a");
+	expect(session.snapshot.error).toBeNull();
+	expect(requests).toBe(2);
 });

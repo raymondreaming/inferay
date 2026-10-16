@@ -66,7 +66,4 @@ pub enum AgentWorkspaceAction {
         pane_id: String,
         agent_kind: WorkspaceAgentKind,
     },
-    SetTheme {
-        theme_id: String,
-    },
 }

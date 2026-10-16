@@ -1,8 +1,7 @@
 import { useNearViewport } from "@shared/hooks/useNearViewport.tsx";
-import { assignRef, domStyle } from "@shared/lib/dom.tsx";
+import { assignRef } from "@shared/lib/dom.tsx";
 import { useNativeEditDiff } from "../../hooks/useNativeEditDiff.tsx";
 import { EditDiffCard } from "./EditDiffCard.tsx";
-import * as inlineStyles from "./styles.ts";
 export function MiniEditDiff(_props: {
 	oldStr: string;
 	newStr: string;
@@ -18,11 +17,9 @@ export function MiniEditDiff(_props: {
 	return (
 		<div
 			ref={(_element) => assignRef(_source.ref, _element)}
-			style={domStyle(
-				inlineStyles.getMiniEditDiffDivStyle(
-					_source2.prepared.hasChanges ? undefined : 28,
-				),
-			)}
+			style={{
+				"min-height": _source2.prepared.hasChanges ? undefined : "28px",
+			}}
 		>
 			<EditDiffCard
 				filePath={_props.filePath}

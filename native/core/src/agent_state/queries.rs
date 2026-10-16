@@ -1,14 +1,10 @@
-//! Read-only workspace projections used by the server and renderer contracts.
-use super::{
-    AgentSavedState, Pane, RepositoryWorkspace, RepositoryWorkspaceEntry, RepositoryWorkspaceIndex,
-    Workspace, repository_path,
-};
-use serde_json::Value;
+//! Read-only workspace queries.
+use super::{AgentWorkspaceAction, Pane, Workspace, WorkspaceSelection, repository_path};
 
 impl Workspace {
     pub(super) fn repository_paths(&self) -> Vec<String> {
         let mut paths = Vec::new();
-        for pane in self.groups.iter().flat_map(|group| &group.panes) {
+        for pane in self.panes() {
             let path = repository_path(pane.cwd.as_deref().unwrap_or(""));
             if !path.is_empty() && !paths.iter().any(|existing| existing == path) {
                 paths.push(path.to_owned());
@@ -23,80 +19,66 @@ impl Workspace {
         paths
     }
 
-    pub fn presentation(&self) -> Result<Value, String> {
-        let mut workspaces: Vec<RepositoryWorkspace<'_>> = Vec::new();
-        let mut unassigned_entries = Vec::new();
-        for group in &self.groups {
-            for pane in &group.panes {
-                let cwd = repository_path(pane.cwd.as_deref().unwrap_or(""));
-                let entry = RepositoryWorkspaceEntry {
-                    group_id: &group.id,
-                    pane,
-                };
-                if cwd.is_empty() {
-                    unassigned_entries.push(entry);
-                } else if let Some(workspace) =
-                    workspaces.iter_mut().find(|workspace| workspace.cwd == cwd)
-                {
-                    workspace.entries.push(entry);
-                } else {
-                    let name = cwd
-                        .rsplit(['/', '\\'])
-                        .find(|part| !part.is_empty())
-                        .unwrap_or(cwd);
-                    workspaces.push(RepositoryWorkspace {
-                        cwd,
-                        name,
-                        entries: vec![entry],
-                    });
-                }
-            }
-        }
-        workspaces.sort_by_key(|workspace| {
-            self.repository_order
-                .iter()
-                .position(|path| path == workspace.cwd)
-                .unwrap_or(usize::MAX)
-        });
-        let active_path = self
-            .groups
-            .iter()
-            .find(|group| group.id == self.selected_group_id)
-            .and_then(|group| {
-                group
-                    .panes
-                    .iter()
-                    .find(|pane| Some(&pane.id) == group.selected_pane_id.as_ref())
-                    .or_else(|| group.panes.first())
-            })
-            .and_then(|pane| pane.cwd.as_deref())
-            .map(repository_path)
-            .filter(|path| !path.is_empty());
-        let active_workspace = active_path
-            .and_then(|path| workspaces.iter().find(|workspace| workspace.cwd == path))
-            .cloned();
-        let visible_entries = active_workspace
-            .as_ref()
-            .map(|workspace| workspace.entries.clone())
-            .unwrap_or_else(|| unassigned_entries.clone());
-        serde_json::to_value(AgentSavedState {
-            workspace: self,
-            repositories: RepositoryWorkspaceIndex {
-                workspaces,
-                unassigned_entries,
-                active_path,
-                active_workspace,
-                visible_entries,
-            },
-        })
-        .map_err(|error| error.to_string())
+    pub fn panes(&self) -> impl Iterator<Item = &Pane> {
+        self.groups.iter().flat_map(|group| &group.panes)
     }
 
     pub fn pane(&self, id: &str) -> Option<&Pane> {
+        self.panes().find(|pane| pane.id == id)
+    }
+
+    pub fn selected_pane_id(&self) -> Option<&str> {
         self.groups
             .iter()
-            .flat_map(|group| &group.panes)
-            .find(|pane| pane.id == id)
+            .find(|group| group.id == self.selected_group_id)?
+            .selected_pane_id
+            .as_deref()
+    }
+
+    pub fn selection_for(&self, action: &AgentWorkspaceAction) -> Option<WorkspaceSelection> {
+        use AgentWorkspaceAction::*;
+        let (group, pane) = match action {
+            SelectWorkspace { group_id } => (
+                self.groups.iter().find(|group| &group.id == group_id)?,
+                None,
+            ),
+            SelectPane { pane_id } => self.groups.iter().find_map(|group| {
+                group
+                    .panes
+                    .iter()
+                    .find(|pane| &pane.id == pane_id)
+                    .map(|pane| (group, Some(pane)))
+            })?,
+            SelectRepository { cwd } => self
+                .groups
+                .iter()
+                .flat_map(|group| {
+                    group
+                        .panes
+                        .iter()
+                        .filter(|pane| {
+                            pane.cwd
+                                .as_deref()
+                                .is_some_and(|path| repository_path(path) == cwd)
+                        })
+                        .map(move |pane| (group, pane))
+                })
+                .min_by_key(|(group, pane)| {
+                    if group.id == self.selected_group_id {
+                        0
+                    } else if group.selected_pane_id.as_deref() == Some(&pane.id) {
+                        1
+                    } else {
+                        2
+                    }
+                })
+                .map(|(group, pane)| (group, Some(pane)))?,
+            _ => return None,
+        };
+        Some(WorkspaceSelection {
+            group_id: group.id.clone(),
+            pane_id: pane.map(|pane| pane.id.clone()),
+        })
     }
 
     /// Selected pane first, then the other panes in the selected group.

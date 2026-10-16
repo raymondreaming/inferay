@@ -1,5 +1,4 @@
 import type {
-	GitFilePresentation,
 	PanelSession,
 	ProviderCatalog,
 	ProviderSettings,
@@ -252,7 +251,6 @@ export function onboardingChrome(): {
 		progress: readStoredJson(ONBOARDING_STORAGE_KEY, null),
 	});
 }
-export const APP_THEME_STORAGE_KEY = "inferay-app-theme-id";
 export const APP_BACKGROUND_STORAGE_KEY = "inferay-app-background";
 export const APP_FONT_STORAGE_KEY = "inferay-app-font";
 export const CLIENT_STORAGE_CHANGED_EVENT = "inferay-client-storage-change";
@@ -414,21 +412,6 @@ export function adjacentGitFile<T>(
 		repeatBoundary,
 	});
 	return index === null ? undefined : files[index];
-}
-export function visibleGitFiles<
-	T extends {
-		path: string;
-	},
->(
-	files: readonly T[],
-	presentation: GitFilePresentation | undefined,
-	mode: "path" | "tree",
-): T[] {
-	return project("visibleFiles", {
-		files,
-		presentation,
-		mode,
-	});
 }
 export function getFileSelectionAfterToggle<
 	T extends {

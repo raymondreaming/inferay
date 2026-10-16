@@ -1,9 +1,8 @@
 import type { DiffScrollSource, DiffViewMode, HunkDiff } from "@contracts";
-import { useSplitDiffScroll } from "@repository/hooks/useSplitDiffScroll.tsx";
 import type { RefCell } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, omit, Show } from "solid-js";
-import { diffStyles, LINE_H } from "./styles.ts";
+import { diffStyles } from "./styles.ts";
 import { VirtualPanel } from "./VirtualPanel.tsx";
 export const DiffPanels = function DiffPanels(_props: {
 	diff: HunkDiff;
@@ -16,12 +15,25 @@ export const DiffPanels = function DiffPanels(_props: {
 	externalScrollSource?: DiffScrollSource;
 	highlightedRange?: readonly [number, number];
 }) {
-	const _source = useSplitDiffScroll(
-		() => _props.scrollRef,
-		() => LINE_H,
-		() => omit(_props, "diff", "mode", "scrollRef").externalScrollTop,
-		() => omit(_props, "diff", "mode", "scrollRef").externalScrollSource,
-	);
+	const followerRef: RefCell<HTMLDivElement | null> = { current: null };
+	// A mirrored scroll event may arrive after the user already moved the other
+	// pane again. Consume that acknowledgement instead of bouncing it back.
+	const mirrored = new WeakMap<HTMLDivElement, number>();
+	const sync = (
+		source: HTMLDivElement | null,
+		target: HTMLDivElement | null,
+		top: number,
+	) => {
+		if (!source || !target) return;
+		const expected = mirrored.get(source);
+		mirrored.delete(source);
+		if (expected !== undefined && Math.abs(expected - top) <= 0.5) return;
+		if (Math.abs(target.scrollTop - top) > 0.5) {
+			target.scrollTop = top;
+			mirrored.set(target, target.scrollTop);
+		}
+	};
+
 	const metadata = createMemo(() => _props.diff.metadata);
 	const conflict = createMemo(() => _props.mode === "conflict");
 	const fullWidthSplit = createMemo(
@@ -92,16 +104,10 @@ export const DiffPanels = function DiffPanels(_props: {
 								side="single"
 								showMinimap
 								externalScrollTop={
-									conflict()
-										? undefined
-										: omit(_props, "diff", "mode", "scrollRef")
-												.externalScrollTop
+									conflict() ? undefined : _props.externalScrollTop
 								}
 								externalScrollSource={
-									conflict()
-										? undefined
-										: omit(_props, "diff", "mode", "scrollRef")
-												.externalScrollSource
+									conflict() ? undefined : _props.externalScrollSource
 								}
 								highlightedRange={
 									fullWidthSplit() ? _props.highlightedRange : undefined
@@ -124,11 +130,11 @@ export const DiffPanels = function DiffPanels(_props: {
 								maxLineChars={
 									_props.diff.isNew ? 0 : metadata().maxOldLineChars
 								}
-								scrollRef={_source.followerRef}
-								onScroll={_source.syncFromFollower}
+								scrollRef={followerRef}
+								onScroll={(top) =>
+									sync(followerRef.current, _props.scrollRef.current, top)
+								}
 								gutterLines={_props.diff.newLines}
-								externalScrollTop={_source.followerScrollTop}
-								externalScrollSource={_source.followerScrollSource}
 								side="left"
 							/>
 						</div>
@@ -139,7 +145,9 @@ export const DiffPanels = function DiffPanels(_props: {
 								lines={_props.diff.newLines}
 								maxLineChars={metadata().maxNewLineChars}
 								scrollRef={_props.scrollRef}
-								onScroll={_source.syncFromMaster}
+								onScroll={(top) =>
+									sync(_props.scrollRef.current, followerRef.current, top)
+								}
 								showGutter={false}
 								showMinimap
 								minimapSegments={metadata().splitMinimap}

@@ -1,5 +1,5 @@
 //! Durable per-key preferences. Legacy JSON is imported once and retained as a backup.
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, TransactionBehavior, params};
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -22,18 +22,18 @@ fn read_values(
     db: &Connection,
     keys: impl IntoIterator<Item = rusqlite::Result<String>>,
 ) -> Result<Map<String, Value>> {
-    let mut statement = db.prepare_cached("SELECT value FROM entries WHERE key = ?1")?;
-    let mut entries = Map::new();
-    for key in keys {
-        let key = key?;
-        if let Some(value) = statement
-            .query_row([&key], |row| row.get::<_, String>(0))
-            .optional()?
-        {
-            entries.insert(key, serde_json::from_str(&value)?);
-        }
-    }
-    Ok(entries)
+    let keys = serde_json::to_string(&keys.into_iter().collect::<rusqlite::Result<Vec<_>>>()?)?;
+    let mut statement = db.prepare_cached(
+        "SELECT key, value FROM entries WHERE key IN (SELECT value FROM json_each(?1))",
+    )?;
+    statement
+        .query_and_then([keys], |row| {
+            Ok((
+                row.get(0)?,
+                serde_json::from_str(row.get_ref(1)?.as_str()?)?,
+            ))
+        })?
+        .collect()
 }
 
 pub(crate) struct ClientStorage {
@@ -139,10 +139,9 @@ mod tests {
         let bytes = serde_json::to_vec_pretty(&original).unwrap();
         std::fs::write(&path, &bytes).unwrap();
         let store = ClientStorage::new(path.clone());
-        assert_eq!(
-            json!(store.read_matching(|_| true).await.unwrap()),
-            original
-        );
+        let keys = ["archive", "nested", "null", "nested", "missing"];
+        assert_eq!(json!(store.select(&keys).await.unwrap()), original);
+        assert!(store.select(&[]).await.unwrap().is_empty());
         store
             .update(BTreeMap::from([
                 ("archive".into(), None),

@@ -1,13 +1,17 @@
+import type { MemoryGraphNode } from "@contracts";
 import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
 import { queryClient } from "@shared/lib/dom.tsx";
 import { readStoredValue } from "@shared/lib/native.tsx";
-import {
-	loadMemoryGraph,
-	type MemoryGraphNode,
-	searchMemory,
-} from "@shared/services/memoryApi.ts";
+import { loadMemoryGraph, searchMemory } from "@shared/services/memoryApi.ts";
 import * as stylex from "@stylexjs/stylex";
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import {
+	createEffect,
+	createMemo,
+	createSignal,
+	For,
+	onSettled,
+	Show,
+} from "solid-js";
 import { findAgentPane } from "../../../hooks/useWorkspaceState.tsx";
 import {
 	clampZoom,
@@ -17,7 +21,7 @@ import {
 } from "../../../model/memoryGraph.ts";
 import { GraphFilters, ZoomControls } from "./GraphControls.tsx";
 import { MemoryDetails } from "./MemoryDetails.tsx";
-import { type MemoryDot, MemoryNode } from "./MemoryNode.tsx";
+import { MemoryNode } from "./MemoryNode.tsx";
 import { styles } from "./styles.ts";
 import { useMemoryDrop } from "./useMemoryDrop.ts";
 
@@ -83,7 +87,6 @@ export function MemoryGraph(props: { projectId: string }) {
 		}
 		return list;
 	});
-	const shown = createMemo(() => new Set(nodes().map((n) => n.id)));
 	const counts = createMemo(() => {
 		const out: Record<MemoryCategory, number> = {
 			all: 0,
@@ -110,53 +113,14 @@ export function MemoryGraph(props: { projectId: string }) {
 		return map;
 	});
 	const focus = () => hovered() ?? selected();
-	const lines = createMemo(() =>
-		(graph.data?.edges ?? []).flatMap((edge) => {
-			if (!shown().has(edge.from) || !shown().has(edge.to)) return [];
-			const a = positions().get(edge.from);
-			const b = positions().get(edge.to);
-			if (!a || !b) return [];
-			const f = focus();
-			const active = !!f && (edge.from === f || edge.to === f);
-			return [
-				{
-					key: `${edge.kind}:${edge.from}>${edge.to}`,
-					x1: a.x,
-					y1: a.y,
-					x2: b.x,
-					y2: b.y,
-					style: active
-						? styles.edgeActive
-						: edge.kind === "source"
-							? styles.edge
-							: styles.edgeLink,
-				},
-			];
-		}),
-	);
-	const dots = createMemo((): MemoryDot[] =>
-		nodes().map((node, index) => {
-			const p = positions().get(node.id) ?? { x: 0, y: 0 };
-			const degree = neighbours().get(node.id)?.size ?? 0;
-			const r =
-				node.kind === "source"
-					? 16 + Math.min(4, Math.sqrt(degree))
-					: node.kind === "image"
-						? 15
-						: 12;
-			const f = focus();
-			return {
-				node,
-				index,
-				x: p.x,
-				y: p.y,
-				r,
-				w: node.kind === "image" ? 40 : r * 2,
-				active: node.id === selected() || node.id === hovered(),
-				near: !!f && (node.id === f || !!neighbours().get(f)?.has(node.id)),
-				chosen: node.id === selected(),
-			};
-		}),
+	const edges = createMemo(() =>
+		(graph.data?.edges ?? []).filter(
+			(edge) =>
+				byId().has(edge.from) &&
+				byId().has(edge.to) &&
+				positions().has(edge.from) &&
+				positions().has(edge.to),
+		),
 	);
 	const selection = () => {
 		const id = selected();
@@ -199,6 +163,11 @@ export function MemoryGraph(props: { projectId: string }) {
 	const measure = () => {
 		if (stage) setSize({ w: stage.clientWidth, h: stage.clientHeight });
 	};
+	onSettled(() => {
+		const observer = new ResizeObserver(measure);
+		if (stage) observer.observe(stage);
+		return () => observer.disconnect();
+	});
 	const moveTo = (next: View, smooth: boolean) => {
 		if (smooth) {
 			setAnimate(true);
@@ -274,7 +243,6 @@ export function MemoryGraph(props: { projectId: string }) {
 			<div
 				ref={(el) => {
 					stage = el;
-					new ResizeObserver(measure).observe(el);
 				}}
 				{...stylex.attrs(styles.stage, dragging() && styles.grabbing)}
 				style={gridStyle()}
@@ -347,34 +315,49 @@ export function MemoryGraph(props: { projectId: string }) {
 			>
 				<svg {...stylex.attrs(styles.svg)} role="img" aria-label="Memory graph">
 					<g style={groupStyle()}>
-						<For each={lines()} keyed={(line) => line.key}>
-							{(line) => (
+						<For
+							each={edges()}
+							keyed={(edge) => `${edge.kind}:${edge.from}>${edge.to}`}
+						>
+							{(edge) => (
 								<line
-									x1={line().x1}
-									y1={line().y1}
-									x2={line().x2}
-									y2={line().y2}
-									{...stylex.attrs(line().style)}
+									x1={positions().get(edge().from)?.x}
+									y1={positions().get(edge().from)?.y}
+									x2={positions().get(edge().to)?.x}
+									y2={positions().get(edge().to)?.y}
+									{...stylex.attrs(
+										focus() === edge().from || focus() === edge().to
+											? styles.edgeActive
+											: edge().kind === "source"
+												? styles.edge
+												: styles.edgeLink,
+									)}
 								/>
 							)}
 						</For>
-						<For each={dots()} keyed={(dot) => dot.node.id}>
-							{(dot) => (
+						<For each={nodes()} keyed={(node) => node.id}>
+							{(node, index) => (
 								<MemoryNode
-									dot={dot()}
+									node={node()}
+									index={index()}
+									point={positions().get(node().id)}
+									degree={neighbours().get(node().id)?.size ?? 0}
+									active={node().id === selected() || node().id === hovered()}
+									chosen={node().id === selected()}
 									projectId={props.projectId}
 									zoom={view().k}
 									showLabel={
-										dot().active ||
-										dot().near ||
+										node().id === selected() ||
+										node().id === hovered() ||
+										!!neighbours()
+											.get(focus() ?? "")
+											?.has(node().id) ||
 										nodes().length <= 80 ||
 										view().k >= 1.6
 									}
-									label={labelFor(dot().node)}
+									label={labelFor(node())}
 									tooltip={
-										dot().node.kind === "source"
-											? chatTitle(dot().node)
-											: dot().node.title
+										node().kind === "source" ? chatTitle(node()) : node().title
 									}
 									onHover={setHovered}
 									onPick={setSelected}

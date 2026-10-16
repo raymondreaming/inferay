@@ -1,29 +1,25 @@
 import { iconSize } from "@design-system/styles.stylex.ts";
 import { IconCheck, IconCopy } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { type Accessor, createMemo, createSignal, onSettled } from "solid-js";
+import { type Accessor, createSignal, onSettled } from "solid-js";
 import { styles } from "./styles.ts";
 export function useCopyText(
 	_text: Accessor<string>,
 	_clearOnError: Accessor<boolean> = () => false,
 ) {
 	const [copied, setCopied] = createSignal(false);
-	const copiedTimerRef = {
-		current: null,
-	} as {
-		current: ReturnType<typeof setTimeout> | null;
-	};
+	let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 	onSettled(() => () => {
-		if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+		if (copiedTimer) clearTimeout(copiedTimer);
 	});
 	const handleCopy = () => {
 		navigator.clipboard
 			.writeText(_text())
 			.then(() => {
 				setCopied(true);
-				if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
-				copiedTimerRef.current = setTimeout(() => {
-					copiedTimerRef.current = null;
+				if (copiedTimer) clearTimeout(copiedTimer);
+				copiedTimer = setTimeout(() => {
+					copiedTimer = undefined;
 					setCopied(false);
 				}, 1500);
 			})
@@ -38,20 +34,16 @@ export function useCopyText(
 		handleCopy,
 	};
 }
-export function CopyButton(_props: { text: string; class?: string }) {
+export function CopyButton(_props: { text: string }) {
 	const _source = useCopyText(() => _props.text);
-	const copyButtonProps = createMemo(() =>
-		stylex.attrs(
-			styles.copyButton,
-			_source.copied ? styles.copyButtonCopied : null,
-		),
-	);
 	return (
 		<button
 			type="button"
 			onClick={_source.handleCopy}
-			{...copyButtonProps()}
-			class={`${copyButtonProps().class ?? ""} ${_props.class ?? ""}`}
+			{...stylex.attrs(
+				styles.copyButton,
+				_source.copied && styles.copyButtonCopied,
+			)}
 			title={_source.copied ? "Copied!" : "Copy"}
 		>
 			{_source.copied ? (

@@ -78,7 +78,8 @@ export async function prefetchSyntaxPreview(
 	});
 }
 export function useSyntaxHighlight(_options: Accessor<HighlightInput>) {
-	const options = createMemo(() => syntaxQueryOptions(_options()));
+	const input = createMemo(_options);
+	const options = createMemo(() => syntaxQueryOptions(input()));
 	const active = createMemo(() => options().enabled);
 	const query = useQuery(options);
 	const [previewRevision, setPreviewRevision] = createSignal(0);
@@ -96,8 +97,8 @@ export function useSyntaxHighlight(_options: Accessor<HighlightInput>) {
 				setPreviewRevision((revision) => revision + 1);
 		}),
 	);
-	// Slicing every line up front wastes the work virtualization exists to
-	// avoid, so tokens are cut on demand and kept per document.
+	// Read the current native classification; mounted rows own token slices so
+	// scrolling does not retain a second representation of every visited line.
 	const document = createMemo(() => {
 		// Observe fetch completion, but always select the current document's cache entry.
 		// Cached navigation must not wait for the observer effect or use the previous file's runs.
@@ -114,16 +115,10 @@ export function useSyntaxHighlight(_options: Accessor<HighlightInput>) {
 					null)
 			: null;
 	});
-	const tokens = createMemo(() => {
-		document();
-		return new Map<number, SyntaxToken[]>();
-	});
 	const getLineTokens = (index: number): SyntaxToken[] | undefined => {
 		const runs = document()?.lines[index];
-		const text = _options().lines[index];
+		const text = input().lines[index];
 		if (!runs || text === undefined) return undefined;
-		const cached = tokens().get(index);
-		if (cached) return cached;
 		const cut: SyntaxToken[] = [];
 		let offset = 0;
 		for (let i = 0; i + 1 < runs.length; i += 2) {
@@ -141,7 +136,6 @@ export function useSyntaxHighlight(_options: Accessor<HighlightInput>) {
 				text: text.slice(offset),
 				kind: "plain",
 			});
-		tokens().set(index, cut);
 		return cut;
 	};
 	return {

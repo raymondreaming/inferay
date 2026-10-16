@@ -11,28 +11,21 @@ test("new hashes and repositories reuse a known author before any lookup", async
 		"utf8",
 	);
 	const code = new Bun.Transpiler({ loader: "ts" }).transformSync(
-		source.slice(source.indexOf("const [avatars,")).replaceAll("export ", ""),
+		source.slice(source.indexOf("type AuthorCommit")).replaceAll("export ", ""),
 	);
-	const timers = new Map<number, () => void>();
-	let timerId = 0;
 	let requests = 0;
 	const dependencies = {
 		...signals,
-		window: {
-			setTimeout: (callback: () => void) => {
-				timers.set(++timerId, callback);
-				return timerId;
-			},
-			clearTimeout: (id: number) => timers.delete(id),
-		},
+		readStoredJson: (_key: string, fallback: unknown) => fallback,
+		writeStoredValue: () => {},
 		resolveGitCommitAvatars: async () => {
 			requests++;
 			return { old: "https://example.com/avatar.png" };
 		},
 	};
-	const useAvatars = new Function(
+	const [useAvatars, rememberLoaded] = new Function(
 		...Object.keys(dependencies),
-		`${code}; return useGitAuthorAvatars;`,
+		`${code}; return [useGitAuthorAvatars, rememberLoadedAuthorAvatar];`,
 	)(...Object.values(dependencies));
 	const old = { hash: "old", author: "Ray", authorEmail: "ray@example.com" };
 	const rebased = { ...old, hash: "rebased", authorEmail: "Ray@Example.com" };
@@ -47,11 +40,11 @@ test("new hashes and repositories reuse a known author before any lookup", async
 			avatar = useAvatars(() => "/first-repo", commits);
 		});
 		signals.flush();
-		for (const callback of timers.values()) callback();
-		timers.clear();
 		await Promise.resolve();
 		signals.flush();
 		expect(avatar(old)).toBe("https://example.com/avatar.png");
+		// Only a successfully loaded image becomes reusable across hashes.
+		rememberLoaded(old.authorEmail, avatar(old));
 		update([rebased]);
 		// No effect flush, timer, or network round trip before rendering.
 		expect(avatar(rebased)).toBe("https://example.com/avatar.png");
@@ -73,7 +66,6 @@ test("new hashes and repositories reuse a known author before any lookup", async
 			}),
 		).toBeUndefined();
 		signals.flush();
-		expect(timers.size).toBe(0);
 		expect(requests).toBe(1);
 	} finally {
 		dispose();

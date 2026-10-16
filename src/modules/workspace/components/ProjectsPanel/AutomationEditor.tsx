@@ -4,8 +4,6 @@ import type {
 	ProjectFileCommand,
 } from "@contracts";
 import { ComposerControls } from "@conversation/components/ChatComposer/ComposerControls.tsx";
-import { ProviderConfigMenu } from "@conversation/components/ChatComposer/ProviderConfigMenu.tsx";
-import { useAgentConfiguration } from "@conversation/components/ChatComposer/useAgentConfiguration.tsx";
 import { surfaceStyles } from "@design-system/styles.stylex.ts";
 import { ariaValue } from "@shared/lib/dom.tsx";
 import { getAgentDefinition } from "@shared/lib/native.tsx";
@@ -101,22 +99,6 @@ export function AutomationEditor(props: {
 	const [reasoning, setReasoning] = createSignal(
 		initial?.kind === "agent" ? initial.reasoningLevel || "low" : "low",
 	);
-	const configuration = useAgentConfiguration(() => ({
-		agentKind: provider() === "claude" ? "claude" : "codex",
-		agentKindOptions: [
-			{ id: "codex", label: "Codex" },
-			{ id: "claude", label: "Claude" },
-		],
-		model: model(),
-		reasoningLevel: reasoning(),
-		onAgentKindChange: (kind) => {
-			setProvider(kind);
-			setModel(getAgentDefinition(kind).defaultModel);
-			setReasoning("low");
-		},
-		onModelChange: setModel,
-		onReasoningLevelChange: setReasoning,
-	}));
 	const [context, setContext] = createSignal(
 		initial?.kind === "agent" ? initial.resources.join(", ") : "",
 	);
@@ -427,15 +409,22 @@ export function AutomationEditor(props: {
 								{...stylex.attrs(styles.instructionInput)}
 							/>
 							<div {...stylex.attrs(styles.composerControls)}>
-								<ComposerControls {...configuration} />
-								<Show when={configuration.activeControl}>
-									{(control) => (
-										<ProviderConfigMenu
-											{...configuration}
-											activeControl={control()}
-										/>
-									)}
-								</Show>
+								<ComposerControls
+									agentKind={provider() === "claude" ? "claude" : "codex"}
+									agentKindOptions={[
+										{ id: "codex", label: "Codex" },
+										{ id: "claude", label: "Claude" },
+									]}
+									model={model()}
+									reasoningLevel={reasoning()}
+									onAgentKindChange={(kind) => {
+										setProvider(kind);
+										setModel(getAgentDefinition(kind).defaultModel);
+										setReasoning("low");
+									}}
+									onModelChange={setModel}
+									onReasoningLevelChange={setReasoning}
+								/>
 							</div>
 						</div>
 					</section>

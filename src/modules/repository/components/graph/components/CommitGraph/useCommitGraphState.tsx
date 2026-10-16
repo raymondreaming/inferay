@@ -12,7 +12,7 @@ import { runtimeGitGraphLaneColors } from "@design-system/styles.stylex.ts";
 import { useGitAuthorAvatars } from "@repository/hooks/useGitAuthorAvatars.ts";
 import {
 	createPointerResize,
-	createWindowFullscreen,
+	px,
 	repositoryKeyboardInput,
 } from "@shared/lib/dom.tsx";
 import {
@@ -28,63 +28,46 @@ import {
 	merge,
 	type Setter,
 } from "solid-js";
-import { getGraphLineLayerStyle } from "./styles.ts";
 import { useGraphViewport } from "./useGraphViewport.tsx";
 
 export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 	const trackResize = createPointerResize();
 	const preferences = createMemo(() => _props().preferences);
-	const setPreferences = createMemo(() => _props().onPreferencesChange);
-	const setters = createMemo(() => {
-		const field =
-			<K extends keyof GraphPreferences>(key: K) =>
-			(
-				update:
-					| GraphPreferences[K]
-					| ((value: GraphPreferences[K]) => GraphPreferences[K]),
-			) =>
-				setPreferences()((current) => ({
-					...current,
-					[key]: typeof update === "function" ? update(current[key]) : update,
-				}));
-		return {
-			setColumns: field("columns"),
-			setWidths: field("widths"),
-			setOrder: field("order"),
-			setHiddenRefs: field("hiddenRefs"),
-			setSoloRefs: field("soloRefs"),
-			setPinnedRefs: field("pinnedRefs"),
-		};
-	});
+	const setPreference = <K extends keyof GraphPreferences>(
+		key: K,
+		update:
+			| GraphPreferences[K]
+			| ((value: GraphPreferences[K]) => GraphPreferences[K]),
+	) =>
+		_props().onPreferencesChange((current) => ({
+			...current,
+			[key]: typeof update === "function" ? update(current[key]) : update,
+		}));
 	const [isColumnsOpen, setIsColumnsOpen] = createSignal(false);
-	const selectedIdSet = createMemo(() => {
-		const _sourceValue2 = _props();
-		return new Set(
-			_sourceValue2.selectedIds === undefined
-				? EMPTY_SELECTED_IDS
-				: _sourceValue2.selectedIds,
-		);
-	});
+	const selectedIdSet = createMemo(() => new Set(_props().selectedIds));
 	const [hoveredRow, setHoveredRow] = createSignal<string | null>(null);
-	const keyboardNavigationRef = {
-		current: false,
-	};
-	const mousePositionRef = {
-		current: null,
-	} as {
-		current: {
-			x: number;
-			y: number;
-		} | null;
-	};
-	const pointerMovedRef = {
-		current: false,
-	};
+	let keyboardNavigation = false;
+	let mousePosition: { x: number; y: number } | null = null;
+	let pointerMoved = false;
 	const handleRowHover = (itemId: string | null) => {
-		if (!pointerMovedRef.current || keyboardNavigationRef.current) return;
-		setHoveredRow(itemId);
+		if (pointerMoved && !keyboardNavigation) setHoveredRow(itemId);
 	};
-	const fullscreen = createWindowFullscreen();
+	const handleMouseMove = (event: MouseEvent) => {
+		const previous = mousePosition;
+		mousePosition = { x: event.clientX, y: event.clientY };
+		if (
+			!previous ||
+			(previous.x === event.clientX && previous.y === event.clientY)
+		)
+			return;
+		pointerMoved = true;
+		keyboardNavigation = false;
+		const row =
+			event.target instanceof Element
+				? event.target.closest("[data-graph-item]")
+				: null;
+		setHoveredRow(row?.getAttribute("data-graph-item") ?? null);
+	};
 	const {
 		scrollerRef,
 		scrollTop,
@@ -112,41 +95,59 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 	} | null>(null);
 	const hasCommits = createMemo(() => _props().commits.length > 0);
 	createEffect(
-		() =>
-			[
-				_props().embedded,
-				hasCommits(),
-				_props().repositoryKey,
-				scrollerRef.current,
-			] as const,
-		([embedded, ready, , scroller]) => {
-			if (embedded && ready) scroller?.focus({ preventScroll: true });
+		() => [hasCommits(), _props().repositoryKey, scrollerRef.current] as const,
+		([ready, , scroller]) => {
+			if (ready) scroller?.focus({ preventScroll: true });
 		},
 	);
-	const graphModel = createMemo(() => {
-		const _source2Value = preferences(),
-			_sourceValue7 = _props();
-		return buildCommitGraphViewModel({
-			availableWidth: viewportWidth(),
-			columns: _source2Value.columns,
-			commits: _sourceValue7.commits,
-			order: _source2Value.order,
-			presentation: _sourceValue7.presentation,
-			stretch: fullscreen() || (_sourceValue7.fullWidth ?? false),
-			widths: _source2Value.widths,
-			worktrees:
-				_sourceValue7.worktrees === undefined ? [] : _sourceValue7.worktrees,
-		});
+	// History lookups do not depend on the window or column widths.
+	const history = createMemo(() => {
+		const presentation = _props().presentation;
+		return {
+			...presentation,
+			hiddenRefNames: new Set(presentation.hiddenRefNames),
+			pinnedRefNames: new Set(presentation.pinnedRefNames),
+			reachableHistory: new Set(presentation.reachableHistory),
+		};
 	});
+	const worktreesByPath = createMemo(
+		() => new Map(_props().worktrees?.map((tree) => [tree.path, tree]) ?? []),
+	);
+	const graphModel = createMemo(() =>
+		rustProject<{
+			columnWidths: ColumnWidths;
+			displayColumns: number[];
+			visibleOrder: ColumnKey[];
+			graphWidth: number;
+			graphLeft: number;
+			graphHeight: number;
+			tableWidth: number;
+			totalHeight: number;
+		}>("graphLayout", {
+			columns: preferences().columns,
+			widths: preferences().widths,
+			order: preferences().order,
+			availableWidth: viewportWidth(),
+			count: _props().commits.length,
+			maxColumn: _props().presentation.maxColumn,
+			pinnedColumns: _props().presentation.pinnedColumns,
+			stretch: true,
+		}),
+	);
 	const viewportModel = createMemo(() => {
-		const _sourceValue8 = _props();
-		return projectCommitGraphViewport(
-			_sourceValue8.rows,
-			_sourceValue8.commits.length,
-			scrollTop(),
-			viewportHeight(),
-			graphModel().displayColumns,
-		);
+		const viewport = rustProject<GraphViewport>("graphViewport", {
+			count: _props().commits.length,
+			scrollTop: scrollTop(),
+			height: viewportHeight(),
+		});
+		return {
+			...viewport,
+			lines: rustProject<GraphLines>("graphLines", {
+				rows: _props().rows.slice(viewport.visibleStart, viewport.visibleEnd),
+				colors: runtimeGitGraphLaneColors,
+				displayColumns: graphModel().displayColumns,
+			}),
+		};
 	});
 	const avatarForCommit = useGitAuthorAvatars(
 		() => _props().repositoryKey,
@@ -156,9 +157,11 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 				.filter((commit) => commit.itemKind === "commit")
 				.slice(0, 100),
 	);
-	const lineLayerStyle = createMemo(() =>
-		getGraphLineLayerStyle(graphModel().graphLeft, TOP_PADDING),
-	);
+	const lineLayerStyle = createMemo(() => ({
+		"z-index": 0,
+		left: px(graphModel().graphLeft),
+		top: px(TOP_PADDING),
+	}));
 	const normalizedQuery = createMemo(() => (query() ?? "").trim());
 	createEffect(
 		() => [normalizedQuery(), _props().onSearchChange] as const,
@@ -168,12 +171,14 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 		},
 	);
 	const toggleColumn = (key: keyof ColumnVisibility) =>
-		setters().setColumns((cur) => ({
+		setPreference("columns", (cur) => ({
 			...cur,
 			[key]: !cur[key],
 		}));
 	const moveColumn = (source: ColumnKey, target: ColumnKey) => {
-		setters().setOrder((current) => moveGraphColumn(current, source, target));
+		setPreference("order", (order) =>
+			rustProject("moveColumn", { order, source, target }),
+		);
 	};
 	const openRefContextMenu = (ref: GitGraphRef, event: MouseEvent) => {
 		setItemContextMenu(null);
@@ -203,8 +208,7 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 			scroller.scrollTo({ top, behavior: repeat ? "instant" : "smooth" });
 	};
 	const navigateRows = (event: KeyboardEvent) => {
-		const model = graphModel(),
-			props = _props(),
+		const props = _props(),
 			current = props.commits.find(
 				(commit) => commit.id === props.selectedHash,
 			);
@@ -219,13 +223,13 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 			openItem: string | null;
 		}>("graphNavigation", {
 			...repositoryKeyboardInput(event),
-			items: model.selectableItems,
+			items: props.presentation.selectableItems,
 			current: props.selectedHash,
 			branchTarget,
 			canOpen: !!props.onOpenSelection,
 		});
 		if (!next.handled) return;
-		keyboardNavigationRef.current = true;
+		keyboardNavigation = true;
 		setHoveredRow(null);
 		event.preventDefault();
 		if (next.openItem) props.onOpenSelection?.(next.openItem);
@@ -247,7 +251,7 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 		const startX = event.clientX;
 		const startWidth = graphModel().columnWidths[column];
 		const move = (moveEvent: PointerEvent) => {
-			setters().setWidths((current) => ({
+			setPreference("widths", (current) => ({
 				...current,
 				[column]: rustProject<number>("resizeGraphColumn", {
 					column,
@@ -257,40 +261,18 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 		};
 		trackResize(event.pointerId, move);
 	};
-	return merge(_props, graphModel, viewportModel, preferences, {
-		get emptyLabel() {
-			return _props().emptyLabel ?? "No matching commits";
+	return merge(_props, history, graphModel, viewportModel, preferences, {
+		get worktreesByPath() {
+			return worktreesByPath();
 		},
-		get searchActive() {
-			return _props().searchActive ?? false;
-		},
-		get selectedIds() {
-			return _props().selectedIds ?? EMPTY_SELECTED_IDS;
-		},
-		get class() {
-			return _props().class ?? "";
-		},
-		get embedded() {
-			return _props().embedded ?? false;
-		},
-		get hasMore() {
-			return _props().hasMore ?? false;
-		},
-		get loadingMore() {
-			return _props().loadingMore ?? false;
-		},
-		get setHiddenRefs() {
-			const _source3Value = setters();
-			return _source3Value.setHiddenRefs;
-		},
-		get setSoloRefs() {
-			const _source3Value = setters();
-			return _source3Value.setSoloRefs;
-		},
-		get setPinnedRefs() {
-			const _source3Value = setters();
-			return _source3Value.setPinnedRefs;
-		},
+		displayGraphColumn: (column: number) =>
+			graphModel().displayColumns[column] ?? column,
+		setHiddenRefs: (update: string[] | ((current: string[]) => string[])) =>
+			setPreference("hiddenRefs", update),
+		setSoloRefs: (update: string[] | ((current: string[]) => string[])) =>
+			setPreference("soloRefs", update),
+		setPinnedRefs: (update: string[] | ((current: string[]) => string[])) =>
+			setPreference("pinnedRefs", update),
 		get isColumnsOpen() {
 			return isColumnsOpen();
 		},
@@ -303,9 +285,7 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 			return hoveredRow();
 		},
 		setHoveredRow,
-		keyboardNavigationRef,
-		mousePositionRef,
-		pointerMovedRef,
+		handleMouseMove,
 		handleRowHover,
 		scrollerRef,
 		get query() {
@@ -353,29 +333,18 @@ export interface ColumnWidths {
 	sha: number;
 }
 export const TOOLS_WIDTH = 32;
-const GIT_GRAPH_GEOMETRY = {
-	rowHeight: 23,
-	columnWidth: 18,
-	avatarSize: 18,
-	graphPadding: 18,
-	graphWidth: 360,
-	lineWidth: 2,
-	curveRadius: 9,
-} as const;
-export const {
-	rowHeight: ROW_HEIGHT,
-	columnWidth: COLUMN_WIDTH,
-	graphPadding: GRAPH_PADDING,
-} = GIT_GRAPH_GEOMETRY;
+export const ROW_HEIGHT = 23;
+export const COLUMN_WIDTH = 18;
+export const GRAPH_PADDING = 18;
 export function hexToRgba(hex: string, alpha: number) {
 	const c = hex.replace("#", "");
 	const n = c.length === 3 ? c.replace(/[\s\S]/g, "$&$&") : c;
 	return `rgba(${Number.parseInt(n.slice(0, 2), 16)}, ${Number.parseInt(n.slice(2, 4), 16)}, ${Number.parseInt(n.slice(4, 6), 16)}, ${alpha})`;
 }
 interface CommitGraphProps {
-	searchQuery?: string;
-	searchActive?: boolean;
-	emptyLabel?: string;
+	searchQuery: string;
+	searchActive: boolean;
+	emptyLabel: string;
 	onSearchChange?: (query: string) => void;
 	commits: GraphCommit[];
 	rows: GraphRow[];
@@ -387,19 +356,16 @@ interface CommitGraphProps {
 			| ((current: GraphPreferences) => GraphPreferences),
 	) => void;
 	selectedHash?: string;
-	selectedIds?: readonly string[];
+	selectedIds: readonly string[];
 	onSelect?: (itemId: string, intent?: GraphSelectionIntent) => void;
-	class?: string;
 	worktrees?: GitWorktree[];
 	branch?: string;
-	embedded?: boolean;
 	onCheckoutRef?: (ref: string) => void;
 	onRefDrop?: (source: string, target: string) => void;
-	hasMore?: boolean;
+	hasMore: boolean;
 	onLoadMore?: () => void;
-	loadingMore?: boolean;
+	loadingMore: boolean;
 	repositoryKey?: string;
-	fullWidth?: boolean;
 	onGraphAction?: (request: GitGraphActionRequest) => void;
 	onCompareWithWip?: (itemId: string) => void;
 	onOpenSelection?: (itemId: string) => void;
@@ -420,7 +386,6 @@ export interface GraphPreferences {
 	pinnedRefs: string[];
 }
 export const TOP_PADDING = ROW_HEIGHT;
-const EMPTY_SELECTED_IDS: readonly string[] = [];
 const GRAPH_PREFERENCES_KEY = "commit-graph-columns-v13:global";
 let sharedPreferences:
 	| [Accessor<GraphPreferences>, Setter<GraphPreferences>]
@@ -449,89 +414,4 @@ export function useGraphPreferences(repositoryKey?: string) {
 }
 export function nextGitGraphHistoryLimit(current: number): number {
 	return rustProject("nextHistoryLimit", current);
-}
-function moveGraphColumn(
-	order: readonly ColumnKey[],
-	source: ColumnKey,
-	target: ColumnKey,
-): ColumnKey[] {
-	return rustProject("moveColumn", {
-		order,
-		source,
-		target,
-	});
-}
-function buildCommitGraphViewModel({
-	availableWidth,
-	commits,
-	presentation,
-	order,
-	stretch,
-	widths,
-	columns,
-	worktrees,
-}: Pick<CommitGraphProps, "commits" | "presentation" | "worktrees"> &
-	Pick<GraphPreferences, "columns" | "order" | "widths"> & {
-		availableWidth: number;
-		stretch: boolean;
-	}) {
-	const geometry = rustProject<{
-		columnWidths: ColumnWidths;
-		displayColumns: number[];
-		visibleOrder: ColumnKey[];
-		graphWidth: number;
-		graphLeft: number;
-		graphHeight: number;
-		tableWidth: number;
-		totalHeight: number;
-	}>("graphLayout", {
-		availableWidth,
-		commitColumns: commits.map((commit) => commit.column),
-		pinnedColumns: presentation.pinnedColumns,
-		order,
-		stretch,
-		widths,
-		columns,
-	});
-	const displayGraphColumn = (column: number) =>
-		geometry.displayColumns[column] ?? column;
-	const selectableItems = presentation.selectableItems;
-	return {
-		references: new Map(Object.entries(presentation.references)),
-		defaultRemoteName: presentation.defaultRemoteName,
-		displayGraphColumn,
-		...geometry,
-		hiddenRefDetails: presentation.hiddenRefDetails,
-		hiddenRefNames: new Set(presentation.hiddenRefNames),
-		matchingHashes: new Set(selectableItems),
-		pinnedRefNames: new Set(presentation.pinnedRefNames),
-		reachableHistory: new Set(presentation.reachableHistory),
-		selectableItems,
-		worktreesByPath: new Map(worktrees?.map((tree) => [tree.path, tree]) ?? []),
-	};
-}
-function projectCommitGraphViewport(
-	rows: readonly GraphRow[],
-	itemCount: number,
-	scrollTop: number,
-	viewportHeight: number,
-	displayColumns: number[],
-) {
-	const { visibleStart, visibleEnd } = rustProject<GraphViewport>(
-		"graphViewport",
-		{
-			count: itemCount,
-			scrollTop,
-			height: viewportHeight,
-		},
-	);
-	return {
-		visibleStart,
-		visibleEnd,
-		lines: rustProject<GraphLines>("graphLines", {
-			rows: rows.slice(visibleStart, visibleEnd),
-			colors: runtimeGitGraphLaneColors,
-			displayColumns,
-		}),
-	};
 }

@@ -35,9 +35,9 @@ test("repeated graph navigation retains focus before virtual rows are removed", 
 			blocked: event.defaultPrevented,
 		}),
 		rustProject: project,
-		graphModel: () => ({ selectableItems: commits.map(({ id }) => id) }),
 		_props: () => ({
 			commits,
+			presentation: { selectableItems: commits.map(({ id }) => id) },
 			selectedHash: selected,
 			onSelect: (id: string) => {
 				// Removing a focused virtual row sends browser focus to body.
@@ -46,7 +46,7 @@ test("repeated graph navigation retains focus before virtual rows are removed", 
 				selections.push(id);
 			},
 		}),
-		keyboardNavigationRef: { current: false },
+		keyboardNavigation: false,
 		setHoveredRow: () => {},
 		revealKeyboardRow: () => {},
 		scrollerRef: {
@@ -219,15 +219,15 @@ test("Right reaches selected WIP through window routing without clicking the gra
 	const graphDependencies = {
 		rustProject: project,
 		repositoryKeyboardInput: keyboardInput,
-		graphModel: () => ({ selectableItems: ["wip", "head"] }),
 		_props: () => ({
 			commits: [{ id: "wip", navigation: {} }],
+			presentation: { selectableItems: ["wip", "head"] },
 			selectedHash: "wip",
 			onOpenSelection: (id: string) => {
 				opened.push(id);
 			},
 		}),
-		keyboardNavigationRef: { current: false },
+		keyboardNavigation: false,
 		setHoveredRow: () => {},
 	};
 	const navigate = new Function(

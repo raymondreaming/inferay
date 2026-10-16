@@ -2,11 +2,9 @@ import * as stylex from "@stylexjs/stylex";
 import {
 	color,
 	controlSize,
-	effect,
 	font,
 	motion,
 	radius,
-	shadow,
 } from "../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
 	root: {
@@ -16,37 +14,6 @@ export const styles = stylex.create({
 		overflow: "hidden",
 		position: "relative",
 		width: "100%",
-	},
-	compactRoot: {
-		boxSizing: "border-box",
-		maxWidth: "100%",
-		minWidth: controlSize._0,
-		overflow: "hidden",
-		width: "100%",
-		borderRadius: controlSize._3,
-	},
-	compactList: {
-		maxHeight: "270px",
-		overflowY: "auto",
-		paddingBlock: controlSize._0,
-	},
-	resultRow: {
-		display: "flex",
-		width: "100%",
-		alignItems: "center",
-		gap: controlSize._2,
-		color: color.textSoft,
-		paddingBlock: controlSize._2,
-		paddingInline: controlSize._3,
-		textAlign: "left",
-		borderRadius: radius.lg,
-		backgroundImage: "none",
-	},
-	resultRowActive: {
-		backgroundColor: color.backgroundPanel,
-		backgroundImage: "none",
-		boxShadow: `inset 0 0 0 1px ${color.border}`,
-		color: color.textMain,
 	},
 	resultRowActiveAccent: {
 		backgroundColor: color.backgroundPanel,
@@ -73,14 +40,6 @@ export const styles = stylex.create({
 		fontSize: font.size_3,
 		fontWeight: font.weight_5,
 	},
-	resultPath: {
-		display: "block",
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
-		color: color.textMuted,
-		fontSize: font.size_2,
-	},
 	resultPathSmall: {
 		display: "block",
 		overflow: "hidden",
@@ -93,29 +52,6 @@ export const styles = stylex.create({
 		flexShrink: 0,
 		color: color.textMuted,
 	},
-	selectedBar: {
-		display: "flex",
-		minWidth: controlSize._0,
-		flexWrap: "wrap",
-		gap: controlSize._1,
-		overflow: "hidden",
-		paddingBlock: controlSize._2,
-		paddingInline: controlSize._3,
-	},
-	selectedTag: {
-		display: "inline-flex",
-		maxWidth: "140px",
-		alignItems: "center",
-		gap: controlSize._1,
-		borderRadius: radius.md,
-		backgroundColor: color.surfaceWhite05,
-		backgroundImage: effect.controlDepth,
-		color: color.textSoft,
-		fontSize: font.size_1,
-		fontWeight: font.weight_5,
-		paddingBlock: "0.125rem",
-		paddingInline: "0.375rem",
-	},
 	selectedTagStrong: {
 		display: "inline-flex",
 		alignItems: "center",
@@ -127,11 +63,6 @@ export const styles = stylex.create({
 		paddingBlock: controlSize._1_5,
 		paddingInline: controlSize._2_5,
 	},
-	truncate: {
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
-	},
 	tagRemove: {
 		flexShrink: 0,
 		color: {
@@ -140,10 +71,6 @@ export const styles = stylex.create({
 		},
 		transitionProperty: "color",
 		transitionDuration: motion.durationFast,
-	},
-	moreCount: {
-		color: color.textMuted,
-		fontSize: font.size_1,
 	},
 	spinner: {
 		width: font.size_3,
@@ -254,26 +181,6 @@ export const styles = stylex.create({
 		outline: "none",
 		"::placeholder": {
 			color: color.textMuted,
-		},
-	},
-	startButton: {
-		flexShrink: 0,
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.border,
-		borderRadius: radius.md,
-		backgroundColor: color.controlActive,
-		backgroundImage: effect.controlDepth,
-		boxShadow: shadow.controlDepth,
-		color: color.textSoft,
-		fontSize: font.size_2,
-		fontWeight: font.weight_5,
-		paddingBlock: "0.125rem",
-		paddingInline: controlSize._2,
-		transitionProperty: "background-color, color",
-		transitionDuration: motion.durationFast,
-		":hover": {
-			backgroundColor: color.controlHover,
 		},
 	},
 });

@@ -243,12 +243,12 @@ impl ChatPersistence {
                     "SELECT body FROM transcript_messages WHERE pane=?1 ORDER BY position",
                 )?;
                 let messages = statement
-                    .query_map([pane], |row| row.get::<_, String>(0))?
-                    .map(|body| {
-                        let mut message: ChatTranscriptMessage = serde_json::from_str(&body?)?;
+                    .query_and_then([pane], |row| {
+                        let mut message: ChatTranscriptMessage =
+                            serde_json::from_str(row.get_ref(0)?.as_str()?)?;
                         message.is_streaming = Some(false);
                         Ok(message)
-                    })
+                    })?
                     .collect::<StoreResult<Vec<_>>>()?;
                 Ok(Some(messages))
             })
@@ -269,7 +269,7 @@ impl ChatPersistence {
             return Err("Chat update exceeds safety limit".into());
         }
         self.transaction(pane_id, move |connection, pane| {
-            apply_update(connection, pane, &serde_json::from_slice(&encoded)?)
+            apply_update(connection, pane, serde_json::from_slice(&encoded)?)
         })
         .await
     }
@@ -428,17 +428,14 @@ fn read_document<T: serde::de::DeserializeOwned + Default>(
     pane: &str,
     kind: &str,
 ) -> StoreResult<T> {
-    let body: Option<String> = connection
-        .query_row(
-            "SELECT body FROM documents WHERE pane=?1 AND kind=?2",
-            [pane, kind],
-            |row| row.get(0),
-        )
-        .optional()?;
-    Ok(body
-        .map(|body| serde_json::from_str(&body))
-        .transpose()?
-        .unwrap_or_default())
+    connection
+        .prepare("SELECT body FROM documents WHERE pane=?1 AND kind=?2")?
+        .query_and_then([pane, kind], |row| {
+            Ok(serde_json::from_str(row.get_ref(0)?.as_str()?)?)
+        })?
+        .next()
+        .transpose()
+        .map(Option::unwrap_or_default)
 }
 
 fn write_document(
@@ -452,7 +449,10 @@ fn write_document(
     Ok(())
 }
 
-fn apply_update(connection: &Connection, pane: &str, update: &Value) -> StoreResult<()> {
+fn apply_update(connection: &Connection, pane: &str, mut update: Value) -> StoreResult<()> {
+    let Some(Value::Array(changes)) = update.get_mut("messages").map(Value::take) else {
+        return Err("Invalid transcript messages".into());
+    };
     let integer = |key: &str| {
         update[key]
             .as_u64()
@@ -478,9 +478,6 @@ fn apply_update(connection: &Connection, pane: &str, update: &Value) -> StoreRes
     let reset = update["reset"]
         .as_bool()
         .ok_or("Invalid transcript reset")?;
-    let changes = update["messages"]
-        .as_array()
-        .ok_or("Invalid transcript messages")?;
     let prior: Option<(String, String)> = connection
         .query_row(
             "SELECT epoch,revision FROM transcripts WHERE pane=?1",
@@ -494,8 +491,10 @@ fn apply_update(connection: &Connection, pane: &str, update: &Value) -> StoreRes
         .transpose()?
         .unwrap_or(0);
     let prior_epoch = prior.as_ref().map(|(epoch, _)| epoch.as_str());
+    // Splices maintain contiguous positions; the final index gives the count
+    // without scanning the entire history on every streaming update.
     let count: i64 = connection.query_row(
-        "SELECT COUNT(*) FROM transcript_messages WHERE pane=?1",
+        "SELECT COALESCE(MAX(position)+1,0) FROM transcript_messages WHERE pane=?1",
         [pane],
         |row| row.get(0),
     )?;
@@ -524,45 +523,36 @@ fn apply_update(connection: &Connection, pane: &str, update: &Value) -> StoreRes
         return Err("Transcript splice is outside retained messages".into());
     }
     let mut messages = Vec::with_capacity(changes.len());
-    for (offset, change) in changes.iter().enumerate() {
-        let mut message = change["message"]
-            .as_object()
-            .cloned()
-            .ok_or("Invalid transcript message")?;
+    for (offset, mut change) in changes.into_iter().enumerate() {
+        let Some(Value::Object(mut message)) = change.get_mut("message").map(Value::take) else {
+            return Err("Invalid transcript message".into());
+        };
         let id = message
             .get("id")
             .and_then(Value::as_str)
             .filter(|id| !id.is_empty())
             .ok_or("Missing transcript message id")?;
-        let previous: Option<String> = if reset {
-            None
-        } else {
-            connection.query_row("SELECT body FROM transcript_messages WHERE pane=?1 AND position=?2 AND json_extract(body,'$.id')=?3", params![pane, start + i64::try_from(offset)?, id], |row| row.get(0)).optional()?
-        };
-        let previous = previous
-            .map(|body| serde_json::from_str::<ChatTranscriptMessage>(&body))
-            .transpose()?;
-        let content = if let Some(append) = change.get("appendContent") {
-            if message.contains_key("content") {
+        let append = change.get("appendContent");
+        if message.contains_key("content") {
+            if append.is_some() {
                 return Err("Transcript patch includes both content and appendContent".into());
             }
-            let append = append
-                .as_str()
-                .ok_or("Invalid appended transcript content")?;
-            let mut content = previous
-                .ok_or("Transcript append has no matching prior message")?
-                .content;
-            content.push_str(append);
-            content
-        } else if let Some(content) = message.get("content") {
-            content
-                .as_str()
-                .ok_or("Invalid transcript content")?
-                .to_owned()
         } else {
-            previous.ok_or("Transcript message has no content")?.content
-        };
-        message.insert("content".into(), Value::String(content));
+            let previous: Option<String> = if reset {
+                None
+            } else {
+                connection.query_row("SELECT json_extract(body,'$.content') FROM transcript_messages WHERE pane=?1 AND position=?2 AND json_extract(body,'$.id')=?3", params![pane, start + i64::try_from(offset)?, id], |row| row.get(0)).optional()?
+            };
+            let mut content = previous.ok_or("Transcript message has no matching prior content")?;
+            if let Some(append) = append {
+                content.push_str(
+                    append
+                        .as_str()
+                        .ok_or("Invalid appended transcript content")?,
+                );
+            }
+            message.insert("content".into(), Value::String(content));
+        }
         let message: ChatTranscriptMessage = serde_json::from_value(Value::Object(message))?;
         messages.push(serde_json::to_string(&message)?);
     }
@@ -598,8 +588,94 @@ fn apply_update(connection: &Connection, pane: &str, update: &Value) -> StoreRes
 }
 
 #[cfg(test)]
-mod group_commit_tests {
+mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn transcript_splices_preserve_content_and_reject_invalid_replacements() {
+        use serde_json::json;
+        let directory = tempfile::tempdir().unwrap();
+        let store = ChatPersistence::new(directory.path().into());
+        let message = |id: &str, content: &str| json!({"message":{"id":id,"role":"assistant","content":content}});
+        let apply =
+            async |revision, start, delete, messages: Vec<Value>| {
+                store.persist_update("pane", &json!({
+                "version":1,"epoch":"one","baseRevision":revision-1,"revision":revision,
+                "reset":revision==1,"start":start,"deleteCount":delete,"messages":messages
+            })).await
+            };
+        apply(
+            1,
+            0,
+            0,
+            vec![
+                message("a", "alpha"),
+                message("b", "beta"),
+                message("c", "gamma"),
+            ],
+        )
+        .await
+        .unwrap();
+        apply(
+            2,
+            1,
+            1,
+            vec![
+                json!({"message":{"id":"b","role":"assistant"},"appendContent":" 🙂"}),
+                message("d", "delta"),
+            ],
+        )
+        .await
+        .unwrap();
+        for invalid in [
+            Value::Null,
+            json!({"message":[]}),
+            json!({"message":{"id":"missing","role":"assistant"}}),
+            json!({"message":{"id":"b","role":"assistant"},"appendContent":null}),
+            json!({"message":{"id":"b","role":"assistant","content":"both"},"appendContent":"invalid"}),
+            json!({"message":{"id":"b","role":"assistant","content":42}}),
+        ] {
+            assert!(
+                apply(3, 0, 2, vec![message("a", "must not save"), invalid])
+                    .await
+                    .is_err()
+            );
+        }
+        // Metadata-only patches keep prior content; complete replacements take
+        // their supplied content. Insertions preserve the shifted suffix.
+        apply(
+            3,
+            0,
+            2,
+            vec![
+                message("a", "replacement"),
+                json!({"message":{"id":"b","role":"assistant","isStreaming":false}}),
+            ],
+        )
+        .await
+        .unwrap();
+        let restored = store.read_transcript("pane").await.unwrap();
+        assert_eq!(
+            restored
+                .iter()
+                .map(|m| (m.id.as_str(), m.content.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("a", "replacement"),
+                ("b", "beta 🙂"),
+                ("d", "delta"),
+                ("c", "gamma")
+            ]
+        );
+        assert!(apply(4, 5, 0, vec![]).await.is_err());
+        apply(4, 0, 4, vec![]).await.unwrap();
+        assert!(store.read_transcript("pane").await.unwrap().is_empty());
+        apply(5, 0, 0, vec![message("z", "new")]).await.unwrap();
+        assert_eq!(
+            store.read_transcript("pane").await.unwrap()[0].content,
+            "new"
+        );
+    }
 
     fn job(operation: impl FnOnce(&Connection) -> StoreResult<()> + Send + 'static) -> StoreJob {
         let (reply, _) = tokio::sync::oneshot::channel();

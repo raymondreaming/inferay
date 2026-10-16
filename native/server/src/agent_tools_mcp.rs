@@ -145,10 +145,11 @@ mod tests {
     async fn bridge_requires_turn_token_and_dispatches_native_tools() {
         let root = tempfile::tempdir().unwrap();
         let skills = Arc::new(tokio::sync::Mutex::new(
-            crate::prompt_store::PromptStore::new(
+            crate::prompt_store::PromptStore::open(
                 root.path().join("bundled.json"),
                 root.path().join("local.json"),
-            ),
+            )
+            .unwrap(),
         ));
         let handle = AgentProcessHandle::with_skills(skills);
         let (sender, _receiver) = mpsc::channel(crate::agent_runner::PROTOCOL_BUFFER_CAPACITY);
@@ -211,10 +212,11 @@ mod provider_test {
     async fn real_claude_discovers_and_calls_inferay_tools() {
         let root = tempfile::tempdir().unwrap();
         let handle = AgentProcessHandle::with_skills(Arc::new(tokio::sync::Mutex::new(
-            crate::prompt_store::PromptStore::new(
+            crate::prompt_store::PromptStore::open(
                 root.path().join("bundled.json"),
                 root.path().join("local.json"),
-            ),
+            )
+            .unwrap(),
         )));
         let (sender, _receiver) = mpsc::channel(crate::agent_runner::PROTOCOL_BUFFER_CAPACITY);
         let bridge = ToolBridge::start(handle, sender).await.unwrap();

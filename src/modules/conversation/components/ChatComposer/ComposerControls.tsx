@@ -1,69 +1,90 @@
 import { AgentIcon } from "@agents/components/AgentIcon/index.tsx";
-import { iconSize } from "@design-system/styles.stylex.ts";
-import { ariaValue, assignRef } from "@shared/lib/dom.tsx";
-import { IconChevronDown } from "@shared/ui/Icons/index.tsx";
+import type { ComposerConfigControl, WorkspaceAgentKind } from "@contracts";
+import { getAgentDefinition, project } from "@shared/lib/native.tsx";
+import { DropdownButton } from "@shared/ui/DropdownButton/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { For, Show } from "solid-js";
+import {
+	createEffect,
+	createMemo,
+	createSignal,
+	type Element,
+	For,
+	Show,
+} from "solid-js";
 import { styles } from "./styles.ts";
-import type { useAgentConfiguration } from "./useAgentConfiguration.tsx";
 
-export function ComposerControls(
-	_props: Pick<
-		ReturnType<typeof useAgentConfiguration>,
-		| "agentConfigControlsRef"
-		| "configControls"
-		| "activeConfig"
-		| "agentConfigButtonRef"
-		| "setActiveConfig"
-	> & { workspaceControl?: import("solid-js").Element },
-) {
+export function ComposerControls(props: {
+	agentKind: WorkspaceAgentKind;
+	agentKindOptions: { id: WorkspaceAgentKind; label: string }[];
+	model: string;
+	reasoningLevel: string;
+	onAgentKindChange: (kind: WorkspaceAgentKind) => void;
+	onModelChange: (model: string) => void;
+	onReasoningLevelChange: (level: string) => void;
+	onAgentConfigOpenChange?: (open: boolean) => void;
+	workspaceControl?: Element;
+}) {
+	const [active, setActive] = createSignal<string | null>(null);
+	const controls = createMemo(() => {
+		const { label, models, reasoningLevels } = getAgentDefinition(
+			props.agentKind,
+		);
+		return project<ComposerConfigControl[]>("composerConfig", {
+			definition: { label, models, reasoningLevels },
+			agentKind: props.agentKind,
+			agentKindOptions: props.agentKindOptions,
+			model: props.model,
+			reasoningLevel: props.reasoningLevel,
+		});
+	});
+	createEffect(
+		() => [active() !== null, props.onAgentConfigOpenChange] as const,
+		([open, notify]) => {
+			notify?.(open);
+			return () => notify?.(false);
+		},
+	);
 	return (
 		<div {...stylex.attrs(styles.pickerRow)}>
-			<div
-				ref={(_element) => assignRef(_props.agentConfigControlsRef, _element)}
-				{...stylex.attrs(styles.configControls)}
-			>
-				<For each={_props.configControls} keyed={(control) => control.id}>
+			<div {...stylex.attrs(styles.configControls)}>
+				<For each={controls()} keyed={(control) => control.id}>
 					{(control) => (
-						<button
-							type="button"
-							aria-label={ariaValue(`${control().title}: ${control().label}`)}
-							aria-haspopup="menu"
-							aria-expanded={ariaValue(_props.activeConfig === control().id)}
+						<DropdownButton
+							variant="ghost"
+							size="sm"
+							menuPlacement="top"
+							label={`${control().title}: ${control().label}`}
 							title={control().tooltip}
-							onClick={(event) => {
-								_props.agentConfigButtonRef.current = event.currentTarget;
-								_props.setActiveConfig((current) =>
-									current === control().id ? null : control().id,
-								);
+							selectedLabel={control().label}
+							value={control().value}
+							options={control().options}
+							open={active() === control().id}
+							onOpenChange={(open) => setActive(open ? control().id : null)}
+							onChange={(id) => {
+								switch (control().id) {
+									case "provider":
+										props.onAgentKindChange(id as WorkspaceAgentKind);
+										break;
+									case "model":
+										props.onModelChange(id);
+										break;
+									case "reasoning":
+										props.onReasoningLevelChange(id);
+										break;
+								}
 							}}
-							{...stylex.attrs(
-								styles.providerConfigButton,
-								_props.activeConfig === control().id &&
-									styles.providerConfigChoiceActive,
-							)}
-						>
-							<Show when={control().agentKind}>
-								{(kind) => <AgentIcon kind={kind()} size={10} />}
-							</Show>
-							<span {...stylex.attrs(styles.providerConfigLabel)}>
-								{control().label}
-							</span>
-							<IconChevronDown
-								size={iconSize.sm}
-								{...stylex.attrs(
-									styles.providerConfigChevron,
-									_props.activeConfig === control().id &&
-										styles.providerConfigChevronOpen,
-								)}
-							/>
-						</button>
+							icon={
+								<Show when={control().agentKind}>
+									{(kind) => <AgentIcon kind={kind()} size={10} />}
+								</Show>
+							}
+						/>
 					)}
 				</For>
 			</div>
-			{_props.workspaceControl && (
+			{props.workspaceControl && (
 				<div {...stylex.attrs(styles.workspaceControl)}>
-					{_props.workspaceControl}
+					{props.workspaceControl}
 				</div>
 			)}
 		</div>

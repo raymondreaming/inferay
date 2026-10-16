@@ -1,4 +1,5 @@
 use crate::{array, flag, number, string};
+use inferay_core::agent_state::repository_path;
 use serde_json::{Value, json};
 
 #[derive(serde::Serialize, ts_rs::TS)]
@@ -77,16 +78,6 @@ pub fn context(input: &Value) -> Value {
             },
         "selectedFileVisible": input["focusedPanelId"] == "workspace-diff-viewer",
     })
-}
-
-pub fn selected_worktree(input: &Value) -> Value {
-    if !flag(&input["graphVisible"]) || input["item"]["itemKind"] != "worktreeWip" {
-        return Value::Null;
-    }
-    array(&input["worktrees"])
-        .iter()
-        .position(|worktree| worktree["path"] == input["item"]["worktreePath"])
-        .map_or(Value::Null, |index| json!(index))
 }
 
 pub fn interaction(input: &Value) -> Option<crate::panels::PanelAction> {
@@ -194,30 +185,6 @@ pub fn keyboard_action(input: &Value) -> Value {
     }
 }
 
-#[derive(serde::Serialize, ts_rs::TS)]
-pub struct RetainedGraphSelection {
-    indices: Vec<usize>,
-    index: Option<usize>,
-}
-
-/// Return positions into caller-owned records so renderer identity stays intact.
-pub fn retained_graph_selection(input: &Value) -> RetainedGraphSelection {
-    let indices: std::collections::HashMap<_, _> = array(&input["ids"])
-        .iter()
-        .enumerate()
-        .map(|(index, id)| (string(id), index))
-        .collect();
-    RetainedGraphSelection {
-        indices: array(&input["selectedIds"])
-            .iter()
-            .filter_map(|id| indices.get(string(id)).copied())
-            .collect(),
-        index: input["selectedHash"]
-            .as_str()
-            .and_then(|id| indices.get(id).copied()),
-    }
-}
-
 pub fn file_selection(input: &Value) -> Option<crate::panels::PanelAction> {
     let required = |value: &Value| {
         value
@@ -305,14 +272,13 @@ pub fn graph_file_open(input: &Value) -> GraphFileOpen {
         result.ready = false;
         return result;
     }
-    let files = array(&input["files"]);
-    if working_tree && files.is_empty() {
+    let file = &input["file"];
+    if working_tree && file.is_null() {
         result.ready = false;
         return result;
     }
-    if let Some(file) = files.first() {
+    if !file.is_null() {
         let mut selection = input.clone();
-        selection["file"] = file.clone();
         selection["kind"] = json!(if working_tree {
             "workingTree"
         } else if number(&input["selectedCommitCount"]) > 1. {
@@ -325,37 +291,28 @@ pub fn graph_file_open(input: &Value) -> GraphFileOpen {
     result
 }
 
-fn ordered<'a>(
-    files: impl IntoIterator<Item = &'a Value>,
+fn ordered(
+    files: &[Value],
+    indices: impl IntoIterator<Item = usize>,
     presentation: &Value,
     mode: &str,
-) -> Vec<&'a Value> {
+) -> Vec<usize> {
     if presentation.is_null() {
-        return files.into_iter().collect();
+        return indices.into_iter().collect();
     }
     let order = &presentation[if mode == "tree" {
         "treeOrder"
     } else {
         "pathOrder"
     }];
-    let by_path: std::collections::HashMap<_, _> = files
+    let by_path: std::collections::HashMap<_, _> = indices
         .into_iter()
-        .map(|file| (string(&file["path"]), file))
+        .map(|index| (string(&files[index]["path"]), index))
         .collect();
     array(order)
         .iter()
         .filter_map(|path| by_path.get(string(path)).copied())
         .collect()
-}
-pub fn visible_files(input: &Value) -> Value {
-    if input["presentation"].is_null() {
-        return input["files"].clone();
-    }
-    json!(ordered(
-        array(&input["files"]).iter(),
-        &input["presentation"],
-        string(&input["mode"])
-    ))
 }
 pub fn adjacent_file(input: &Value) -> Value {
     let count = input["count"].as_i64().unwrap_or(0);
@@ -397,44 +354,64 @@ pub fn selection_after_toggle(input: &Value) -> Value {
     next["staged"] = json!(!flag(&next["staged"]));
     next
 }
-pub fn changes_panel(i: &Value) -> Value {
+#[derive(serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangesPanelProjection {
+    unstaged_files: Vec<usize>,
+    staged_files: Vec<usize>,
+    navigable_files: Vec<usize>,
+    showing_working_tree: bool,
+    comparing: bool,
+    #[ts(type = "'commit' | 'comparison' | null")]
+    history_details: Option<&'static str>,
+    history_loading: bool,
+    history_message: String,
+    navigable_historical_files: Vec<usize>,
+    additions: f64,
+    deletions: f64,
+}
+
+pub fn changes_panel(i: &Value) -> ChangesPanelProjection {
+    let files = array(&i["files"]);
     let presentation = &i["filePresentation"];
     let mode = string(&i["fileViewMode"]);
     let unstaged = ordered(
-        array(&i["modified"]).iter().chain(array(&i["untracked"])),
+        files,
+        (0..files.len())
+            .filter(|&n| !flag(&files[n]["staged"]) && files[n]["status"] != "?")
+            .chain(
+                (0..files.len())
+                    .filter(|&n| !flag(&files[n]["staged"]) && files[n]["status"] == "?"),
+            ),
         presentation,
         "path",
     );
-    let staged = ordered(array(&i["staged"]).iter(), presentation, "path");
-    let navigable: Vec<_> = ordered(unstaged.iter().copied(), presentation, mode)
+    let staged = ordered(
+        files,
+        (0..files.len()).filter(|&n| flag(&files[n]["staged"])),
+        presentation,
+        "path",
+    );
+    let navigable = ordered(files, unstaged.iter().copied(), presentation, mode)
         .into_iter()
-        .chain(ordered(staged.iter().copied(), presentation, mode))
+        .chain(ordered(files, staged.iter().copied(), presentation, mode))
         .collect();
     let showing = i["content"] == "workingTree";
     let comparing = number(&i["selectedCommitCount"]) > 1.;
     let has_commit = !string(&i["selectedCommitHash"]).is_empty();
     let details = if comparing {
-        &i["comparisonDetails"]
+        Some("comparison")
     } else if has_commit {
-        &i["commitDetails"]
+        Some("commit")
     } else {
-        &Value::Null
+        None
     };
-    let loading = if comparing {
-        flag(&i["comparisonDetailsLoading"])
+    let loading = (comparing || has_commit) && flag(&i["historyLoading"]);
+    let historical_files = array(&i["historyFiles"]);
+    let displayed: Vec<_> = if showing {
+        unstaged.iter().chain(&staged).map(|&n| &files[n]).collect()
     } else {
-        has_commit && flag(&i["commitDetailsLoading"])
-    };
-    let history = if !i["comparisonDetails"].is_null() {
-        &i["comparisonDetails"]
-    } else {
-        &i["commitDetails"]
-    };
-    let historical_files: Vec<_> = array(&history["files"]).iter().collect();
-    let displayed = if showing {
-        [unstaged.as_slice(), staged.as_slice()]
-    } else {
-        [historical_files.as_slice(), &[]]
+        historical_files.iter().collect()
     };
     let message = if loading {
         if comparing {
@@ -453,13 +430,26 @@ pub fn changes_panel(i: &Value) -> Value {
     } else {
         "Select a commit to view details"
     };
-    json!({"unstagedFiles":unstaged, "stagedFiles":staged,
-        "navigableFiles":navigable, "showingWorkingTree":showing, "comparing":comparing,
-        "historyDetails":details, "historyLoading":loading, "historyMessage":message,
-        "navigableHistoricalFiles":ordered(historical_files.iter().copied(), &history["filePresentation"], mode),
-        "additions":displayed.iter().flat_map(|files| *files).map(|f|number(&f["additions"])).sum::<f64>(),
-        "deletions":displayed.iter().flat_map(|files| *files).map(|f|number(&f["deletions"])).sum::<f64>()})
+    ChangesPanelProjection {
+        additions: displayed.iter().map(|f| number(&f["additions"])).sum(),
+        deletions: displayed.iter().map(|f| number(&f["deletions"])).sum(),
+        unstaged_files: unstaged,
+        staged_files: staged,
+        navigable_files: navigable,
+        showing_working_tree: showing,
+        comparing,
+        history_details: details,
+        history_loading: loading,
+        history_message: message.into(),
+        navigable_historical_files: ordered(
+            historical_files,
+            0..historical_files.len(),
+            &i["historyFilePresentation"],
+            mode,
+        ),
+    }
 }
+
 pub fn historical_query(i: &Value) -> Value {
     let source = &i["fileSource"];
     let commit = if source["kind"] == "commit" {
@@ -502,125 +492,30 @@ pub fn historical_query(i: &Value) -> Value {
     }
     result
 }
-fn repository_selection(state: &Value, cwd: &Value) -> Option<WorkspaceSelection> {
+/// Indices into the supplied snapshot, never copies of its pane records.
+pub fn workspace_chat_entries(state: &Value) -> Vec<[usize; 2]> {
     let groups = array(&state["groups"]);
-    let target = array(&state["repositories"]["workspaces"])
+    let selected = groups
         .iter()
-        .find(|workspace| workspace["cwd"] == *cwd)
-        .map(|workspace| array(&workspace["entries"]))
-        .unwrap_or(&[])
-        .iter()
-        .min_by_key(|entry| {
-            if entry["groupId"] == state["selectedGroupId"] {
-                0
-            } else if groups.iter().any(|group| {
-                group["id"] == entry["groupId"] && group["selectedPaneId"] == entry["pane"]["id"]
-            }) {
-                1
-            } else {
-                2
-            }
+        .find(|g| g["id"] == state["selectedGroupId"])
+        .and_then(|g| {
+            array(&g["panes"])
+                .iter()
+                .find(|p| p["id"] == g["selectedPaneId"])
+                .or_else(|| array(&g["panes"]).first())
         });
-    target.and_then(|entry| {
-        Some(WorkspaceSelection {
-            group_id: entry["groupId"].as_str()?.to_owned(),
-            pane_id: Some(entry["pane"]["id"].as_str()?.to_owned()),
-        })
-    })
-}
-
-#[derive(serde::Serialize, serde::Deserialize, ts_rs::TS)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkspaceSelection {
-    group_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pane_id: Option<String>,
-}
-
-#[derive(serde::Serialize, ts_rs::TS)]
-pub struct WorkspaceMutationPlan {
-    pub(crate) selection: Option<WorkspaceSelection>,
-    pub(crate) unchanged: bool,
-}
-
-pub fn workspace_mutation_plan(state: &Value, action: &Value) -> WorkspaceMutationPlan {
-    let selection: Option<WorkspaceSelection> = match string(&action["type"]) {
-        "selectRepository" => repository_selection(state, &action["cwd"]),
-        "selectPane" => array(&state["groups"])
-            .iter()
-            .find(|group| {
-                array(&group["panes"])
-                    .iter()
-                    .any(|pane| pane["id"] == action["paneId"])
-            })
-            .map(|group| WorkspaceSelection {
-                group_id: string(&group["id"]).to_owned(),
-                pane_id: action["paneId"].as_str().map(str::to_owned),
-            }),
-        "selectWorkspace" => Some(WorkspaceSelection {
-            group_id: string(&action["groupId"]).to_owned(),
-            pane_id: action["paneId"].as_str().map(str::to_owned),
-        }),
-        _ => None,
-    };
-    let unchanged = selection.as_ref().is_some_and(|selection| {
-        state["selectedGroupId"] == selection.group_id
-            && array(&state["groups"]).iter().any(|group| {
-                group["id"] == selection.group_id
-                    && selection
-                        .pane_id
-                        .as_ref()
-                        .is_none_or(|id| group["selectedPaneId"] == *id)
-            })
-    });
-    WorkspaceMutationPlan {
-        selection,
-        unchanged,
-    }
-}
-
-pub(crate) fn workspace_selection(state: &mut Value, selection: &WorkspaceSelection) {
-    if let Some(groups) = state["groups"].as_array_mut() {
-        for group in groups.iter_mut() {
-            if group["id"] == selection.group_id && selection.pane_id.is_some() {
-                group["selectedPaneId"] = json!(selection.pane_id);
-            }
-        }
-    }
-    let group = array(&state["groups"])
+    let cwd = selected.map_or("", |p| repository_path(string(&p["cwd"])));
+    groups
         .iter()
-        .find(|g| g["id"] == selection.group_id);
-    let pane = group.and_then(|g| {
-        array(&g["panes"])
-            .iter()
-            .find(|p| p["id"] == g["selectedPaneId"])
-            .or_else(|| array(&g["panes"]).first())
-    });
-    let cwd = pane
-        .and_then(|p| p["cwd"].as_str())
-        .map(|s| {
-            let s = s.trim();
-            if s == "/" {
-                s
-            } else {
-                s.trim_end_matches(['/', '\\'])
-            }
+        .enumerate()
+        .flat_map(|(g, group)| {
+            array(&group["panes"])
+                .iter()
+                .enumerate()
+                .filter(move |(_, pane)| repository_path(string(&pane["cwd"])) == cwd)
+                .map(move |(p, _)| [g, p])
         })
-        .map(str::to_owned);
-    let active = array(&state["repositories"]["workspaces"])
-        .iter()
-        .find(|w| w["cwd"].as_str() == cwd.as_deref())
-        .cloned()
-        .unwrap_or(Value::Null);
-    state["selectedGroupId"] = json!(selection.group_id);
-    state["repositories"]["activePath"] = json!(cwd);
-    state["repositories"]["visibleEntries"] = if active.is_null() {
-        state["repositories"]["unassignedEntries"].clone()
-    } else {
-        active["entries"].clone()
-    };
-    state["repositories"]["activeWorkspace"] = active;
+        .collect()
 }
 
 pub fn git_operation_model(input: &Value) -> Value {

@@ -269,39 +269,46 @@ pub(super) async fn get_agent_directories(
     use super::query_value;
     use serde_json::json;
     let query = query_value(&request, "q").unwrap_or_default();
-    let home = state.allowed_paths.home_directory();
-    if let Some(path) = query_value(&request, "path").filter(|path| !path.is_empty()) {
-        let path = state
-            .allowed_paths
-            .resolve_allowed_local_path(path)
-            .ok_or_else(|| {
-                api_error(StatusCode::FORBIDDEN, "Path is outside allowed local roots")
-            })?;
-        let parent = path
-            .parent()
-            .filter(|parent| *parent != path && state.allowed_paths.is_allowed_local_path(parent));
-        return Ok(
-            json!({"directories": agent_directories(&path, 1).collect::<Vec<_>>(), "parent": parent.map(|path| path.to_string_lossy())}),
-        );
-    }
-    if !query.is_empty() {
-        let directories = search_agent_directories(
-            &query,
-            home,
-            state.configured_search_paths().await,
-            state.allowed_paths.project_root().join("apps"),
-        );
-        return Ok(json!({"directories": directories, "parent": null}));
-    }
-    if query_value(&request, "quickPicks").as_deref() == Some("true") {
-        return Ok(json!(DirectoryQuickPicks {
-            quick_picks: find_agent_quick_picks(state.configured_search_paths().await),
-            home: home.to_string_lossy().into_owned()
-        }));
-    }
-    Ok(
-        json!({"directories": agent_directories(home, 1).collect::<Vec<_>>(), "parent": null, "home": home.to_string_lossy()}),
-    )
+    let allowed_paths = state.allowed_paths.clone();
+    let mut search_paths = state.configured_search_paths().await;
+    tokio::task::spawn_blocking(move || {
+        let home = allowed_paths.home_directory();
+        if let Some(path) = query_value(&request, "path").filter(|path| !path.is_empty()) {
+            let path = allowed_paths
+                .resolve_allowed_local_path(path)
+                .ok_or_else(|| {
+                    api_error(StatusCode::FORBIDDEN, "Path is outside allowed local roots")
+                })?;
+            let parent = path
+                .parent()
+                .filter(|parent| *parent != path && allowed_paths.is_allowed_local_path(parent));
+            return Ok(json!({
+                "directories": agent_directories(&path, 1).collect::<Vec<_>>(),
+                "parent": parent.map(|path| path.to_string_lossy())
+            }));
+        }
+        if !query.is_empty() {
+            search_paths.insert(0, home.to_path_buf());
+            search_paths.push(allowed_paths.project_root().join("apps"));
+            return Ok(json!({
+                "directories": discover_directories(search_paths, Some(&query)),
+                "parent": null
+            }));
+        }
+        if query_value(&request, "quickPicks").as_deref() == Some("true") {
+            return Ok(json!(DirectoryQuickPicks {
+                quick_picks: discover_directories(search_paths, None),
+                home: home.to_string_lossy().into_owned()
+            }));
+        }
+        Ok(json!({
+            "directories": agent_directories(home, 1).collect::<Vec<_>>(),
+            "parent": null,
+            "home": home.to_string_lossy()
+        }))
+    })
+    .await
+    .map_err(|error| ApiError::from(error.to_string()))?
 }
 
 impl ServerState {
@@ -349,7 +356,11 @@ fn agent_directories(base: &Path, depth: usize) -> impl Iterator<Item = AgentDir
     WalkDir::new(base)
         .min_depth(1)
         .max_depth(depth)
-        .sort_by_key(|entry| entry.file_name().to_string_lossy().into_owned())
+        .sort_by(|a, b| {
+            a.file_name()
+                .to_string_lossy()
+                .cmp(&b.file_name().to_string_lossy())
+        })
         .into_iter()
         .filter_entry(|entry| {
             let name = entry.file_name().to_string_lossy();
@@ -381,106 +392,76 @@ const MAX_SCANNED_ENTRIES: usize = 40_000;
 const MAX_SCAN_TIME: std::time::Duration = std::time::Duration::from_millis(600);
 const MAX_DIRECTORY_RESULTS: usize = 30;
 
-/// Walks for checkouts: prunes noise, stops inside a repository, and reports
-/// modification time so callers can rank by recency.
-fn checkout_candidates(base: &Path, depth: usize) -> Vec<(std::time::SystemTime, AgentDirectory)> {
-    let mut found = Vec::new();
-    let mut walker = WalkDir::new(base)
-        .min_depth(1)
-        .max_depth(depth)
-        .sort_by_key(|entry| entry.file_name().to_string_lossy().into_owned())
-        .into_iter()
-        .filter_entry(|entry| {
-            let name = entry.file_name().to_string_lossy();
-            entry.file_type().is_dir()
-                && !name.starts_with('.')
-                && is_real_agent_folder(&name)
-                && !UNSEARCHED_FOLDERS.contains(&name.as_ref())
-        });
-    let deadline = std::time::Instant::now() + MAX_SCAN_TIME;
-    let mut scanned = 0;
-    while let Some(entry) = walker.next() {
-        scanned += 1;
-        if scanned > MAX_SCANNED_ENTRIES || std::time::Instant::now() > deadline {
-            break;
-        }
-        let Ok(entry) = entry else { continue };
-        let path = entry.path();
-        let is_git_repo = path.join(".git").exists();
-        let modified = entry
-            .metadata()
-            .ok()
-            .and_then(|metadata| metadata.modified().ok())
-            .unwrap_or(UNIX_EPOCH);
-        found.push((
-            modified,
-            AgentDirectory {
-                name: entry.file_name().to_string_lossy().into_owned(),
-                path: path.to_string_lossy().into_owned(),
-                is_git_repo,
-            },
-        ));
-        if is_git_repo {
-            walker.skip_current_dir();
-        }
-    }
-    found
-}
-
-fn search_agent_directories(
-    query: &str,
-    home: &Path,
-    configured_paths: Vec<PathBuf>,
-    project_apps: PathBuf,
-) -> Vec<AgentDirectory> {
-    let lower_query = query.to_lowercase();
-    let (mut exact, mut prefix, mut contains) = (Vec::new(), Vec::new(), Vec::new());
-    let mut search_paths = Vec::with_capacity(configured_paths.len() + 2);
-    search_paths.push(home.to_path_buf());
-    search_paths.extend(configured_paths);
-    search_paths.push(project_apps);
-    for search_path in search_paths {
-        if !search_path.exists() {
-            continue;
-        }
-        for (_, directory) in checkout_candidates(&search_path, MAX_SEARCH_DEPTH) {
-            let name = directory.name.to_lowercase();
-            if name == lower_query {
-                exact.push(directory);
-            } else if name.starts_with(&lower_query) {
-                prefix.push(directory);
-            } else if name.contains(&lower_query) {
-                contains.push(directory);
+/// Rank matching folders without retaining or reading timestamps for unrelated entries.
+fn discover_directories(paths: Vec<PathBuf>, query: Option<&str>) -> Vec<AgentDirectory> {
+    let query = query.map(str::to_lowercase);
+    let mut results = Vec::new();
+    for path in paths {
+        let mut walker = WalkDir::new(path)
+            .min_depth(1)
+            .max_depth(MAX_SEARCH_DEPTH)
+            .sort_by(|a, b| {
+                a.file_name()
+                    .to_string_lossy()
+                    .cmp(&b.file_name().to_string_lossy())
+            })
+            .into_iter()
+            .filter_entry(|entry| {
+                let name = entry.file_name().to_string_lossy();
+                entry.file_type().is_dir()
+                    && !name.starts_with('.')
+                    && is_real_agent_folder(&name)
+                    && !UNSEARCHED_FOLDERS.contains(&name.as_ref())
+            });
+        let deadline = std::time::Instant::now() + MAX_SCAN_TIME;
+        for _ in 0..MAX_SCANNED_ENTRIES {
+            let Some(entry) = walker.next() else { break };
+            if std::time::Instant::now() > deadline {
+                break;
             }
+            let Ok(entry) = entry else { continue };
+            let is_git_repo = entry.path().join(".git").exists();
+            if is_git_repo {
+                walker.skip_current_dir();
+            }
+            let (rank, modified) = if let Some(query) = &query {
+                let name = entry.file_name().to_string_lossy().to_lowercase();
+                let rank = if name == *query {
+                    0
+                } else if name.starts_with(query) {
+                    2
+                } else if name.contains(query) {
+                    4
+                } else {
+                    continue;
+                };
+                (rank + u8::from(!is_git_repo), UNIX_EPOCH)
+            } else if is_git_repo {
+                (
+                    0,
+                    entry
+                        .metadata()
+                        .ok()
+                        .and_then(|m| m.modified().ok())
+                        .unwrap_or(UNIX_EPOCH),
+                )
+            } else {
+                continue;
+            };
+            results.push((rank, std::cmp::Reverse(modified), entry, is_git_repo));
         }
     }
-    for group in [&mut exact, &mut prefix, &mut contains] {
-        group.sort_by_key(|entry| !entry.is_git_repo);
-    }
-    let mut seen = HashSet::new();
-    exact
-        .into_iter()
-        .chain(prefix)
-        .chain(contains)
-        .filter(|entry| seen.insert(entry.path.clone()))
-        .take(MAX_DIRECTORY_RESULTS)
-        .collect()
-}
-
-fn find_agent_quick_picks(configured_paths: Vec<PathBuf>) -> Vec<AgentDirectory> {
-    let mut results = configured_paths
-        .into_iter()
-        .filter(|path| path.is_dir())
-        .flat_map(|directory| checkout_candidates(&directory, MAX_SEARCH_DEPTH))
-        .filter(|(_, entry)| entry.is_git_repo)
-        .collect::<Vec<_>>();
-    results.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
+    results.sort_by_key(|(rank, modified, _, _)| (*rank, *modified));
     let mut seen = HashSet::new();
     results
         .into_iter()
-        .map(|(_, entry)| entry)
-        .filter(|entry| seen.insert(entry.path.clone()))
+        .filter(|(_, _, entry, _)| seen.insert(entry.path().to_path_buf()))
         .take(MAX_DIRECTORY_RESULTS)
+        .map(|(_, _, entry, is_git_repo)| AgentDirectory {
+            name: entry.file_name().to_string_lossy().into_owned(),
+            path: entry.path().to_string_lossy().into_owned(),
+            is_git_repo,
+        })
         .collect()
 }
 
@@ -531,4 +512,92 @@ pub(super) async fn image_thumbnail(path: PathBuf) -> Result<Vec<u8>, String> {
     })
     .await
     .map_err(|error| error.to_string())?
+}
+
+#[cfg(test)]
+mod directory_tests {
+    use super::*;
+
+    #[test]
+    fn discovery_preserves_ranking_pruning_and_unique_results() {
+        let root = tempfile::tempdir().unwrap();
+        for path in [
+            "a/needle/.git",
+            "b/needle",
+            "needle-prefix/.git",
+            "needle-plain",
+            "x-needle/.git",
+            "x-needle-plain",
+            "a/needle/needle-hidden",
+            ".hidden/needle",
+            "node_modules/needle",
+            "App.app/needle",
+            "deep/one/two/needle",
+            "Library/needle",
+        ] {
+            std::fs::create_dir_all(root.path().join(path)).unwrap();
+        }
+        // Worktrees use a .git file rather than a directory.
+        std::fs::write(root.path().join("needle-plain/.git"), "gitdir: elsewhere").unwrap();
+        let paths = vec![root.path().to_path_buf(), root.path().to_path_buf()];
+        let result = discover_directories(paths.clone(), Some("NEEDLE"));
+        let relative: Vec<_> = result
+            .iter()
+            .map(|entry| {
+                (
+                    Path::new(&entry.path)
+                        .strip_prefix(root.path())
+                        .unwrap()
+                        .to_str()
+                        .unwrap(),
+                    entry.is_git_repo,
+                )
+            })
+            .collect();
+        assert_eq!(
+            relative,
+            [
+                ("a/needle", true),
+                ("b/needle", false),
+                ("needle-plain", true),
+                ("needle-prefix", true),
+                ("x-needle", true),
+                ("x-needle-plain", false),
+            ]
+        );
+        assert!(discover_directories(paths.clone(), Some("absent")).is_empty());
+        for i in 0..40 {
+            std::fs::create_dir(root.path().join(format!("item{i:02}"))).unwrap();
+        }
+        let result = discover_directories(paths, Some("item"));
+        assert_eq!(result.len(), 30);
+        assert_eq!(result.last().unwrap().name, "item29");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn quick_picks_order_repositories_by_recency() {
+        let root = tempfile::tempdir().unwrap();
+        for (name, seconds) in [("older", 10), ("newer", 20)] {
+            let directory = root.path().join(name);
+            std::fs::create_dir_all(directory.join(".git")).unwrap();
+            std::fs::File::open(directory)
+                .unwrap()
+                .set_times(
+                    std::fs::FileTimes::new()
+                        .set_modified(UNIX_EPOCH + std::time::Duration::from_secs(seconds)),
+                )
+                .unwrap();
+        }
+        std::fs::create_dir(root.path().join("ordinary")).unwrap();
+        let result = discover_directories(vec![root.path().to_path_buf(); 2], None);
+        assert_eq!(
+            result
+                .iter()
+                .map(|entry| entry.name.as_str())
+                .collect::<Vec<_>>(),
+            ["newer", "older"]
+        );
+        assert!(result.iter().all(|entry| entry.is_git_repo));
+    }
 }

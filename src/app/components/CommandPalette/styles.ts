@@ -7,29 +7,6 @@ import {
 	radius,
 } from "../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
-	trigger: {
-		display: "flex",
-		height: controlSize._8,
-		alignItems: "center",
-		gap: controlSize._2,
-		paddingInline: controlSize._2,
-		borderWidth: controlSize._0,
-		borderRadius: radius.md,
-		backgroundColor: {
-			default: color.surfaceWhite06,
-			":hover": color.surfaceWhite10,
-		},
-		color: color.textMain,
-	},
-	triggerLabel: {
-		fontSize: font.size_2,
-		fontWeight: font.weight_5,
-	},
-	shortcut: {
-		color: color.textMuted,
-		fontFamily: "inherit",
-		fontSize: font.size_1,
-	},
 	backdrop: {
 		position: "fixed",
 		inset: controlSize._0,
