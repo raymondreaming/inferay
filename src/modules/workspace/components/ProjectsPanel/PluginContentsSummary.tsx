@@ -1,17 +1,13 @@
 import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
-import { queryClient } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { readPluginLibrary } from "../../services/projectsApi.ts";
 import { styles } from "./styles.ts";
 
 export function PluginContentsSummary(props: { id: string }) {
-	const library = useBackgroundQuery(
-		() => ({
-			queryKey: ["plugin-library", props.id],
-			queryFn: () => readPluginLibrary(props.id),
-		}),
-		() => queryClient,
-	);
+	const library = useBackgroundQuery(() => ({
+		queryKey: ["plugin-library", props.id],
+		queryFn: () => readPluginLibrary(props.id),
+	}));
 	const summary = () => {
 		const files = library.data?.files;
 		if (!files) return "";

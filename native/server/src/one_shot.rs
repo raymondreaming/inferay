@@ -17,17 +17,13 @@ use tokio::process::Command;
 const CLAUDE_HAIKU_MODEL: &str = "claude-haiku-4-5";
 const GIT_MAX_BUFFER: usize = 512 * 1024;
 
-pub(super) async fn generate_title(resolver: &AgentCommandResolver, message: &str) -> String {
-    let prompt = format!(
-        "Generate a concise title (max 6 words) that summarizes what this chat is about. Output ONLY the title, nothing else.\n\nUser message:\n{}",
-        javascript_slice(message, 0, 500)
-    );
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    run_claude_once(resolver, &prompt, &cwd, CLAUDE_HAIKU_MODEL, 20_000)
-        .await
-        .map(|result| strip_title_quotes(&result))
-        .filter(|title| !title.trim().is_empty())
-        .unwrap_or_else(|| fallback_title(message))
+pub(super) fn usable_chat_title(title: &str) -> bool {
+    let title = title.trim().to_ascii_lowercase();
+    !title.is_empty()
+        && !title.starts_with("your organization has disabled claude subscription access")
+        && !title.starts_with("not logged in")
+        && !title.starts_with("invalid api key")
+        && !title.starts_with("credit balance is too low")
 }
 
 pub(super) async fn generate_commit_message_route(
@@ -100,6 +96,9 @@ async fn run_claude_once(
         .await
         .ok()?
         .ok()?;
+    if !output.status.success() {
+        return None;
+    }
     extract_one_shot_output(&String::from_utf8_lossy(&output.stdout))
 }
 
@@ -133,11 +132,6 @@ pub(super) fn fallback_title(message: &str) -> String {
     } else {
         line.to_string()
     }
-}
-
-fn strip_title_quotes(value: &str) -> String {
-    let value = value.strip_prefix(['"', '\'']).unwrap_or(value);
-    value.strip_suffix(['"', '\'']).unwrap_or(value).to_string()
 }
 
 enum ClaudeText<'a> {
@@ -256,4 +250,20 @@ pub(super) async fn run_btw_chat_message(
     }
     let _ = events.send(json!({"type":"chat:btw:done", "paneId":pane_id,
         "answer": if full_text.is_empty() { "(no response)" } else { &full_text }}));
+}
+
+#[cfg(test)]
+mod title_tests {
+    use super::*;
+    #[test]
+    fn subscription_errors_are_replaced_by_user_message_titles() {
+        assert!(!usable_chat_title(
+            "Your organization has disabled Claude subscription access for Claude Code"
+        ));
+        assert!(usable_chat_title("Fix repository picker"));
+        assert_eq!(
+            fallback_title("  Fix repository picker\nMore details"),
+            "Fix repository picker"
+        );
+    }
 }

@@ -4,6 +4,7 @@ import { CommitGraph } from "@repository/components/graph/components/CommitGraph
 import type { useGitGraph } from "@repository/hooks/useGitGraph.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { GraphActionDialog } from "./GraphActionDialog.tsx";
+import { OperationToast } from "./OperationToast.tsx";
 import { RefOperationDialog } from "./RefOperationDialog.tsx";
 import { RepositoryOperationBar } from "./RepositoryOperationBar.tsx";
 import { styles } from "./styles.ts";
@@ -43,15 +44,17 @@ export function ChatDiffPanel(
 			<span role="status" aria-live="polite" {...stylex.attrs(styles.srStatus)}>
 				{view.selectionAnnouncement}
 			</span>
-			<span
-				role="status"
-				aria-live="polite"
-				data-git-operation-phase={view.operationActivity.phase}
-				{...stylex.attrs(styles.srStatus)}
-			>
-				{view.operationActivity.message}
-			</span>
 			<ViewerHeader {...view} />
+			{view.mainViewMode === "graph" ? (
+				<OperationToast
+					phase={view.operationActivity.phase}
+					message={
+						view.graphActionRunning && view.pendingGraphActionPresentation
+							? `${view.pendingGraphActionPresentation.confirm} in progress…`
+							: view.operationActivity.message
+					}
+				/>
+			) : null}
 			<div {...stylex.attrs(styles.viewerBody)}>
 				{view.mainViewMode === "graph" ? (
 					view.graphLoading &&

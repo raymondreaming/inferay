@@ -1,4 +1,4 @@
-import type { PanelAction, PanelSession } from "@contracts";
+import type { PanelAction, PanelPresentation, PanelSession } from "@contracts";
 import { useBackgroundQuery as useQuery } from "@shared/hooks/useQueryResource.tsx";
 import { listenWindowEvent, queryClient } from "@shared/lib/dom.tsx";
 import {
@@ -44,26 +44,8 @@ export function createWorkspacePanelModel(
 	const release = () => {
 		if (--active === 0 && disposed) replica.free();
 	};
-	const restoreFiles = (id: string, session: PanelSession) => {
-		const files = new Map(
-			current(id).detachedFilePanels.map(({ id, initialFile }) => [
-				id,
-				initialFile,
-			]),
-		);
-		return {
-			...session,
-			detachedFilePanels: session.detachedFilePanels.map((panel) => ({
-				...panel,
-				initialFile: files.get(panel.id),
-			})),
-		};
-	};
 	const publish = (id: string, serialized: string) =>
-		client.setQueryData(
-			key(id),
-			restoreFiles(id, parse<PanelSession>(serialized)),
-		);
+		client.setQueryData(key(id), parse<PanelSession>(serialized));
 	const settle = (request: PanelRequest, session?: PanelSession) => {
 		try {
 			return publish(
@@ -93,11 +75,8 @@ export function createWorkspacePanelModel(
 					try {
 						const revision = replica.revision(workspaceId);
 						const { session } = await send({ workspaceId });
-						return restoreFiles(
-							workspaceId,
-							parse(
-								replica.load(workspaceId, revision, JSON.stringify(session)),
-							),
+						return parse<PanelSession>(
+							replica.load(workspaceId, revision, JSON.stringify(session)),
 						);
 					} finally {
 						release();
@@ -118,32 +97,18 @@ export function createWorkspacePanelModel(
 		}),
 		preview(workspaceId: string, action: PanelAction): PanelRequest {
 			if (disposed) throw new Error("Workspace panel model is disposed");
-			const wireAction = { ...action };
-			if (wireAction.type === "detachFile") delete wireAction.initialFile;
 			const session = current(workspaceId);
 			const preview: { sequence: number; session: PanelSession } = parse(
 				replica.preview(
 					workspaceId,
-					JSON.stringify(wireAction),
+					JSON.stringify(action),
 					Date.now(),
-					JSON.stringify({
-						...session,
-						detachedFilePanels: session.detachedFilePanels.map(
-							({ initialFile: _, ...panel }) => panel,
-						),
-					}),
+					JSON.stringify(session),
 				),
 			);
 			active++;
-			const next = restoreFiles(workspaceId, preview.session);
-			if (action.type === "detachFile") {
-				const panel = next.detachedFilePanels.find(
-					({ id }) => id === action.id,
-				);
-				if (panel) panel.initialFile = action.initialFile;
-			}
-			client.setQueryData(key(workspaceId), next);
-			return { workspaceId, action: wireAction, sequence: preview.sequence };
+			client.setQueryData(key(workspaceId), preview.session);
+			return { workspaceId, action, sequence: preview.sequence };
 		},
 	};
 }
@@ -197,10 +162,7 @@ export function useWorkspacePanelSession(_workspaceId: Accessor<string>) {
 		emptyPanelSession,
 	);
 	onCleanup(() => model.dispose());
-	const query = useQuery(
-		() => model.queryOptions(_workspaceId()),
-		() => queryClient,
-	);
+	const query = useQuery(() => model.queryOptions(_workspaceId()));
 	const mutation = useMutation(
 		() => model.mutationOptions(_workspaceId()),
 		() => queryClient,
@@ -210,15 +172,12 @@ export function useWorkspacePanelSession(_workspaceId: Accessor<string>) {
 		const value = { ...(query.data ?? emptyPanelSession), ...visibility() };
 		return {
 			...value,
-			sidebarContent: rustProject<PanelSession["sidebarContent"]>(
-				"panelSidebarContent",
-				{
-					graphVisible: value.graphVisible,
-					mainViewMode: value.mainViewMode,
-					selectedCommitHash: value.selectedCommitHash,
-					selectedFile: value.selectedFile,
-				},
-			),
+			...rustProject<PanelPresentation>("panelPresentation", {
+				graphVisible: value.graphVisible,
+				mainViewMode: value.mainViewMode,
+				selectedCommitHash: value.selectedCommitHash,
+				selectedFile: value.selectedFile,
+			}),
 		};
 	});
 	// Commands snapshot their target when invoked, including from effect apply callbacks.

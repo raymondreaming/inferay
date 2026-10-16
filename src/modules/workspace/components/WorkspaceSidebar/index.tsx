@@ -15,13 +15,10 @@ import {
 	type WorkspaceSidebarCollapsedDetail,
 } from "@shared/lib/dom.tsx";
 import {
-	listenAgentLayoutMode,
-	loadAgentLayoutMode,
 	loadDefaultChatSettings,
 	loadSidebarCollapsed,
 	project,
 	readStoredValue,
-	setAgentLayoutMode,
 	writeStoredValue,
 } from "@shared/lib/native.tsx";
 import { IconSettings } from "@shared/ui/Icons/index.tsx";
@@ -122,7 +119,6 @@ export function WorkspaceSidebar() {
 	const [updateStatus, setUpdateStatus] =
 		createSignal<SidebarUpdateStatus>("idle");
 	const [updateError, setUpdateError] = createSignal<string>();
-	const [layoutMode, setLayoutMode] = createSignal(loadAgentLayoutMode);
 	const _source = useAppInfo();
 	const _source2 = useForgeAccounts();
 	const githubAccount = createMemo(
@@ -140,12 +136,9 @@ export function WorkspaceSidebar() {
 			);
 		});
 	});
-	const [workspaces, setWorkspaces] = useWorkspaceState();
-	onSettled(() => {
-		return listenAgentLayoutMode(setLayoutMode);
-	});
-	const selectPane = (groupId: string, paneId: string) =>
-		openAgentPane(groupId, paneId, () => {
+	const [workspaces] = useWorkspaceState();
+	const selectPane = (_groupId: string, paneId: string) =>
+		openAgentPane(paneId, () => {
 			if (location.pathname !== "/") navigate("/");
 		});
 	const addChat = async (target: CreateAgentChatTarget) => {
@@ -170,44 +163,6 @@ export function WorkspaceSidebar() {
 			void addChat(target);
 		}),
 	);
-	const updateLayoutMode = (mode: "grid" | "rows") => {
-		if (mode === layoutMode()) return;
-		setLayoutMode(mode);
-		setAgentLayoutMode(mode);
-	};
-	const updateSelectedGroupGrid = async (patch: {
-		columns?: number;
-		rows?: number;
-	}) => {
-		setWorkspaces((current) => {
-			let changed = false;
-			const groups = current.groups.map((group) => {
-				if (group.id !== current.selectedGroupId) return group;
-				const columns = patch.columns ?? group.columns;
-				const rows = patch.rows ?? group.rows;
-				if (columns === group.columns && rows === group.rows) return group;
-				changed = true;
-				return {
-					...group,
-					columns,
-					rows,
-				};
-			});
-			return changed
-				? {
-						...current,
-						groups,
-					}
-				: current;
-		});
-		const groupId = workspaces().selectedGroupId;
-		if (groupId)
-			await mutateAgentWorkspaceState({
-				type: "setGridDimensions",
-				groupId,
-				...patch,
-			});
-	};
 	const updateInfo = createMemo(() => _source.data.update);
 	const updateAvailable = createMemo(() => {
 		const _updateInfoValue = updateInfo();
@@ -290,13 +245,8 @@ export function WorkspaceSidebar() {
 					<ProjectNavigation />
 					<nav aria-label="Workspaces" {...stylex.attrs(styles.nav)}>
 						<SidebarWorkspacesSection
-							collapsed={collapsed()}
 							workspaces={workspaces()}
-							layoutMode={layoutMode()}
-							onUpdateLayoutMode={updateLayoutMode}
-							onUpdateGrid={updateSelectedGroupGrid}
 							onSelectPane={selectPane}
-							onExpandSidebar={() => setCollapsed(false)}
 						/>
 					</nav>
 					<div {...stylex.attrs(styles.sidebarAccountArea)}>

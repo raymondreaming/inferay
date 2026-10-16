@@ -31,10 +31,6 @@ impl WorkspaceReplica {
     pub fn snapshot(&self) -> String {
         wasm_json::stringify(&self.snapshot, "workspace snapshot")
     }
-    pub fn publish(&mut self, snapshot: &str) -> Result<String, JsValue> {
-        self.snapshot = wasm_json::parse(snapshot)?;
-        Ok(self.snapshot())
-    }
     pub fn begin(&mut self, action: &str) -> Result<String, JsValue> {
         let action: Value = wasm_json::parse(action)?;
         let plan = workspace_mutation_plan(&self.snapshot.state, &action);

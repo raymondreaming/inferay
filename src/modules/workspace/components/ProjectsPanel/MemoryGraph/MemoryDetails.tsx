@@ -158,9 +158,7 @@ export function MemoryDetails(props: {
 										<Button
 											size="sm"
 											variant="primary"
-											onClick={() =>
-												void openAgentPane(chat.groupId, chat.pane.id, () => {})
-											}
+											onClick={() => void openAgentPane(chat.pane.id, () => {})}
 										>
 											Open chat
 										</Button>

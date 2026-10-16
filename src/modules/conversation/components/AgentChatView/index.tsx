@@ -1,9 +1,12 @@
 import { traceUi } from "@shared/lib/native.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { WorkspaceDockHandle } from "@workspace/components/WorkspaceDockHandle/index.tsx";
+import { projects } from "@workspace/hooks/useProjects.tsx";
 import { createEffect, createSignal, onSettled } from "solid-js";
+import { AgentWorkspaceControl } from "../AgentChatHeader/index.tsx";
+import { AgentChatStatusBar } from "../AgentChatStatusBar/index.tsx";
 import { AgentContextPanel } from "../AgentContextPanel/index.tsx";
-import { AgentChatComposer } from "./AgentChatComposer.tsx";
+import { ChatComposer } from "../ChatComposer/index.tsx";
 import { AgentChatMessages } from "./AgentChatMessages.tsx";
 import { styles } from "./styles.ts";
 import {
@@ -110,12 +113,61 @@ export function AgentChatView(props: AgentChatViewProps) {
 				/>
 			)}
 			{!contextOpen() && (
-				<AgentChatComposer
-					state={state}
-					imageDragActive={imageDragActive()}
-					setConfigOpen={setConfigOpen}
-					openContext={() => setContextOpen(true)}
-				/>
+				<div {...stylex.attrs(styles.composerRegion)}>
+					{imageDragActive() && (
+						<div {...stylex.attrs(styles.imageDropCue)}>
+							Drop image to attach
+						</div>
+					)}
+					<div {...stylex.attrs(styles.composerContent)}>
+						<AgentChatStatusBar
+							active={state.visible()}
+							isLoading={state.connection.chatUiState.isLoading}
+							startTime={state.connection.chatUiState.startTime}
+							onStop={state.stopGeneration}
+						/>
+						{state.settings.configurationError && (
+							<div role="alert">{state.settings.configurationError}</div>
+						)}
+						{state.composer.queueError && (
+							<div role="alert">{state.composer.queueError}</div>
+						)}
+						<ChatComposer
+							active={state.visible()}
+							{...state.composer}
+							{...state.menus}
+							beamActive={state.highlight.active()}
+							agentKind={state.agentKind()}
+							agentKindOptions={state.settings.agentKindOptions}
+							model={state.settings.effectiveSelectedModel}
+							reasoningLevel={state.settings.selectedReasoningLevel}
+							onAgentKindChange={state.settings.handleAgentKindChange}
+							onModelChange={state.settings.handleModelChange}
+							onReasoningLevelChange={state.settings.handleReasoningLevelChange}
+							onAgentConfigOpenChange={setConfigOpen}
+							input={state.input()}
+							setInput={state.setInput}
+							handleKeyDown={state.inputActions.handleKeyDown}
+							textareaRef={state.viewport.textareaRef}
+							highlightOverlayRef={state.viewport.highlightOverlayRef}
+							voiceInput={state.voiceInput}
+							workspaceControl={
+								!projects
+									.list()
+									.some(
+										(project) =>
+											project.directory === state.workspace.visibleCwd,
+									) ? (
+									<AgentWorkspaceControl
+										cwd={state.workspace.visibleCwd}
+										onAgentContext={() => setContextOpen(true)}
+										isAgentContextOpen={false}
+									/>
+								) : null
+							}
+						/>
+					</div>
+				</div>
 			)}
 		</div>
 	);

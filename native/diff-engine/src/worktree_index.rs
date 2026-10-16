@@ -1,16 +1,18 @@
+// A disposable index lets Git count new files and detect unstaged renames
+// without staging anything in the user's index. Git retains ownership of text,
+// binary, symlink and attribute semantics.
 use super::{git_exec, run_git, GitFileEntry};
 use std::time::Duration;
 
-pub(super) struct WorktreeRenames {
+pub(super) struct WorktreeIndex {
     directory: tempfile::TempDir,
     pub pairs: Vec<(String, String)>,
 }
 
-impl WorktreeRenames {
-    pub fn read(cwd: &str, files: &[GitFileEntry]) -> Option<Self> {
-        if !files.iter().any(|file| !file.staged && file.status == "D")
-            || !files.iter().any(|file| file.status == "?")
-        {
+impl WorktreeIndex {
+    pub fn for_status(cwd: &str, files: &[GitFileEntry], include_stats: bool) -> Option<Self> {
+        let detect_renames = files.iter().any(|file| !file.staged && file.status == "D");
+        if (!include_stats && !detect_renames) || !files.iter().any(|file| file.status == "?") {
             return None;
         }
         let mut result = Self::prepare(
@@ -21,6 +23,9 @@ impl WorktreeRenames {
                 .map(|file| file.path.as_str())
                 .collect::<Vec<_>>(),
         )?;
+        if !detect_renames {
+            return Some(result);
+        }
         let output = result.git(
             cwd,
             &[
@@ -55,11 +60,16 @@ impl WorktreeRenames {
     pub fn prepare(cwd: &str, paths: &[&str]) -> Option<Self> {
         let directory = tempfile::tempdir().ok()?;
         let index = run_git(&["rev-parse", "--git-path", "index"], cwd)?;
-        std::fs::copy(
+        match std::fs::copy(
             std::path::Path::new(cwd).join(index.trim()),
             directory.path().join("index"),
-        )
-        .ok()?;
+        ) {
+            Ok(_) => {}
+            // A new repository may not have an index yet. Git creates only our
+            // disposable index when admitting the untracked paths below.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return None,
+        }
         let result = Self {
             directory,
             pairs: Vec::new(),
@@ -101,6 +111,90 @@ mod tests {
             "{args:?}: {}",
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+
+    #[test]
+    fn new_files_contribute_git_line_counts_without_changing_the_real_index() {
+        let root = tempfile::tempdir().unwrap();
+        let cwd = root.path().to_str().unwrap();
+        git(root.path(), &["init", "-q"]);
+        std::fs::write(root.path().join("new file.txt"), "first\nsecond").unwrap();
+        std::fs::write(root.path().join("empty.txt"), "").unwrap();
+        std::fs::write(root.path().join("image.bin"), b"a\0b\n").unwrap();
+        std::fs::write(root.path().join("opaque.dat"), "looks like text\n").unwrap();
+        std::fs::write(root.path().join(".gitattributes"), "*.dat binary\n").unwrap();
+        std::fs::write(root.path().join(".gitignore"), "ignored.txt\n").unwrap();
+        std::fs::write(root.path().join("ignored.txt"), "not a change\n").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("new file.txt", root.path().join("link")).unwrap();
+        let status = get_git_status(cwd).unwrap();
+        assert!(!root.path().join(".git/index").exists());
+        let counts = |path: &str| {
+            let file = status.files.iter().find(|file| file.path == path).unwrap();
+            assert_eq!(file.status, "?");
+            assert!(!file.staged);
+            (file.additions.unwrap_or(0), file.deletions.unwrap_or(0))
+        };
+        assert_eq!(counts("new file.txt"), (2, 0));
+        assert_eq!(counts("empty.txt"), (0, 0));
+        assert_eq!(counts("image.bin"), (0, 0));
+        assert_eq!(counts("opaque.dat"), (0, 0));
+        #[cfg(unix)]
+        assert_eq!(counts("link"), (1, 0));
+        assert!(!status.files.iter().any(|file| file.path == "ignored.txt"));
+
+        git(root.path(), &["add", "."]);
+        git(
+            root.path(),
+            &[
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-qm",
+                "base",
+            ],
+        );
+        std::fs::write(root.path().join("new file.txt"), "replacement\n").unwrap();
+        git(root.path(), &["add", "new file.txt"]);
+        std::fs::write(root.path().join("new file.txt"), "replacement\nunstaged\n").unwrap();
+        std::fs::write(root.path().join("another.txt"), "one\ntwo\nthree\n").unwrap();
+        let index_before = std::fs::read(root.path().join(".git/index")).unwrap();
+        let status = get_git_status(cwd).unwrap();
+        assert_eq!(
+            std::fs::read(root.path().join(".git/index")).unwrap(),
+            index_before
+        );
+        assert_eq!(
+            status
+                .files
+                .iter()
+                .map(|file| file.additions.unwrap_or(0))
+                .sum::<usize>(),
+            5
+        );
+        assert_eq!(
+            status
+                .files
+                .iter()
+                .map(|file| file.deletions.unwrap_or(0))
+                .sum::<usize>(),
+            2
+        );
+        let new_file = status
+            .files
+            .iter()
+            .find(|file| file.path == "another.txt")
+            .unwrap();
+        assert_eq!((new_file.additions, new_file.deletions), (Some(3), Some(0)));
+        assert!(status
+            .file_groups
+            .untracked
+            .iter()
+            .any(|file| file.path == "another.txt" && file.additions == Some(3)));
     }
 
     #[test]

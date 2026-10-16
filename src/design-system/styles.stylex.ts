@@ -369,7 +369,12 @@ export const surfaceStyles = stylex.create({
 		},
 	},
 });
-type SelectionVariant = "sidebar" | "repository" | "view" | "list";
+type SelectionVariant =
+	| "sidebar"
+	| "repository"
+	| "view"
+	| "list"
+	| "navigation";
 
 /** Owns selection appearance. Callers supply layout, labels, and behavior only. */
 export function selectionAppearance(
@@ -383,9 +388,21 @@ export function selectionAppearance(
 		bordered && selection.bordered,
 		selected && selection.selected,
 		selected && bordered && selection.selectedBorder,
+		selected && variant === "navigation" && selection.navigationSelected,
 	];
 }
 const selection = stylex.create({
+	navigation: {
+		borderRadius: radius.md,
+		backgroundColor: {
+			default: color.transparent,
+			":hover": color.controlHover,
+		},
+	},
+	navigationSelected: {
+		backgroundColor: color.controlActive,
+		boxShadow: "none",
+	},
 	base: {
 		backgroundColor: color.transparent,
 		backgroundImage: "none",

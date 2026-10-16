@@ -11,11 +11,9 @@ import {
 	presentation,
 } from "../../../build/presentation/presentation.js";
 import providerCatalog from "../../../build/presentation/provider-catalog.json";
-export type AgentLayoutMode = "grid" | "rows";
 
 import {
 	dispatchWindowEvent,
-	listenWindowEvent,
 	WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
 	type WorkspaceSidebarCollapsedDetail,
 } from "./dom.tsx";
@@ -382,22 +380,6 @@ export function saveStoredInput(paneId: string, value: string) {
 }
 export function clearAgentChatPaneState(paneId: string) {
 	removeStoredValue(INPUT_KEY_PREFIX + paneId);
-}
-export const loadAgentLayoutMode = (): AgentLayoutMode =>
-	readStoredValue("agent-layout-mode") === "rows" ? "rows" : "grid";
-export const listenAgentLayoutMode = (set: (mode: AgentLayoutMode) => void) =>
-	listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
-		if (
-			(
-				event as CustomEvent<{
-					key?: string;
-				}>
-			).detail?.key === "agent-layout-mode"
-		)
-			set(loadAgentLayoutMode());
-	});
-export function setAgentLayoutMode(mode: AgentLayoutMode) {
-	writeStoredValue("agent-layout-mode", mode);
 }
 export const loadSidebarCollapsed = () =>
 	readStoredBoolean("sidebar-collapsed");

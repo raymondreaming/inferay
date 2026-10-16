@@ -455,14 +455,6 @@ pub struct ProjectPlugin {
     pub enabled: bool,
     pub directory: String,
 }
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectResourceType {
-    pub id: String,
-    pub version: i64,
-    pub schema: Value,
-    pub enabled: bool,
-}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(

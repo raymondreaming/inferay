@@ -15,27 +15,28 @@ pub(super) async fn handle(state: &ServerState, request: Request) -> ApiResult {
     let key = format!("{KEY}{workspace_id}");
     let stored = crate::client_storage::decode_json(entries, &key);
     let mut current =
-        inferay_presentation::panels::normalize(stored.as_ref().unwrap_or(&Value::Null));
+        inferay_presentation::panels::PanelSession::read(stored.as_ref().unwrap_or(&Value::Null));
     let announcement = match body.get("action") {
         Some(action) => {
-            let announcement =
-                inferay_presentation::panels::apply_action(&mut current, action, unix_millis())
-                    .map_err(|error| api_error(StatusCode::BAD_REQUEST, error))?;
-            current = inferay_presentation::panels::normalize(&current);
-            announcement
+            let action = serde_json::from_value(action.clone())
+                .map_err(|error| api_error(StatusCode::BAD_REQUEST, error))?;
+            current.apply(action, unix_millis())
         }
         None => None,
     };
-    if stored.as_ref() != Some(&current) {
+    let snapshot = json!(current);
+    if stored.as_ref() != Some(&snapshot) {
         storage
             .update(std::collections::BTreeMap::from([(
                 key,
-                Some(crate::client_storage::encode_json(&current)),
+                Some(crate::client_storage::encode_json(&snapshot)),
             )]))
             .await?;
     }
-    if body.get("action").is_none() && current["fileRequest"].is_object() {
-        current["fileRequest"]["token"] = json!(unix_millis());
+    if body.get("action").is_none()
+        && let Some(request) = &mut current.file_request
+    {
+        request.token = unix_millis();
     }
     Ok(json!({"session":current, "announcement":announcement}))
 }
@@ -64,16 +65,13 @@ pub(super) async fn restore_documents(state: &ServerState, request: Request) -> 
             .filter(|session| session["cwd"] == cwd)
             .unwrap_or(Value::Null)
     };
-    let mut paths: Vec<_> = saved["paths"]
+    let paths: Vec<_> = saved["paths"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
         .filter(|path| !path.is_empty())
         .collect();
-    if let Some(initial) = body["initialPath"].as_str() {
-        paths.push(initial);
-    }
     let mut seen = std::collections::HashSet::new();
     let mut files = Vec::new();
     let mut active = Value::Null;

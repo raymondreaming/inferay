@@ -24,17 +24,16 @@ export function SkillProposalCard(_props: {
 		messageId: _props.messageId,
 		proposal: JSON.parse(JSON.stringify(_props.proposal)) as SkillProposal,
 	}));
-	const resource = useQueryResource<SkillProposalView | null>(
-		() => {
-			const input = request();
-			return (signal) => previewSkillProposal(input, signal);
-		},
-		() => null,
-		() => ({
-			queryKey: ["skills", "proposal", request().messageId, request().proposal],
+	const resource = useQueryResource<SkillProposalView | null>(() => {
+		const input = request();
+		return {
+			queryKey: ["skills", "proposal", input.messageId, input.proposal],
+			queryFn: ({ signal }) => previewSkillProposal(input, signal),
+			initialData: null,
 			enabled: !_props.streaming,
-		}),
-	);
+		};
+	});
+
 	const view = createMemo(() => resource.data);
 	const loading = createMemo(() => !resource.loaded || resource.loading);
 	const inFlight = {

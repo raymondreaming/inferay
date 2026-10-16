@@ -1,3 +1,4 @@
+import { selectionAppearance } from "@design-system/styles.stylex.ts";
 import { FileChangeTotals } from "@repository/components/changes/components/ChangesPanel/FileChangeTotals.tsx";
 import { useGitStatus } from "@repository/hooks/useGitStatus.tsx";
 import { APP_REGION_NO_DRAG_CLASS, ariaValue } from "@shared/lib/dom.tsx";
@@ -17,7 +18,7 @@ import {
 	projects,
 	showProjectView,
 } from "../../hooks/useProjects.tsx";
-import { ProjectEditor } from "./ProjectEditor.tsx";
+import { RepositoryManager } from "./RepositoryManager.tsx";
 import { styles } from "./styles.ts";
 
 export function ProjectNavigation() {
@@ -66,7 +67,10 @@ export function ProjectNavigation() {
 								{...stylex.attrs(
 									styles.tab,
 									styles.mainNavigationItem,
-									projects.view() === item.view && styles.selectedTab,
+									...selectionAppearance(
+										"navigation",
+										projects.view() === item.view,
+									),
 								)}
 								aria-current={
 									projects.view() === item.view ? "page" : undefined
@@ -117,9 +121,11 @@ export function ProjectNavigation() {
 										}
 										{...stylex.attrs(
 											styles.tab,
-											projects.view() === "code" &&
-												projects.repositoryPath() === path() &&
-												styles.selectedTab,
+											...selectionAppearance(
+												"navigation",
+												projects.view() === "code" &&
+													projects.repositoryPath() === path(),
+											),
 										)}
 										onClick={() => openProjectRepository(path())}
 									>
@@ -149,7 +155,10 @@ export function ProjectNavigation() {
 				</>
 			) : null}
 			{editing() && current() ? (
-				<ProjectEditor project={current()} close={() => setEditing(false)} />
+				<RepositoryManager
+					project={current()!}
+					close={() => setEditing(false)}
+				/>
 			) : null}
 		</nav>
 	);

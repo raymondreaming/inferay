@@ -1,18 +1,11 @@
-import type {
-	AgentTheme,
-	Group,
-	WorkspaceAgentKind,
-	WorkspaceView,
-} from "@contracts";
+import type { Group, WorkspaceAgentKind, WorkspaceView } from "@contracts";
 import type { AgentChatHandle } from "@conversation/components/AgentChatView/index.tsx";
-import type { AgentLayoutMode } from "@shared/lib/native.tsx";
+import * as stylex from "@stylexjs/stylex";
 import { createMemo } from "solid-js";
 import { DEFAULT_ROWS, WorkspaceCanvas } from "../WorkspaceCanvas/index.tsx";
-import { AgentMainSurface } from "./AgentMainSurface.tsx";
+import { styles } from "./styles.ts";
 
 type AgentPaneActions = {
-	handleAddPane: (agentKind: WorkspaceAgentKind) => void;
-	reorderPanes: (fromIndex: number, toIndex: number) => void;
 	handleSetPaneAgentKind: (
 		paneId: string,
 		agentKind: WorkspaceAgentKind,
@@ -31,8 +24,6 @@ export function ConversationSurface(props: {
 	view: WorkspaceView;
 	group: Group | undefined;
 	active: boolean;
-	layoutMode: AgentLayoutMode;
-	theme: AgentTheme;
 	actions: AgentPaneActions;
 	onFocusPane: (paneId: string) => void;
 }) {
@@ -57,31 +48,25 @@ export function ConversationSurface(props: {
 			selectedPaneId={selectedPaneId()}
 			columns={props.group?.columns ?? 2}
 			rows={props.group?.rows ?? DEFAULT_ROWS}
-			layoutMode={props.layoutMode}
-			theme={props.theme}
 			onSelectPane={props.actions.selectPane}
 			onFocusPane={props.onFocusPane}
 			onClosePane={props.actions.removePane}
 			onDirectorySelect={props.actions.handleDirectorySelected}
 			onDirectoryCancel={props.actions.removePane}
 			onChatRef={props.actions.handleChatRef}
-			onReorderPanes={props.actions.reorderPanes}
-			onAddPane={props.actions.handleAddPane}
 			onSetPaneAgentKind={props.actions.handleSetPaneAgentKind}
 			workspaceId={props.view.key}
 			legacyWorkspaceId={props.group?.id}
-			auxiliaryPanels={[]}
 		/>
 	);
 	return (
-		<AgentMainSurface
-			active={props.active}
-			paneCount={panes().length}
-			chatDiffPanel={null}
-			chatSidebar={null}
-			chatZenMode={false}
-			hasCurrentPanes={panes().length > 0}
-			agentGrid={grid}
-		/>
+		<div
+			data-repository-active={props.active ? "true" : "false"}
+			data-expected-panes={panes().length}
+			aria-hidden={props.active ? undefined : "true"}
+			{...stylex.attrs(styles.surface, !props.active && styles.inactive)}
+		>
+			{grid}
+		</div>
 	);
 }

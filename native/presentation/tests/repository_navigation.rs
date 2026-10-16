@@ -1,6 +1,17 @@
 use inferay_presentation::project;
 use serde_json::{Value, json};
 
+fn panel_session(saved: &Value) -> Value {
+    json!(inferay_presentation::panels::PanelSession::read(saved))
+}
+fn apply_panel(session: &mut Value, action: &Value, now: u64) -> Result<(), String> {
+    *session = project(
+        "panelPreview",
+        &json!({"session":session,"action":action,"now":now}),
+    )?;
+    Ok(())
+}
+
 #[test]
 fn graph_navigation_opens_wip_and_preserves_branch_and_boundary_rules() {
     let navigate = |key: &str, current: i64, extra: Value| {
@@ -93,7 +104,6 @@ fn graph_file_open_waits_for_history_then_restarts_at_the_first_sidebar_file() {
 
 #[test]
 fn hidden_graph_keeps_file_keyboard_navigation_after_closing_and_reopening_diff() {
-    use inferay_presentation::panels;
     for (current, expected) in [(-1, 0), (1, 1)] {
         assert_eq!(
             project(
@@ -109,10 +119,10 @@ fn hidden_graph_keeps_file_keyboard_navigation_after_closing_and_reopening_diff(
         json!({"type":"commitFile","cwd":"/repo","path":"a.rs","commitHash":"commit","commitParent":null}),
         json!({"type":"comparisonFile","cwd":"/repo","path":"a.rs","from":"base","to":"head"}),
     ] {
-        let mut session = panels::normalize(
+        let mut session = panel_session(
             &json!({"graphVisible":false,"sidebarVisible":true,"mainViewMode":"diff"}),
         );
-        panels::apply_action(&mut session, &selection, 1).unwrap();
+        apply_panel(&mut session, &selection, 1).unwrap();
         let navigate = |session: &Value, key: &str| {
             project(
                 "repositoryKeyboardAction",
@@ -126,10 +136,10 @@ fn hidden_graph_keeps_file_keyboard_navigation_after_closing_and_reopening_diff(
         };
         assert_eq!(navigate(&session, "ArrowLeft"), json!({"type":"close"}));
         let selected = session["selectedFile"].clone();
-        panels::apply_action(&mut session, &json!({"type":"dismissDiff"}), 2).unwrap();
+        apply_panel(&mut session, &json!({"type":"dismissDiff"}), 2).unwrap();
         assert_eq!(navigate(&session, "ArrowRight"), json!({"type":"open"}));
         assert_eq!(navigate(&session, "Enter"), Value::Null);
-        panels::apply_action(&mut session, &json!({"type":"mode","mode":"diff"}), 3).unwrap();
+        apply_panel(&mut session, &json!({"type":"mode","mode":"diff"}), 3).unwrap();
         assert_eq!(session["selectedFile"], selected);
         assert_eq!(
             navigate(&session, "ArrowDown"),
@@ -187,8 +197,7 @@ fn sidebar_keys_work_before_a_file_preview_or_graph_focus() {
 
 #[test]
 fn right_from_chat_enters_sidebar_again_after_returning_to_chat() {
-    use inferay_presentation::panels;
-    let mut session = panels::normalize(&json!({"graphVisible":false,"sidebarVisible":true}));
+    let mut session = panel_session(&json!({"graphVisible":false,"sidebarVisible":true}));
     for empty_composer in [false, true] {
         for _ in 0..2 {
             let mut input = json!({"key":"ArrowRight","chatFocused":true,"sidebarVisible":true,
@@ -218,15 +227,14 @@ fn right_from_chat_enters_sidebar_again_after_returning_to_chat() {
                 project("repositoryKeyboardAction", &input).unwrap(),
                 Value::Null
             );
-            panels::apply_action(
+            apply_panel(
                 &mut session,
                 &json!({"type":"workingTreeFile","cwd":"/repo","path":"first.rs","staged":false}),
                 1,
             )
             .unwrap();
-            panels::apply_action(&mut session, &json!({"type":"dismissDiff"}), 2).unwrap();
-            panels::apply_action(&mut session, &json!({"type":"focusChat","cwd":"/repo"}), 3)
-                .unwrap();
+            apply_panel(&mut session, &json!({"type":"dismissDiff"}), 2).unwrap();
+            apply_panel(&mut session, &json!({"type":"focusChat","cwd":"/repo"}), 3).unwrap();
         }
     }
 }
@@ -296,11 +304,10 @@ fn space_pages_current_diff_from_sidebar_without_moving_focus_or_selection() {
 
 #[test]
 fn leaving_wip_diff_preserves_graph_selection_and_repository() {
-    use inferay_presentation::panels;
     for file_disappears in [false, true] {
-        let mut session = panels::normalize(&json!({"mainViewMode":"graph","graphVisible":true,
+        let mut session = panel_session(&json!({"mainViewMode":"graph","graphVisible":true,
             "sidebarVisible":true,"diffViewerCwd":"/repo","selectedCommitHash":"wip"}));
-        panels::apply_action(
+        apply_panel(
             &mut session,
             &json!({"type":"workingTreeFile","cwd":"/repo","path":"a.rs","staged":false}),
             1,
@@ -314,14 +321,14 @@ fn leaving_wip_diff_preserves_graph_selection_and_repository() {
         );
         if file_disappears {
             let file = session["selectedFile"].clone();
-            panels::apply_action(
+            apply_panel(
                 &mut session,
                 &json!({"type":"reconcileFile","expected":file,"staged":null}),
                 2,
             )
             .unwrap();
         }
-        panels::apply_action(&mut session, &json!({"type":"dismissDiff"}), 3).unwrap();
+        apply_panel(&mut session, &json!({"type":"dismissDiff"}), 3).unwrap();
         assert_eq!(session["mainViewMode"], "graph");
         assert_eq!(session["graphVisible"], true);
         assert_eq!(session["diffViewerCwd"], "/repo");
@@ -340,10 +347,9 @@ fn leaving_wip_diff_preserves_graph_selection_and_repository() {
 
 #[test]
 fn sidebar_left_reopens_hidden_graph_after_browsing_files() {
-    use inferay_presentation::panels;
-    let mut session = panels::normalize(&json!({"mainViewMode":"graph","graphVisible":true,
+    let mut session = panel_session(&json!({"mainViewMode":"graph","graphVisible":true,
         "sidebarVisible":true,"diffViewerCwd":"/repo","selectedCommitHash":"commit"}));
-    panels::apply_action(
+    apply_panel(
         &mut session,
         &json!({"type":"toggleGraph","cwd":"/repo"}),
         1,
@@ -352,7 +358,7 @@ fn sidebar_left_reopens_hidden_graph_after_browsing_files() {
     assert_eq!(session["graphVisible"], false);
     for file in [None, Some("a.rs"), Some("b.rs")] {
         if let Some(path) = file {
-            panels::apply_action(
+            apply_panel(
                 &mut session,
                 &json!({"type":"workingTreeFile","cwd":"/repo","path":path,"staged":false}),
                 2,
@@ -366,7 +372,7 @@ fn sidebar_left_reopens_hidden_graph_after_browsing_files() {
             json!({"type":"focusGraph"})
         );
     }
-    panels::apply_action(&mut session, &json!({"type":"openGraph","cwd":"/repo"}), 3).unwrap();
+    apply_panel(&mut session, &json!({"type":"openGraph","cwd":"/repo"}), 3).unwrap();
     assert_eq!(session["graphVisible"], true);
     assert_eq!(session["mainViewMode"], "graph");
     assert_eq!(session["selectedCommitHash"], "commit");

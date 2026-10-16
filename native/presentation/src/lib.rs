@@ -70,20 +70,20 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
                 .map_err(|error| error.to_string())?
         )),
         "mergeTranscriptOrder" => transcript::merge_order(input),
-        "emptyPanels" => panels::normalize(&Value::Null),
-        "panelSidebarContent" => json!(panels::sidebar_content(input)),
+        "emptyPanels" => json!(panels::PanelSession::read(&Value::Null)),
+        "panelPresentation" => json!(panels::PanelSession::read(input).presentation()),
         "panelVisibility" => json!({
             "graphVisible": input["graphVisible"].as_bool().unwrap_or(true),
             "sidebarVisible": input["sidebarVisible"].as_bool().unwrap_or(true),
         }),
         "panelPreview" => {
-            let mut session = input["session"].clone();
-            panels::apply_action(
-                &mut session,
-                &input["action"],
+            let mut session = panels::PanelSession::read(&input["session"]);
+            session.apply(
+                serde_json::from_value(input["action"].clone())
+                    .map_err(|error| error.to_string())?,
                 input["now"].as_u64().unwrap_or(0),
-            )?;
-            panels::normalize(&session)
+            );
+            json!(session)
         }
         "gitOperationModel" => workbench::git_operation_model(input),
         "gitActionFailure" => git_actions::failed_operation(input),
@@ -101,7 +101,6 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
         "repositorySelectedWorktree" => workbench::selected_worktree(input),
         "repositoryInteraction" => json!(workbench::interaction(input)),
         "repositoryKeyboardAction" => workbench::keyboard_action(input),
-        "repositoryResizeStart" => workbench::resize_start(input),
         "retainedGraphSelection" => json!(workbench::retained_graph_selection(input)),
         "graphFileOpen" => json!(workbench::graph_file_open(input)),
         "diffPrefetchFiles" => diff::diff_prefetch_files(input),

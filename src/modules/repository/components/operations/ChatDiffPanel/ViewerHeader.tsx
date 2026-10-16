@@ -1,4 +1,5 @@
 import { iconSize } from "@design-system/styles.stylex.ts";
+import { FileTypeIcon } from "@explorer/components/FileTypeIcon/index.tsx";
 import { ariaValue } from "@shared/lib/dom.tsx";
 import {
 	IconArrowDown,
@@ -11,9 +12,7 @@ import {
 } from "@shared/ui/Icons/index.tsx";
 import { Dynamic } from "@solidjs/web";
 import * as stylex from "@stylexjs/stylex";
-import { WorkspaceDockHandle } from "@workspace/components/WorkspaceDockHandle/index.tsx";
 import { createMemo } from "solid-js";
-import { DiffFilePath } from "./DiffFilePath.tsx";
 import { styles } from "./styles.ts";
 import type { useChatDiffPanelState } from "./useChatDiffPanelState.tsx";
 
@@ -22,14 +21,10 @@ export function ViewerHeader(
 		ReturnType<typeof useChatDiffPanelState>,
 		| "mainViewMode"
 		| "branch"
-		| "drag"
 		| "file"
 		| "stats"
 		| "graphActionRunning"
 		| "requestGraphAction"
-		| "setHoveredModeIndex"
-		| "hoveredModeIndex"
-		| "activeModeIndex"
 		| "onMainViewModeChange"
 		| "onViewModeChange"
 		| "viewMode"
@@ -41,9 +36,6 @@ export function ViewerHeader(
 ) {
 	return (
 		<header {...stylex.attrs(styles.viewerHeader, styles.viewerHeaderTop)}>
-			{_props.mainViewMode === "graph" && _props.drag ? (
-				<WorkspaceDockHandle {..._props.drag} />
-			) : null}
 			{_props.mainViewMode === "graph" && (
 				<span title={_props.branch} {...stylex.attrs(styles.graphTitle)}>
 					<IconGitBranch size={iconSize.compact} />
@@ -104,58 +96,38 @@ export function ViewerHeader(
 			{_props.mainViewMode !== "graph" ? (
 				<>
 					<span {...stylex.attrs(styles.viewerFloatingDivider)} />
-					<div
-						{...stylex.attrs(styles.viewerModes)}
-						onMouseLeave={() => _props.setHoveredModeIndex(null)}
-					>
-						<button
-							type="button"
-							onMouseEnter={() => _props.setHoveredModeIndex(0)}
-							onPointerDown={(event) => {
-								if (event.button === 0 && event.isPrimary) {
-									_props.onMainViewModeChange("diff");
-									_props.onViewModeChange("split");
-								}
-							}}
-							onClick={(event) => {
-								if (event.detail === 0) {
-									_props.onMainViewModeChange("diff");
-									_props.onViewModeChange("split");
-								}
-							}}
-							title="Full file diff"
-							aria-label="Full file diff"
-							{...stylex.attrs(
-								styles.viewerModeButton,
-								_props.viewMode === "split" && styles.viewerModeButtonActive,
-							)}
-						>
-							<IconLayoutGrid size={iconSize.compact} />
-						</button>
-						<button
-							type="button"
-							onMouseEnter={() => _props.setHoveredModeIndex(1)}
-							onPointerDown={(event) => {
-								if (event.button === 0 && event.isPrimary) {
-									_props.onMainViewModeChange("diff");
-									_props.onViewModeChange("hunks");
-								}
-							}}
-							onClick={(event) => {
-								if (event.detail === 0) {
-									_props.onMainViewModeChange("diff");
-									_props.onViewModeChange("hunks");
-								}
-							}}
-							title="Hunk view"
-							aria-label="Hunk view"
-							{...stylex.attrs(
-								styles.viewerModeButton,
-								_props.viewMode === "hunks" && styles.viewerModeButtonActive,
-							)}
-						>
-							<IconGitBranch size={iconSize.compact} />
-						</button>
+					<div {...stylex.attrs(styles.viewerModes)}>
+						{(["split", "hunks"] as const).map((mode) => {
+							const select = () => {
+								_props.onMainViewModeChange("diff");
+								_props.onViewModeChange(mode);
+							};
+							const label = mode === "split" ? "Full file diff" : "Hunk view";
+							return (
+								<button
+									type="button"
+									onPointerDown={(event) => {
+										if (event.button === 0 && event.isPrimary) select();
+									}}
+									onClick={(event) => {
+										if (event.detail === 0) select();
+									}}
+									title={label}
+									aria-label={label}
+									{...stylex.attrs(
+										styles.viewerModeButton,
+										_props.viewMode === mode && styles.viewerModeButtonActive,
+									)}
+								>
+									<Dynamic
+										component={
+											mode === "split" ? IconLayoutGrid : IconGitBranch
+										}
+										size={iconSize.compact}
+									/>
+								</button>
+							);
+						})}
 					</div>
 				</>
 			) : null}
@@ -205,5 +177,22 @@ export function ViewerHeader(
 				</button>
 			) : null}
 		</header>
+	);
+}
+
+function DiffFilePath(_props: { readonly path: string }) {
+	const separator = createMemo(() => _props.path.lastIndexOf("/"));
+	return (
+		<span title={_props.path} {...stylex.attrs(styles.viewerFloatingFile)}>
+			<FileTypeIcon path={_props.path} size={iconSize.md} />
+			<span {...stylex.attrs(styles.viewerFloatingPath)}>
+				<span {...stylex.attrs(styles.viewerDirectory)}>
+					{separator() >= 0 ? _props.path.slice(0, separator()) : ""}
+				</span>
+				<strong {...stylex.attrs(styles.viewerFileName)}>
+					{_props.path.slice(Math.max(0, separator()))}
+				</strong>
+			</span>
+		</span>
 	);
 }

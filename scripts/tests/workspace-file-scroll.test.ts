@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { project } from "../../src/shared/lib/native.tsx";
 
-test("clicking a file pane gives its contents scroll ownership", () => {
+test("selected chat contents scroll independently until their boundary", () => {
 	const source = readFileSync(
 		new URL(
 			"../../src/modules/workspace/components/WorkspaceCanvas/index.tsx",
@@ -38,9 +38,12 @@ test("clicking a file pane gives its contents scroll ownership", () => {
 	const canvas = { scrollTop: 0, scrollLeft: 0 };
 	let selected = false;
 	const dependencies = {
-		props: { layoutMode: "grid", selectedPaneId: "chat" },
+		props: {
+			get selectedPaneId() {
+				return selected ? "file" : "chat";
+			},
+		},
 		containerRef: { current: canvas },
-		auxiliaryPanels: () => [{ id: "file", selected }],
 		Element,
 		HTMLElement: Element,
 		getComputedStyle: () => ({ overflowY: "auto" }),

@@ -1,7 +1,6 @@
 import type { AutomationDefinition, ProjectFileCommand } from "@contracts";
 import { surfaceStyles } from "@design-system/styles.stylex.ts";
 import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
-import { queryClient } from "@shared/lib/dom.tsx";
 import { getAgentDefinition } from "@shared/lib/native.tsx";
 import { Button } from "@shared/ui/Button/index.tsx";
 import { CardInstructions } from "@shared/ui/ChatActionCard/index.tsx";
@@ -49,13 +48,10 @@ export function AutomationDefinitionCard(props: {
 	const declined = () => proposal.view()?.status === "declined";
 	const busy = () => proposal.busy() || proposal.loading();
 	const [error, setError] = createSignal("");
-	const catalog = useBackgroundQuery(
-		() => ({
-			queryKey: ["automation-proposal-project", props.command.projectId],
-			queryFn: () => loadProjects(props.command.projectId),
-		}),
-		() => queryClient,
-	);
+	const catalog = useBackgroundQuery(() => ({
+		queryKey: ["automation-proposal-project", props.command.projectId],
+		queryFn: () => loadProjects(props.command.projectId),
+	}));
 	const existing = () =>
 		catalog.data?.automations.find(
 			(job) => job.file.sourcePath === props.command.path,

@@ -76,15 +76,17 @@ fn file_scheduler_deduplicates_due_runs_and_rechecks_waiting_inputs() {
     crate::project_index::refresh(&mut store.db, root.path(), &[]).unwrap();
     let inputs =
         crate::project_index::execution_inputs(&store.db, root.path(), &automation, &[]).unwrap();
-    crate::project_index::approve_automation(
-        &store.db,
+    let tx = store.db.unchecked_transaction().unwrap();
+    crate::project_index::approve(
+        &tx,
         root.path(),
-        &automation,
+        crate::project_index::Approval::Automation(&automation),
         &hash(&serde_json::to_vec(&inputs).unwrap()),
         true,
         &[],
     )
     .unwrap();
+    tx.commit().unwrap();
     let time = now();
     store
         .db
@@ -121,15 +123,17 @@ fn file_scheduler_deduplicates_due_runs_and_rechecks_waiting_inputs() {
             .unwrap(),
         "failed"
     );
-    crate::project_index::approve_automation(
-        &store.db,
+    let tx = store.db.unchecked_transaction().unwrap();
+    crate::project_index::approve(
+        &tx,
         root.path(),
-        &automation,
+        crate::project_index::Approval::Automation(&automation),
         &hash(&serde_json::to_vec(&inputs).unwrap()),
         true,
         &[],
     )
     .unwrap();
+    tx.commit().unwrap();
     crate::project_runs::prepare_file_run(
         &store.db,
         root.path(),

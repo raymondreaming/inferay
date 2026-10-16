@@ -2,7 +2,6 @@ import type { ProjectFileCommand } from "@contracts";
 import { readStoredValue, writeStoredValue } from "@shared/lib/native.tsx";
 import { createMemo, createSignal } from "solid-js";
 import {
-	editDefinition,
 	type Project,
 	type ProjectWorkspaceView,
 } from "../model/projectFiles.ts";
@@ -41,6 +40,10 @@ const [repositoryPath, setRepositoryPath] = createSignal<string | null>(null);
 const [view, setView] = createSignal("chat");
 const [error, setError] = createSignal("");
 const [busy, setBusy] = createSignal(false);
+const locations = new Map<
+	string,
+	{ view: string; repositoryPath: string | null }
+>();
 let sequence = 0;
 export const projects = {
 	catalog,
@@ -71,11 +74,24 @@ export async function refreshProjects(id = selectedId()) {
 }
 export async function selectProject(id: string) {
 	setError("");
-	setSelectedId(id);
-	setRepositoryPath(null);
+	if (id !== selectedId()) {
+		locations.set(selectedId(), {
+			view: view(),
+			repositoryPath: repositoryPath(),
+		});
+		const previous = locations.get(id);
+		setSelectedId(id);
+		setView(previous?.view ?? "chat");
+		setRepositoryPath(previous?.repositoryPath ?? null);
+	}
 	writeStoredValue("inferay-selected-project-id", id);
 	await refreshProjects(id);
-	if (selectedId() === id && view() === "code")
+	if (
+		selectedId() === id &&
+		view() === "code" &&
+		catalog() &&
+		!catalog()!.repositoryPaths.includes(repositoryPath() ?? "")
+	)
 		setRepositoryPath(catalog()?.repositoryPaths[0] ?? null);
 	if (!id && selectedId() === id) {
 		const first = list().find((p) => !p.archived);
@@ -123,19 +139,38 @@ export async function addProjectRepository(project: Project, path: string) {
 		name: path.split("/").filter(Boolean).at(-1) ?? "Repository",
 		remote: null,
 	};
-	const saved = await saveProjectCommand(
-		editDefinition(project.file, {
+	await saveProjectCommand({
+		type: "saveProject",
+		definition: {
 			...project.file.definition!,
 			repositories: [...project.repositories, repository],
-		}),
-	);
-	if (!saved.sourceHash)
-		throw new Error("Project save did not return a file hash");
-	await saveProjectCommand({
-		type: "linkRepository",
-		projectId: project.id,
-		repositoryId: repository.id,
-		expectedProjectHash: saved.sourceHash,
-		path,
+		},
+		expectedHash: project.file.sourceHash,
+		repositoryPaths: { [repository.id]: path },
 	});
+}
+
+/** Local command feedback stays with its surface, not the global catalog.
+ * Repeated clicks cannot start another write while an action is pending.
+ */
+export function useProjectAction() {
+	const [busy, setBusy] = createSignal(false);
+	const [error, setError] = createSignal("");
+	let pending = false;
+	async function run<T>(operation: () => Promise<T>): Promise<T | undefined> {
+		if (pending) return;
+		pending = true;
+		setBusy(true);
+		setError("");
+		try {
+			return await operation();
+		} catch (error) {
+			setError(String(error));
+			return undefined;
+		} finally {
+			pending = false;
+			setBusy(false);
+		}
+	}
+	return { busy, error, setError, run };
 }

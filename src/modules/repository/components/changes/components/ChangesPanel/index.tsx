@@ -11,17 +11,25 @@ import * as stylex from "@stylexjs/stylex";
 import { createEffect, createMemo } from "solid-js";
 import { ChangesPanelHeader } from "./ChangesPanelHeader.tsx";
 import { CommitSection } from "./CommitSection.tsx";
-import { HistoryFiles } from "./HistoryFiles.tsx";
+import { HistoryFiles } from "./HistoricalDetailsPanel.tsx";
 import { styles } from "./styles.ts";
 import { WorkingTreeFiles } from "./WorkingTreeFiles.tsx";
 
 export type SelectedFile = Pick<SelectedPanelFile, "path" | "staged">;
 
-export {
-	getFileSelectionAfterToggle,
-	visibleGitFiles,
-} from "@shared/lib/native.tsx";
-export { CollapsedChangesPanel } from "./CollapsedChangesPanel.tsx";
+export type ChangesPanelModel = {
+	unstagedFiles: GitFileEntry[];
+	stagedFiles: GitFileEntry[];
+	navigableFiles: GitFileEntry[];
+	showingWorkingTree: boolean;
+	comparing: boolean;
+	historyDetails: GitCommitDetails | GitComparisonDetails | null;
+	historyLoading: boolean;
+	historyMessage: string;
+	navigableHistoricalFiles: GitCommitFile[];
+	additions: number;
+	deletions: number;
+};
 
 export const ChangesPanel = function ChangesPanel(props: {
 	onPrefetchFiles?: (files: GitFileEntry[]) => void;
@@ -29,11 +37,8 @@ export const ChangesPanel = function ChangesPanel(props: {
 	cwd?: string;
 	fileViewMode: "path" | "tree";
 	onFileViewModeChange: (mode: "path" | "tree") => void;
-	content: "workingTree" | "history";
+	model: ChangesPanelModel;
 	graphActive: boolean;
-	modified: GitFileEntry[];
-	untracked: GitFileEntry[];
-	staged: GitFileEntry[];
 	selectedFile: SelectedFile | null;
 	onSelectFile: (f: GitFileEntry) => void;
 	onStageFile: (path: string) => void;
@@ -44,18 +49,11 @@ export const ChangesPanel = function ChangesPanel(props: {
 	onDiscard: (staged: boolean, path?: string) => void;
 	hasProject: boolean;
 	projectLoading?: boolean;
-	selectedCommitHash: string | null;
 	selectedCommitCount?: number;
 	selectedWorktreePath?: string;
 	onOpenWorktree?: () => void;
-	commitDetailsLoading: boolean;
-	commitDetails: GitCommitDetails | null;
-	commitDetailsError?: string | null;
-	comparisonDetailsLoading?: boolean;
-	comparisonDetails?: GitComparisonDetails | null;
 	onSelectCommitFile?: (file: GitCommitFile) => void;
 	onSelectComparisonFile?: (file: GitCommitFile) => void;
-	branch?: string;
 	commitMessage: string;
 	onCommitMessageChange: (msg: string) => void;
 	onCommit: () => void;
@@ -65,42 +63,10 @@ export const ChangesPanel = function ChangesPanel(props: {
 	onCollapse?: () => void;
 	onOpenGraph?: () => void;
 }) {
-	const selectedCommitCount = createMemo(
-		() => props.selectedCommitCount ?? (props.selectedCommitHash ? 1 : 0),
-	);
-	const model = createMemo(() => {
-		return rustProject<{
-			unstagedFiles: GitFileEntry[];
-			stagedFiles: GitFileEntry[];
-			navigableFiles: GitFileEntry[];
-			showingWorkingTree: boolean;
-			comparing: boolean;
-			historyDetails: GitCommitDetails | GitComparisonDetails | null;
-			historyLoading: boolean;
-			historyMessage: string;
-			navigableHistoricalFiles: GitCommitFile[];
-			additions: number;
-			deletions: number;
-		}>("changesPanel", {
-			content: props.content,
-			fileViewMode: props.fileViewMode,
-			filePresentation: props.filePresentation,
-			modified: props.modified,
-			untracked: props.untracked,
-			staged: props.staged,
-			selectedCommitHash: props.selectedCommitHash,
-			selectedCommitCount: selectedCommitCount(),
-			commitDetailsLoading: props.commitDetailsLoading,
-			commitDetails: props.commitDetails,
-			commitDetailsError: props.commitDetailsError,
-			comparisonDetailsLoading: props.comparisonDetailsLoading,
-			comparisonDetails: props.comparisonDetails ?? null,
-		});
-	});
 	const prefetchFiles = createMemo(() =>
-		model().showingWorkingTree
+		props.model.showingWorkingTree
 			? rustProject<GitFileEntry[]>("diffPrefetchFiles", {
-					files: model().navigableFiles,
+					files: props.model.navigableFiles,
 					selected: props.selectedFile,
 				})
 			: [],
@@ -116,8 +82,8 @@ export const ChangesPanel = function ChangesPanel(props: {
 				onCollapse={props.onCollapse}
 				onOpenGraph={props.onOpenGraph}
 				graphActive={props.graphActive}
-				additions={model().additions}
-				deletions={model().deletions}
+				additions={props.model.additions}
+				deletions={props.model.deletions}
 				fileViewMode={props.fileViewMode}
 				onFileViewModeChange={props.onFileViewModeChange}
 				showFileControls={props.hasProject}
@@ -125,15 +91,15 @@ export const ChangesPanel = function ChangesPanel(props: {
 				onOpenWorktree={props.onOpenWorktree}
 			/>
 
-			{model().showingWorkingTree && (
+			{props.model.showingWorkingTree && (
 				<WorkingTreeFiles
 					hasProject={props.hasProject}
 					projectLoading={
 						props.projectLoading === undefined ? false : props.projectLoading
 					}
 					filePresentation={props.filePresentation}
-					unstagedFiles={model().unstagedFiles}
-					stagedFiles={model().stagedFiles}
+					unstagedFiles={props.model.unstagedFiles}
+					stagedFiles={props.model.stagedFiles}
 					selectedFile={props.selectedFile}
 					onSelectFile={props.onSelectFile}
 					onPrefetchFile={(file) =>
@@ -155,7 +121,7 @@ export const ChangesPanel = function ChangesPanel(props: {
 			)}
 
 			{props.hasProject &&
-				model().showingWorkingTree &&
+				props.model.showingWorkingTree &&
 				(props.showCommitSection === undefined
 					? true
 					: props.showCommitSection) && (
@@ -165,24 +131,26 @@ export const ChangesPanel = function ChangesPanel(props: {
 						onCommitMessageChange={props.onCommitMessageChange}
 						onCommit={props.onCommit}
 						isCommitting={props.isCommitting}
-						stagedCount={model().stagedFiles.length}
+						stagedCount={props.model.stagedFiles.length}
 					/>
 				)}
 
-			{!model().showingWorkingTree && (
+			{!props.model.showingWorkingTree && (
 				<HistoryFiles
 					cwd={props.cwd}
-					historyLoading={model().historyLoading}
-					historyDetails={model().historyDetails}
-					selectionCount={model().comparing ? selectedCommitCount() : undefined}
+					historyLoading={props.model.historyLoading}
+					historyDetails={props.model.historyDetails}
+					selectionCount={
+						props.model.comparing ? props.selectedCommitCount : undefined
+					}
 					selectedFile={props.selectedFile}
 					onSelectFile={
-						model().comparing
+						props.model.comparing
 							? props.onSelectComparisonFile
 							: props.onSelectCommitFile
 					}
 					fileViewMode={props.fileViewMode}
-					historyMessage={model().historyMessage}
+					historyMessage={props.model.historyMessage}
 				/>
 			)}
 		</div>

@@ -12,16 +12,16 @@ export function useProjectProposal(
 	input: () => Omit<ProjectProposalRequest, "decision" | "editedCommand">,
 ) {
 	const request = createMemo(input);
-	const resource = useQueryResource<ProjectProposalView | null>(
-		() => {
-			const value = request();
-			return (signal) => projectProposal({ ...value, decision: null }, signal);
-		},
-		() => null,
-		() => ({
-			queryKey: ["project-proposal", request().messageId, request().command],
-		}),
-	);
+	const resource = useQueryResource<ProjectProposalView | null>(() => {
+		const value = request();
+		return {
+			queryKey: ["project-proposal", value.messageId, value.command],
+			queryFn: ({ signal }) =>
+				projectProposal({ ...value, decision: null }, signal),
+			initialData: null,
+		};
+	});
+
 	const [busy, setBusy] = createSignal(false);
 	const [error, setError] = createSignal("");
 	const loading = () => !resource.loaded || resource.loading;

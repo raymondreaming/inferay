@@ -40,7 +40,7 @@ export function PaneSummaryItem(_props: {
 				onClick={_props.onClick}
 				{...stylex.attrs(
 					styles.paneSummary,
-					...selectionAppearance("list", _props.isActive),
+					...selectionAppearance("navigation", _props.isActive),
 				)}
 			>
 				<span {...stylex.attrs(styles.paneSummaryIcon)}>

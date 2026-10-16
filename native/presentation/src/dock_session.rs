@@ -17,7 +17,6 @@ pub struct DockRequest {
     legacy_workspace_id: Option<String>,
     ids: Vec<String>,
     columns: usize,
-    mode: String,
     visible_columns: usize,
     #[ts(optional)]
     rows: Option<usize>,

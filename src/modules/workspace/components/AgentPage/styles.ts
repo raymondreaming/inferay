@@ -1,83 +1,11 @@
 import * as stylex from "@stylexjs/stylex";
-import {
-	color,
-	controlSize,
-	layer,
-} from "../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
-	inactive: {
-		display: "none",
-	},
-	appRoot: {
+	surface: {
 		display: "flex",
-		flexDirection: "column",
-		backgroundColor: color.transparent,
-	},
-	fullHeight: {
 		height: "100%",
-	},
-	appFrame: {
-		position: "relative",
-		display: "flex",
-		flex: 1,
-		minHeight: controlSize._0,
-		flexDirection: "column",
+		minWidth: 0,
+		minHeight: 0,
 		overflow: "hidden",
 	},
-	appColumn: {
-		display: "flex",
-		flex: 1,
-		minHeight: controlSize._0,
-		flexDirection: "column",
-		overflow: "hidden",
-	},
-	appBody: {
-		display: "flex",
-		flex: 1,
-		minHeight: controlSize._0,
-		overflow: "hidden",
-	},
-	mainPane: {
-		position: "relative",
-		display: "flex",
-		flex: 1,
-		minHeight: controlSize._0,
-		flexDirection: "column",
-		overflow: "hidden",
-	},
-	surfaceLayer: {
-		position: "absolute",
-		inset: controlSize._0,
-		display: "flex",
-		minWidth: controlSize._0,
-		minHeight: controlSize._0,
-		flexDirection: "column",
-		overflow: "hidden",
-	},
-	surfaceLayerVisible: {
-		pointerEvents: "auto",
-		visibility: "visible",
-		zIndex: layer.content,
-	},
-	repositoryWorkbench: {
-		display: "flex",
-		width: "100%",
-		height: "100%",
-		minWidth: controlSize._0,
-		minHeight: controlSize._0,
-		overflow: "hidden",
-	},
-	chatDock: {
-		display: "flex",
-		minWidth: 300,
-		minHeight: controlSize._0,
-		flex: 1,
-		overflow: "hidden",
-	},
-	chatDockZen: {
-		display: "none",
-	},
-	emptyWorkspace: {
-		flex: 1,
-	},
+	inactive: { display: "none" },
 });

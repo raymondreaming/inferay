@@ -23,20 +23,17 @@ export function EffectInbox(props: {
 	const scope = () => JSON.stringify([props.projectId, props.automationId]);
 	const before = () =>
 		cursor()?.scope === scope() ? cursor()?.before : undefined;
-	const inbox = useBackgroundQuery(
-		() => ({
-			queryKey: [
-				"effect-inbox",
-				props.projectId,
-				props.automationId ?? "",
-				before() ?? "",
-			],
-			queryFn: () =>
-				loadEffectInbox(props.projectId, props.automationId, before()),
-			refetchInterval: 5000,
-		}),
-		() => queryClient,
-	);
+	const inbox = useBackgroundQuery(() => ({
+		queryKey: [
+			"effect-inbox",
+			props.projectId,
+			props.automationId ?? "",
+			before() ?? "",
+		],
+		queryFn: () =>
+			loadEffectInbox(props.projectId, props.automationId, before()),
+		refetchInterval: 5000,
+	}));
 	return (
 		<>
 			<Show when={reviewing()} keyed>

@@ -10,7 +10,6 @@ import type {
 	PluginProposalReview,
 	PluginReview,
 	PluginTextFile,
-	ProjectDocument,
 	ProjectEffectIntent,
 	ProjectFileCommand,
 	ProjectProposalRequest,
@@ -18,7 +17,7 @@ import type {
 	ProjectWorkspace,
 	TablePreview,
 } from "@contracts";
-import { fetchJson, postJson, request } from "@shared/lib/native.tsx";
+import { fetchJson, postJson } from "@shared/lib/native.tsx";
 import { projectWorkspaceView } from "../model/projectFiles.ts";
 
 export async function loadProjects(projectId = "", before?: string) {
@@ -86,31 +85,9 @@ export function importProjectDocument(projectId: string, file: File) {
 	);
 }
 
-export function listProjectDocuments(projectId: string, signal?: AbortSignal) {
-	return fetchJson<ProjectDocument[]>(
-		`/api/projects/documents?${new URLSearchParams({ projectId })}`,
-		{ signal },
-		{ server: true },
-	);
-}
 export function projectDocumentUrl(projectId: string, path: string) {
 	return `/api/projects/document?${new URLSearchParams({ projectId, path })}`;
 }
-export async function readProjectDocument(
-	projectId: string,
-	path: string,
-	signal?: AbortSignal,
-) {
-	const response = await request(projectDocumentUrl(projectId, path), {
-		signal,
-	});
-	if (!response.ok)
-		throw new Error(
-			"Document could not be read. Refresh the library and try again.",
-		);
-	return response.text();
-}
-
 export function reviewProjectPlugin(id: string) {
 	return postJson<PluginReview>(
 		"/api/projects/command",

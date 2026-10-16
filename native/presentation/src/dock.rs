@@ -8,30 +8,17 @@ pub struct DockPointerTarget {
     id: String,
     #[ts(type = "'center' | 'left' | 'right' | 'top' | 'bottom'")]
     edge: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    row_index: Option<usize>,
 }
 
 pub fn pointer_target(input: &Value) -> Option<DockPointerTarget> {
-    if input["mode"] != "rows"
-        && number(&input["panelCount"]) > if flag(&input["insert"]) { 0. } else { 1. }
-    {
+    if number(&input["panelCount"]) > if flag(&input["insert"]) { 0. } else { 1. } {
         let edge = hit(&json!({"x":input["x"],"y":input["y"],"rect":input["root"],"outer":true}));
         if let Some(edge) = edge.as_str() {
             return Some(DockPointerTarget {
                 id: "__workspace-root__".into(),
                 edge: edge.into(),
-                row_index: None,
             });
         }
-    }
-    if let Some(id) = input["rowId"].as_str() {
-        return input["rowIndex"].as_u64().map(|index| DockPointerTarget {
-            id: id.into(),
-            edge: "center".into(),
-            row_index: Some(index as usize),
-        });
     }
     let id = input["cellId"].as_str().filter(|id| !id.is_empty())?;
     if !flag(&input["insert"]) && input["source"] == id {
@@ -43,32 +30,22 @@ pub fn pointer_target(input: &Value) -> Option<DockPointerTarget> {
             &json!({"x":input["x"],"y":input["y"],"rect":input["cell"]}),
         ))
         .into(),
-        row_index: None,
     })
 }
 
 #[derive(serde::Serialize, ts_rs::TS)]
 pub struct DockWheel {
     capture: bool,
-    horizontal: bool,
     delta: f64,
 }
 
 pub fn wheel(input: &Value) -> DockWheel {
-    let dx = number(&input["deltaX"]);
     let dy = number(&input["deltaY"]);
-    let rows = input["mode"] == "rows";
     let mut result = DockWheel {
         capture: false,
-        horizontal: rows,
         delta: 0.,
     };
-    if rows {
-        result.capture = flag(&input["shift"]) || dx.abs() > 0. && dx.abs() >= dy.abs();
-        if result.capture && !flag(&input["selected"]) {
-            result.delta = if flag(&input["shift"]) { dy } else { dx };
-        }
-    } else if input["mode"] == "grid" && dy != 0. {
+    if dy != 0. {
         let inner = &input["inner"];
         let can_scroll = if dy < 0. {
             number(&inner["offset"]) > 0.
@@ -324,27 +301,21 @@ pub fn project(body: &Value) -> Result<Value, String> {
     let mut seen = std::collections::HashSet::new();
     ids.retain(|id| seen.insert(id.clone()));
     let columns = body["columns"].as_u64().unwrap_or(1).clamp(1, 4) as usize;
-    let grid = body["mode"] == "grid";
-    let display_columns = if grid {
-        body["visibleColumns"]
-            .as_u64()
-            .unwrap_or(columns as u64)
-            .clamp(1, columns as u64) as usize
-    } else {
-        columns
-    };
-    let display_columns = display_columns.min(if grid { ids.len().max(1) } else { columns });
-    let preset = (body["mode"].as_str().map(str::to_owned), columns);
+    let display_columns = (body["visibleColumns"]
+        .as_u64()
+        .unwrap_or(columns as u64)
+        .clamp(1, columns as u64) as usize)
+        .min(ids.len().max(1));
+    let preset = (Some("grid".to_owned()), columns);
     let saved = body.get("saved").filter(|value| value.is_object());
     let legacy = body.get("legacy").filter(|value| value.is_object());
     let stored = saved.map(|s| &s["tree"]).or(legacy);
     let tree = stored.and_then(|v| serde_json::from_value::<Tree>(v.clone()).ok());
-    let reset = grid && saved.is_some_and(|s| s["preset"] != json!(preset));
-    let membership_changed = grid
-        && tree.as_ref().is_some_and(|tree| {
-            let present = tree.ids();
-            present.len() != ids.len() || present.iter().any(|id| !ids.contains(id))
-        });
+    let reset = saved.is_some_and(|s| s["preset"] != json!(preset));
+    let membership_changed = tree.as_ref().is_some_and(|tree| {
+        let present = tree.ids();
+        present.len() != ids.len() || present.iter().any(|id| !ids.contains(id))
+    });
     let mut tree = if reset {
         build(&ids, columns)
     } else if membership_changed {
@@ -361,10 +332,7 @@ pub fn project(body: &Value) -> Result<Value, String> {
     };
     let action = &body["action"];
     if action.is_object() {
-        tree = tree.map(|t| {
-            let t = t.constrain(display_columns);
-            if grid { t.pad_rows(display_columns) } else { t }
-        });
+        tree = tree.map(|t| t.constrain(display_columns).pad_rows(display_columns));
         if action["type"] == "resize" {
             if let (Some(tree), Some(path), Some(ratio)) = (
                 &mut tree,
@@ -439,14 +407,7 @@ pub fn project(body: &Value) -> Result<Value, String> {
         tree: tree.clone(),
         preset,
     };
-    let tree = tree.map(|tree| {
-        let tree = tree.constrain(display_columns);
-        if grid {
-            tree.pad_rows(display_columns)
-        } else {
-            tree
-        }
-    });
+    let tree = tree.map(|tree| tree.constrain(display_columns).pad_rows(display_columns));
     let horizontal = tree.as_ref().map_or(1, |tree| tree.span("horizontal"));
     let vertical = tree.as_ref().map_or(1, |tree| tree.span("vertical"));
     let canvas = DockCanvas {
@@ -457,13 +418,13 @@ pub fn project(body: &Value) -> Result<Value, String> {
         ),
         width: format!(
             "{}%",
-            if grid && tree.is_some() {
+            if tree.is_some() {
                 horizontal as f64 / display_columns as f64 * 100.
             } else {
                 100.
             }
         ),
-        sparse: grid && tree.is_some() && horizontal < display_columns,
+        sparse: tree.is_some() && horizontal < display_columns,
     };
     Ok(json!(DockLayout {
         saved,

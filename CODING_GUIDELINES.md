@@ -91,7 +91,7 @@ Persistence orchestration accepts an injected port. `modules/workspace/hooks/use
 
 Git action labels, response contracts, and post-action selection rules belong to `native/presentation/src/git_actions.rs`; server routes and renderer transport failures use that same model. `modules/repository/services/gitApi.ts` owns the requests; repository hooks such as `useGitStatus.tsx` sequence refreshes and selection callbacks. Keep these operations out of rendering components. Working-tree keyboard navigation uses the Rust changes-panel model so its file order matches the sidebar.
 
-`src/client.tsx` wires production persistence for workspace state and panel sessions (`configureWorkspacePanels`). Rust panel replicas replay pending actions over acknowledged sessions; file bodies remain in the browser cache. Their hooks own Solid state and query lifecycles; services can be tested without loading the UI or a live backend.
+`src/client.tsx` wires production persistence for workspace state and panel sessions (`configureWorkspacePanels`). Rust panel replicas replay typed pending actions over acknowledged sessions. The document viewer owns its browser file-body cache; panel snapshots contain only paths and selection metadata. Their hooks own Solid state and query lifecycles; services can be tested without loading the UI or a live backend.
 
 Rust workbench models also resolve retained workspace views from the active and previously visited keys. The renderer receives group and pane indices into its current state, preserving object identity without constructing every possible view or duplicating pane records. Only visited views count toward the eight-view/twenty-four-pane budget; an oversized active view remains mounted.
 

@@ -7,25 +7,6 @@ import {
 	motion,
 } from "../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
-	rowScroller: {
-		backgroundColor: color.transparent,
-		display: "flex",
-		height: "100%",
-		overflowX: "auto",
-		overscrollBehavior: "none",
-	},
-	rowCell: {
-		backgroundColor: color.transparent,
-		borderRightStyle: "solid",
-		borderRightWidth: 1,
-		// The adjacent workbench (or window frame) owns the final outer edge.
-		":last-child": { borderRightWidth: 0 },
-		flexShrink: 0,
-		height: "100%",
-		overflow: "hidden",
-		transitionDuration: motion.durationBase,
-		transitionProperty: "border-color, opacity",
-	},
 	dockRoot: {
 		position: "relative",
 		display: "flex",
@@ -160,23 +141,7 @@ export const styles = stylex.create({
 		inset: controlSize._3,
 	},
 });
-export function getWorkspaceCanvasRowCellStyle(
-	overrides: CSSProperties | undefined | null,
-): CSSProperties {
-	return {
-		...overrides,
-		width: 400,
-	} as CSSProperties;
-}
 export function getWorkspaceCanvasDockBranchStyle(
-	flexGrow: CSSProperties["flexGrow"],
-): CSSProperties {
-	return {
-		flexBasis: 0,
-		flexGrow: flexGrow,
-	} as CSSProperties;
-}
-export function getWorkspaceCanvasDockBranchStyle1(
 	flexGrow: CSSProperties["flexGrow"],
 ): CSSProperties {
 	return {
@@ -192,13 +157,4 @@ export function getWorkspaceCanvasDockCanvasStyle(
 		minHeight: minHeight,
 		width: width,
 	} as CSSProperties;
-}
-export function getCanvasCellStyle(
-	borderColor: CSSProperties["borderColor"],
-	opacity: CSSProperties["opacity"],
-): CSSProperties {
-	return {
-		borderColor,
-		opacity,
-	};
 }

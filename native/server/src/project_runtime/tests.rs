@@ -232,7 +232,6 @@ async fn documents_preserve_binary_originals_and_refuse_overwrite_or_escape() {
     let profile = tempfile::tempdir().unwrap();
     let (project, _) = definition_files(profile.path(), "print('{}')");
     let runtime = runtime(profile.path());
-    assert!(runtime.documents(project.clone()).await.unwrap().is_empty());
     let original = vec![0, 255, 137, 80, 78, 71];
     runtime
         .import_document(project.clone(), "reference.png".into(), original.clone())
@@ -244,13 +243,9 @@ async fn documents_preserve_binary_originals_and_refuse_overwrite_or_escape() {
         .join(&project)
         .join("memory/documents/reference.png");
     assert_eq!(std::fs::read(&path).unwrap(), original);
-    let documents = runtime.documents(project.clone()).await.unwrap();
-    assert_eq!(documents.len(), 1);
-    assert_eq!(documents[0].category, "Images");
-    assert_eq!(documents[0].size, original.len() as u64);
     assert_eq!(
         runtime
-            .document_bytes(project.clone(), documents[0].path.clone())
+            .document_bytes(project.clone(), "memory/documents/reference.png".into())
             .await
             .unwrap(),
         original
@@ -277,7 +272,6 @@ async fn documents_preserve_binary_originals_and_refuse_overwrite_or_escape() {
             path.parent().unwrap().join("linked.json"),
         )
         .unwrap();
-        assert_eq!(runtime.documents(project.clone()).await.unwrap().len(), 1);
         assert!(
             runtime
                 .document_bytes(project.clone(), "memory/documents/linked.json".into())
@@ -1458,13 +1452,17 @@ async fn repository_tool_executes_in_place_and_dirty_checkout_revokes_approval()
     let runtime = runtime(profile.path());
     runtime
         .command(
-            ProjectFileCommand::LinkRepository {
-                project_id: project.clone(),
-                repository_id: repository,
-                expected_project_hash: project_store::hash(
+            ProjectFileCommand::SaveProject {
+                definition: serde_json::from_slice(
                     &std::fs::read(root.join("project.json")).unwrap(),
-                ),
-                path: checkout.path().display().to_string(),
+                )
+                .unwrap(),
+                expected_hash: Some(project_store::hash(
+                    &std::fs::read(root.join("project.json")).unwrap(),
+                )),
+                repository_paths: [(repository, checkout.path().display().to_string())]
+                    .into_iter()
+                    .collect(),
             },
             true,
         )
@@ -1594,13 +1592,17 @@ async fn real_origin_copy_gate_runs_as_a_repository_tool() {
         let runtime = runtime(profile.path());
         runtime
             .command(
-                ProjectFileCommand::LinkRepository {
-                    project_id: project.clone(),
-                    repository_id: repository,
-                    expected_project_hash: project_store::hash(
+                ProjectFileCommand::SaveProject {
+                    definition: serde_json::from_slice(
                         &std::fs::read(root.join("project.json")).unwrap(),
-                    ),
-                    path: checkout.path().display().to_string(),
+                    )
+                    .unwrap(),
+                    expected_hash: Some(project_store::hash(
+                        &std::fs::read(root.join("project.json")).unwrap(),
+                    )),
+                    repository_paths: [(repository, checkout.path().display().to_string())]
+                        .into_iter()
+                        .collect(),
                 },
                 true,
             )
@@ -1760,13 +1762,17 @@ async fn real_origin_blender_render_retains_image_artifacts() {
     let runtime = runtime(profile.path());
     runtime
         .command(
-            ProjectFileCommand::LinkRepository {
-                project_id: project.clone(),
-                repository_id: repository,
-                expected_project_hash: project_store::hash(
+            ProjectFileCommand::SaveProject {
+                definition: serde_json::from_slice(
                     &std::fs::read(root.join("project.json")).unwrap(),
-                ),
-                path: checkout.path().display().to_string(),
+                )
+                .unwrap(),
+                expected_hash: Some(project_store::hash(
+                    &std::fs::read(root.join("project.json")).unwrap(),
+                )),
+                repository_paths: [(repository, checkout.path().display().to_string())]
+                    .into_iter()
+                    .collect(),
             },
             true,
         )
@@ -1862,13 +1868,20 @@ async fn real_scheduled_studio_uses_library_skill_and_required_tools() {
     let runtime = runtime(profile.path());
     runtime
         .command(
-            ProjectFileCommand::LinkRepository {
-                project_id: project.into(),
-                repository_id: "ceb98bdc-9cb0-5d60-b4e5-b17026f15a20".into(),
-                expected_project_hash: project_store::hash(
+            ProjectFileCommand::SaveProject {
+                definition: serde_json::from_slice(
                     &std::fs::read(root.join("project.json")).unwrap(),
-                ),
-                path: checkout.path().display().to_string(),
+                )
+                .unwrap(),
+                expected_hash: Some(project_store::hash(
+                    &std::fs::read(root.join("project.json")).unwrap(),
+                )),
+                repository_paths: [(
+                    "ceb98bdc-9cb0-5d60-b4e5-b17026f15a20".into(),
+                    checkout.path().display().to_string(),
+                )]
+                .into_iter()
+                .collect(),
             },
             true,
         )

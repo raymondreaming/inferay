@@ -22,29 +22,24 @@ export function InlineDirectoryPicker(props: {
 	hideInput?: boolean;
 	onSelectionChange?: (paths: string[]) => void;
 	showStartButton?: boolean;
+	stableHeight?: boolean;
+	excludePaths?: readonly string[];
 }) {
 	const [query, setQuery] = createSignal("");
 	const deferredQuery = createMemo(() => query().trim());
-	const _source = useQueryResource(
-		() => loadDirectoryQuickPicks,
-		() => ({
-			quickPicks: [],
-			home: "",
-		}),
-		() => ({
-			queryKey: ["agent", "directories", "quick"],
-		}),
-	);
-	const _source2 = useQueryResource<AgentDirectory[]>(
-		() => {
-			const query = deferredQuery();
-			return (signal) => searchDirectories(query, signal);
-		},
-		() => [],
-		() => ({
-			queryKey: ["agent", "directories", "search", deferredQuery()],
-		}),
-	);
+	const _source = useQueryResource(() => ({
+		queryKey: ["agent", "directories", "quick"],
+		queryFn: loadDirectoryQuickPicks,
+		initialData: { quickPicks: [], home: "" },
+	}));
+	const _source2 = useQueryResource<AgentDirectory[]>(() => {
+		const query = deferredQuery();
+		return {
+			queryKey: ["agent", "directories", "search", query],
+			queryFn: ({ signal }) => searchDirectories(query, signal),
+			initialData: [],
+		};
+	});
 	const [selectedIndexValue, setSelectedIndex] = createSignal(-1);
 	const [selectedPaths, setSelectedPaths] = createSignal<string[]>([]);
 	const inputRef = {
@@ -60,7 +55,11 @@ export function InlineDirectoryPicker(props: {
 	const isSearching = createMemo(() => deferredQuery().length > 0);
 	const displayList = createMemo(() =>
 		(isSearching() ? _source2.data : _source.data.quickPicks)
-			.filter((p) => !props.multiSelect || !selectedPaths().includes(p.path))
+			.filter(
+				(p) =>
+					!props.excludePaths?.includes(p.path) &&
+					(!props.multiSelect || !selectedPaths().includes(p.path)),
+			)
 			.slice(0, MAX_VISIBLE_RESULTS),
 	);
 	const itemCount = createMemo(() => displayList().length);
@@ -114,7 +113,7 @@ export function InlineDirectoryPicker(props: {
 			}
 			return;
 		}
-		if (e.key === "ArrowDown" || e.key === "Tab") {
+		if (e.key === "ArrowDown") {
 			e.preventDefault();
 			setSelectedIndex((current) => (current + 1) % itemCount());
 		} else if (e.key === "ArrowUp") {
@@ -191,7 +190,10 @@ export function InlineDirectoryPicker(props: {
 					>
 						<div
 							data-onboarding="repository-picker"
-							{...stylex.attrs(styles.unifiedFrame)}
+							{...stylex.attrs(
+								styles.unifiedFrame,
+								props.stableHeight && styles.stableFrame,
+							)}
 						>
 							<div {...stylex.attrs(styles.inputRow)}>
 								<span {...stylex.attrs(styles.inputIcon)}>
@@ -232,8 +234,20 @@ export function InlineDirectoryPicker(props: {
 										</button>
 									)}
 							</div>
-							{itemCount() > 0 && (
-								<div {...stylex.attrs(styles.unifiedList)}>
+							{(props.stableHeight || itemCount() > 0) && (
+								<div
+									{...stylex.attrs(
+										styles.unifiedList,
+										props.stableHeight && styles.stableList,
+									)}
+								>
+									{itemCount() === 0 && (
+										<p role="status" {...stylex.attrs(styles.emptyResults)}>
+											{loading()
+												? "Searching…"
+												: "No folders found. Try another name."}
+										</p>
+									)}
 									{
 										<For each={displayList()} keyed={(row) => row.path}>
 											{(pick, i) => (
@@ -252,7 +266,12 @@ export function InlineDirectoryPicker(props: {
 								</div>
 							)}
 							{props.multiSelect && selectedPaths().length > 0 && (
-								<div {...stylex.attrs(styles.selectedWrap)}>
+								<div
+									{...stylex.attrs(
+										styles.selectedWrap,
+										props.stableHeight && styles.stableSelection,
+									)}
+								>
 									<div {...stylex.attrs(styles.selectedList)}>
 										{
 											<For each={selectedPaths()} keyed={(row) => row}>

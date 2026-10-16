@@ -2,7 +2,7 @@ import { Button } from "@shared/ui/Button/index.tsx";
 import { Modal } from "@shared/ui/Modal/index.tsx";
 import { TextInput } from "@shared/ui/TextInput/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { createSignal, For } from "solid-js";
+import { createSignal } from "solid-js";
 import {
 	projects,
 	saveProjectCommand,
@@ -10,6 +10,7 @@ import {
 } from "../../hooks/useProjects.tsx";
 import { editDefinition, type Project } from "../../model/projectFiles.ts";
 import { InlineDirectoryPicker } from "../InlineDirectoryPicker/index.tsx";
+import { RepositoryManager } from "./RepositoryManager.tsx";
 import { styles } from "./styles.ts";
 export function ProjectEditor(props: { project?: Project; close: () => void }) {
 	const [confirmingArchive, setConfirmingArchive] = createSignal(false);
@@ -21,71 +22,51 @@ export function ProjectEditor(props: { project?: Project; close: () => void }) {
 	const [instructions, setInstructions] = createSignal(
 		props.project?.instructions ?? "",
 	);
-	const initialRepositories = props.project
-		? (projects.catalog()?.repositoryPaths ?? [])
-		: [];
-	const [repositories, setRepositories] = createSignal(initialRepositories);
-	const [findingRepositories, setFindingRepositories] = createSignal(false);
-	const [addedFolders, setAddedFolders] = createSignal<string[]>([]);
-	const choices = () => [
-		...new Set([...initialRepositories, ...addedFolders()]),
-	];
+	const [repositories, setRepositories] = createSignal<string[]>([]);
+	const [managingRepositories, setManagingRepositories] = createSignal(false);
 	async function submitProject(event: SubmitEvent) {
 		event.preventDefault();
 		if (confirmingArchive()) return;
 		try {
-			const existing = props.project;
+			const existing =
+				projects.list().find((p) => p.id === props.project?.id) ??
+				props.project;
 			const id = existing?.id ?? crypto.randomUUID();
-			const bindings = projects.catalog()?.repositoryBindings ?? {};
-			const selectedRepositories = repositories().map((path) => ({
+			const selected = repositories().map((path) => ({
+				id: crypto.randomUUID(),
+				name: path.split("/").filter(Boolean).at(-1) ?? "Repository",
 				path,
-				repository: existing?.repositories.find(
-					(repo) => bindings[repo.id] === path,
-				) ?? {
-					id: crypto.randomUUID(),
-					name: path.split("/").filter(Boolean).at(-1) ?? "Repository",
-					remote: null,
-				},
 			}));
-			const saved = await saveProjectCommand({
-				type: "saveDefinition",
-				projectId: id,
-				path: "project.json",
+			await saveProjectCommand({
+				type: "saveProject",
 				expectedHash: existing?.file.sourceHash ?? null,
-				content: JSON.stringify(
-					{
-						schema: "inferay.project/1",
-						id,
-						name: name(),
-						description: description(),
-						instructions: instructions(),
-						archived: false,
-						repositories: [
-							...selectedRepositories.map((item) => item.repository),
-							...(existing?.repositories.filter((repo) => !bindings[repo.id]) ??
-								[]),
-						],
-					},
-					null,
-					2,
+				definition: {
+					schema: "inferay.project/1",
+					id,
+					name: name(),
+					description: description(),
+					instructions: instructions(),
+					archived: false,
+					repositories:
+						existing?.repositories ??
+						selected.map(({ id, name }) => ({ id, name, remote: null })),
+				},
+				repositoryPaths: Object.fromEntries(
+					selected.map(({ id, path }) => [id, path]),
 				),
 			});
-			if (!saved.sourceHash)
-				throw new Error("Project save did not return a file hash");
-			for (const { path, repository } of selectedRepositories) {
-				await saveProjectCommand({
-					type: "linkRepository",
-					projectId: id,
-					repositoryId: repository.id,
-					expectedProjectHash: saved.sourceHash,
-					path,
-				});
-			}
 			await selectProject(id);
 			props.close();
 		} catch {}
 	}
-	return (
+	return managingRepositories() && props.project ? (
+		<RepositoryManager
+			project={
+				projects.list().find((p) => p.id === props.project!.id) ?? props.project
+			}
+			close={() => setManagingRepositories(false)}
+		/>
+	) : (
 		<Modal
 			label={props.project ? "Edit project" : "New project"}
 			onClose={() => {
@@ -98,9 +79,6 @@ export function ProjectEditor(props: { project?: Project; close: () => void }) {
 				{...stylex.attrs(styles.form)}
 			>
 				<strong>{props.project ? "Edit project" : "Create a project"}</strong>
-				<p {...stylex.attrs(styles.muted)}>
-					A business, brand, idea, or codebase. Repositories are optional.
-				</p>
 				<label>
 					Name
 					<TextInput
@@ -126,42 +104,15 @@ export function ProjectEditor(props: { project?: Project; close: () => void }) {
 						{...stylex.attrs(styles.notes)}
 					/>
 				</label>
-				<fieldset {...stylex.attrs(styles.repositoryChoices)}>
-					<legend>Repositories</legend>
-					<p {...stylex.attrs(styles.muted)}>
-						Choose the repositories that belong to this project. Chats start in
-						the project folder and can work across these repositories. Files
-						stay where they are.
-					</p>
-					{props.project ? (
-						<div {...stylex.attrs(styles.repositoryChoiceList)}>
-							<For each={choices()} keyed={(item) => item}>
-								{(path) => (
-									<label {...stylex.attrs(styles.row)}>
-										<input
-											type="checkbox"
-											checked={repositories().includes(path())}
-											onChange={(event) =>
-												setRepositories((current) =>
-													event.currentTarget.checked
-														? [...current, path()]
-														: current.filter((p) => p !== path()),
-												)
-											}
-										/>
-										<span {...stylex.attrs(styles.listText)}>
-											<strong>
-												{path().split("/").filter(Boolean).at(-1)}
-											</strong>
-											<span {...stylex.attrs(styles.muted)}>{path()}</span>
-										</span>
-									</label>
-								)}
-							</For>
-						</div>
-					) : null}
-					{!props.project ? (
+				{props.project ? (
+					<Button size="sm" onClick={() => setManagingRepositories(true)}>
+						Manage repositories
+					</Button>
+				) : (
+					<fieldset {...stylex.attrs(styles.repositoryChoices)}>
+						<legend>Repositories</legend>
 						<InlineDirectoryPicker
+							stableHeight
 							multiSelect
 							showStartButton={false}
 							onSelectionChange={setRepositories}
@@ -172,37 +123,8 @@ export function ProjectEditor(props: { project?: Project; close: () => void }) {
 									]);
 							}}
 						/>
-					) : findingRepositories() ? (
-						<InlineDirectoryPicker
-							multiSelect
-							onSelect={(path) => {
-								if (path) {
-									setAddedFolders((current) => [
-										...new Set([...current, path]),
-									]);
-									setRepositories((current) => [
-										...new Set([...current, path]),
-									]);
-								}
-								setFindingRepositories(false);
-							}}
-							onMultiSelect={(paths) => {
-								setAddedFolders((current) => [
-									...new Set([...current, ...paths]),
-								]);
-								setRepositories((current) => [
-									...new Set([...current, ...paths]),
-								]);
-								setFindingRepositories(false);
-							}}
-							onCancel={() => setFindingRepositories(false)}
-						/>
-					) : (
-						<Button size="sm" onClick={() => setFindingRepositories(true)}>
-							Find repositories on this computer
-						</Button>
-					)}
-				</fieldset>
+					</fieldset>
+				)}
 				{projects.error() ? <p role="alert">{projects.error()}</p> : null}
 				<div {...stylex.attrs(styles.row)}>
 					<Button
@@ -211,7 +133,7 @@ export function ProjectEditor(props: { project?: Project; close: () => void }) {
 						variant="primary"
 						disabled={projects.busy() || confirmingArchive()}
 					>
-						Save project
+						{props.project ? "Save project" : "Create project"}
 					</Button>
 					<Button size="sm" onClick={props.close}>
 						Cancel

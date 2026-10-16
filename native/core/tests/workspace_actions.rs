@@ -14,7 +14,7 @@ fn directory_selection_transitions_do_not_need_a_store_or_server() {
         "selectedGroupId":"g","themeId":"default","fontSize":13,"fontFamily":"SF Mono","opacity":1
     })).unwrap();
     state.apply_action(&action(json!({
-        "type":"directorySelected","groupId":"g","paneId":"p","path":"/new","referencePaths":["/reference"]
+        "type":"directorySelected","paneId":"p","path":"/new","referencePaths":["/reference"]
     })), "codex").unwrap();
     let value = serde_json::to_value(&state).unwrap();
     let pane = &value["groups"][0]["panes"][0];
@@ -25,7 +25,7 @@ fn directory_selection_transitions_do_not_need_a_store_or_server() {
     state
         .apply_action(
             &action(json!({
-                "type":"directorySelected","groupId":"g","paneId":"p","path":null
+                "type":"directorySelected","paneId":"p","path":null
             })),
             "codex",
         )

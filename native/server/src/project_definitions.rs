@@ -7,7 +7,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(untagged)]
 pub(crate) enum DefinitionFile {
     Project(ProjectDefinition),
     Resource(ResourceDefinition),
@@ -128,53 +129,52 @@ pub(crate) fn write(
     Ok(hash(bytes))
 }
 
-pub(crate) fn decode(path: &str, bytes: &[u8]) -> Result<DefinitionFile> {
+pub(crate) fn definition_table(path: &str) -> Option<&'static str> {
     let parts: Vec<_> = path.split('/').collect();
-    let value = match parts.as_slice() {
-        ["project.json"] => DefinitionFile::Project(format::parse(path, bytes)?),
+    match parts.as_slice() {
+        ["project.json"] => Some("projects"),
         ["memory", kind, file] if *kind != "documents" && file.ends_with(".json") => {
-            let value: ResourceDefinition = format::parse(path, bytes)?;
-            if value.type_id != *kind {
-                return Err(format!("{path}: resource type must match its directory").into());
-            }
-            DefinitionFile::Resource(value)
+            Some("resources")
         }
-        ["plugins", _, "plugin.json"] => DefinitionFile::Plugin(format::parse(path, bytes)?),
+        ["plugins", _, "plugin.json"] => Some("plugins"),
         ["automations", _, "automation.json"]
         | ["plugins" | "automations", _, "automations", _]
             if path.ends_with(".json") =>
         {
-            DefinitionFile::Automation(format::parse(path, bytes)?)
+            Some("automations")
         }
-        ["plugins" | "automations", _, "tools", _, "tool.json"] => {
-            DefinitionFile::Tool(format::parse(path, bytes)?)
-        }
+        ["plugins" | "automations", _, "tools", _, "tool.json"] => Some("tools"),
         ["plugins" | "automations", _, "skills", file] if file.ends_with(".md") => {
+            Some("project_skills")
+        }
+        ["plugins", _, "types", file] if file.ends_with(".schema.json") => Some("resource_types"),
+        _ => None,
+    }
+}
+
+pub(crate) fn decode(path: &str, bytes: &[u8]) -> Result<DefinitionFile> {
+    Ok(match definition_table(path) {
+        Some("projects") => DefinitionFile::Project(format::parse(path, bytes)?),
+        Some("resources") => {
+            let value: ResourceDefinition = format::parse(path, bytes)?;
+            if Some(value.type_id.as_str()) != path.split('/').nth(1) {
+                return Err(format!("{path}: resource type must match its directory").into());
+            }
+            DefinitionFile::Resource(value)
+        }
+        Some("plugins") => DefinitionFile::Plugin(format::parse(path, bytes)?),
+        Some("automations") => DefinitionFile::Automation(format::parse(path, bytes)?),
+        Some("tools") => DefinitionFile::Tool(format::parse(path, bytes)?),
+        Some("project_skills") => {
             DefinitionFile::Skill(format::parse_skill(path, std::str::from_utf8(bytes)?)?)
         }
-        ["plugins", _, "types", file] if file.ends_with(".schema.json") => {
+        Some("resource_types") => {
             let schema: serde_json::Value = serde_json::from_slice(bytes)?;
             inferay_core::projects::validate_schema_definition(&schema, 0)?;
             DefinitionFile::ResourceType(schema)
         }
         _ => return Err(format!("{path}: not a definition path").into()),
-    };
-    Ok(value)
-}
-
-fn is_definition(path: &str) -> bool {
-    let parts: Vec<_> = path.split('/').collect();
-    match parts.as_slice() {
-        ["project.json"]
-        | ["plugins", _, "plugin.json"]
-        | ["automations", _, "automation.json"]
-        | ["plugins" | "automations", _, "tools", _, "tool.json"] => true,
-        ["memory", kind, name] => *kind != "documents" && name.ends_with(".json"),
-        ["plugins" | "automations", _, "automations", name] => name.ends_with(".json"),
-        ["plugins" | "automations", _, "skills", name] => name.ends_with(".md"),
-        ["plugins", _, "types", name] => name.ends_with(".schema.json"),
-        _ => false,
-    }
+    })
 }
 
 pub(crate) fn scan(root: &Path, globals: &BTreeSet<String>) -> Result<Vec<IndexedFile>> {
@@ -188,7 +188,7 @@ pub(crate) fn validate_write(
     globals: &BTreeSet<String>,
 ) -> Result<()> {
     managed_path(root, path, false)?;
-    if is_definition(path) {
+    if definition_table(path).is_some() {
         decode(path, bytes)?;
     } else {
         let parts: Vec<_> = path.split('/').collect();
@@ -205,17 +205,13 @@ pub(crate) fn validate_write(
             return Err("Plugin text file exceeds the 1 MB editing limit".into());
         }
     }
-    let before = scan(root, globals)?;
-    let after = scan_candidate(root, globals, &[(path, bytes)].into_iter().collect(), None)?;
-    for entry in after {
-        if let Some(error) = entry.error {
-            let existing = before.iter().find(|old| old.path == entry.path);
-            if entry.path == path || existing.and_then(|old| old.error.as_ref()) != Some(&error) {
-                return Err(format!("{}: {error}", entry.path).into());
-            }
-        }
-    }
-    Ok(())
+    validate_candidate(
+        root,
+        globals,
+        &[(path, bytes)].into_iter().collect(),
+        None,
+        |entry| entry == path,
+    )
 }
 
 pub(crate) fn validate_bundle(
@@ -273,16 +269,27 @@ pub(crate) fn validate_bundle(
         .iter()
         .map(|(path, bytes)| (path.as_str(), *bytes))
         .collect();
-    let before = scan(root, globals)?;
-    let after = scan_candidate(root, globals, &overlay, Some(&prefix))?;
-    for entry in after {
+    validate_candidate(root, globals, &overlay, Some(&prefix), |path| {
+        path.starts_with(&format!("{prefix}/"))
+    })
+}
+
+/// Existing unrelated errors must not block repairs. Changed definitions and
+/// newly introduced errors always fail before publication.
+fn validate_candidate(
+    root: &Path,
+    globals: &BTreeSet<String>,
+    overlay: &BTreeMap<&str, &[u8]>,
+    replace_prefix: Option<&str>,
+    changed: impl Fn(&str) -> bool,
+) -> Result<()> {
+    let before: BTreeMap<_, _> = scan(root, globals)?
+        .into_iter()
+        .filter_map(|entry| entry.error.map(|error| (entry.path, error)))
+        .collect();
+    for entry in scan_candidate(root, globals, overlay, replace_prefix)? {
         if let Some(error) = entry.error
-            && (entry.path.starts_with(&format!("{prefix}/"))
-                || before
-                    .iter()
-                    .find(|old| old.path == entry.path)
-                    .and_then(|old| old.error.as_ref())
-                    != Some(&error))
+            && (changed(&entry.path) || before.get(&entry.path) != Some(&error))
         {
             return Err(format!("{}: {error}", entry.path).into());
         }
@@ -347,7 +354,7 @@ fn scan_candidate(
                     return Err("Definition tree is too deep".into());
                 }
                 pending.push(path);
-            } else if is_definition(&path) {
+            } else if definition_table(&path).is_some() {
                 paths.push(path);
             }
         }
@@ -356,7 +363,7 @@ fn scan_candidate(
         return Err("Project exceeds 100 plugins".into());
     }
     for (&path, &bytes) in overlay {
-        if is_definition(path) && !paths.iter().any(|p| p == path) {
+        if definition_table(path).is_some() && !paths.iter().any(|p| p == path) {
             paths.push(path.into());
         }
         if let Some(plugin) = path
@@ -694,12 +701,19 @@ pub(crate) fn create_plugin(
         write(stage.path(), path, content.as_bytes(), None)?;
     }
     fs::File::open(stage.path())?.sync_all()?;
-    rename_directory(stage.path(), &target)?;
+    publish_directory(stage.path(), &target, Publication::Create)?;
     fs::File::open(parent)?.sync_all()?;
     Ok(manifest.id)
 }
 
-pub(crate) fn rename_directory(source: &Path, target: &Path) -> Result<()> {
+pub(crate) enum Publication {
+    Create,
+    Replace,
+}
+
+/// Publish a staged directory atomically. Replacement swaps the old directory
+/// back into staging so its owner can clean it up after publication.
+pub(crate) fn publish_directory(source: &Path, target: &Path, mode: Publication) -> Result<()> {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
         let from = std::ffi::CString::new(source.as_os_str().as_encoded_bytes())?;
@@ -711,7 +725,10 @@ pub(crate) fn rename_directory(source: &Path, target: &Path) -> Result<()> {
                 from.as_ptr(),
                 libc::AT_FDCWD,
                 to.as_ptr(),
-                libc::RENAME_EXCL,
+                match mode {
+                    Publication::Create => libc::RENAME_EXCL,
+                    Publication::Replace => libc::RENAME_SWAP,
+                },
             )
         };
         #[cfg(target_os = "linux")]
@@ -721,7 +738,10 @@ pub(crate) fn rename_directory(source: &Path, target: &Path) -> Result<()> {
                 from.as_ptr(),
                 libc::AT_FDCWD,
                 to.as_ptr(),
-                libc::RENAME_NOREPLACE,
+                match mode {
+                    Publication::Create => libc::RENAME_NOREPLACE,
+                    Publication::Replace => libc::RENAME_EXCHANGE,
+                },
             )
         };
         if result != 0 {
@@ -729,7 +749,12 @@ pub(crate) fn rename_directory(source: &Path, target: &Path) -> Result<()> {
         }
     }
     #[cfg(target_os = "windows")]
-    fs::rename(source, target)?;
+    match mode {
+        Publication::Create => fs::rename(source, target)?,
+        Publication::Replace => {
+            return Err("Atomic plugin updates are unsupported on this platform".into());
+        }
+    };
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     return Err("Atomic plugin publication is unsupported on this platform".into());
     Ok(())
@@ -790,7 +815,7 @@ pub(crate) fn import_library(
         write(stage.path(), &format!("source/{path}"), bytes, None)?;
     }
     fs::File::open(stage.path())?.sync_all()?;
-    rename_directory(stage.path(), &target)?;
+    publish_directory(stage.path(), &target, Publication::Create)?;
     fs::File::open(parent)?.sync_all()?;
     Ok(id)
 }
@@ -923,19 +948,9 @@ pub(crate) fn prepare_plugin_update(
         .iter()
         .map(|(path, bytes)| (path.as_str(), *bytes))
         .collect();
-    let before = scan(root, globals)?;
-    for entry in scan_candidate(root, globals, &overlay, Some(&prefix))? {
-        if let Some(error) = entry.error
-            && (entry.path.starts_with(&format!("{prefix}/"))
-                || before
-                    .iter()
-                    .find(|old| old.path == entry.path)
-                    .and_then(|old| old.error.as_ref())
-                    != Some(&error))
-        {
-            return Err(format!("{}: {error}", entry.path).into());
-        }
-    }
+    validate_candidate(root, globals, &overlay, Some(&prefix), |path| {
+        path.starts_with(&format!("{prefix}/"))
+    })?;
     Ok(candidate)
 }
 
@@ -972,44 +987,7 @@ pub(crate) fn update_plugin(
     if hash(&serde_json::to_vec(&package_files(root, &prefix)?)?) != expected {
         return Err("Plugin changed before publication; review the new files".into());
     }
-    exchange_directories(stage.path(), &target)?;
+    publish_directory(stage.path(), &target, Publication::Replace)?;
     fs::File::open(parent)?.sync_all()?;
     Ok(manifest.id)
-}
-
-fn exchange_directories(source: &Path, target: &Path) -> Result<()> {
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
-    {
-        let from = std::ffi::CString::new(source.as_os_str().as_encoded_bytes())?;
-        let to = std::ffi::CString::new(target.as_os_str().as_encoded_bytes())?;
-        #[cfg(target_os = "macos")]
-        let result = unsafe {
-            libc::renameatx_np(
-                libc::AT_FDCWD,
-                from.as_ptr(),
-                libc::AT_FDCWD,
-                to.as_ptr(),
-                libc::RENAME_SWAP,
-            )
-        };
-        #[cfg(target_os = "linux")]
-        let result = unsafe {
-            libc::renameat2(
-                libc::AT_FDCWD,
-                from.as_ptr(),
-                libc::AT_FDCWD,
-                to.as_ptr(),
-                libc::RENAME_EXCHANGE,
-            )
-        };
-        if result != 0 {
-            return Err(std::io::Error::last_os_error().into());
-        }
-        Ok(())
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    {
-        let _ = (source, target);
-        Err("Atomic plugin updates are unsupported on this platform".into())
-    }
 }

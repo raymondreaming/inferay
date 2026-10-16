@@ -78,7 +78,7 @@ export async function prefetchSyntaxPreview(
 export function useSyntaxHighlight(_options: Accessor<HighlightInput>) {
 	const options = createMemo(() => syntaxQueryOptions(_options()));
 	const active = createMemo(() => options().enabled);
-	const query = useQuery(options, () => queryClient);
+	const query = useQuery(options);
 	const [previewRevision, setPreviewRevision] = createSignal(0);
 	onSettled(() =>
 		queryClient.getQueryCache().subscribe((event) => {

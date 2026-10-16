@@ -1,5 +1,4 @@
 import type {
-	AgentTheme,
 	DockLayout,
 	DockPointerTarget,
 	DockRequest,
@@ -15,7 +14,6 @@ import {
 	domStyle,
 	lockPointerSelection,
 } from "@shared/lib/dom.tsx";
-import type { AgentLayoutMode } from "@shared/lib/native.tsx";
 import { DockSession, project, readStoredValue } from "@shared/lib/native.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { saveWorkspaceDock } from "@workspace/services/workspaceApi.ts";
@@ -158,33 +156,28 @@ function containChatSelection(
 function observeResponsiveGridColumns(
 	container: () => HTMLElement | null,
 	columns: () => number,
-	isGrid: () => boolean,
 	setAvailableColumns: (value: (current: number) => number) => void,
 ) {
-	createEffect(
-		() => [columns(), isGrid()] as const,
-		([configuredColumns, grid]) => {
-			const element = container();
-			if (!element || !grid) return;
-			const update = (width: number) => {
-				if (width <= 0) return;
-				const next = project<number>("responsiveDockColumns", {
-					width,
-					columns: configuredColumns,
-				});
-				setAvailableColumns((current) => (current === next ? current : next));
-			};
-			const observer = new ResizeObserver((entries) => {
-				const width = entries[0]?.contentRect.width;
-				if (width !== undefined) update(width);
+	createEffect(columns, (configuredColumns) => {
+		const element = container();
+		if (!element) return;
+		const update = (width: number) => {
+			if (width <= 0) return;
+			const next = project<number>("responsiveDockColumns", {
+				width,
+				columns: configuredColumns,
 			});
-			observer.observe(element);
-			return () => observer.disconnect();
-		},
-	);
+			setAvailableColumns((current) => (current === next ? current : next));
+		};
+		const observer = new ResizeObserver((entries) => {
+			const width = entries[0]?.contentRect.width;
+			if (width !== undefined) update(width);
+		});
+		observer.observe(element);
+		return () => observer.disconnect();
+	});
 }
 
-export const MIN_RESPONSIVE_PANE_WIDTH = 300;
 const ROOT_DOCK_TARGET_ID = "__workspace-root__";
 type DockEdge = DockPointerTarget["edge"];
 const isWorkspaceDockDragSource = (target: EventTarget | null) =>
@@ -197,32 +190,12 @@ const shouldFocusPaneComposer = (target: EventTarget | null) =>
 
 export type { DockSplitNode, DockTree };
 
-export type DragProps = {
-	readonly draggable: boolean;
-	readonly onDragStart: (event: PointerEvent) => void;
-	readonly onCreatePanelDragStart: (
-		event: PointerEvent,
-		panelId: string,
-		completeDrop: () => void,
-	) => void;
-	readonly onDragEnd: () => void;
-};
-
-type AuxiliaryPanel = {
-	readonly id: string;
-	readonly selected?: boolean;
-	readonly onSelect?: () => void;
-	readonly render: (drag: DragProps) => import("solid-js").Element;
-};
-
 interface WorkspaceCanvasProps {
 	active?: boolean;
 	panes: Pane[];
 	selectedPaneId: string | null;
 	columns: number;
 	rows: number;
-	layoutMode: AgentLayoutMode;
-	theme: AgentTheme;
 	onSelectPane: (id: string) => void;
 	onFocusPane?: (id: string) => void;
 	onClosePane: (id: string) => void;
@@ -233,12 +206,9 @@ interface WorkspaceCanvasProps {
 	) => void;
 	onDirectoryCancel: (id: string) => void;
 	onChatRef: (id: string, handle: AgentChatHandle | null) => void;
-	onReorderPanes?: (from: number, to: number) => void;
-	onAddPane?: (kind: WorkspaceAgentKind) => void;
 	onSetPaneAgentKind?: (id: string, kind: WorkspaceAgentKind) => void;
 	workspaceId?: string;
 	legacyWorkspaceId?: string;
-	auxiliaryPanels?: readonly AuxiliaryPanel[];
 }
 
 function dropEdgeStyle(edge: DockEdge | null) {
@@ -257,12 +227,10 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 	} as {
 		current: HTMLDivElement | null;
 	};
-	const [dragIndex, setDragIndex] = createSignal<number | null>(null);
 	containChatSelection(
 		() => props.active !== false,
 		() => containerRef.current,
 	);
-	const [dragOverIndex, setDragOverIndex] = createSignal<number | null>(null);
 	const [dragPanelId, setDragPanelId] = createSignal<string | null>(null);
 	const [availableGridColumns, setAvailableGridColumns] = createSignal(
 		() => props.columns,
@@ -271,22 +239,14 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 		readonly id: string;
 		readonly edge: DockEdge;
 	} | null>(null);
-	const auxiliaryPanels = () => props.auxiliaryPanels ?? EMPTY_AUXILIARY_PANELS;
-	const rowsOnly = createMemo(
-		() => props.layoutMode === "rows" && auxiliaryPanels().length === 0,
-	);
 	const panelKey = createMemo(() =>
-		JSON.stringify([
-			...props.panes.map((pane) => pane.id),
-			...auxiliaryPanels().map((panel) => panel.id),
-		]),
+		JSON.stringify(props.panes.map((pane) => pane.id)),
 	);
 	const dockInput = createMemo(() => ({
 		workspaceId: props.workspaceId ?? "default",
 		legacyWorkspaceId: props.legacyWorkspaceId,
 		ids: JSON.parse(panelKey()) as string[],
 		columns: props.columns,
-		mode: props.layoutMode,
 		visibleColumns: availableGridColumns(),
 		rows: props.rows,
 	}));
@@ -298,15 +258,12 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 	const dockError = dock.error;
 	const layout = dock.layout;
 	const clearDragState = () => {
-		setDragIndex(null);
-		setDragOverIndex(null);
 		setDragPanelId(null);
 		setDockTarget(null);
 	};
 	observeResponsiveGridColumns(
 		() => containerRef.current,
 		() => props.columns,
-		() => props.layoutMode === "grid",
 		setAvailableGridColumns,
 	);
 	const commitDockPlacement = (
@@ -315,22 +272,17 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 			readonly id: string;
 			readonly edge: DockEdge;
 		},
-		pendingPanel: {
-			readonly id: string;
-			readonly complete: () => void;
-		} | null,
 	) => {
 		void updateDock({
 			type: "place",
-			source: pendingPanel?.id ?? sourceId,
+			source: sourceId,
 			target: target.id,
 			edge: target.edge,
-			insert: !!pendingPanel,
+			insert: false,
 			outer: target.id === ROOT_DOCK_TARGET_ID && target.edge !== "center",
 		}).then((saved) => {
 			if (!saved) return;
-			pendingPanel?.complete();
-			if (!pendingPanel && props.panes.some((pane) => pane.id === sourceId))
+			if (props.panes.some((pane) => pane.id === sourceId))
 				props.onSelectPane(sourceId);
 		});
 	};
@@ -340,10 +292,6 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 		event: PointerEvent,
 		sourceId: string,
 		sourceIndex: number | null,
-		pendingPanel: {
-			readonly id: string;
-			readonly complete: () => void;
-		} | null = null,
 	) => {
 		if (event.button !== 0) return;
 		cancelDockDrag?.();
@@ -369,7 +317,6 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 				);
 				if (distance < 3) return;
 				activated = true;
-				setDragIndex(sourceIndex);
 				setDragPanelId(sourceId);
 			}
 			moveEvent.preventDefault();
@@ -379,25 +326,18 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 				moveEvent.clientX,
 				moveEvent.clientY,
 			);
-			const row = hit?.closest<HTMLElement>("[data-agent-row-pane-id]");
 			const cell = hit?.closest<HTMLElement>("[data-agent-grid-pane-id]");
 			target = project<DockPointerTarget | null>("dockPointerTarget", {
 				x: moveEvent.clientX,
 				y: moveEvent.clientY,
 				root: root.getBoundingClientRect(),
-				mode: props.layoutMode,
 				panelCount: dockInput().ids.length,
 				source: sourceId,
-				insert: !!pendingPanel,
-				rowId: row?.dataset.agentRowPaneId,
-				rowIndex: props.panes.findIndex(
-					(pane) => pane.id === row?.dataset.agentRowPaneId,
-				),
+				insert: false,
 				cellId: cell?.dataset.agentGridPaneId,
 				cell: cell?.getBoundingClientRect(),
 			});
-			setDragOverIndex(target?.rowIndex ?? null);
-			setDockTarget(target?.rowIndex === undefined ? target : null);
+			setDockTarget(target);
 		};
 		const finish = (finishEvent: PointerEvent | null, commit: boolean) => {
 			if (finishEvent && finishEvent.pointerId !== pointerId) return;
@@ -414,17 +354,7 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 			} catch {}
 			releaseSelection();
 			if (commit && activated && target) {
-				if (
-					props.layoutMode === "rows" &&
-					sourceIndex !== null &&
-					target.rowIndex !== undefined
-				) {
-					if (sourceIndex !== target.rowIndex) {
-						props.onReorderPanes?.(sourceIndex, target.rowIndex);
-					}
-				} else {
-					commitDockPlacement(sourceId, target, pendingPanel);
-				}
+				commitDockPlacement(sourceId, target);
 			} else if (!activated && sourceIndex !== null) {
 				props.onSelectPane(sourceId);
 			}
@@ -445,22 +375,6 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 		const paneId = props.panes[index]?.id;
 		if (paneId) beginPointerDock(event, paneId, index);
 	};
-	const handleAuxiliaryDragStart = (event: PointerEvent) => {
-		const panelId = (
-			event.currentTarget as HTMLElement | null
-		)?.closest<HTMLElement>("[data-agent-grid-pane-id]")?.dataset
-			.agentGridPaneId;
-		if (panelId) beginPointerDock(event, panelId, null);
-	};
-	const handleCreatePanelDragStart = (
-		event: PointerEvent,
-		panelId: string,
-		completeDrop: () => void,
-	) =>
-		beginPointerDock(event, panelId, null, {
-			id: panelId,
-			complete: completeDrop,
-		});
 	const handleDividerPointerDown = (
 		event: PointerEvent & {
 			currentTarget: HTMLButtonElement;
@@ -505,23 +419,15 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 		});
 	};
 	const handleWheelCapture = (event: WheelEvent) => {
-		const grid = props.layoutMode === "grid",
-			canvas = containerRef.current;
+		const canvas = containerRef.current;
 		const target =
 			event.target instanceof Element
-				? event.target.closest<HTMLElement>(
-						grid ? "[data-agent-grid-pane-id]" : "[data-agent-row-pane-id]",
-					)
+				? event.target.closest<HTMLElement>("[data-agent-grid-pane-id]")
 				: null;
 		if (!canvas || !target) return;
-		const selected =
-			(grid
-				? target.dataset.agentGridPaneId
-				: target.dataset.agentRowPaneId) ===
-			(auxiliaryPanels().find((panel) => panel.selected)?.id ??
-				props.selectedPaneId);
+		const selected = target.dataset.agentGridPaneId === props.selectedPaneId;
 		let inner: HTMLElement | null = null;
-		if (grid && selected) {
+		if (selected) {
 			const isScroller = (element: HTMLElement) =>
 				["auto", "scroll"].includes(getComputedStyle(element).overflowY) &&
 				element.scrollHeight > element.clientHeight;
@@ -537,10 +443,7 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 				[...target.querySelectorAll<HTMLElement>("*")].find(isScroller) ?? null;
 		}
 		const wheel = project<DockWheel>("dockWheel", {
-			mode: props.layoutMode,
-			deltaX: event.deltaX,
 			deltaY: event.deltaY,
-			shift: event.shiftKey,
 			selected,
 			inner: inner && {
 				offset: inner.scrollTop,
@@ -551,8 +454,7 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 		if (!wheel.capture) return;
 		event.preventDefault();
 		event.stopPropagation();
-		if (wheel.horizontal) canvas.scrollLeft += wheel.delta;
-		else canvas.scrollTop += wheel.delta;
+		canvas.scrollTop += wheel.delta;
 	};
 	createEffect(
 		() => props.active !== false,
@@ -569,15 +471,6 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 			};
 		},
 	);
-	const cellStyle = (idx: number) => {
-		const activeDragIndex = dragIndex();
-		return inlineStyles.getCanvasCellStyle(
-			dragOverIndex() === idx && activeDragIndex !== idx
-				? (props.theme.cursor ?? "#d6ff00")
-				: props.theme.separator,
-			activeDragIndex === idx ? 0.4 : 1,
-		);
-	};
 	const paneViewProps = (pane: Pane, paneIndex: number) => ({
 		pane,
 		isSelected: props.active !== false && pane.id === props.selectedPaneId,
@@ -594,50 +487,6 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 	return (
 		<>
 			{(() => {
-				if (rowsOnly()) {
-					return (
-						<div
-							ref={[
-								(element) => (containerRef.current = element),
-								captureEvent("wheel", (event) => handleWheelCapture(event)),
-							]}
-							{...stylex.attrs(styles.rowScroller)}
-							data-agent-row-scroll-area
-						>
-							{
-								<For each={props.panes} keyed={(row) => row.id}>
-									{(pane, idx) => (
-										<div
-											data-agent-row-pane-id={pane().id}
-											{...stylex.attrs(styles.rowCell)}
-											style={domStyle(
-												inlineStyles.getWorkspaceCanvasRowCellStyle(
-													cellStyle(idx()),
-												),
-											)}
-											ref={[
-												captureEvent("pointerdown", (event) => {
-													if (isWorkspaceDockDragSource(event.target)) return;
-													if (pane().id !== props.selectedPaneId) {
-														window.getSelection()?.removeAllRanges();
-													}
-													props.onSelectPane(pane().id);
-												}),
-												captureEvent("click", (event) => {
-													if (shouldFocusPaneComposer(event.target)) {
-														props.onFocusPane?.(pane().id);
-													}
-												}),
-											]}
-										>
-											<PaneView {...paneViewProps(pane(), idx())} />
-										</div>
-									)}
-								</For>
-							}
-						</div>
-					);
-				}
 				const DockNode = (nodeProps: {
 					node: DockTree;
 					path: readonly ("first" | "second")[];
@@ -699,12 +548,6 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 						const index = paneIndex();
 						return index >= 0 ? props.panes[index] : null;
 					});
-					const auxiliaryPanel = createMemo(() => {
-						return auxiliaryPanels().find(
-							(panel) => panel.id === panelProps.id,
-						);
-					});
-					const hasPane = createMemo(() => !!pane());
 					const isDropTarget = createMemo(
 						() =>
 							dockTarget()?.id === panelProps.id &&
@@ -725,13 +568,11 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 										props.onSelectPane(currentPane.id);
 										return;
 									}
-									auxiliaryPanel()?.onSelect?.();
 								}),
 								captureEvent("click", (event) => {
 									const currentPane = pane();
 									if (isWorkspaceDockDragSource(event.target)) {
 										if (currentPane) props.onSelectPane(currentPane.id);
-										else auxiliaryPanel()?.onSelect?.();
 									}
 									if (currentPane && shouldFocusPaneComposer(event.target)) {
 										props.onFocusPane?.(currentPane.id);
@@ -739,30 +580,9 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 								}),
 							]}
 						>
-							{hasPane() ? (
-								<For each={pane() ? [pane()!] : []} keyed={(item) => item.id}>
-									{(item) => (
-										<PaneView {...paneViewProps(item(), paneIndex())} />
-									)}
-								</For>
-							) : (
-								<For
-									each={auxiliaryPanel() ? [auxiliaryPanel()!] : []}
-									keyed={(panel) => panel.id}
-								>
-									{(panel) =>
-										// Mount once per panel ID; selection/persistence updates must not reopen tabs.
-										untrack(() =>
-											panel().render({
-												draggable: true,
-												onDragStart: handleAuxiliaryDragStart,
-												onCreatePanelDragStart: handleCreatePanelDragStart,
-												onDragEnd: clearDragState,
-											}),
-										)
-									}
-								</For>
-							)}
+							<For each={pane() ? [pane()!] : []} keyed={(item) => item.id}>
+								{(item) => <PaneView {...paneViewProps(item(), paneIndex())} />}
+							</For>
 							{isDropTarget() ? (
 								<div
 									aria-hidden="true"
@@ -827,4 +647,3 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 	);
 };
 export const DEFAULT_ROWS = 1 as const;
-const EMPTY_AUXILIARY_PANELS: readonly AuxiliaryPanel[] = [];

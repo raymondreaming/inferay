@@ -80,39 +80,22 @@ describe("navigation while native persistence is pending", () => {
 		expect(current().selectedCommitHash).toBeNull();
 	});
 
-	test("file preview opens immediately and retains local content without serializing it", async () => {
+	test("file preview opens immediately and saves the selected historical source", async () => {
 		const { model, current, mutation, sent } = setup();
-		model.preview("repo", {
+		const request = model.preview("repo", {
 			type: "commitFile",
 			cwd: "/repo",
 			path: "a.rs",
 			commitHash: "a",
 			commitParent: null,
 		});
-		expect(current().selectedFile.path).toBe("a.rs");
+		expect(current().selectedFile).toEqual({
+			path: "a.rs",
+			staged: false,
+			source: { kind: "commit", commitHash: "a", commitParent: null },
+		});
 		expect(current().diffViewerCwd).toBe("/repo");
-		const initialFile = {
-			cwd: "/repo",
-			path: "a.rs",
-			content: "large document",
-			toJSON() {
-				throw new Error("file content crossed panel bridge");
-			},
-		};
-		const detached = model.preview("repo", {
-			type: "detachFile",
-			id: "file",
-			cwd: "/repo",
-			path: "a.rs",
-			initialFile,
-		});
-		expect(current().detachedFilePanels[0].initialFile).toBe(initialFile);
-		await mutation.mutationFn(detached);
-		expect((sent[0] as any).action.initialFile).toBeUndefined();
-		model.preview("repo", {
-			type: "focus",
-			panel: { id: "file", cwd: "/repo" },
-		});
-		expect(current().detachedFilePanels[0].initialFile).toBe(initialFile);
+		await mutation.mutationFn(request);
+		expect(sent).toEqual([{ workspaceId: "repo", action: request.action }]);
 	});
 });

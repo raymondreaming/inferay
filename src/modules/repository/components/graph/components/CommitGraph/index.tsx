@@ -166,7 +166,9 @@ export const CommitGraph = function CommitGraph(
 									onRefDrop={view.onRefDrop}
 									onOpenRefContextMenu={view.openRefContextMenu}
 									onOpenItemContextMenu={view.openItemContextMenu}
-									ghostRef={view.containingBranches.get(commit().id)}
+									ghostRef={view.references.get(
+										commit().navigation.containingBranch ?? "",
+									)}
 									hiddenRefNames={view.hiddenRefNames}
 									pinnedRefNames={view.pinnedRefNames}
 									historyMatch={

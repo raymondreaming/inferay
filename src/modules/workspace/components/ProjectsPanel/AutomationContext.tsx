@@ -1,5 +1,4 @@
 import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
-import { queryClient } from "@shared/lib/dom.tsx";
 import { skillsQuery } from "@skills/services/skillsApi.ts";
 import * as stylex from "@stylexjs/stylex";
 import { For } from "solid-js";
@@ -16,7 +15,7 @@ export function AutomationContext(props: {
 	value: string;
 	onChange: (value: string) => void;
 }) {
-	const library = useBackgroundQuery(skillsQuery, () => queryClient);
+	const library = useBackgroundQuery(skillsQuery);
 	const selected = () =>
 		props.value
 			.split(",")

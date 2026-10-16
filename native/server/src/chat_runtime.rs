@@ -2,9 +2,7 @@
 use crate::prompt_store::PromptStore;
 use crate::unix_millis as now_millis;
 use inferay_core::agent_kind::AgentKind;
-use inferay_core::agent_protocol::{
-    AgentProtocolContext, CodexInvocationContext, CodexProtocolState,
-};
+use inferay_core::agent_protocol::{AgentProtocolContext, CodexInvocationContext};
 use inferay_core::utf16_slice as javascript_slice;
 
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
@@ -749,6 +747,41 @@ impl ChatRuntime {
         let _ = sender.send(status);
     }
 
+    /// Repair saved provider-error titles before presenting the sidebar, including unopened chats.
+    pub(crate) async fn repair_saved_titles(&self) -> Result<(), String> {
+        let saved = self.workspaces.lock().expect("workspace lock").read()?;
+        let panes: Vec<String> = saved["groups"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|group| group["panes"].as_array().into_iter().flatten())
+            .filter(|pane| {
+                pane["summary"]
+                    .as_str()
+                    .is_some_and(|title| !crate::one_shot::usable_chat_title(title))
+            })
+            .filter_map(|pane| pane["id"].as_str().map(str::to_owned))
+            .collect();
+        for id in panes {
+            let title = self
+                .persistence
+                .read_transcript(&id)
+                .await
+                .and_then(|messages| messages.into_iter().find(|message| message.role == "user"))
+                .map(|message| crate::one_shot::fallback_title(&message.content));
+            let store = self.workspaces.lock().expect("workspace lock");
+            // A live provider name received during the read wins over this repair.
+            if store.pane(&id)?.is_some_and(|pane| {
+                pane.summary
+                    .as_deref()
+                    .is_some_and(|title| !crate::one_shot::usable_chat_title(title))
+            }) {
+                store.set_pane_summary(&id, title)?;
+            }
+        }
+        Ok(())
+    }
+
     async fn ensure_summary(&self, session: &Arc<Mutex<ChatSession>>) {
         let (pane, message) = {
             let mut state = session.lock().await;
@@ -774,23 +807,21 @@ impl ChatRuntime {
             .pane(&pane)
             .ok()
             .flatten()
-            .is_some_and(|pane| pane.summary.is_some())
+            .is_some_and(|pane| {
+                pane.summary
+                    .as_deref()
+                    .is_some_and(crate::one_shot::usable_chat_title)
+            })
         {
             return;
         }
-        let runtime = self.clone();
-        let session = session.clone();
-        tokio::spawn(async move {
-            if let Some(title) = runtime.persistence.legacy_summary(&pane).await {
-                runtime.save_summary(&session, title).await;
-            } else {
-                runtime
-                    .save_summary(&session, crate::one_shot::fallback_title(&message))
-                    .await;
-                let title = crate::one_shot::generate_title(&runtime.resolver, &message).await;
-                runtime.save_summary(&session, title).await;
-            }
-        });
+        let title = self
+            .persistence
+            .legacy_summary(&pane)
+            .await
+            .filter(|title| crate::one_shot::usable_chat_title(title))
+            .unwrap_or_else(|| crate::one_shot::fallback_title(&message));
+        self.save_summary(session, title).await;
     }
 
     async fn save_summary(&self, session: &Arc<Mutex<ChatSession>>, title: String) {
@@ -1170,39 +1201,20 @@ impl ChatRuntime {
                 let mut protocol = AgentProtocolContext::new(invocation.cwd.clone());
                 protocol.reference_paths = invocation.reference_paths.clone();
                 protocol.session_id = invocation.session_id.clone();
-                if agent_kind == "codex" {
-                    crate::agent_runner::run_codex(
-                        crate::agent_runner::CodexRun {
-                            binary: &binary,
-                            prompt: &prompt,
-                            invocation: &invocation,
-                            env: &environment,
-                        },
-                        &handle,
-                        &self.pid_tracker,
-                        &mut protocol,
-                        &mut CodexProtocolState::default(),
-                        &emission_tx,
-                    )
-                    .await
-                } else {
-                    crate::agent_runner::run_claude(
-                        crate::agent_runner::ClaudeRun {
-                            binary: &binary,
-                            prompt: &prompt,
-                            developer_instructions: invocation.developer_instructions.as_deref(),
-                            cwd: &invocation.cwd,
-                            model: invocation.model.as_deref(),
-                            session_id: invocation.session_id.as_deref(),
-                            env: &environment,
-                            mcp_servers: invocation.mcp_servers.as_deref(),
-                        },
-                        &handle,
-                        &mut protocol,
-                        &emission_tx,
-                    )
-                    .await
-                }
+                crate::agent_runner::run_agent(
+                    crate::agent_runner::ProviderRun {
+                        binary: &binary,
+                        prompt: &prompt,
+                        invocation: &invocation,
+                        env: &environment,
+                    },
+                    kind,
+                    &handle,
+                    &self.pid_tracker,
+                    &mut protocol,
+                    &emission_tx,
+                )
+                .await
             },
             |emission| self.apply_emission(session, emission, checkpoint_id),
         )
@@ -1236,6 +1248,7 @@ impl ChatRuntime {
                     .await
             }
             ProtocolEmission::System(message) => self.emit_system(session, &message).await,
+            ProtocolEmission::Title(title) => self.save_summary(session, title).await,
             ProtocolEmission::Session(id) => {
                 let mut state = session.lock().await;
                 if state.cancelled {
@@ -1727,8 +1740,7 @@ enum GoalResult {
 
 fn parse_goal_command(text: &str) -> Option<GoalCommand> {
     let trimmed = text.trim();
-    if trimmed.len() < 5
-        || !trimmed[..5].eq_ignore_ascii_case("/goal")
+    if !trimmed.get(..5)?.eq_ignore_ascii_case("/goal")
         || trimmed
             .as_bytes()
             .get(5)
@@ -1923,5 +1935,54 @@ fn collect_paths(value: &Value, output: &mut Vec<String>) {
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GoalCommand, parse_goal_command};
+
+    #[test]
+    fn goal_parser_accepts_unicode_chat_without_panicking() {
+        for text in [
+            "r&d — 5:24 PM\nThink about this\nSeed -> Plant",
+            "  r&d — 5:24 PM\n",
+            "😀😀",
+            "你好世界",
+            "abcd\u{200b}text",
+            "",
+            "/go",
+            "/goals",
+            "/goal😀",
+        ] {
+            assert!(parse_goal_command(text).is_none(), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn goal_parser_preserves_commands_and_unicode_objectives() {
+        assert!(matches!(
+            parse_goal_command("/goal"),
+            Some(GoalCommand::Status)
+        ));
+        assert!(matches!(
+            parse_goal_command(" /GOAL status "),
+            Some(GoalCommand::Status)
+        ));
+        assert!(matches!(
+            parse_goal_command("/goal\tpause"),
+            Some(GoalCommand::Pause)
+        ));
+        assert!(matches!(
+            parse_goal_command("/goal resume"),
+            Some(GoalCommand::Resume)
+        ));
+        for text in ["/goal clear", "/goal stop"] {
+            assert!(matches!(parse_goal_command(text), Some(GoalCommand::Clear)));
+        }
+        assert!(matches!(
+            parse_goal_command("/goal\n研究 — 🌱"),
+            Some(GoalCommand::Start(objective)) if objective == "研究 — 🌱"
+        ));
     }
 }

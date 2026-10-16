@@ -14,27 +14,24 @@ export function useGitDiff(
 			? JSON.stringify({ ..._requestValue, revision: undefined })
 			: "";
 	});
-	const query = useQuery(
-		() => {
-			const _requestValue2 = _request();
-			const identity = key();
-			return {
-				queryKey: _requestValue2
-					? diffQueryKey(_requestValue2)
-					: ["git-diff", null],
-				placeholderData: (previous, previousQuery) =>
-					previousQuery?.queryKey[2] === identity ? previous : undefined,
-				enabled: _requestValue2 !== null,
-				// Paint recently visited diffs immediately while checking for changes.
-				gcTime: 30_000,
-				staleTime: 0,
-				retry: false,
-				queryFn: ({ signal }: { signal: AbortSignal }) =>
-					fetchGitDiff(_requestValue2!, signal),
-			};
-		},
-		() => queryClient,
-	);
+	const query = useQuery(() => {
+		const _requestValue2 = _request();
+		const identity = key();
+		return {
+			queryKey: _requestValue2
+				? diffQueryKey(_requestValue2)
+				: ["git-diff", null],
+			placeholderData: (previous, previousQuery) =>
+				previousQuery?.queryKey[2] === identity ? previous : undefined,
+			enabled: _requestValue2 !== null,
+			// Paint recently visited diffs immediately while checking for changes.
+			gcTime: 30_000,
+			staleTime: 0,
+			retry: false,
+			queryFn: ({ signal }: { signal: AbortSignal }) =>
+				fetchGitDiff(_requestValue2!, signal),
+		};
+	});
 	return {
 		get diff() {
 			return _request() && !query.error ? (query.data ?? null) : null;

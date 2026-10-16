@@ -1,13 +1,15 @@
 import type { ToolConnection } from "@contracts";
 import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
-import { queryClient } from "@shared/lib/dom.tsx";
 import { Button } from "@shared/ui/Button/index.tsx";
 import { DropdownButton } from "@shared/ui/DropdownButton/index.tsx";
 import { Modal } from "@shared/ui/Modal/index.tsx";
 import { TextInput } from "@shared/ui/TextInput/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createSignal, For } from "solid-js";
-import { saveProjectCommand } from "../../hooks/useProjects.tsx";
+import {
+	saveProjectCommand,
+	useProjectAction,
+} from "../../hooks/useProjects.tsx";
 import { editDefinition, type ProjectTool } from "../../model/projectFiles.ts";
 import { loadProjectConnections } from "../../services/projectsApi.ts";
 import { styles } from "./styles.ts";
@@ -26,16 +28,12 @@ export function ToolConnectionsDialog(props: {
 		}),
 	);
 	const [rows, setRows] = createSignal(initial);
-	const [pending, setPending] = createSignal(false);
-	const [error, setError] = createSignal("");
+	const { busy: pending, error, setError, run } = useProjectAction();
 	const dirty = () => JSON.stringify(rows()) !== JSON.stringify(initial);
-	const connections = useBackgroundQuery(
-		() => ({
-			queryKey: ["project-connections", props.tool.file.projectId],
-			queryFn: () => loadProjectConnections(props.tool.file.projectId),
-		}),
-		() => queryClient,
-	);
+	const connections = useBackgroundQuery(() => ({
+		queryKey: ["project-connections", props.tool.file.projectId],
+		queryFn: () => loadProjectConnections(props.tool.file.projectId),
+	}));
 	function change(key: number, binding: Partial<ToolConnection>) {
 		setRows(
 			rows().map((row) =>
@@ -63,8 +61,7 @@ export function ToolConnectionsDialog(props: {
 			setError("Choose a saved project connection for each alias.");
 			return;
 		}
-		setPending(true);
-		try {
+		await run(async () => {
 			await saveProjectCommand(
 				editDefinition(props.tool.file, {
 					...props.tool.file.definition!,
@@ -75,11 +72,7 @@ export function ToolConnectionsDialog(props: {
 			);
 			await props.saved();
 			props.close();
-		} catch (error) {
-			setError(String(error));
-		} finally {
-			setPending(false);
-		}
+		});
 	}
 	return (
 		<Modal

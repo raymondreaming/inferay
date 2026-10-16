@@ -25,6 +25,28 @@ fn fixture() -> (tempfile::TempDir, String, String) {
     (profile, project, automation)
 }
 
+// Standalone fixtures exercise the same transaction-bound approval operation.
+fn approve_fixture(
+    db: &Connection,
+    profile: &Path,
+    id: &str,
+    expected: &str,
+    enable: bool,
+    skills: &[inferay_core::prompts::Prompt],
+) -> Result<()> {
+    let tx = db.unchecked_transaction()?;
+    approve(
+        &tx,
+        profile,
+        Approval::Automation(id),
+        expected,
+        enable,
+        skills,
+    )?;
+    tx.commit()?;
+    Ok(())
+}
+
 #[test]
 fn rebuild_restores_definitions_disabled_without_local_database() {
     let (profile, _, automation) = fixture();
@@ -71,7 +93,7 @@ fn invalid_and_deleted_files_replace_index_without_erasing_history_or_approval()
         &serde_json::to_vec(&execution_inputs(&db, profile.path(), &automation, &[]).unwrap())
             .unwrap(),
     );
-    approve_automation(&db, profile.path(), &automation, &digest, true, &[]).unwrap();
+    approve_fixture(&db, profile.path(), &automation, &digest, true, &[]).unwrap();
     refresh(&mut db, profile.path(), &[]).unwrap();
     assert!(
         db.query_row("SELECT enabled FROM automation_state", [], |r| r
@@ -147,7 +169,7 @@ fn companion_script_edit_invalidates_approved_package() {
         &serde_json::to_vec(&execution_inputs(&db, profile.path(), &automation, &[]).unwrap())
             .unwrap(),
     );
-    approve_automation(&db, profile.path(), &automation, &digest, true, &[]).unwrap();
+    approve_fixture(&db, profile.path(), &automation, &digest, true, &[]).unwrap();
     refresh(&mut db, profile.path(), &[]).unwrap();
     assert!(
         db.query_row("SELECT enabled FROM automation_state", [], |r| r
@@ -292,7 +314,7 @@ fn approval_rejects_stale_review_and_manual_runs_cannot_bypass_input_changes() {
     let reviewed = execution_inputs(&db, profile.path(), &automation, &[]).unwrap();
     let digest = hash(&serde_json::to_vec(&reviewed).unwrap());
     assert!(approved_inputs(&db, profile.path(), &automation, false, &[]).is_err());
-    approve_automation(&db, profile.path(), &automation, &digest, true, &[]).unwrap();
+    approve_fixture(&db, profile.path(), &automation, &digest, true, &[]).unwrap();
     assert_eq!(
         approved_inputs(&db, profile.path(), &automation, true, &[]).unwrap(),
         reviewed
@@ -301,7 +323,7 @@ fn approval_rejects_stale_review_and_manual_runs_cannot_bypass_input_changes() {
     assert!(approved_inputs(&db, profile.path(), &automation, true, &[]).is_err());
     assert!(approved_inputs(&db, profile.path(), &automation, false, &[]).is_ok());
     files::write(&root, "plugins/daily/helper.py", b"print('changed')", None).unwrap();
-    assert!(approve_automation(&db, profile.path(), &automation, &digest, true, &[]).is_err());
+    assert!(approve_fixture(&db, profile.path(), &automation, &digest, true, &[]).is_err());
     assert!(approved_inputs(&db, profile.path(), &automation, false, &[]).is_err());
     let state: (bool, Option<i64>, bool) = db
         .query_row(
@@ -312,7 +334,7 @@ fn approval_rejects_stale_review_and_manual_runs_cannot_bypass_input_changes() {
         .unwrap();
     assert_eq!(state, (false, None, true));
     let current = execution_inputs(&db, profile.path(), &automation, &[]).unwrap();
-    approve_automation(
+    approve_fixture(
         &db,
         profile.path(),
         &automation,
@@ -355,7 +377,7 @@ fn captured_skill_instructions_remain_pinned_after_library_edit() {
             .contains("original research procedure")
     );
     let digest = hash(&serde_json::to_vec(&captured).unwrap());
-    approve_automation(&db, profile.path(), &automation, &digest, true, &[]).unwrap();
+    approve_fixture(&db, profile.path(), &automation, &digest, true, &[]).unwrap();
     fs::write(
         root.join("plugins/daily/skills/research.md"),
         markdown.replace("original research procedure", "changed research procedure"),
@@ -395,7 +417,7 @@ fn refresh_checks_selected_inputs_without_disabling_for_unrelated_resources() {
         &serde_json::to_vec(&execution_inputs(&db, profile.path(), &automation, &skills).unwrap())
             .unwrap(),
     );
-    approve_automation(&db, profile.path(), &automation, &digest, true, &skills).unwrap();
+    approve_fixture(&db, profile.path(), &automation, &digest, true, &skills).unwrap();
     let resource = json!({"schema":"inferay.resource/1","id":uuid::Uuid::new_v4().to_string(),"type":"brand.brand","typeVersion":1,"name":"Unrelated","body":{"name":"Other","description":"Other project context"}});
     files::write(
         &root,
@@ -504,11 +526,80 @@ fn plugin_approval_is_host_only_hash_bound_and_disables_after_file_change() {
 }
 
 #[test]
+fn library_approval_rolls_back_all_jobs_and_keeps_manual_jobs_disabled() {
+    let (profile, project, scheduled) = fixture();
+    let root = profile.path().join("projects").join(&project);
+    let manual = uuid::Uuid::new_v4().to_string();
+    let mut definition: Value = serde_json::from_slice(
+        &fs::read(root.join("plugins/daily/automations/daily.json")).unwrap(),
+    )
+    .unwrap();
+    definition["id"] = json!(manual);
+    definition["trigger"] = json!({"kind":"manual"});
+    files::write(
+        &root,
+        "plugins/daily/automations/manual.json",
+        &serde_json::to_vec(&definition).unwrap(),
+        None,
+    )
+    .unwrap();
+    let mut db = Connection::open_in_memory().unwrap();
+    create_schema(&db).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
+    let plugin = catalog(&db, Some(&project)).unwrap().plugins[0]
+        .file
+        .id
+        .clone();
+    let review = review_plugin(&db, profile.path(), &plugin, &[]).unwrap();
+    let command = ProjectFileCommand::ApprovePlugin {
+        id: plugin.clone(),
+        expected_inputs_hash: review.inputs_hash,
+        enable: true,
+    };
+    // Fail the final write, after both automation approval writes succeeded.
+    db.execute_batch("CREATE TRIGGER reject_approval BEFORE INSERT ON plugin_state BEGIN SELECT RAISE(ABORT,'injected approval failure'); END;").unwrap();
+    let error =
+        crate::project_file_commands::apply(&mut db, profile.path(), command.clone(), true, &[])
+            .unwrap_err();
+    assert!(error.to_string().contains("injected approval failure"));
+    let approved: i64 = db.query_row("SELECT count(*) FROM automation_state WHERE enabled=1 OR approved_hash IS NOT NULL OR next_due_at IS NOT NULL", [], |row| row.get(0)).unwrap();
+    assert_eq!(approved, 0);
+    assert!(
+        catalog(&db, Some(&project)).unwrap().plugins[0]
+            .approved_hash
+            .is_none()
+    );
+    db.execute_batch("DROP TRIGGER reject_approval").unwrap();
+    crate::project_file_commands::apply(&mut db, profile.path(), command, true, &[]).unwrap();
+    let snapshot = plugin_inputs(&db, profile.path(), &plugin, &[]).unwrap();
+    for id in [&scheduled, &manual] {
+        let (enabled, next, approved): (bool, Option<i64>, String) = db.query_row(
+            "SELECT enabled,next_due_at,approved_hash FROM automation_state WHERE automation_id=?", [id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).unwrap();
+        assert_eq!(enabled, id == &scheduled);
+        assert_eq!(next.is_some(), enabled);
+        assert_eq!(
+            approved,
+            hash(&serde_json::to_vec(&snapshot["automations"][id]).unwrap())
+        );
+    }
+    let manual_hash = hash(&serde_json::to_vec(&snapshot["automations"][&manual]).unwrap());
+    assert!(
+        approve_fixture(&db, profile.path(), &manual, &manual_hash, true, &[])
+            .unwrap_err()
+            .to_string()
+            .contains("Choose a schedule")
+    );
+}
+
+#[test]
 fn code_only_library_edits_revoke_approval_even_after_reverting() {
     let (profile, project, _) = fixture();
     let root = profile.path().join("projects").join(&project);
     fs::remove_file(root.join("plugins/daily/automations/daily.json")).unwrap();
     files::write(&root, "plugins/daily/library.py", b"VERSION = 1", None).unwrap();
+    files::write(&root, "plugins/daily/raw.bin", &[255, 0], None).unwrap();
     let mut db = Connection::open_in_memory().unwrap();
     create_schema(&db).unwrap();
     refresh(&mut db, profile.path(), &[]).unwrap();
@@ -518,6 +609,13 @@ fn code_only_library_edits_revoke_approval_even_after_reverting() {
         .clone();
     let review = review_plugin(&db, profile.path(), &plugin, &[]).unwrap();
     assert!(review.automations.is_empty());
+    let binary = review
+        .files
+        .iter()
+        .find(|file| file.path.ends_with("raw.bin"))
+        .unwrap();
+    assert!(binary.hash.is_some());
+    assert!(binary.content.is_none());
     crate::project_file_commands::apply(
         &mut db,
         profile.path(),
@@ -580,6 +678,16 @@ fn code_only_library_edits_revoke_approval_even_after_reverting() {
             .approved_hash
             .is_none()
     );
+    fs::remove_file(root.join("plugins/daily/library.py")).unwrap();
+    let review = review_plugin(&db, profile.path(), &plugin, &[]).unwrap();
+    let removed = review
+        .files
+        .iter()
+        .find(|file| file.path.ends_with("library.py"))
+        .unwrap();
+    assert!(removed.hash.is_none());
+    assert!(removed.content.is_none());
+    assert_eq!(removed.previous_content.as_deref(), Some("VERSION = 1"));
 }
 
 #[test]
@@ -789,7 +897,7 @@ fn shared_genome_edit_revokes_every_reader_but_preserves_unrelated_approval() {
     for id in &ids {
         let inputs = execution_inputs(&db, profile.path(), id, &[]).unwrap();
         let digest = hash(&serde_json::to_vec(&inputs).unwrap());
-        approve_automation(&db, profile.path(), id, &digest, true, &[]).unwrap();
+        approve_fixture(&db, profile.path(), id, &digest, true, &[]).unwrap();
         assert!(approved_inputs(&db, profile.path(), id, true, &[]).is_ok());
     }
     let mut edited = genome.clone();
@@ -863,7 +971,7 @@ fn changed_git_metadata_binding_invalidates_automation_approval() {
             common.canonicalize().unwrap()
         ])
     );
-    approve_automation(
+    approve_fixture(
         &db,
         profile.path(),
         &automation,
@@ -888,4 +996,162 @@ fn changed_git_metadata_binding_invalidates_automation_approval() {
     assert_eq!(state, (false, true));
     fs::write(root.join(".git"), "gitdir: missing\n").unwrap();
     assert!(execution_inputs(&db, profile.path(), &automation, &[]).is_err());
+}
+
+#[test]
+fn catalog_excludes_folder_bindings_removed_from_project() {
+    let (profile, project, _) = fixture();
+    let mut db = Connection::open_in_memory().unwrap();
+    create_schema(&db).unwrap();
+    let path = profile
+        .path()
+        .join("projects")
+        .join(&project)
+        .join("project.json");
+    let mut definition: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let kept = uuid::Uuid::new_v4().to_string();
+    let removed = uuid::Uuid::new_v4().to_string();
+    definition["repositories"] = json!([{"id":kept,"name":"Point"}]);
+    fs::write(path, definition.to_string()).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
+    for id in [&kept, &removed] {
+        db.execute(
+            "INSERT INTO repository_paths VALUES(?,?,?)",
+            params![project, id, "/Point"],
+        )
+        .unwrap();
+    }
+    let result = catalog(&db, Some(&project)).unwrap();
+    assert_eq!(result.repository_paths.len(), 1);
+    assert_eq!(
+        result.repository_paths.get(&kept).map(String::as_str),
+        Some("/Point")
+    );
+}
+
+#[test]
+fn shared_review_capture_rejects_changes_before_returning() {
+    let (profile, project, automation) = fixture();
+    let root = profile.path().join("projects").join(&project);
+    let mut db = Connection::open_in_memory().unwrap();
+    create_schema(&db).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
+    for path in ["plugins/daily/new.txt", "project.json"] {
+        let capture = InputCapture::new(profile.path(), &project, &[]).unwrap();
+        let captured = capture.execution(&db, &automation).unwrap();
+        assert_eq!(
+            captured,
+            execution_inputs(&db, profile.path(), &automation, &[]).unwrap()
+        );
+        capture.verify().unwrap();
+        let file = root.join(path);
+        let original = fs::read(&file).ok();
+        let mut changed = original.clone().unwrap_or_default();
+        changed.push(b' ');
+        fs::write(&file, changed).unwrap();
+        assert!(capture.verify().is_err(), "must detect changes to {path}");
+        if let Some(original) = original {
+            fs::write(file, original).unwrap();
+        } else {
+            fs::remove_file(file).unwrap();
+        }
+    }
+}
+
+#[test]
+#[ignore = "isolated approval/review benchmark; run with --ignored --nocapture --test-threads=1"]
+fn measure_plugin_approval_and_review() {
+    let review_only = std::env::var_os("INFERAY_BENCH_REVIEW_MEMORY").is_some();
+    let (profile, project, _) = fixture();
+    let root = profile.path().join("projects").join(&project);
+    let template: Value = serde_json::from_slice(
+        &fs::read(root.join("plugins/daily/automations/daily.json")).unwrap(),
+    )
+    .unwrap();
+    for index in 0..19 {
+        let mut automation = template.clone();
+        automation["id"] = json!(uuid::Uuid::new_v4().to_string());
+        files::write(
+            &root,
+            &format!("plugins/daily/automations/{index}.json"),
+            &serde_json::to_vec(&automation).unwrap(),
+            None,
+        )
+        .unwrap();
+    }
+    for index in 0..100 {
+        files::write(
+            &root,
+            &format!("plugins/daily/data/{index}.txt"),
+            &vec![b'x'; if review_only { 262_144 } else { 32_768 }],
+            None,
+        )
+        .unwrap();
+    }
+    let mut db = Connection::open_in_memory().unwrap();
+    create_schema(&db).unwrap();
+    refresh(&mut db, profile.path(), &[]).unwrap();
+    let plugin: String = db
+        .query_row("SELECT id FROM plugins WHERE valid=1", [], |row| row.get(0))
+        .unwrap();
+    let capture_only = std::env::var_os("INFERAY_BENCH_INPUT_CAPTURE").is_some();
+    // Keep the same approved before/after contents available in the review.
+    let inputs = plugin_inputs(&db, profile.path(), &plugin, &[]).unwrap();
+    let digest = hash(&serde_json::to_vec(&inputs).unwrap());
+    db.execute("INSERT INTO plugin_state(plugin_id,approved_hash,approved_at,approved_inputs) VALUES(?,?,?,?)",params![plugin,digest,crate::project_store::now(),inputs.to_string()]).unwrap();
+    drop(inputs);
+    let mut samples = Vec::new();
+    for iteration in 0..12 {
+        let start = std::time::Instant::now();
+        if capture_only {
+            let snapshot = plugin_inputs(&db, profile.path(), &plugin, &[]).unwrap();
+            assert_eq!(snapshot["automations"].as_object().unwrap().len(), 20);
+        } else if review_only {
+            let review = review_plugin(&db, profile.path(), &plugin, &[]).unwrap();
+            assert_eq!(review.automations.len(), 20);
+            assert!(
+                review
+                    .files
+                    .iter()
+                    .all(|file| file.content == file.previous_content)
+            );
+        } else {
+            crate::project_file_commands::apply(
+                &mut db,
+                profile.path(),
+                ProjectFileCommand::ApprovePlugin {
+                    id: plugin.clone(),
+                    expected_inputs_hash: digest.clone(),
+                    enable: true,
+                },
+                true,
+                &[],
+            )
+            .unwrap();
+            let enabled: u32 = db
+                .query_row(
+                    "SELECT count(*) FROM automation_state WHERE enabled=1",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(enabled, 20);
+        }
+        if iteration >= 2 {
+            samples.push(start.elapsed().as_secs_f64() * 1000.);
+        }
+    }
+    samples.sort_by(f64::total_cmp);
+    println!(
+        "{}: 20 automations, 100 supporting files; 10 warm samples p50={:.3} ms p95={:.3} ms",
+        if capture_only {
+            "input capture 3.125 MiB"
+        } else if review_only {
+            "review 25 MiB"
+        } else {
+            "approval 3.125 MiB"
+        },
+        (samples[4] + samples[5]) / 2.,
+        samples[9]
+    );
 }

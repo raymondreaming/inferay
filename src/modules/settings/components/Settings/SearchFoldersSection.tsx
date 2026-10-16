@@ -16,13 +16,11 @@ import { styles } from "./styles.ts";
 
 const EMPTY_FOLDERS: string[] = [];
 export function SearchFoldersSection() {
-	const _source = useQueryResource<string[] | null>(
-		() => fetchSearchFolders,
-		() => null,
-		() => ({
-			queryKey: ["agent", "search-folders"],
-		}),
-	);
+	const _source = useQueryResource<string[] | null>(() => ({
+		queryKey: ["agent", "search-folders"],
+		queryFn: fetchSearchFolders,
+		initialData: null,
+	}));
 	const folders = createMemo(() => _source.data ?? EMPTY_FOLDERS);
 	const [newFolder, setNewFolder] = createSignal("");
 	const inputRef = {

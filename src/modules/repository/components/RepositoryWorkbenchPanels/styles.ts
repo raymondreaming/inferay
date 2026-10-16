@@ -37,39 +37,9 @@ export const styles = stylex.create({
 		minWidth: controlSize._0,
 		height: "100%",
 		minHeight: controlSize._0,
-		flexShrink: 0,
+		flex: 1,
 		backgroundColor: color.transparent,
 		overflow: "visible",
-		borderLeftWidth: 1,
-		borderLeftStyle: "solid",
-		borderLeftColor: color.border,
-	},
-	diffRailZen: {
-		minWidth: controlSize._0,
-		flex: 1,
-		borderLeftWidth: 0,
-	},
-	diffResizeHandle: {
-		position: "absolute",
-		zIndex: layer.sticky,
-		top: controlSize._0,
-		bottom: controlSize._0,
-		left: -4,
-		width: controlSize._2,
-		borderWidth: 0,
-		padding: controlSize._0,
-		touchAction: "none",
-		backgroundColor: color.transparent,
-		"::before": {
-			content: "",
-			position: "absolute",
-			insetBlock: 0,
-			left: 3,
-			width: 1,
-			backgroundColor: color.transparent,
-		},
-		":hover::before": { backgroundColor: color.borderStrong },
-		cursor: "ew-resize",
 	},
 	resizeHandle: {
 		position: "absolute",
@@ -86,12 +56,6 @@ export const styles = stylex.create({
 		cursor: "ew-resize",
 	},
 });
-export function diffRailStyle(width: number, maxWidth: string) {
-	return {
-		width,
-		maxWidth,
-	};
-}
 export function sidebarStyle(width: number) {
 	return {
 		width,

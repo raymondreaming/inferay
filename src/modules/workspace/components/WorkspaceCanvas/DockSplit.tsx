@@ -64,7 +64,7 @@ export function DockSplit(_props: {
 			<div
 				{...stylex.attrs(styles.dockBranch)}
 				style={domStyle(
-					inlineStyles.getWorkspaceCanvasDockBranchStyle1(1 - _props.ratio),
+					inlineStyles.getWorkspaceCanvasDockBranchStyle(1 - _props.ratio),
 				)}
 			>
 				{_props.second}

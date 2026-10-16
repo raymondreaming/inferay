@@ -9,8 +9,6 @@ import { IconChevronRight, IconFolderFill } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { FileActionIcon } from "./FileActionIcon.tsx";
-// File and status icons are temporarily hidden; retain FileChangeIcon for restoration.
-// import { FileChangeIcon } from "./FileChangeIcon.tsx";
 import { FileDiffStats } from "./FileDiffStats.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
@@ -138,7 +136,6 @@ export function TreeNodeRow(props: {
 							{props.node && (
 								<span {...stylex.attrs(styles.treeIndentSpacer)} />
 							)}
-							{/* <FileChangeIcon file={file()!} /> */}
 							{props.node ? (
 								<span
 									{...stylex.attrs(

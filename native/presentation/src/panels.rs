@@ -2,7 +2,7 @@
 use crate::wasm_json;
 use serde_json::{Value, json};
 
-#[derive(serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
@@ -49,442 +49,56 @@ fn file_source(value: &Value) -> DiffSource {
     })
 }
 
-fn clear_selection(session: &mut Value) {
-    for key in ["selectedFile", "selectedCommitHash", "selectedCommitParent"] {
-        session[key] = Value::Null;
-    }
-    session["selectedCommitIds"] = json!([]);
-}
-
-fn focus(session: &mut Value, id: &str, cwd: &Value) {
-    session["focusedAuxiliaryPanel"] = json!({"id":id,"cwd":cwd});
-}
-
-pub fn apply_action(
-    session: &mut Value,
-    action: &Value,
-    now: u64,
-) -> Result<Option<String>, String> {
-    let action: PanelAction = serde_json::from_value(action.clone()).map_err(|e| e.to_string())?;
-    let selected_source = session["selectedFile"]["source"]["kind"]
-        .as_str()
-        .unwrap_or_default()
-        .to_owned();
-    match action {
-        PanelAction::Initialize { cwd, reveal } => {
-            if session["repositoryInitialized"] == true && session["diffViewerCwd"].is_string() {
-                return Ok(None);
-            }
-            let reveal = reveal.unwrap_or(true);
-            if session["diffViewerCwd"].is_null() {
-                session["diffViewerCwd"] = json!(cwd);
-                session["mainViewMode"] = json!("graph");
-            }
-            session["repositoryInitialized"] = json!(true);
-            session["sidebarVisible"] = json!(reveal);
-            session["graphVisible"] = json!(reveal);
-        }
-        PanelAction::OpenGraph { cwd, reset } => {
-            if reset == Some(true) {
-                clear_selection(session);
-            }
-            session["diffViewerCwd"] = json!(cwd);
-            session["mainViewMode"] = json!("graph");
-            session["graphVisible"] = json!(true);
-            focus(session, "workspace-diff-viewer", &json!(cwd));
-        }
-        PanelAction::ToggleGraph { cwd } => {
-            if session["mainViewMode"] == "graph" && session["graphVisible"] == true {
-                session["graphVisible"] = json!(false);
-            } else {
-                session["diffViewerCwd"] = json!(cwd);
-                session["mainViewMode"] = json!("graph");
-                session["graphVisible"] = json!(true);
-                focus(session, "workspace-diff-viewer", &json!(cwd));
-            }
-        }
-        PanelAction::FocusChat { cwd } => {
-            if let Some(cwd) = cwd.filter(|_| session["mainViewMode"] == "graph") {
-                if session["diffViewerCwd"] != cwd {
-                    clear_selection(session);
-                }
-                session["diffViewerCwd"] = json!(cwd);
-            }
-            session["focusedAuxiliaryPanel"] = Value::Null;
-        }
-        PanelAction::Focus { panel } => session["focusedAuxiliaryPanel"] = json!(panel),
-        PanelAction::Mode { mode } => session["mainViewMode"] = json!(mode),
-        PanelAction::ToggleSidebar => {
-            session["sidebarVisible"] = json!(session["sidebarVisible"] != true);
-        }
-        PanelAction::Document { cwd, path } => {
-            session["fileViewerCwd"] = json!(cwd);
-            session["fileViewerOpen"] = json!(true);
-            session["fileRequest"] = json!({"path":path,"token":now});
-            focus(session, "workspace-file-viewer", &json!(cwd));
-        }
-        PanelAction::DetachFile { id, cwd, path, .. } => {
-            let panels = session["detachedFilePanels"]
-                .as_array_mut()
-                .expect("normalized panels");
-            if !panels.iter().any(|panel| panel["id"] == id) {
-                panels.push(json!({"id":id,"cwd":cwd,"path":path}));
-            }
-            session["focusedAuxiliaryPanel"] = json!({"id":id,"cwd":cwd});
-        }
-        PanelAction::CloseFile { id } => {
-            if id == "workspace-file-viewer" {
-                session["fileViewerOpen"] = json!(false);
-            } else {
-                session["detachedFilePanels"]
-                    .as_array_mut()
-                    .expect("normalized panels")
-                    .retain(|panel| panel["id"] != id);
-            }
-            if session["focusedAuxiliaryPanel"]["id"] == id {
-                session["focusedAuxiliaryPanel"] = Value::Null;
-            }
-        }
-        PanelAction::Documents {
-            session_id,
-            cwd,
-            active_path,
-            paths,
-        } => {
-            session["documentSessions"][session_id] = json!({
-                "cwd": cwd, "activePath": active_path, "paths": paths,
-            });
-        }
-        PanelAction::DismissDiff => {
-            session["mainViewMode"] = json!("graph");
-            if session["diffViewerCwd"].is_string() {
-                let cwd = session["diffViewerCwd"].clone();
-                focus(session, "workspace-diff-viewer", &cwd);
-            }
-        }
-        PanelAction::WorkingTreeFile { cwd, path, staged } => {
-            let kind = if session["mainViewMode"] == "graph"
-                || (session["mainViewMode"] == "diff" && selected_source == "graphWorkingTree")
-            {
-                "graphWorkingTree"
-            } else {
-                "workingTree"
-            };
-            select_file(session, cwd, path, staged, json!({"kind":kind}));
-        }
-        PanelAction::CommitFile {
-            cwd,
-            path,
-            commit_hash,
-            commit_parent,
-        } => {
-            select_file(
-                session,
-                cwd,
-                path,
-                false,
-                json!({
-                    "kind":"commit", "commitHash":commit_hash, "commitParent":commit_parent
-                }),
-            );
-        }
-        PanelAction::ComparisonFile {
-            cwd,
-            path,
-            from,
-            to,
-        } => {
-            select_file(
-                session,
-                cwd,
-                path,
-                false,
-                json!({
-                    "kind":"comparison", "comparisonFrom":from, "comparisonTo":to
-                }),
-            );
-        }
-        PanelAction::ReconcileFile { expected, staged } => {
-            if session["selectedFile"] == json!(expected) {
-                if let Some(staged) = staged {
-                    session["selectedFile"]["staged"] = json!(staged);
-                } else {
-                    session["selectedFile"] = Value::Null;
-                    if session["graphVisible"] == true {
-                        session["mainViewMode"] = json!("graph");
-                    } else {
-                        session["diffViewerCwd"] = Value::Null;
-                    }
-                }
-            }
-        }
-        PanelAction::SelectGraph {
-            id,
-            ordered_ids,
-            intent,
-        } => {
-            return select_graph(session, id, &ordered_ids, intent.as_ref());
-        }
-        PanelAction::ReconcileGraph { items } => return reconcile_graph(session, &items),
-    }
-    Ok(None)
-}
-
-fn select_file(session: &mut Value, cwd: String, path: String, staged: bool, source: Value) {
-    session["selectedFile"] = json!({"path":path,"staged":staged,"source":source});
-    session["mainViewMode"] = json!("diff");
-    session["diffViewerCwd"] = json!(cwd);
-    focus(session, "workspace-diff-viewer", &json!(cwd));
-}
-
-struct GraphSelection {
-    primary: Option<String>,
-    ids: Vec<String>,
-}
-impl GraphSelection {
-    fn read(session: &Value) -> Self {
-        Self {
-            primary: session["selectedCommitHash"].as_str().map(str::to_owned),
-            ids: session["selectedCommitIds"]
-                .as_array()
-                .expect("normalized selection")
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_owned)
-                .collect(),
-        }
-    }
-    fn write(self, session: &mut Value) {
-        session["selectedCommitHash"] = json!(self.primary);
-        session["selectedCommitIds"] = json!(self.ids);
-        session["selectedCommitParent"] = Value::Null;
-    }
-}
-
-fn select_graph(
-    session: &mut Value,
-    id: Option<String>,
-    ordered_ids: &[String],
-    intent: Option<&SelectionIntent>,
-) -> Result<Option<String>, String> {
-    let old = GraphSelection::read(session);
-    let mut ids = id.iter().cloned().collect::<Vec<_>>();
-    if let Some(id) = &id {
-        if intent.is_some_and(|intent| intent.range) && old.primary.is_some() {
-            if let (Some(anchor), Some(target)) = (
-                ordered_ids
-                    .iter()
-                    .position(|item| Some(item) == old.primary.as_ref()),
-                ordered_ids.iter().position(|item| item == id),
-            ) {
-                ids = ordered_ids[anchor.min(target)..=anchor.max(target)].to_vec();
-            }
-        } else if intent.is_some_and(|intent| intent.additive) {
-            ids = old.ids.clone();
-            if ids.contains(id) {
-                ids.retain(|candidate| candidate != id);
-            } else {
-                ids.push(id.clone());
-            }
-        }
-    }
-    let primary = id
-        .filter(|id| ids.contains(id))
-        .or_else(|| ids.last().cloned());
-    if primary.is_some() && (primary != old.primary || ids != old.ids) {
-        session["selectedFile"] = Value::Null;
-    }
-    GraphSelection { primary, ids }.write(session);
-    Ok(None)
-}
-
-fn reconcile_graph(session: &mut Value, items: &[GraphItem]) -> Result<Option<String>, String> {
-    let Some(first) = items.first() else {
-        return Ok(None);
-    };
-    let old = GraphSelection::read(session);
-    let visible = |id: &str| items.iter().any(|item| item.id == id);
-    let mut ids = old
-        .ids
-        .iter()
-        .filter(|id| visible(id))
-        .cloned()
-        .collect::<Vec<_>>();
-    if ids.is_empty() {
-        ids.push(first.id.clone());
-    }
-    let primary = old
-        .primary
-        .clone()
-        .filter(|id| visible(id))
-        .or_else(|| ids.last().cloned());
-    let announcement =
-        (old.primary.is_some() && (primary != old.primary || ids != old.ids)).then(|| {
-            format!(
-                "The selected graph item is no longer available. Selected {}.",
-                first.message
-            )
-        });
-    GraphSelection { primary, ids }.write(session);
-    Ok(announcement)
-}
-
-pub fn normalize(value: &Value) -> Value {
-    let string = |key: &str| {
-        value
-            .get(key)
-            .filter(|value| value.is_string())
-            .cloned()
-            .unwrap_or(Value::Null)
-    };
-    let mode = if value["mainViewMode"] == "graph" {
-        "graph"
-    } else {
-        "diff"
-    };
-    let mut session = json!({
-        "repositoryInitialized":value["repositoryInitialized"].as_bool().unwrap_or(matches!(value["mainViewMode"].as_str(), Some("graph" | "diff"))),
-        "sidebarVisible":value["sidebarVisible"].as_bool().unwrap_or(mode == "graph"),
-        "graphVisible":value["graphVisible"].as_bool().unwrap_or(value["sidebarVisible"].as_bool().unwrap_or(mode == "graph")),
-        "fileViewerOpen":value["fileViewerOpen"] == true,
-        "fileViewerCwd":string("fileViewerCwd"), "diffViewerCwd":string("diffViewerCwd"),
-        "focusedAuxiliaryPanel":null, "detachedFilePanels":[], "documentSessions":{}, "fileRequest":null, "selectedFile":null,
-        "selectedCommitHash":string("selectedCommitHash"),
-        "selectedCommitParent":string("selectedCommitParent"),
-        "selectedCommitIds":[], "mainViewMode":mode
-    });
-    let focus = &value["focusedAuxiliaryPanel"];
-    if focus["id"].is_string() && focus["cwd"].is_string() {
-        session["focusedAuxiliaryPanel"] = json!({"id":focus["id"], "cwd":focus["cwd"]});
-    }
-    session["detachedFilePanels"] = Value::Array(
-        value["detachedFilePanels"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|panel| {
-                panel["id"].is_string() && panel["cwd"].is_string() && panel["path"].is_string()
-            })
-            .map(|panel| json!({"id":panel["id"], "cwd":panel["cwd"], "path":panel["path"]}))
-            .collect(),
-    );
-    session["documentSessions"] = value["documentSessions"]
-        .as_object()
-        .map(|_| value["documentSessions"].clone())
-        .unwrap_or_else(|| json!({}));
-    let file = &value["selectedFile"];
-    if file["path"].is_string() && file["staged"].is_boolean() {
-        session["selectedFile"] =
-            json!({"path":file["path"], "staged":file["staged"], "source":file_source(value)});
-    }
-    if value["fileRequest"]["path"].is_string() {
-        let token = value["fileRequest"]["token"].as_u64().unwrap_or(0);
-        session["fileRequest"] = json!({"path":value["fileRequest"]["path"], "token":token});
-    }
-    session["selectedCommitIds"] = match value["selectedCommitIds"].as_array() {
-        Some(ids) => Value::Array(ids.iter().filter(|id| id.is_string()).cloned().collect()),
-        None => Value::Array(
-            session["selectedCommitHash"]
-                .as_str()
-                .map(|hash| vec![json!(hash)])
-                .unwrap_or_default(),
-        ),
-    };
-    let context = session["selectedFile"]["source"]["kind"]
-        .as_str()
-        .unwrap_or_default()
-        .to_owned();
-    let diff_mode = session["mainViewMode"] == "diff";
-    session["graphDrillIn"] = json!(
-        diff_mode
-            && matches!(
-                context.as_str(),
-                "graphWorkingTree" | "commit" | "comparison"
-            )
-    );
-    session["historicalDiff"] =
-        json!(diff_mode && matches!(context.as_str(), "commit" | "comparison"));
-    session["sidebarContent"] = json!(sidebar_content(&session));
-    session
-}
-
-/// Without the graph, the sidebar is a direct entry point to current changes.
-pub fn sidebar_content(session: &Value) -> &'static str {
-    if session["graphVisible"] == false {
-        return "workingTree";
-    }
-    if session["mainViewMode"] == "graph" {
-        if session["selectedCommitHash"]
-            .as_str()
-            .is_some_and(|id| id == "wip" || id.starts_with("wip:"))
-        {
-            "workingTree"
-        } else {
-            "history"
-        }
-    } else if matches!(
-        session["selectedFile"]["source"]["kind"].as_str(),
-        Some("workingTree" | "graphWorkingTree")
-    ) {
-        "workingTree"
-    } else {
-        "history"
-    }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct FileContent {
     pub content: String,
     pub cwd: String,
     pub path: String,
 }
-#[derive(serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct DetachedFilePanel {
     pub id: String,
     pub cwd: String,
     pub path: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub initial_file: Option<FileContent>,
 }
-#[derive(serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentSession {
     pub cwd: String,
     pub active_path: Option<String>,
     pub paths: Vec<String>,
 }
-#[derive(serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 pub struct FocusedPanel {
     pub id: String,
     pub cwd: String,
 }
-#[derive(serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 pub struct FileRequest {
     pub path: String,
     pub token: u64,
 }
-#[derive(serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 pub struct SelectedPanelFile {
     pub path: String,
     pub staged: bool,
     pub source: DiffSource,
 }
-#[derive(serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
 pub enum MainView {
     Diff,
     Graph,
 }
-#[derive(serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub enum SidebarContent {
     WorkingTree,
     History,
 }
-#[derive(serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct PanelSession {
     pub repository_initialized: bool,
@@ -502,21 +116,18 @@ pub struct PanelSession {
     pub selected_commit_ids: Vec<String>,
     pub selected_commit_parent: Option<String>,
     pub main_view_mode: MainView,
-    pub graph_drill_in: bool,
-    pub historical_diff: bool,
-    pub sidebar_content: SidebarContent,
 }
-#[derive(serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 pub struct SelectionIntent {
     pub additive: bool,
     pub range: bool,
 }
-#[derive(serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 pub struct GraphItem {
     pub id: String,
     pub message: String,
 }
-#[derive(serde::Serialize, serde::Deserialize, ts_rs::TS)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 #[serde(
     tag = "type",
     rename_all = "camelCase",
@@ -553,13 +164,6 @@ pub enum PanelAction {
     Document {
         cwd: String,
         path: String,
-    },
-    DetachFile {
-        id: String,
-        cwd: String,
-        path: String,
-        #[ts(optional)]
-        initial_file: Option<FileContent>,
     },
     CloseFile {
         id: String,
@@ -602,6 +206,363 @@ pub enum PanelAction {
     },
 }
 
+impl PanelSession {
+    /// Tolerate incomplete saved sessions and migrate the previous flat diff source.
+    /// Actions operate on this model directly; only external snapshots need repair.
+    pub fn read(value: &Value) -> Self {
+        fn read<T: serde::de::DeserializeOwned + Default>(value: &Value) -> T {
+            serde_json::from_value(value.clone()).unwrap_or_default()
+        }
+        let main_view_mode = if value["mainViewMode"] == "graph" {
+            MainView::Graph
+        } else {
+            MainView::Diff
+        };
+        let sidebar_visible = value["sidebarVisible"]
+            .as_bool()
+            .unwrap_or(main_view_mode == MainView::Graph);
+        let selected_commit_hash: Option<String> = read(&value["selectedCommitHash"]);
+        Self {
+            repository_initialized: value["repositoryInitialized"].as_bool().unwrap_or(matches!(
+                value["mainViewMode"].as_str(),
+                Some("graph" | "diff")
+            )),
+            sidebar_visible,
+            graph_visible: value["graphVisible"].as_bool().unwrap_or(sidebar_visible),
+            file_viewer_open: value["fileViewerOpen"] == true,
+            file_viewer_cwd: read(&value["fileViewerCwd"]),
+            diff_viewer_cwd: read(&value["diffViewerCwd"]),
+            focused_auxiliary_panel: read(&value["focusedAuxiliaryPanel"]),
+            detached_file_panels: value["detachedFilePanels"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|panel| serde_json::from_value(panel.clone()).ok())
+                .collect(),
+            document_sessions: value["documentSessions"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .filter_map(|(id, value)| {
+                    serde_json::from_value(value.clone())
+                        .ok()
+                        .map(|session| (id.clone(), session))
+                })
+                .collect(),
+            file_request: value["fileRequest"]["path"]
+                .as_str()
+                .map(|path| FileRequest {
+                    path: path.into(),
+                    token: value["fileRequest"]["token"].as_u64().unwrap_or(0),
+                }),
+            selected_file: value["selectedFile"]["path"]
+                .as_str()
+                .zip(value["selectedFile"]["staged"].as_bool())
+                .map(|(path, staged)| SelectedPanelFile {
+                    path: path.into(),
+                    staged,
+                    source: file_source(value),
+                }),
+            selected_commit_ids: value["selectedCommitIds"]
+                .as_array()
+                .map(|ids| {
+                    ids.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_else(|| selected_commit_hash.iter().cloned().collect()),
+            selected_commit_hash,
+            selected_commit_parent: read(&value["selectedCommitParent"]),
+            main_view_mode,
+        }
+    }
+
+    pub fn presentation(&self) -> PanelPresentation {
+        let source = self.selected_file.as_ref().map(|file| &file.source);
+        let diff = self.main_view_mode == MainView::Diff;
+        let working_tree = !self.graph_visible
+            || if self.main_view_mode == MainView::Graph {
+                self.selected_commit_hash
+                    .as_deref()
+                    .is_some_and(|id| id == "wip" || id.starts_with("wip:"))
+            } else {
+                matches!(
+                    source,
+                    Some(DiffSource::WorkingTree | DiffSource::GraphWorkingTree)
+                )
+            };
+        PanelPresentation {
+            graph_drill_in: diff
+                && matches!(
+                    source,
+                    Some(
+                        DiffSource::GraphWorkingTree
+                            | DiffSource::Commit { .. }
+                            | DiffSource::Comparison { .. }
+                    )
+                ),
+            historical_diff: diff
+                && matches!(
+                    source,
+                    Some(DiffSource::Commit { .. } | DiffSource::Comparison { .. })
+                ),
+            sidebar_content: if working_tree {
+                SidebarContent::WorkingTree
+            } else {
+                SidebarContent::History
+            },
+        }
+    }
+
+    fn clear_selection(&mut self) {
+        self.selected_file = None;
+        self.selected_commit_hash = None;
+        self.selected_commit_parent = None;
+        self.selected_commit_ids.clear();
+    }
+
+    fn focus(&mut self, id: String, cwd: String) {
+        self.focused_auxiliary_panel = Some(FocusedPanel { id, cwd });
+    }
+
+    fn select_file(&mut self, cwd: String, path: String, staged: bool, source: DiffSource) {
+        self.selected_file = Some(SelectedPanelFile {
+            path,
+            staged,
+            source,
+        });
+        self.main_view_mode = MainView::Diff;
+        self.diff_viewer_cwd = Some(cwd.clone());
+        self.focus("workspace-diff-viewer".into(), cwd);
+    }
+
+    pub fn apply(&mut self, action: PanelAction, now: u64) -> Option<String> {
+        match action {
+            PanelAction::Initialize { cwd, reveal } => {
+                if self.repository_initialized && self.diff_viewer_cwd.is_some() {
+                    return None;
+                }
+                if self.diff_viewer_cwd.is_none() {
+                    self.diff_viewer_cwd = cwd;
+                    self.main_view_mode = MainView::Graph;
+                }
+                self.repository_initialized = true;
+                self.sidebar_visible = reveal.unwrap_or(true);
+                self.graph_visible = self.sidebar_visible;
+            }
+            PanelAction::OpenGraph { cwd, reset } => {
+                if reset == Some(true) {
+                    self.clear_selection();
+                }
+                self.diff_viewer_cwd = Some(cwd.clone());
+                self.main_view_mode = MainView::Graph;
+                self.graph_visible = true;
+                self.focus("workspace-diff-viewer".into(), cwd);
+            }
+            PanelAction::ToggleGraph { cwd } => {
+                if self.main_view_mode == MainView::Graph && self.graph_visible {
+                    self.graph_visible = false;
+                } else {
+                    self.apply(PanelAction::OpenGraph { cwd, reset: None }, now);
+                }
+            }
+            PanelAction::FocusChat { cwd } => {
+                if let Some(cwd) = cwd.filter(|_| self.main_view_mode == MainView::Graph) {
+                    if self.diff_viewer_cwd.as_ref() != Some(&cwd) {
+                        self.clear_selection();
+                    }
+                    self.diff_viewer_cwd = Some(cwd);
+                }
+                self.focused_auxiliary_panel = None;
+            }
+            PanelAction::Focus { panel } => self.focused_auxiliary_panel = panel,
+            PanelAction::Mode { mode } => self.main_view_mode = mode,
+            PanelAction::ToggleSidebar => self.sidebar_visible = !self.sidebar_visible,
+            PanelAction::Document { cwd, path } => {
+                self.file_viewer_cwd = Some(cwd.clone());
+                self.file_viewer_open = true;
+                self.file_request = Some(FileRequest { path, token: now });
+                self.focus("workspace-file-viewer".into(), cwd);
+            }
+            PanelAction::CloseFile { id } => {
+                if id == "workspace-file-viewer" {
+                    self.file_viewer_open = false;
+                } else {
+                    self.detached_file_panels.retain(|panel| panel.id != id);
+                }
+                if self
+                    .focused_auxiliary_panel
+                    .as_ref()
+                    .is_some_and(|panel| panel.id == id)
+                {
+                    self.focused_auxiliary_panel = None;
+                }
+            }
+            PanelAction::Documents {
+                session_id,
+                cwd,
+                active_path,
+                paths,
+            } => {
+                self.document_sessions.insert(
+                    session_id,
+                    DocumentSession {
+                        cwd,
+                        active_path,
+                        paths,
+                    },
+                );
+            }
+            PanelAction::DismissDiff => {
+                self.main_view_mode = MainView::Graph;
+                if let Some(cwd) = self.diff_viewer_cwd.clone() {
+                    self.focus("workspace-diff-viewer".into(), cwd);
+                }
+            }
+            PanelAction::WorkingTreeFile { cwd, path, staged } => {
+                let source = if self.main_view_mode == MainView::Graph
+                    || self
+                        .selected_file
+                        .as_ref()
+                        .is_some_and(|file| file.source == DiffSource::GraphWorkingTree)
+                {
+                    DiffSource::GraphWorkingTree
+                } else {
+                    DiffSource::WorkingTree
+                };
+                self.select_file(cwd, path, staged, source);
+            }
+            PanelAction::CommitFile {
+                cwd,
+                path,
+                commit_hash,
+                commit_parent,
+            } => {
+                self.select_file(
+                    cwd,
+                    path,
+                    false,
+                    DiffSource::Commit {
+                        commit_hash,
+                        commit_parent,
+                    },
+                );
+            }
+            PanelAction::ComparisonFile {
+                cwd,
+                path,
+                from,
+                to,
+            } => {
+                self.select_file(
+                    cwd,
+                    path,
+                    false,
+                    DiffSource::Comparison {
+                        comparison_from: from,
+                        comparison_to: to,
+                    },
+                );
+            }
+            PanelAction::ReconcileFile { expected, staged } => {
+                if self.selected_file == expected {
+                    if let Some(staged) = staged {
+                        if let Some(file) = &mut self.selected_file {
+                            file.staged = staged;
+                        }
+                    } else {
+                        self.selected_file = None;
+                        if self.graph_visible {
+                            self.main_view_mode = MainView::Graph;
+                        } else {
+                            self.diff_viewer_cwd = None;
+                        }
+                    }
+                }
+            }
+            PanelAction::SelectGraph {
+                id,
+                ordered_ids,
+                intent,
+            } => {
+                let mut ids: Vec<_> = id.iter().cloned().collect();
+                if let Some(id) = &id {
+                    if intent.as_ref().is_some_and(|intent| intent.range)
+                        && self.selected_commit_hash.is_some()
+                    {
+                        if let (Some(anchor), Some(target)) = (
+                            ordered_ids
+                                .iter()
+                                .position(|item| Some(item) == self.selected_commit_hash.as_ref()),
+                            ordered_ids.iter().position(|item| item == id),
+                        ) {
+                            ids = ordered_ids[anchor.min(target)..=anchor.max(target)].to_vec();
+                        }
+                    } else if intent.as_ref().is_some_and(|intent| intent.additive) {
+                        ids = self.selected_commit_ids.clone();
+                        if ids.contains(id) {
+                            ids.retain(|candidate| candidate != id);
+                        } else {
+                            ids.push(id.clone());
+                        }
+                    }
+                }
+                let primary = id
+                    .filter(|id| ids.contains(id))
+                    .or_else(|| ids.last().cloned());
+                if primary.is_some()
+                    && (primary != self.selected_commit_hash || ids != self.selected_commit_ids)
+                {
+                    self.selected_file = None;
+                }
+                self.selected_commit_hash = primary;
+                self.selected_commit_ids = ids;
+                self.selected_commit_parent = None;
+            }
+            PanelAction::ReconcileGraph { items } => {
+                let first = items.first()?;
+                let visible = |id: &str| items.iter().any(|item| item.id == id);
+                let mut ids: Vec<_> = self
+                    .selected_commit_ids
+                    .iter()
+                    .filter(|id| visible(id))
+                    .cloned()
+                    .collect();
+                if ids.is_empty() {
+                    ids.push(first.id.clone());
+                }
+                let primary = self
+                    .selected_commit_hash
+                    .clone()
+                    .filter(|id| visible(id))
+                    .or_else(|| ids.last().cloned());
+                let announcement = (self.selected_commit_hash.is_some()
+                    && (primary != self.selected_commit_hash || ids != self.selected_commit_ids))
+                    .then(|| {
+                        format!(
+                            "The selected graph item is no longer available. Selected {}.",
+                            first.message
+                        )
+                    });
+                self.selected_commit_hash = primary;
+                self.selected_commit_ids = ids;
+                self.selected_commit_parent = None;
+                return announcement;
+            }
+        }
+        None
+    }
+}
+
+#[derive(serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct PanelPresentation {
+    pub graph_drill_in: bool,
+    pub historical_diff: bool,
+    pub sidebar_content: SidebarContent,
+}
+
 /// Optimistic panel metadata. File bodies remain in the renderer's cache.
 #[wasm_bindgen::prelude::wasm_bindgen]
 #[derive(Default)]
@@ -609,20 +570,27 @@ pub struct PanelReplica {
     workspaces: std::collections::HashMap<String, PanelPending>,
     sequence: u32,
 }
-#[derive(Default)]
 struct PanelPending {
-    canonical: Value,
-    pending: Vec<(u32, Value, u64)>,
+    canonical: PanelSession,
+    pending: Vec<(u32, PanelAction, u64)>,
     revision: u32,
 }
-impl PanelPending {
-    fn session(&self) -> Value {
-        let mut session = normalize(&self.canonical);
-        for (_, action, now) in &self.pending {
-            // Actions are validated before admission; replay uses the same reducer.
-            apply_action(&mut session, action, *now).expect("admitted panel action");
+impl Default for PanelPending {
+    fn default() -> Self {
+        Self {
+            canonical: PanelSession::read(&Value::Null),
+            pending: Vec::new(),
+            revision: 0,
         }
-        normalize(&session)
+    }
+}
+impl PanelPending {
+    fn session(&self) -> PanelSession {
+        let mut session = self.canonical.clone();
+        for (_, action, now) in &self.pending {
+            session.apply(action.clone(), *now);
+        }
+        session
     }
 }
 #[wasm_bindgen::prelude::wasm_bindgen]
@@ -644,17 +612,17 @@ impl PanelReplica {
         now: f64,
         current: &str,
     ) -> Result<String, wasm_bindgen::JsValue> {
-        let action: Value = wasm_json::parse(action)?;
-        let current: Value = wasm_json::parse(current)?;
+        let action: PanelAction = wasm_json::parse(action)?;
+        let current: PanelSession = wasm_json::parse(current)?;
         let state = self.workspaces.entry(workspace.into()).or_default();
-        let mut next = normalize(&current);
-        wasm_json::result(apply_action(&mut next, &action, now as u64))?;
+        let mut next = current.clone();
+        next.apply(action.clone(), now as u64);
         if state.pending.is_empty() {
             state.canonical = current;
         }
         self.sequence += 1;
         state.pending.push((self.sequence, action, now as u64));
-        Ok(json!({"sequence": self.sequence, "session": normalize(&next)}).to_string())
+        Ok(json!({"sequence": self.sequence, "session": next}).to_string())
     }
     pub fn load(
         &mut self,
@@ -667,7 +635,7 @@ impl PanelReplica {
         if state.revision == revision {
             state.canonical = session;
         }
-        Ok(state.session().to_string())
+        Ok(wasm_json::stringify(&state.session(), "panel session"))
     }
     pub fn settle(
         &mut self,
@@ -682,6 +650,6 @@ impl PanelReplica {
             state.canonical = canonical;
             state.revision += 1;
         }
-        Ok(state.session().to_string())
+        Ok(wasm_json::stringify(&state.session(), "panel session"))
     }
 }

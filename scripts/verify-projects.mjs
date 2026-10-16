@@ -145,7 +145,7 @@ try {
 		.waitFor();
 	await page.screenshot({ path: join(output, "create-project.png") });
 	await page
-		.getByRole("button", { name: "Save project", exact: true })
+		.getByRole("button", { name: "Create project", exact: true })
 		.waitFor();
 	assert.equal(
 		await page
@@ -160,7 +160,9 @@ try {
 	await page
 		.getByLabel("Project instructions", { exact: true })
 		.fill("Make clear, useful local content. Keep generated tools here.");
-	await page.getByRole("button", { name: "Save project", exact: true }).click();
+	await page
+		.getByRole("button", { name: "Create project", exact: true })
+		.click();
 	await page.getByRole("tab", { name: "Brand Lab", exact: true }).waitFor();
 	await page
 		.getByRole("tablist", { name: "Projects" })
@@ -209,9 +211,11 @@ try {
 		.getByRole("button", { name: "Manage repositories", exact: true })
 		.click();
 	await page
-		.getByRole("dialog", { name: "Edit project", exact: true })
+		.getByRole("dialog", { name: "Manage repositories", exact: true })
 		.waitFor();
-	await page.getByRole("button", { name: "Cancel", exact: true }).click();
+	await page
+		.getByRole("button", { name: "Close manage repositories", exact: true })
+		.click();
 	assert.equal(await page.locator("[data-workspace-explorer]").count(), 0);
 	for (const name of ["Plugins"]) {
 		await navigation.getByRole("button", { name, exact: true }).click();
@@ -1249,9 +1253,6 @@ with sqlite3.connect(sys.argv[1]) as db:
 	await api("/api/agent/state/workspace-action", {
 		action: {
 			type: "removePane",
-			groupId: importedState.groups.find((g) =>
-				g.panes.some((p) => p.id === imported.paneId),
-			).id,
 			paneId: imported.paneId,
 		},
 	});
@@ -1264,7 +1265,9 @@ with sqlite3.connect(sys.argv[1]) as db:
 	);
 	await page.getByRole("button", { name: "New project", exact: true }).click();
 	await page.getByLabel("Name", { exact: true }).fill("Second project");
-	await page.getByRole("button", { name: "Save project", exact: true }).click();
+	await page
+		.getByRole("button", { name: "Create project", exact: true })
+		.click();
 	await page
 		.getByRole("tab", { name: "Second project", exact: true })
 		.waitFor();
@@ -1286,27 +1289,16 @@ with sqlite3.connect(sys.argv[1]) as db:
 	const brand = catalog.projects.find((p) => p.name === "Brand Lab");
 	const repositoryId = randomUUID();
 	await api("/api/projects/command", {
-		type: "saveDefinition",
-		projectId: brand.id,
-		path: "project.json",
+		type: "saveProject",
 		expectedHash: brand.file.sourceHash,
-		content: JSON.stringify({
+		definition: {
 			...brand.file.definition,
 			repositories: [
 				...brand.repositories,
 				{ id: repositoryId, name: "fixture-repository" },
 			],
-		}),
-	});
-	const declaredBrand = (await api("/api/projects")).projects.find(
-		(p) => p.id === brand.id,
-	);
-	await api("/api/projects/command", {
-		type: "linkRepository",
-		projectId: brand.id,
-		repositoryId,
-		expectedProjectHash: declaredBrand.file.sourceHash,
-		path: repository,
+		},
+		repositoryPaths: { [repositoryId]: repository },
 	});
 	const gitReviewId = randomUUID();
 	await api("/api/projects/command", {
@@ -1376,7 +1368,8 @@ with sqlite3.connect(sys.argv[1]) as db:
 		exact: true,
 	});
 	await repositoryButton.waitFor();
-	await repositoryButton.getByText("+1", { exact: true }).waitFor();
+	// One tracked addition plus the new, untracked notes file.
+	await repositoryButton.getByText("+2", { exact: true }).waitFor();
 	await repositoryButton.getByText("-0", { exact: true }).waitFor();
 	await page.screenshot({ path: join(output, "repository-sidebar.png") });
 
@@ -1456,7 +1449,9 @@ with sqlite3.connect(sys.argv[1]) as db:
 		.first()
 		.click();
 	await page.screenshot({ path: join(output, "new-project-repositories.png") });
-	await page.getByRole("button", { name: "Save project", exact: true }).click();
+	await page
+		.getByRole("button", { name: "Create project", exact: true })
+		.click();
 	await page.getByRole("tab", { name: "Aivre", exact: true }).waitFor();
 
 	await page
@@ -1494,12 +1489,17 @@ with sqlite3.connect(sys.argv[1]) as db:
 	const sidebar = page.getByRole("complementary", {
 		name: "Workspace sidebar",
 	});
+	await page.getByRole("tab", { name: "Aivre", exact: true }).click();
 	await sidebar
-		.getByRole("button", { name: "fixture-repository", exact: true })
+		.getByRole("button", { name: "New conversation", exact: true })
 		.first()
 		.click();
-	await page.getByRole("button", { name: "Grid layout", exact: true }).click();
-	await page.getByRole("button", { name: "Grid layout", exact: true }).click();
+	assert.equal(
+		await page
+			.getByRole("button", { name: "Grid layout", exact: true })
+			.count(),
+		0,
+	);
 	const cells = page.locator(
 		"[data-agent-grid-pane-id]:has([data-chat-pane-id])",
 	);
@@ -1584,6 +1584,11 @@ with sqlite3.connect(sys.argv[1]) as db:
 		await projectTabs.getByRole("tab").allTextContents(),
 		reordered,
 	);
+	// Reload above cleared in-memory page history. Visit Memory in this session
+	// before checking that another project's page changes leave it intact.
+	await page.getByRole("tab", { name: "Brand Lab", exact: true }).click();
+	await projectNav.getByRole("button", { name: "Memory", exact: true }).click();
+	await page.getByRole("tab", { name: "Aivre", exact: true }).click();
 	await projectTabs
 		.getByRole("tab", { name: "Second project", exact: true })
 		.click();
@@ -1621,6 +1626,19 @@ with sqlite3.connect(sys.argv[1]) as db:
 		.click();
 	await projectTabs
 		.getByRole("tab", { name: "Brand Lab", exact: true })
+		.click();
+	// Each project restores its own page; Aivre's Automations selection does
+	// not change Brand Lab's last page (Memory).
+	await page.waitForFunction(
+		() =>
+			document
+				.querySelector(
+					'[aria-label="Project navigation"] [aria-current="page"]',
+				)
+				?.textContent?.trim() === "Memory",
+	);
+	await navigation
+		.getByRole("button", { name: "Automations", exact: true })
 		.click();
 	await page
 		.getByRole("searchbox", { name: "Search Automations", exact: true })

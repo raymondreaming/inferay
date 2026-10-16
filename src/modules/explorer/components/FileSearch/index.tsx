@@ -2,7 +2,7 @@ import type { ProjectFileEntry } from "@contracts";
 import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
 import { searchFiles } from "@explorer/services/explorerApi.ts";
 import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
-import { assignRef, queryClient } from "@shared/lib/dom.tsx";
+import { assignRef } from "@shared/lib/dom.tsx";
 import { IconSearch } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createEffect, createMemo, createSignal, For } from "solid-js";
@@ -27,20 +27,17 @@ export function FileSearch(_props: {
 		const timer = setTimeout(() => setDebouncedQuery(text), 80);
 		return () => clearTimeout(timer);
 	});
-	const resultQuery = useBackgroundQuery(
-		() => {
-			const cwd = _props.cwd;
-			const text = debouncedQuery();
-			return {
-				queryKey: ["file-search", cwd, text],
-				enabled: open() && !!cwd,
-				queryFn: ({ signal }: { signal: AbortSignal }) =>
-					searchFiles(cwd!, text, signal),
-				retry: false,
-			};
-		},
-		() => queryClient,
-	);
+	const resultQuery = useBackgroundQuery(() => {
+		const cwd = _props.cwd;
+		const text = debouncedQuery();
+		return {
+			queryKey: ["file-search", cwd, text],
+			enabled: open() && !!cwd,
+			queryFn: ({ signal }: { signal: AbortSignal }) =>
+				searchFiles(cwd!, text, signal),
+			retry: false,
+		};
+	});
 	const results = () => resultQuery.data ?? [];
 	const [selectedIndex, setSelectedIndex] = createSignal(() => {
 		results();

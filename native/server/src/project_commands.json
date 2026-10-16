@@ -87,17 +87,18 @@
 			"type": "stopRun",
 			"id": "RUN_UUID"
 		},
-		"linkRepository": {
-			"type": "linkRepository",
-			"projectId": "PROJECT_UUID",
-			"repositoryId": "REPOSITORY_UUID",
-			"expectedProjectHash": "PROJECT_FILE_HASH",
-			"path": "LOCAL_CHECKOUT"
-		},
 		"associateConversation": {
 			"type": "associateConversation",
 			"projectId": "PROJECT_UUID",
 			"paneId": "PANE_ID"
+		},
+		"saveProject": {
+			"type": "saveProject",
+			"definition": "COMPLETE_PROJECT_DEFINITION",
+			"expectedHash": "CURRENT_PROJECT_FILE_HASH_OR_NULL_FOR_CREATE",
+			"repositoryPaths": {
+				"REPOSITORY_UUID": "LOCAL_CHECKOUT"
+			}
 		}
 	},
 	"approval": "createPlugin, updatePlugin and automation saveDefinition prepare validated proposal cards without saving or enabling anything. The user saves from the card. Execution requires separate approval tied to the exact input hash. Edits revoke approvals and disable schedules. Never claim a proposal is saved or active.",

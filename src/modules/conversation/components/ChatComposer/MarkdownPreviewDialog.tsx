@@ -2,14 +2,14 @@ import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
 import { IconButton } from "@shared/ui/IconButton/index.tsx";
 import { IconX } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
+import type { useAgentChatComposerState } from "../../hooks/useAgentChatComposerState.tsx";
 import { Markdown } from "../ChatRichContent/index.tsx";
 import { styles } from "./styles.ts";
-import type { useChatComposerState } from "./useChatComposerState.tsx";
 
 export function MarkdownPreviewDialog(
 	_props: Pick<
-		ReturnType<typeof useChatComposerState>,
-		"closeMdPreview" | "mdPreview" | "onMdFileClick"
+		ReturnType<typeof useAgentChatComposerState>,
+		"closeMdPreview" | "mdPreview" | "handleMdFileClick"
 	>,
 ) {
 	return (
@@ -50,7 +50,7 @@ export function MarkdownPreviewDialog(
 					{_props.mdPreview.content && (
 						<Markdown
 							text={_props.mdPreview.content}
-							onMdFileClick={_props.onMdFileClick}
+							onMdFileClick={_props.handleMdFileClick}
 						/>
 					)}
 				</div>

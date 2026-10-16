@@ -1,5 +1,6 @@
 import type {
 	ComparisonPlan,
+	DiffSource,
 	GitCommitDetails,
 	GitComparisonDetails,
 	GitGraphItemKind,
@@ -11,10 +12,7 @@ import {
 	loadGitComparisonDetails,
 	loadGitGraph,
 } from "@repository/services/gitApi.ts";
-import {
-	usePollingQuery,
-	useQueryResource,
-} from "@shared/hooks/useQueryResource.tsx";
+import { useQueryResource } from "@shared/hooks/useQueryResource.tsx";
 import { project } from "@shared/lib/native.tsx";
 import {
 	type Accessor,
@@ -54,35 +52,26 @@ export function useGitGraph(
 			query,
 		});
 	const readGraph = createGitGraphReader();
-	const _source3 = usePollingQuery<GraphData>(
-		() => {
-			const cwd = _cwd(),
-				limit = _limit(),
-				search = searchQuery();
-			const preferences = { ..._preferences() };
-			return (signal) => readGraph(cwd, limit, search, preferences, signal);
-		},
-		() => 3000,
-		() => EMPTY_GRAPH,
-		() => {
-			const _cwdValue = _cwd();
-			return {
-				queryKey: [
-					"git",
-					"graph",
-					_cwdValue ?? "",
-					_limit(),
-					searchQuery(),
-					preferenceKey(),
-				],
-				enabled: _enabled() && !!_cwdValue,
-			};
-		},
-	);
+	const source = useQueryResource<GraphData>(() => {
+		const cwd = _cwd(),
+			limit = _limit(),
+			search = searchQuery();
+		const preferences = { ..._preferences() };
+		return {
+			queryKey: ["git", "graph", cwd ?? "", limit, search, preferenceKey()],
+			queryFn: ({ signal }) =>
+				readGraph(cwd, limit, search, preferences, signal),
+			initialData: EMPTY_GRAPH,
+			refetchInterval: 3000,
+			staleTime: 3000,
+			enabled: _enabled() && !!cwd,
+		};
+	});
+
 	const visible = createMemo(
 		(previous: { cwd: string | undefined; data: GraphData } | undefined) => {
 			const cwd = _cwd();
-			const data = _source3.data;
+			const data = source.data;
 			return {
 				cwd,
 				data:
@@ -104,64 +93,53 @@ export function useGitGraph(
 			},
 			setSearchQuery,
 			get loading() {
-				return _source3.loading;
+				return source.loading;
 			},
 			get error() {
-				return _source3.error;
+				return source.error;
 			},
 			get refresh() {
-				return _source3.refresh;
+				return source.refresh;
 			},
 		},
 	);
 }
-export function useCommitDetails(
-	_cwd2: Accessor<string | undefined>,
-	_hash: Accessor<string | undefined>,
-	_parent: Accessor<string | undefined> = () => undefined,
-	_repositoryRevision: Accessor<string | undefined> = () => undefined,
-) {
-	const request = () => {
-		const cwd = _cwd2(),
-			hash = _hash(),
-			parent = _parent();
-		return (signal?: AbortSignal) =>
-			loadGitCommitDetails(cwd, hash, parent, signal);
+export type HistoricalQuery = {
+	commitSource: Extract<
+		DiffSource,
+		{
+			kind: "commit";
+		}
+	> | null;
+	comparisonSource: Extract<
+		DiffSource,
+		{
+			kind: "comparison";
+		}
+	> | null;
+	commit: {
+		cwd?: string;
+		hash?: string;
+		parent?: string;
 	};
-	const _source2 = useQueryResource<GitCommitDetails | null>(
-		request,
-		() => null,
-		() => ({
-			queryKey: [
-				"git",
-				"commit",
-				_cwd2() ?? "",
-				_repositoryRevision() ?? "",
-				_hash() ?? "",
-				_parent() ?? "",
-			],
-			staleTime: 60_000,
-			gcTime: 5 * 60_000,
-		}),
-	);
-	return {
-		get details() {
-			return _source2.data;
-		},
-		get loading() {
-			return _source2.loading && !_source2.data;
-		},
-		get error() {
-			return _source2.error;
-		},
+	comparison: {
+		cwd?: string;
+		from?: string;
+		to?: string;
 	};
-}
-export function useComparisonDetails(
-	_cwd3: Accessor<string | undefined>,
-	_fromHash: Accessor<string | undefined>,
-	_toHash: Accessor<string | undefined>,
-	_repositoryRevision2: Accessor<string | undefined> = () => undefined,
-	_selection: Accessor<
+	revision?: string;
+};
+
+const EMPTY_HISTORY: {
+	commit: GitCommitDetails | null;
+	comparison: GitComparisonDetails | null;
+	plan: ComparisonPlan | null;
+} = { commit: null, comparison: null, plan: null };
+
+/** Commit and comparison are mutually exclusive views of the same selection. */
+export function useHistoryDetails(
+	query: Accessor<HistoricalQuery>,
+	selection: Accessor<
 		| Array<{
 				id: string;
 				hash: string;
@@ -170,52 +148,59 @@ export function useComparisonDetails(
 				worktreePath?: string;
 		  }>
 		| undefined
-	> = () => undefined,
+	>,
 ) {
-	const selectionKey = createMemo(() => {
-		const _selectionValue = _selection();
-		return _selectionValue ? JSON.stringify(_selectionValue) : undefined;
-	});
-	const fetchComparison = () => {
-		const cwd = _cwd3(),
-			fromHash = _fromHash(),
-			toHash = _toHash(),
-			selection = selectionKey();
-		return (signal?: AbortSignal) =>
-			loadGitComparisonDetails(cwd, fromHash, toHash, selection, signal);
-	};
-	const _source = useQueryResource<{
-		details: GitComparisonDetails | null;
-		plan: ComparisonPlan | null;
-	} | null>(
-		fetchComparison,
-		() => null,
-		() => ({
+	const selectionKey = createMemo(() => JSON.stringify(selection()));
+	const source = useQueryResource(() => {
+		const input = query(),
+			selected = selectionKey();
+		const comparison = input.comparison;
+		const comparing = Boolean(selected || (comparison.from && comparison.to));
+		return {
 			queryKey: [
 				"git",
-				"comparison",
-				_cwd3() ?? "",
-				_repositoryRevision2() ?? "",
-				_fromHash() ?? "",
-				_toHash() ?? "",
-				selectionKey() ?? "",
+				"history",
+				input.revision,
+				comparing ? comparison : input.commit,
+				selected,
 			],
+			queryFn: async ({ signal }) => {
+				if (comparing) {
+					const result = await loadGitComparisonDetails(
+						comparison.cwd,
+						comparison.from,
+						comparison.to,
+						selected,
+						signal,
+					);
+					return {
+						...EMPTY_HISTORY,
+						comparison: result?.details ?? null,
+						plan: result?.plan ?? null,
+					};
+				}
+				return {
+					...EMPTY_HISTORY,
+					commit: await loadGitCommitDetails(
+						input.commit.cwd,
+						input.commit.hash,
+						input.commit.parent,
+						signal,
+					),
+				};
+			},
+			initialData: EMPTY_HISTORY,
 			staleTime: 60_000,
 			gcTime: 5 * 60_000,
-		}),
-	);
-	return {
-		get details() {
-			return _source.data?.details ?? null;
-		},
-		get plan() {
-			return _source.data?.plan ?? null;
-		},
+		};
+	});
+	return merge(source, {
 		get loading() {
-			return _source.loading && !_source.data?.details;
+			return source.loading && !source.data.commit && !source.data.comparison;
 		},
-	};
+	});
 }
+
 function createGitGraphReader() {
 	let response: {
 		key: string;

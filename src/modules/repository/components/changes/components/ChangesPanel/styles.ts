@@ -19,81 +19,7 @@ export const styles = stylex.create({
 		overflow: "hidden",
 		backgroundColor: color.transparent,
 	},
-	collapsedRoot: {
-		display: "flex",
-		width: 37,
-		height: "100%",
-		alignItems: "center",
-		flexDirection: "column",
-		backgroundColor: color.transparent,
-	},
-	collapsedToggle: {
-		display: "flex",
-		width: "100%",
-		height: controlSize._8,
-		flexShrink: 0,
-		alignItems: "center",
-		justifyContent: "center",
-		borderBottomWidth: 1,
-		borderBottomStyle: "solid",
-		borderBottomColor: color.border,
-		color: {
-			default: color.textMuted,
-			":hover": color.textMain,
-		},
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.controlHover,
-		},
-	},
-	collapsedCounts: {
-		display: "flex",
-		flexDirection: "column",
-		alignItems: "center",
-		gap: controlSize._3,
-		paddingTop: controlSize._3,
-	},
-	collapsedGraphButton: {
-		display: "flex",
-		width: controlSize._6,
-		height: controlSize._6,
-		flexShrink: 0,
-		alignItems: "center",
-		justifyContent: "center",
-		marginTop: controlSize._2,
-		borderRadius: radius.md,
-		color: {
-			default: color.textMuted,
-			":hover": color.textMain,
-		},
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.controlHover,
-		},
-	},
-	collapsedCount: {
-		display: "flex",
-		minWidth: controlSize._6,
-		alignItems: "center",
-		justifyContent: "center",
-		gap: controlSize._1,
-		color: color.textSoft,
-		fontFamily: font.familyDiff,
-		fontSize: font.size_1,
-		fontVariantNumeric: "tabular-nums",
-	},
-	unstagedDot: {
-		width: controlSize._1_25,
-		height: controlSize._1_25,
-		borderRadius: radius.pill,
-		backgroundColor: color.warning,
-	},
-	stagedDot: {
-		width: controlSize._1_25,
-		height: controlSize._1_25,
-		borderRadius: radius.pill,
-		backgroundColor: color.gitAdded,
-	},
+
 	scrollArea: {
 		flex: 1,
 		minHeight: controlSize._0,
@@ -445,47 +371,7 @@ export const styles = stylex.create({
 	deletedText: {
 		color: color.gitDeleted,
 	},
-	statusIcon: {
-		display: "flex",
-		alignItems: "center",
-		justifyContent: "center",
-		fontSize: font.size_0,
-		fontWeight: font.weightBold,
-		lineHeight: 1,
-		filter: "drop-shadow(0 1px 1px rgba(0, 0, 0, 0.95))",
-	},
-	fileChangeIcon: {
-		position: "relative",
-		display: "inline-flex",
-		width: 17,
-		height: 17,
-		flexShrink: 0,
-		alignItems: "center",
-		justifyContent: "center",
-	},
-	fileChangeMark: {
-		position: "absolute",
-		right: -2,
-		top: -2,
-		width: controlSize._2,
-		height: controlSize._2,
-		pointerEvents: "none",
-	},
-	modified: {
-		color: color.diffModified,
-	},
-	addedStatus: {
-		color: color.gitAdded,
-	},
-	deletedStatus: {
-		color: color.gitDeleted,
-	},
-	renamedStatus: {
-		color: color.diffRenamed,
-	},
-	defaultStatus: {
-		color: color.textSoft,
-	},
+
 	fileGroup: {
 		display: "flex",
 		flexShrink: 0,

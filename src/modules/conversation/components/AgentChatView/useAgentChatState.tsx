@@ -105,12 +105,9 @@ export function useAgentChatState(props: AgentChatViewProps) {
 	onSettled(() => cancelHighlight);
 	const highlight = { active: highlightActive, highlight: highlightComposer };
 	const composer = useAgentChatComposerState(() => props.paneId, visible);
-	const menuOptions = {
+	const menuOptions = merge(props, {
 		get agentKind() {
 			return agentKind();
-		},
-		get cwd() {
-			return props.cwd;
 		},
 		get enabled() {
 			return visible();
@@ -120,39 +117,24 @@ export function useAgentChatState(props: AgentChatViewProps) {
 		},
 		setInput,
 		textareaRef: viewport.textareaRef,
-	};
+	});
 	const menus = useAgentChatMenus(() => menuOptions);
-	const connectionOptions = {
+	const connectionOptions = merge(props, {
 		get agentKind() {
 			return agentKind();
 		},
-		get cwd() {
-			return props.cwd;
-		},
 		get visible() {
 			return visible();
-		},
-		get paneId() {
-			return props.paneId;
 		},
 		onExit: () => props.onClose?.(props.paneId),
 		replaceQueuedMessages: composer.replaceQueuedMessages,
 		resolveSteeringMessage: composer.resolveSteeringMessage,
 		stageSteeringMessage: composer.stageSteeringMessage,
-	};
+	});
 	const connection = useChatConnection(() => connectionOptions);
-	const actionOptions = merge(composer, menus, {
+	const actionOptions = merge(props, composer, menus, {
 		get agentKind() {
 			return agentKind();
-		},
-		get cwd() {
-			return props.cwd;
-		},
-		get paneId() {
-			return props.paneId;
-		},
-		get referencePaths() {
-			return props.referencePaths;
 		},
 		get input() {
 			return input();
@@ -169,18 +151,6 @@ export function useAgentChatState(props: AgentChatViewProps) {
 		textareaRef: viewport.textareaRef,
 	});
 	const inputActions = useChatInputActions(() => actionOptions);
-	const voiceInput = {
-		get error() {
-			return speech.error;
-		},
-		get isListening() {
-			return speech.isListening;
-		},
-		get isSupported() {
-			return speech.isSupported;
-		},
-		onToggleListening: speech.toggleListening,
-	};
 	const stopGeneration = () => {
 		wsClient.send({ type: "chat:stop", paneId: props.paneId });
 		connection.setRunStatus({
@@ -225,7 +195,7 @@ export function useAgentChatState(props: AgentChatViewProps) {
 		menus,
 		connection,
 		inputActions,
-		voiceInput,
+		voiceInput: speech,
 		stopGeneration,
 		toggleTool,
 		sendMessage: (text: string) => inputActions.sendUserMessage({ text }),

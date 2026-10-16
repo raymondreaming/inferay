@@ -1,6 +1,5 @@
 import type {
 	DiffRequest,
-	DiffSource,
 	DiffViewMode,
 	GitActionResponse,
 	GitCommitFile,
@@ -14,7 +13,10 @@ import type {
 	RepositoryPreferences,
 	RetainedGraphSelection,
 } from "@contracts";
-import { ChangesPanel } from "@repository/components/changes/components/ChangesPanel/index.tsx";
+import {
+	ChangesPanel,
+	type ChangesPanelModel,
+} from "@repository/components/changes/components/ChangesPanel/index.tsx";
 import { DocumentViewer } from "@repository/components/documents/components/DocumentViewer/index.tsx";
 import type { GraphSelectionIntent } from "@repository/components/graph/components/CommitGraph/index.tsx";
 import {
@@ -29,9 +31,9 @@ import {
 import { useDiffPrefetch, useGitDiff } from "@repository/hooks/useGitDiff.tsx";
 import {
 	DEFAULT_GIT_GRAPH_HISTORY_LIMIT,
-	useCommitDetails,
-	useComparisonDetails,
+	type HistoricalQuery,
 	useGitGraph,
+	useHistoryDetails,
 } from "@repository/hooks/useGitGraph.tsx";
 import {
 	useGitChangeActions,
@@ -62,10 +64,8 @@ import {
 	onboardingChrome,
 	readStoredValue,
 	project as rustProject,
-	visibleGitFiles,
 	writeStoredValue,
 } from "@shared/lib/native.tsx";
-import { MIN_RESPONSIVE_PANE_WIDTH } from "@workspace/components/WorkspaceCanvas/index.tsx";
 import { useWorkspacePanelSession } from "@workspace/hooks/useWorkspacePanelSession.tsx";
 import {
 	type Accessor,
@@ -79,7 +79,6 @@ import {
 
 const GIT_FILE_VIEW_MODE_STORAGE_KEY = "inferay-git-file-view-mode";
 const SIDEBAR_WIDTH_KEY = "agent-workspace-changes-width";
-const DIFF_WIDTH_KEY = "agent-workspace-diff-width";
 const DIFF_VIEW_MODE_KEY = "agent-workspace-diff-view-mode";
 
 const EMPTY_FILE_GROUPS = {
@@ -116,9 +115,6 @@ export function useRepositoryWorkbench(
 			fileViewMode: readStoredValue(GIT_FILE_VIEW_MODE_STORAGE_KEY),
 			diffViewMode: readStoredValue(DIFF_VIEW_MODE_KEY),
 			sidebarWidth: readStoredValue(SIDEBAR_WIDTH_KEY),
-			diffWidth:
-				readStoredValue(DIFF_WIDTH_KEY) ??
-				readStoredValue(`${DIFF_WIDTH_KEY}:${_options().workspaceId}`),
 		});
 	const [fileViewMode, setFileViewModeState] = createSignal(
 		() => readPreferences().fileViewMode,
@@ -128,9 +124,6 @@ export function useRepositoryWorkbench(
 		void _options().workspaceId;
 		return readPreferences().sidebarWidth;
 	});
-	const [diffWidth, setDiffWidth] = createSignal(
-		untrack(() => readPreferences().diffWidth),
-	);
 	onSettled(() =>
 		listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
 			const { key, value } =
@@ -141,7 +134,6 @@ export function useRepositoryWorkbench(
 				(value === "path" || value === "tree")
 			)
 				setFileViewModeState(value);
-			if (key === DIFF_WIDTH_KEY) setDiffWidth(readPreferences().diffWidth);
 			if (key === SIDEBAR_WIDTH_KEY)
 				setSidebarWidth(readPreferences().sidebarWidth);
 		}),
@@ -333,31 +325,7 @@ export function useRepositoryWorkbench(
 	};
 	const historical = createMemo(() => {
 		const _sourceValue5 = panelSession();
-		return rustProject<{
-			commitSource: Extract<
-				DiffSource,
-				{
-					kind: "commit";
-				}
-			> | null;
-			comparisonSource: Extract<
-				DiffSource,
-				{
-					kind: "comparison";
-				}
-			> | null;
-			commit: {
-				cwd?: string;
-				hash?: string;
-				parent?: string;
-			};
-			comparison: {
-				cwd?: string;
-				from?: string;
-				to?: string;
-			};
-			revision?: string;
-		}>("historicalQuery", {
+		return rustProject<HistoricalQuery>("historicalQuery", {
 			mainViewMode: _sourceValue5.mainViewMode,
 			diffViewerCwd: _sourceValue5.diffViewerCwd,
 			graphCwd: graphCwd(),
@@ -371,25 +339,13 @@ export function useRepositoryWorkbench(
 			fileSource: fileSource(),
 		});
 	});
-	const commitDetailsState = useCommitDetails(
-		() => historical().commit.cwd,
-		() => historical().commit.hash,
-		() => historical().commit.parent,
-		() => historical().revision,
-	);
-	const comparisonDetailsState = useComparisonDetails(
-		() => historical().comparison.cwd,
-		() => historical().comparison.from,
-		() => historical().comparison.to,
-		() => historical().revision,
-		() => {
-			const _sourceValue6 = panelSession();
-			return _sourceValue6.mainViewMode === "graph" &&
-				_sourceValue6.selectedCommitIds.length > 1
-				? comparisonSelection()
-				: undefined;
-		},
-	);
+	const historyDetails = useHistoryDetails(historical, () => {
+		const session = panelSession();
+		return session.mainViewMode === "graph" &&
+			session.selectedCommitIds.length > 1
+			? comparisonSelection()
+			: undefined;
+	});
 	const selectGraphCommit = (
 		itemId: string | null,
 		intent?: GraphSelectionIntent,
@@ -472,30 +428,21 @@ export function useRepositoryWorkbench(
 			});
 		},
 	);
-	const keyboardFiles = createMemo(
-		() =>
-			rustProject<{ navigableFiles: GitFileEntry[] }>("changesPanel", {
-				...workingTreeFiles(),
-				filePresentation: workingTreePresentation(),
-				fileViewMode: fileViewMode(),
-			}).navigableFiles,
+	const changesModel = createMemo(() =>
+		rustProject<ChangesPanelModel>("changesPanel", {
+			...workingTreeFiles(),
+			filePresentation: workingTreePresentation(),
+			fileViewMode: fileViewMode(),
+			content: panelSession().sidebarContent,
+			selectedCommitHash: panelSession().selectedCommitHash,
+			selectedCommitCount: panelSession().selectedCommitIds.length,
+			commitDetailsLoading: historyDetails.loading,
+			commitDetails: historyDetails.data.commit,
+			commitDetailsError: historyDetails.error,
+			comparisonDetailsLoading: historyDetails.loading,
+			comparisonDetails: historyDetails.data.comparison,
+		}),
 	);
-	const commitKeyboardFiles = createMemo(() => {
-		const commitFiles = commitDetailsState.details?.files ?? [];
-		return visibleGitFiles(
-			commitFiles,
-			commitDetailsState.details?.filePresentation,
-			fileViewMode(),
-		);
-	});
-	const comparisonKeyboardFiles = createMemo(() => {
-		const comparisonFiles = comparisonDetailsState.details?.files ?? [];
-		return visibleGitFiles(
-			comparisonFiles,
-			comparisonDetailsState.details?.filePresentation,
-			fileViewMode(),
-		);
-	});
 	const changeActions = useGitChangeActions(() => ({
 		cwd: activeCwd(),
 		refetchStatus: gitStatus.refetch,
@@ -628,7 +575,7 @@ export function useRepositoryWorkbench(
 			hash: selectedGraphItem()?.hash,
 			itemKind: selectedGraphItem()?.itemKind,
 		},
-		comparisonPlan: comparisonDetailsState.plan,
+		comparisonPlan: historyDetails.data.plan,
 	}));
 	const selectFile = (
 		kind: "workingTree" | "commit" | "comparison",
@@ -650,7 +597,6 @@ export function useRepositoryWorkbench(
 			const request = pendingGraphFileOpen();
 			if (!request) return null;
 			const session = panelSession();
-			const comparing = session.selectedCommitIds.length > 1;
 			return rustProject<GraphFileOpen>("graphFileOpen", {
 				...fileSelectionContext(),
 				request,
@@ -658,15 +604,11 @@ export function useRepositoryWorkbench(
 				selectedCommitHash: session.selectedCommitHash,
 				selectedCommitCount: session.selectedCommitIds.length,
 				selectedFile: session.selectedFile,
-				loading: comparing
-					? comparisonDetailsState.loading
-					: commitDetailsState.loading,
+				loading: historyDetails.loading,
 				files:
 					selectedGraphItem()?.itemKind === "worktreeWip"
-						? keyboardFiles()
-						: comparing
-							? comparisonKeyboardFiles()
-							: commitKeyboardFiles(),
+						? changesModel().navigableFiles
+						: changesModel().navigableHistoricalFiles,
 			});
 		},
 		(result) => {
@@ -707,10 +649,8 @@ export function useRepositoryWorkbench(
 					: "workingTree";
 		const files: (GitFileEntry | GitCommitFile)[] =
 			kind === "workingTree"
-				? keyboardFiles()
-				: kind === "comparison"
-					? comparisonKeyboardFiles()
-					: commitKeyboardFiles();
+				? changesModel().navigableFiles
+				: changesModel().navigableHistoricalFiles;
 		const nextFile = adjacentGitFile(
 			files,
 			(file) =>
@@ -777,10 +717,8 @@ export function useRepositoryWorkbench(
 						: "commit";
 			const files =
 				kind === "workingTree"
-					? keyboardFiles()
-					: kind === "comparison"
-						? comparisonKeyboardFiles()
-						: commitKeyboardFiles();
+					? changesModel().navigableFiles
+					: changesModel().navigableHistoricalFiles;
 			const first =
 				files.find(
 					(file) =>
@@ -819,7 +757,7 @@ export function useRepositoryWorkbench(
 			});
 		} else if (session.selectedFile) {
 			const nextSelection = getFileSelectionAfterToggle(
-				keyboardFiles(),
+				changesModel().navigableFiles,
 				session.selectedFile,
 			);
 			if (session.selectedFile.staged)
@@ -876,30 +814,13 @@ export function useRepositoryWorkbench(
 		event: PointerEvent & {
 			currentTarget: HTMLButtonElement;
 		},
-		isDiff = false,
 	) => {
-		const _sidebarWidthValue = sidebarWidth(),
-			_diffWidthValue = diffWidth();
 		if (event.button !== 0) return;
 		event.preventDefault();
-		if (isDiff) event.stopPropagation();
 		const rail = event.currentTarget.parentElement;
-		const resize = rustProject<{
-			availableWidth: number;
-			startWidth: number;
-			width: number;
-		}>("repositoryResizeStart", {
-			diff: isDiff,
-			containerWidth:
-				rail?.parentElement?.getBoundingClientRect().width ?? window.innerWidth,
-			railWidth: rail?.getBoundingClientRect().width,
-			sidebarVisible: panelSession().sidebarVisible,
-			sidebarWidth: _sidebarWidthValue,
-			diffWidth: _diffWidthValue,
-			minimumPaneWidth: MIN_RESPONSIVE_PANE_WIDTH,
-		});
+		const startWidth = sidebarWidth();
 		const startX = event.clientX;
-		let width = resize.width;
+		let width = startWidth;
 		try {
 			event.currentTarget.setPointerCapture(event.pointerId);
 		} catch {}
@@ -908,19 +829,13 @@ export function useRepositoryWorkbench(
 			(moveEvent) => {
 				moveEvent.preventDefault();
 				width = rustProject<number>("repositoryResize", {
-					diff: isDiff,
-					availableWidth: resize.availableWidth,
-					width: resize.startWidth + startX - moveEvent.clientX,
+					width: startWidth + startX - moveEvent.clientX,
 				});
 				if (rail) rail.style.width = `${width}px`;
 			},
 			() => {
-				writeStoredValue(
-					isDiff ? DIFF_WIDTH_KEY : SIDEBAR_WIDTH_KEY,
-					String(width),
-				);
-				if (isDiff) setDiffWidth(width);
-				else setSidebarWidth(width);
+				writeStoredValue(SIDEBAR_WIDTH_KEY, String(width));
+				setSidebarWidth(width);
 			},
 		);
 	};
@@ -944,9 +859,7 @@ export function useRepositoryWorkbench(
 		>((previous) => panel() ?? previous);
 		const openRequest = createMemo(() => {
 			const value = retained();
-			return !value || value.initialFile
-				? null
-				: { path: value.path, token: 0 };
+			return value ? { path: value.path, token: 0 } : null;
 		});
 		return (
 			<Show when={panel()}>
@@ -956,7 +869,6 @@ export function useRepositoryWorkbench(
 						sessionId={id}
 						workspaceId={_options().workspaceId}
 						onSessionChange={saveDocumentSession}
-						initialFile={retained()?.initialFile}
 						openRequest={openRequest()}
 						onClose={() => updatePanelSession({ type: "closeFile", id })}
 					/>
@@ -988,11 +900,7 @@ export function useRepositoryWorkbench(
 					ref={(element) => {
 						diffRailElement = element;
 					}}
-					zenMode={true}
-					width={diffWidth()}
-					maxWidth={`max(0px, calc(100% - ${MIN_RESPONSIVE_PANE_WIDTH + (sidebarVisible() ? sidebarWidth() : 0)}px))`}
 					onFocus={focusDiffViewer}
-					onResize={(event) => handleResizeStart(event, true)}
 				>
 					<ChatDiffPanel
 						diff={fileDiff.diff}
@@ -1054,11 +962,8 @@ export function useRepositoryWorkbench(
 						cwd={selectedWorkingTreeCwd()}
 						fileViewMode={fileViewMode()}
 						onFileViewModeChange={setFileViewMode}
-						content={panelSession().sidebarContent}
+						model={changesModel()}
 						graphActive={panelSession().mainViewMode === "graph"}
-						modified={workingTreeFiles().modified}
-						untracked={workingTreeFiles().untracked}
-						staged={workingTreeFiles().staged}
 						selectedFile={
 							context().selectedFileVisible ? panelSession().selectedFile : null
 						}
@@ -1071,7 +976,6 @@ export function useRepositoryWorkbench(
 						onDiscard={changeActions.discard}
 						hasProject={!!project() || !!selectedLinkedWorktreeStatus()}
 						projectLoading={!!activeCwd() && !gitStatus.loaded}
-						selectedCommitHash={panelSession().selectedCommitHash}
 						selectedCommitCount={panelSession().selectedCommitIds.length}
 						selectedWorktreePath={selectedGraphWorktree()?.path}
 						onOpenWorktree={
@@ -1079,14 +983,8 @@ export function useRepositoryWorkbench(
 								? openSelectedWorktree
 								: undefined
 						}
-						commitDetailsLoading={commitDetailsState.loading}
-						commitDetails={commitDetailsState.details}
-						commitDetailsError={commitDetailsState.error}
-						comparisonDetailsLoading={comparisonDetailsState.loading}
-						comparisonDetails={comparisonDetailsState.details}
 						onSelectCommitFile={selectCommitFile}
 						onSelectComparisonFile={selectComparisonFile}
-						branch={selectedGraphWorktree()?.branch ?? project()?.branch}
 						commitMessage={changeActions.commitMessage}
 						onCommitMessageChange={changeActions.setCommitMessage}
 						onCommit={changeActions.commit}
@@ -1105,8 +1003,5 @@ export function useRepositoryWorkbench(
 		diffPanel,
 		showGraph: () => changeMainViewMode("graph"),
 		sidebar,
-		get zenMode() {
-			return zenMode();
-		},
 	};
 }

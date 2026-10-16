@@ -7,7 +7,6 @@ import {
 	dispatchToggleActiveGitGraph,
 	dispatchToggleActiveGitSidebar,
 	listenWindowEvent,
-	queryClient,
 	WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
 	type WorkspaceSidebarCollapsedDetail,
 } from "@shared/lib/dom.tsx";
@@ -32,7 +31,6 @@ import {
 	projects,
 	reorderProject,
 	selectProject,
-	showProjectView,
 } from "../../hooks/useProjects.tsx";
 import {
 	openAgentPane,
@@ -64,14 +62,11 @@ export function RepositoryWorkspaceBar() {
 	const [chatFlyoutHovered, setChatFlyoutHovered] = createSignal(false);
 	const projection = createMemo(() => state().repositories);
 	const panelVisibility = usePanelVisibility();
-	const panelState = useBackgroundQuery(
-		() => ({
-			...panelQuery(projects.repositoryPath() ?? ""),
-			// The workbench owns loading and transitions; this observer only reflects its cache.
-			enabled: false,
-		}),
-		() => queryClient,
-	);
+	const panelState = useBackgroundQuery(() => ({
+		...panelQuery(projects.repositoryPath() ?? ""),
+		// The workbench owns loading and transitions; this observer only reflects its cache.
+		enabled: false,
+	}));
 	onSettled(() => {
 		return listenWindowEvent(WORKSPACE_SIDEBAR_COLLAPSED_EVENT, (event) => {
 			setWorkspaceSidebarCollapsedState(
@@ -79,6 +74,41 @@ export function RepositoryWorkspaceBar() {
 					.collapsed,
 			);
 		});
+	});
+	onSettled(() => {
+		const switchProject = (event: KeyboardEvent) => {
+			if (
+				!event.metaKey ||
+				event.ctrlKey ||
+				event.altKey ||
+				event.shiftKey ||
+				!["ArrowLeft", "ArrowRight"].includes(event.key) ||
+				event.defaultPrevented
+			)
+				return;
+			const target = event.target;
+			if (
+				target instanceof Element &&
+				target.closest(
+					'input, textarea, [contenteditable="true"], [role="textbox"], [role="dialog"], dialog',
+				)
+			)
+				return;
+			if (document.querySelector('[role="dialog"], dialog[open]')) return;
+			const tabs = projects.list().filter((project) => !project.archived);
+			if (tabs.length < 2) return;
+			const index = tabs.findIndex(
+				(project) => project.id === projects.selectedId(),
+			);
+			const next =
+				(index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) %
+				tabs.length;
+			event.preventDefault();
+			event.stopPropagation();
+			void selectProject(tabs[next]!.id);
+		};
+		window.addEventListener("keydown", switchProject, true);
+		return () => window.removeEventListener("keydown", switchProject, true);
 	});
 	const chatFlyoutOpen = createMemo(
 		() =>
@@ -91,9 +121,9 @@ export function RepositoryWorkspaceBar() {
 			state().groups.find((group) => group.id === state().selectedGroupId)
 				?.selectedPaneId ?? null,
 	);
-	const selectPane = (groupId: string, paneId: string) => {
+	const selectPane = (_groupId: string, paneId: string) => {
 		setChatFlyoutHovered(false);
-		void openAgentPane(groupId, paneId, () => {
+		void openAgentPane(paneId, () => {
 			if (location.pathname !== "/") navigate("/");
 		});
 	};
@@ -227,7 +257,6 @@ export function RepositoryWorkspaceBar() {
 							onClick={() => {
 								if (projects.selectedId() !== project().id)
 									void selectProject(project().id);
-								else showProjectView("chat");
 							}}
 							onKeyDown={(event) => {
 								if (

@@ -6,14 +6,17 @@ import type {
 } from "@contracts";
 import { surfaceStyles } from "@design-system/styles.stylex.ts";
 import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
-import { queryClient } from "@shared/lib/dom.tsx";
 import { Button } from "@shared/ui/Button/index.tsx";
 import { cardStyles } from "@shared/ui/ChatActionCard/styles.ts";
 import { Modal } from "@shared/ui/Modal/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, Show } from "solid-js";
 import { useProjectProposal } from "../../hooks/useProjectProposal.tsx";
-import { selectProject, showProjectView } from "../../hooks/useProjects.tsx";
+import {
+	selectProject,
+	showProjectView,
+	useProjectAction,
+} from "../../hooks/useProjects.tsx";
 import {
 	loadProjects,
 	readPluginLibrary,
@@ -44,13 +47,10 @@ export function PluginProposalCard(props: {
 	const createdId = () => proposal.view()?.entityId;
 
 	const [review, setReview] = createSignal<PluginReview | null>(null);
-	const catalog = useBackgroundQuery(
-		() => ({
-			queryKey: ["plugin-proposal-project", props.command.projectId],
-			queryFn: () => loadProjects(props.command.projectId),
-		}),
-		() => queryClient,
-	);
+	const catalog = useBackgroundQuery(() => ({
+		queryKey: ["plugin-proposal-project", props.command.projectId],
+		queryFn: () => loadProjects(props.command.projectId),
+	}));
 	const existing = () =>
 		catalog.data?.plugins.find(
 			(plugin) =>
@@ -67,14 +67,11 @@ export function PluginProposalCard(props: {
 			return undefined;
 		}
 	});
-	const library = useBackgroundQuery(
-		() => ({
-			queryKey: ["plugin-proposal-library", existing()?.file.id ?? ""],
-			queryFn: () => readPluginLibrary(existing()!.file.id),
-			enabled: props.command.type === "updatePlugin" && !!existing(),
-		}),
-		() => queryClient,
-	);
+	const library = useBackgroundQuery(() => ({
+		queryKey: ["plugin-proposal-library", existing()?.file.id ?? ""],
+		queryFn: () => readPluginLibrary(existing()!.file.id),
+		enabled: props.command.type === "updatePlugin" && !!existing(),
+	}));
 	const saved = () => proposal.view()?.status === "saved";
 	const changed = () =>
 		props.command.type === "updatePlugin"
@@ -94,28 +91,17 @@ export function PluginProposalCard(props: {
 		return value.type === "updatePlugin" ? value.remove : [];
 	};
 	const dismissed = () => proposal.view()?.status === "declined";
-	const [busy, setBusy] = createSignal(false);
-	const [error, setError] = createSignal("");
+	const { busy, error, run } = useProjectAction();
 	const files = () => Object.entries(candidate().files);
 	const [comparison, setComparison] = createSignal<PluginProposalReview | null>(
 		null,
 	);
-	const [comparing, setComparing] = createSignal(false);
-	async function compare() {
-		setComparing(true);
-		setError("");
-		try {
+	const compare = () =>
+		run(async () => {
 			setComparison(await reviewPluginProposal(candidate()));
-		} catch (error) {
-			setError(String(error));
-		} finally {
-			setComparing(false);
-		}
-	}
-	async function save() {
-		setBusy(true);
-		setError("");
-		try {
+		});
+	const save = () =>
+		run(async () => {
 			const result = await proposal.decide("save", draft() ?? undefined);
 			if (result?.status !== "saved" || !result.entityId) return;
 			setComparison(null);
@@ -126,12 +112,7 @@ export function PluginProposalCard(props: {
 			);
 			await catalog.refetch();
 			setReview(await reviewProjectPlugin(result.entityId));
-		} catch (error) {
-			setError(String(error));
-		} finally {
-			setBusy(false);
-		}
-	}
+		});
 
 	return (
 		<section
@@ -169,17 +150,17 @@ export function PluginProposalCard(props: {
 				<Button
 					size="sm"
 					variant="ghost"
-					disabled={busy() || comparing()}
+					disabled={busy()}
 					onClick={() => void compare()}
 				>
-					{comparing() ? "Preparing comparison…" : "Review changes"}
+					{busy() ? "Preparing comparison…" : "Review changes"}
 				</Button>
 			)}
 			{!saved() && !dismissed() && (
 				<Button
 					size="sm"
 					variant="ghost"
-					disabled={busy() || comparing() || unavailable() || changed()}
+					disabled={busy() || unavailable() || changed()}
 					onClick={() => setEditing(true)}
 				>
 					Edit proposal
@@ -289,19 +270,12 @@ export function PluginProposalCard(props: {
 					<Button
 						size="sm"
 						disabled={busy()}
-						onClick={async () => {
-							const id = createdId() ?? existing()?.file.id;
-							if (!id) return;
-							setBusy(true);
-							setError("");
-							try {
-								setReview(await reviewProjectPlugin(id));
-							} catch (error) {
-								setError(String(error));
-							} finally {
-								setBusy(false);
-							}
-						}}
+						onClick={() =>
+							void run(async () => {
+								const id = createdId() ?? existing()?.file.id;
+								if (id) setReview(await reviewProjectPlugin(id));
+							})
+						}
 					>
 						Review & approve
 					</Button>

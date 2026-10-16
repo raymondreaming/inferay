@@ -3,12 +3,12 @@ import { IconButton } from "@shared/ui/IconButton/index.tsx";
 import { IconX } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { For } from "solid-js";
+import type { useAgentChatComposerState } from "../../hooks/useAgentChatComposerState.tsx";
 import { styles } from "./styles.ts";
-import type { useChatComposerState } from "./useChatComposerState.tsx";
 
 export function ComposerAttachments(
 	_props: Pick<
-		ReturnType<typeof useChatComposerState>,
+		ReturnType<typeof useAgentChatComposerState>,
 		"attachedImages" | "removeAttachedImage"
 	>,
 ) {

@@ -19,7 +19,6 @@ pub enum AgentWorkspaceAction {
         cwd: String,
     },
     SelectPane {
-        group_id: String,
         pane_id: String,
     },
     AddWorkspace,
@@ -45,26 +44,14 @@ pub enum AgentWorkspaceAction {
         reference_paths: Option<Vec<String>>,
     },
     RemovePane {
-        group_id: String,
         pane_id: String,
     },
     DirectorySelected {
-        group_id: String,
         pane_id: String,
         path: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         reference_paths: Option<Vec<String>>,
-    },
-    SetPaneAgentKind {
-        group_id: String,
-        pane_id: String,
-        agent_kind: WorkspaceAgentKind,
-    },
-    ReorderPanes {
-        group_id: String,
-        from_index: usize,
-        to_index: usize,
     },
     SetGridDimensions {
         group_id: String,

@@ -497,9 +497,7 @@ function buildCommitGraphViewModel({
 		geometry.displayColumns[column] ?? column;
 	const selectableItems = presentation.selectableItems;
 	return {
-		containingBranches: new Map(
-			Object.entries(presentation.containingBranches),
-		),
+		references: new Map(Object.entries(presentation.references)),
 		defaultRemoteName: presentation.defaultRemoteName,
 		displayGraphColumn,
 		...geometry,

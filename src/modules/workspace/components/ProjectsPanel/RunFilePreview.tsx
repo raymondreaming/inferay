@@ -1,6 +1,5 @@
 import { Markdown } from "@conversation/components/ChatRichContent/Markdown.tsx";
 import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
-import { queryClient } from "@shared/lib/dom.tsx";
 import { Button } from "@shared/ui/Button/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createSignal, For, Show } from "solid-js";
@@ -22,15 +21,12 @@ export function RunFilePreview(props: {
 	const [mediaError, setMediaError] = createSignal(false);
 	const [loaded, setLoaded] = createSignal(false);
 	const [source, setSource] = createSignal(false);
-	const file = useBackgroundQuery(
-		() => ({
-			queryKey: ["run-file", props.directory, props.path],
-			enabled: !image() && !video(),
-			queryFn: ({ signal }: { signal: AbortSignal }) =>
-				readProjectFile(props.directory, props.path, signal),
-		}),
-		() => queryClient,
-	);
+	const file = useBackgroundQuery(() => ({
+		queryKey: ["run-file", props.directory, props.path],
+		enabled: !image() && !video(),
+		queryFn: ({ signal }: { signal: AbortSignal }) =>
+			readProjectFile(props.directory, props.path, signal),
+	}));
 	return (
 		<section aria-label="Run output preview" {...stylex.attrs(styles.card)}>
 			<div {...stylex.attrs(styles.row)}>

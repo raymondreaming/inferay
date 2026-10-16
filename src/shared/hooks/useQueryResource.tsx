@@ -1,6 +1,5 @@
 import {
 	type DefaultError,
-	type QueryClient,
 	QueryObserver,
 	type QueryObserverOptions,
 	type QueryObserverResult,
@@ -17,39 +16,18 @@ import {
 import type { StateUpdate } from "../lib/dom.tsx";
 import { queryClient } from "../lib/dom.tsx";
 
-interface QueryResourceOptions {
-	readonly enabled?: boolean;
-	readonly gcTime?: number;
-	readonly queryKey: QueryKey;
-	readonly refetchInterval?: number;
-	readonly staleTime?: number;
-}
 export function useQueryResource<T>(
-	_fetcher: Accessor<(signal?: AbortSignal) => Promise<T> | null>,
-	_initialData: Accessor<T>,
-	_options: Accessor<QueryResourceOptions>,
+	options: Accessor<QueryObserverOptions<T> & { initialData: T }>,
 ) {
-	const query = useBackgroundQuery(
-		() => {
-			const _optionsValue = _options();
-			const fetcher = _fetcher();
-			const initialData = _initialData();
-			return {
-				..._optionsValue,
-				queryFn: async ({ signal }) => (await fetcher(signal)) ?? initialData,
-				initialData,
-				// Initial data is a render-safe placeholder, not a completed request.
-				// Mark it stale so queries with a positive staleTime still fetch once.
-				initialDataUpdatedAt: 0,
-				enabled: _optionsValue.enabled ?? true,
-			};
-		},
-		() => queryClient,
-	);
+	const query = useBackgroundQuery<T>(() => ({
+		// Fallback data must not suppress the initial request.
+		initialDataUpdatedAt: 0,
+		...options(),
+	}));
 	const refetchQuery = createMemo(() => query.refetch);
 	const setData = (value: StateUpdate<T>) => {
-		queryClient.setQueryData<T>(_options().queryKey, (previous) => {
-			const current = previous ?? _initialData();
+		queryClient.setQueryData<T>(options().queryKey, (previous) => {
+			const current = previous ?? options().initialData;
 			return typeof value === "function"
 				? (value as (current: T) => T)(current)
 				: value;
@@ -57,13 +35,13 @@ export function useQueryResource<T>(
 	};
 	const refresh = async () => {
 		const result = await refetchQuery()();
-		return result.data ?? _initialData();
+		return result.data ?? options().initialData;
 	};
 	// Background fetches must not hold unrelated UI updates. Keep the last
 	// available data visible and expose fetching/error state independently.
 	return {
 		get data() {
-			return query.data ?? _initialData();
+			return query.data ?? options().initialData;
 		},
 		get error() {
 			return query.error instanceof Error ? query.error.message : null;
@@ -78,30 +56,6 @@ export function useQueryResource<T>(
 		setData,
 	};
 }
-export function usePollingQuery<T>(
-	_fetcher2: Accessor<(signal?: AbortSignal) => Promise<T>>,
-	_pollInterval: Accessor<number>,
-	_initialData2: Accessor<T>,
-	_options2: Accessor<Omit<QueryResourceOptions, "refetchInterval">>,
-) {
-	return useQueryResource(
-		() => _fetcher2(),
-		() => _initialData2(),
-		() => {
-			const _options2Value = _options2(),
-				_pollIntervalValue = _pollInterval();
-			return {
-				..._options2Value,
-				refetchInterval: _pollIntervalValue,
-				staleTime: Math.min(
-					_pollIntervalValue,
-					_options2Value.staleTime ?? _pollIntervalValue,
-				),
-			};
-		},
-	);
-}
-
 /** Queries with explicit loading/error UI must never suspend the workspace.
  * Keep TanStack's cache, cancellation and placeholder behavior, and publish
  * observer snapshots through a shallow Solid store instead of async reads.
@@ -115,9 +69,8 @@ export function useBackgroundQuery<
 	options: Accessor<
 		QueryObserverOptions<TQueryFnData, TError, TData, TQueryFnData, TQueryKey>
 	>,
-	client: Accessor<QueryClient>,
 ): QueryObserverResult<TData, TError> {
-	const observer = new QueryObserver(untrack(client), untrack(options));
+	const observer = new QueryObserver(queryClient, untrack(options));
 	type Snapshot = {
 		[K in keyof QueryObserverResult<TData, TError>]: QueryObserverResult<
 			TData,

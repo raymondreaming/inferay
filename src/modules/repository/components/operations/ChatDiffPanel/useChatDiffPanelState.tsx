@@ -13,9 +13,7 @@ import type { useGitDiff } from "@repository/hooks/useGitDiff.tsx";
 import type { useGitGraph } from "@repository/hooks/useGitGraph.tsx";
 import { preflightGitRefOperation } from "@repository/services/gitApi.ts";
 import { useBackgroundQuery as useQuery } from "@shared/hooks/useQueryResource.tsx";
-import { queryClient } from "@shared/lib/dom.tsx";
 import { project } from "@shared/lib/native.tsx";
-import type { DragProps } from "@workspace/components/WorkspaceCanvas/index.tsx";
 import { type Accessor, createMemo, createSignal, merge } from "solid-js";
 export function useChatDiffPanelState(
 	_props: Accessor<{
@@ -62,7 +60,6 @@ export function useChatDiffPanelState(
 		readonly startAtFirstChange: boolean;
 		readonly zenMode: boolean;
 		readonly onToggleZenMode: () => void;
-		readonly drag?: DragProps;
 	}>,
 ) {
 	const stats = createMemo(
@@ -73,9 +70,6 @@ export function useChatDiffPanelState(
 				hunks: 0,
 				lines: 0,
 			},
-	);
-	const [hoveredModeIndex, setHoveredModeIndex] = createSignal<number | null>(
-		null,
 	);
 	const [pendingRefAction, setPendingRefAction] = createSignal<{
 		source: string;
@@ -91,30 +85,27 @@ export function useChatDiffPanelState(
 	const [graphActionResult, setGraphActionResult] =
 		createSignal<GitActionResponse | null>(null);
 	const [graphActionRunning, setGraphActionRunning] = createSignal(false);
-	const preflight = useQuery(
-		() => {
-			const repositoryKey = _props().repositoryKey,
-				_pendingRefActionValue = pendingRefAction();
-			return {
-				queryKey: ["git-ref-preflight", repositoryKey, _pendingRefActionValue],
-				queryFn: ({ signal }) =>
-					preflightGitRefOperation(
-						{
-							cwd: repositoryKey ?? "",
-							source: _pendingRefActionValue?.source ?? "",
-							target: _pendingRefActionValue?.target ?? "",
-						},
-						signal,
-					),
-				enabled: !!_pendingRefActionValue && !!repositoryKey,
-				gcTime: 0,
-				staleTime: 0,
-				retry: false,
-				refetchOnReconnect: false,
-			};
-		},
-		() => queryClient,
-	);
+	const preflight = useQuery(() => {
+		const repositoryKey = _props().repositoryKey,
+			_pendingRefActionValue = pendingRefAction();
+		return {
+			queryKey: ["git-ref-preflight", repositoryKey, _pendingRefActionValue],
+			queryFn: ({ signal }) =>
+				preflightGitRefOperation(
+					{
+						cwd: repositoryKey ?? "",
+						source: _pendingRefActionValue?.source ?? "",
+						target: _pendingRefActionValue?.target ?? "",
+					},
+					signal,
+				),
+			enabled: !!_pendingRefActionValue && !!repositoryKey,
+			gcTime: 0,
+			staleTime: 0,
+			retry: false,
+			refetchOnReconnect: false,
+		};
+	});
 	const runRefOperation = async (
 		operation: GitRefOperationRequest["operation"],
 		action: GitRefOperationRequest["action"] = "start",
@@ -134,35 +125,55 @@ export function useChatDiffPanelState(
 			setPendingRefAction(null);
 		}
 	};
-	const runGraphAction = async () => {
-		const _pendingGraphActionValue = pendingGraphAction();
-		if (!_pendingGraphActionValue) return;
+	let graphActionInFlight = false;
+	const executeGraphAction = async (
+		request: GitGraphActionRequest,
+		name?: string,
+		message?: string,
+	) => {
+		if (graphActionInFlight) return;
+		graphActionInFlight = true;
 		setGraphActionRunning(true);
-		const result = await _props().onRunGraphAction({
-			..._pendingGraphActionValue,
-			name: graphActionName().trim() || undefined,
-			message: graphActionMessage().trim() || undefined,
-		});
-		setGraphActionRunning(false);
-		setGraphActionResult(result);
-		if (result.ok) setPendingGraphAction(null);
+		setGraphActionResult(null);
+		try {
+			const result = await _props().onRunGraphAction({
+				...request,
+				name,
+				message,
+			});
+			setGraphActionResult(result);
+			if (result.ok) setPendingGraphAction(null);
+		} catch (error) {
+			setGraphActionResult(
+				project<GitActionResponse>("gitActionFailure", {
+					operation: request.action,
+					error: error instanceof Error ? error.message : String(error),
+					errorKind: "commandFailed",
+				}),
+			);
+		} finally {
+			graphActionInFlight = false;
+			setGraphActionRunning(false);
+		}
+	};
+	const runGraphAction = async () => {
+		const request = pendingGraphAction();
+		if (request)
+			await executeGraphAction(
+				request,
+				graphActionName().trim() || undefined,
+				graphActionMessage().trim() || undefined,
+			);
 	};
 	const requestGraphAction = (request: GitGraphActionRequest) => {
+		if (graphActionInFlight) return;
 		setGraphActionName(request.suggestedName ?? "");
 		setGraphActionMessage("");
 		setGraphActionResult(null);
 		setPendingGraphAction(request);
 		if (_props().graph.actions[request.action]?.needsConfirm === false)
-			void runGraphAction();
+			void executeGraphAction(request);
 	};
-	const activeModeIndex = createMemo(() => {
-		const _sourceValue2 = _props();
-		return _sourceValue2.mainViewMode === "graph"
-			? -1
-			: _sourceValue2.viewMode === "split"
-				? 0
-				: 1;
-	});
 	const pendingGraphActionPresentation = createMemo(() => {
 		const _pendingGraphActionValue2 = pendingGraphAction();
 		return _pendingGraphActionValue2
@@ -202,10 +213,6 @@ export function useChatDiffPanelState(
 		get stats() {
 			return stats();
 		},
-		get hoveredModeIndex() {
-			return hoveredModeIndex();
-		},
-		setHoveredModeIndex,
 		get pendingRefAction() {
 			return pendingRefAction();
 		},
@@ -249,9 +256,6 @@ export function useChatDiffPanelState(
 		runRefOperation,
 		requestGraphAction,
 		runGraphAction,
-		get activeModeIndex() {
-			return activeModeIndex();
-		},
 		get operationModel() {
 			const _operationModelValue = operationModel();
 			return _operationModelValue;

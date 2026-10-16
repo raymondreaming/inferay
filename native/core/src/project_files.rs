@@ -72,11 +72,11 @@ pub enum ProjectFileCommand {
     StopRun {
         id: String,
     },
-    LinkRepository {
-        project_id: String,
-        repository_id: String,
-        expected_project_hash: String,
-        path: String,
+    SaveProject {
+        definition: ProjectDefinition,
+        expected_hash: Option<String>,
+        #[serde(default)]
+        repository_paths: BTreeMap<String, String>,
     },
     AssociateConversation {
         project_id: String,
@@ -156,7 +156,7 @@ pub enum Permission {
     Gpu,
     WriteProjectFiles,
 }
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct RepositoryDefinition {
     pub id: String,
@@ -164,7 +164,7 @@ pub struct RepositoryDefinition {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote: Option<String>,
 }
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectDefinition {
     #[serde(default)]
@@ -700,15 +700,6 @@ pub fn parse_skill(path: &str, text: &str) -> Result<SkillDefinition, String> {
         relative_path(command.trim_start_matches('/'))?;
     }
     Ok(value)
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectDocument {
-    pub path: String,
-    pub name: String,
-    pub category: String,
-    pub size: u64,
 }
 
 pub fn document_category(name: &str) -> &'static str {

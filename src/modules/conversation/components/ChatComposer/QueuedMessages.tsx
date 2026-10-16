@@ -1,12 +1,12 @@
 import * as stylex from "@stylexjs/stylex";
 import { For } from "solid-js";
+import type { useAgentChatComposerState } from "../../hooks/useAgentChatComposerState.tsx";
 import { QueuedMessageRow } from "./QueuedMessageRow.tsx";
 import { styles } from "./styles.ts";
-import type { useChatComposerState } from "./useChatComposerState.tsx";
 
 export function QueuedMessages(
 	_props: Pick<
-		ReturnType<typeof useChatComposerState>,
+		ReturnType<typeof useAgentChatComposerState>,
 		| "queuedMessages"
 		| "editingQueueId"
 		| "editingQueueText"

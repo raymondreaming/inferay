@@ -113,11 +113,10 @@ pub(super) async fn open(state: &ServerState, request: Request) -> ApiResult {
                         )
                     })
             });
-        if let Some((group_id, pane_id)) = existing {
+        if let Some((_group_id, pane_id)) = existing {
             store
                 .apply_workspace_action(
                     &AgentWorkspaceAction::SelectPane {
-                        group_id,
                         pane_id: pane_id.clone(),
                     },
                     provider,

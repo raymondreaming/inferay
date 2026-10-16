@@ -43,7 +43,7 @@ pub(crate) fn memory_directories(db: &Connection, root: &Path) -> Result<()> {
                     .into());
                 }
                 let target = directory.join("memory");
-                files::rename_directory(&source, &target)?;
+                files::publish_directory(&source, &target, files::Publication::Create)?;
                 fs::File::open(&directory)?.sync_all()?;
             }
             for file in files::scan(&directory, &BTreeSet::new())? {

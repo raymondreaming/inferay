@@ -338,15 +338,17 @@ mod tests {
         );
         assert!(!before.to_string().contains(&secret));
         let fingerprint = hash(&serde_json::to_vec(&before).unwrap());
-        crate::project_index::approve_automation(
-            &store.db,
+        let tx = store.db.unchecked_transaction().unwrap();
+        crate::project_index::approve(
+            &tx,
             profile.path(),
-            &automation,
+            crate::project_index::Approval::Automation(&automation),
             &fingerprint,
             true,
             &[],
         )
         .unwrap();
+        tx.commit().unwrap();
         connections
             .apply(Command::Save {
                 project_id: project,

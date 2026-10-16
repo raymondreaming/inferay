@@ -12,15 +12,3 @@ export async function searchFiles(
 	);
 	return response.results;
 }
-
-export async function listDirectory(
-	cwd: string,
-	path: string,
-	signal?: AbortSignal,
-): Promise<ProjectFileEntry[]> {
-	const response = await fetchJson<{ entries: ProjectFileEntry[] }>(
-		`/api/files/list?${new URLSearchParams({ cwd, path })}`,
-		{ signal },
-	);
-	return response.entries;
-}

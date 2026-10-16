@@ -16,13 +16,6 @@ fn dock_pointer_prioritizes_outer_edges_and_rejects_the_source_cell() {
         project("dockPointerTarget", &input).unwrap(),
         json!({"id":"a","edge":"center"})
     );
-    input["mode"] = json!("rows");
-    input["rowId"] = json!("b");
-    input["rowIndex"] = json!(1);
-    assert_eq!(
-        project("dockPointerTarget", &input).unwrap(),
-        json!({"id":"b","edge":"center","rowIndex":1})
-    );
 }
 
 #[test]

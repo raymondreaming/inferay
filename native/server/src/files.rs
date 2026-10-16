@@ -75,18 +75,6 @@ impl ServerState {
         }
     }
 
-    pub(super) async fn list_project_files(
-        &self,
-        cwd: &str,
-        path: &str,
-    ) -> Result<Vec<ProjectFileEntry>, ApiError> {
-        let cwd = self.project_cwd(cwd)?;
-        let directory = self.child(&cwd, path)?;
-        tokio::task::spawn_blocking(move || list_project_directory(&cwd, &directory))
-            .await
-            .map_err(|error| ApiError::from(error.to_string()))?
-    }
-
     pub(super) async fn read_project_file(&self, cwd: &str, path: &str) -> super::ApiResult {
         let cwd = self.project_cwd(cwd)?;
         if path.is_empty() {
@@ -131,34 +119,6 @@ fn map_io_error(error: std::io::Error) -> ApiError {
     } else {
         ApiError::from(error.to_string())
     }
-}
-
-fn list_project_directory(cwd: &Path, directory: &Path) -> Result<Vec<ProjectFileEntry>, ApiError> {
-    let mut entries = std::fs::read_dir(directory)
-        .map_err(map_io_error)?
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if matches!(name.as_str(), ".git" | "node_modules" | "target" | "dist") {
-                return None;
-            }
-            let is_dir = entry.file_type().ok()?.is_dir();
-            let path = entry
-                .path()
-                .strip_prefix(cwd)
-                .ok()?
-                .to_string_lossy()
-                .into_owned();
-            Some(ProjectFileEntry {
-                name,
-                path,
-                is_dir,
-                cwd: cwd.to_string_lossy().into_owned(),
-            })
-        })
-        .collect::<Vec<_>>();
-    entries.sort_by_cached_key(|entry| (!entry.is_dir, entry.name.to_lowercase()));
-    Ok(entries)
 }
 
 fn search_files_in_cwd(cwd: &Path, query: &str, limit: usize) -> Vec<ProjectFileEntry> {

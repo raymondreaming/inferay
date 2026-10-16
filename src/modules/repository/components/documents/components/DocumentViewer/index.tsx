@@ -10,7 +10,6 @@ import { DocumentReplica } from "@shared/lib/native.tsx";
 import { ErrorBoundary } from "@shared/ui/ErrorBoundary/index.tsx";
 import { IconCode, IconX } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { WorkspaceDockHandle } from "@workspace/components/WorkspaceDockHandle/index.tsx";
 import {
 	createEffect,
 	createMemo,
@@ -27,16 +26,7 @@ import { styles } from "./styles.ts";
 type DocumentViewerProps = {
 	readonly cwd: string;
 	readonly sessionId?: string;
-	readonly initialFile?: FileContent;
 	readonly onClose: () => void;
-	readonly onFileTabDragStart?: (
-		event: PointerEvent,
-		file: FileContent,
-		completeMove: () => void,
-	) => void;
-	readonly draggable?: boolean;
-	readonly onDragStart?: (event: PointerEvent) => void;
-	readonly onDragEnd?: () => void;
 	readonly openRequest?: {
 		readonly path: string;
 		readonly token: number;
@@ -78,7 +68,6 @@ function DocumentSessionView(_props: DocumentViewerProps) {
 		selectFile,
 		closeFile,
 		closeViewer,
-		startFileTabDrag,
 	} = useDocumentSession(_props);
 	return (
 		<section {...stylex.attrs(styles.root)}>
@@ -86,15 +75,8 @@ function DocumentSessionView(_props: DocumentViewerProps) {
 				{...stylex.attrs(styles.header)}
 				class={`${APP_REGION_DRAG_CLASS} ${stylex.attrs(styles.header).class ?? ""}`}
 			>
-				<WorkspaceDockHandle
-					draggable={_props.draggable}
-					onDragStart={_props.onDragStart}
-					onDragEnd={_props.onDragEnd}
-				/>
 				<DocumentTabs
 					activePath={activePath()}
-					onFileTabDragStart={Boolean(_props.onFileTabDragStart)}
-					startFileTabDrag={startFileTabDrag}
 					setActivePath={selectFile}
 					closeFile={closeFile}
 					openFiles={openFiles()}
@@ -141,16 +123,12 @@ function useDocumentSession(props: DocumentViewerProps) {
 	}));
 	const key = JSON.stringify(identity);
 	const cached = sessions.get(key);
-	const initialFile = untrack(() => props.initialFile);
 	const files = new Map(
-		(cached?.openFiles ?? (initialFile ? [initialFile] : [])).map((file) => [
-			file.path,
-			file,
-		]),
+		(cached?.openFiles ?? []).map((file) => [file.path, file]),
 	);
 	const model = new DocumentReplica(
 		JSON.stringify([...files.keys()]),
-		cached?.activePath ?? initialFile?.path,
+		cached?.activePath ?? undefined,
 		!cached,
 	);
 	const [view, setView] = createSignal<DocumentView>(
@@ -188,7 +166,7 @@ function useDocumentSession(props: DocumentViewerProps) {
 		void (async () => {
 			try {
 				const restored = await restoreDocumentSession(
-					{ ...identity, initialPath: initialFile?.path },
+					identity,
 					controller.signal,
 				);
 				if (controller.signal.aborted) return;
@@ -251,16 +229,5 @@ function useDocumentSession(props: DocumentViewerProps) {
 		},
 		closeFile,
 		closeViewer,
-		startFileTabDrag: (event: PointerEvent, file: FileContent) => {
-			if (
-				!props.onFileTabDragStart ||
-				(event.target as HTMLElement).closest("button")
-			)
-				return;
-			event.stopPropagation();
-			props.onFileTabDragStart(event, file, () => {
-				if (!controller.signal.aborted) closeFile(file.path);
-			});
-		},
 	};
 }

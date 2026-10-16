@@ -1,6 +1,5 @@
 //! Workspace schema and invariants, independent of persistence and HTTP.
 mod actions;
-pub use actions::reorder_repositories;
 mod queries;
 
 use crate::workspace_action::AgentWorkspaceAction;
@@ -267,11 +266,17 @@ impl Workspace {
         )
     }
 
-    fn remove_pane(&mut self, group_id: &str, id: &str, default_kind: &str) -> Result<(), String> {
+    fn remove_pane(&mut self, id: &str, default_kind: &str) -> Result<(), String> {
         // Capture the visible tab order before removing its last entry.
         let paths = self.repository_paths();
-        let selected_group = self.selected_group_id == group_id;
-        let group = self.group(group_id)?;
+        let Some(group) = self
+            .groups
+            .iter_mut()
+            .find(|group| group.panes.iter().any(|pane| pane.id == id))
+        else {
+            return Ok(());
+        };
+        let selected_group = self.selected_group_id == group.id;
         let Some(pane) = group.panes.iter().find(|pane| pane.id == id) else {
             return Ok(());
         };
@@ -316,7 +321,8 @@ impl Workspace {
             group.repair_selection();
             self.selected_group_id = group.id.clone();
         } else {
-            self.group(group_id)?.add(Pane::new(default_kind));
+            self.group(&self.selected_group_id.clone())?
+                .add(Pane::new(default_kind));
         }
         self.compact();
         Ok(())
@@ -377,6 +383,42 @@ mod presentation_tests {
     }
 
     #[test]
+    fn pane_actions_resolve_the_owner_even_when_another_group_is_selected() {
+        let mut workspace = deletion_workspace(
+            json!([repository_group("a", "/a"), repository_group("b", "/b")]),
+            "a",
+        );
+        workspace
+            .apply(&json!({"type":"directorySelected", "paneId":"b-chat", "path":"/changed"}))
+            .unwrap();
+        workspace
+            .apply(&json!({"type":"changePaneAgentKind", "paneId":"b-chat", "agentKind":"claude"}))
+            .unwrap();
+        assert_eq!(
+            workspace.pane_mut("b-chat").unwrap().cwd.as_deref(),
+            Some("/changed")
+        );
+        assert_eq!(
+            workspace.pane_mut("a-chat").unwrap().cwd.as_deref(),
+            Some("/a")
+        );
+        workspace
+            .apply(&json!({"type":"selectPane", "paneId":"b-chat"}))
+            .unwrap();
+        assert_eq!(workspace.selected_group_id, "b");
+        workspace
+            .apply(&json!({"type":"removePane", "paneId":"a-chat"}))
+            .unwrap();
+        assert!(workspace.pane_mut("a-chat").is_err());
+        assert_eq!(workspace.selected_group_id, "b");
+        assert!(
+            workspace
+                .apply(&json!({"type":"selectPane", "paneId":"missing"}))
+                .is_err()
+        );
+    }
+
+    #[test]
     fn closing_a_reordered_repository_selects_its_visible_left_neighbor() {
         let mut workspace = deletion_workspace(
             json!([
@@ -390,7 +432,7 @@ mod presentation_tests {
             .apply(&json!({"type":"reorderRepository","cwd":"/c","beforeCwd":"/b"}))
             .unwrap();
         workspace
-            .apply(&json!({"type":"removePane","groupId":"b","paneId":"b-chat"}))
+            .apply(&json!({"type":"removePane","paneId":"b-chat"}))
             .unwrap();
         workspace.validate().unwrap();
         let result = workspace.presentation().unwrap();
@@ -409,7 +451,9 @@ mod presentation_tests {
                 ]),
                 selected,
             );
-            workspace.apply(&json!({"type":"removePane","groupId":selected,"paneId":format!("{selected}-chat")})).unwrap();
+            workspace
+                .apply(&json!({"type":"removePane","paneId":format!("{selected}-chat")}))
+                .unwrap();
             workspace.validate().unwrap();
             let saved: Workspace =
                 serde_json::from_value(serde_json::to_value(&workspace).unwrap()).unwrap();
@@ -436,7 +480,7 @@ mod presentation_tests {
             "b",
         );
         workspace
-            .apply(&json!({"type":"removePane","groupId":"b","paneId":"b-chat"}))
+            .apply(&json!({"type":"removePane","paneId":"b-chat"}))
             .unwrap();
         workspace.validate().unwrap();
         assert_eq!(workspace.selected_group_id, "other");
@@ -456,7 +500,7 @@ mod presentation_tests {
         let mut workspace =
             deletion_workspace(json!([repository_group("other", "/a"), group]), "current");
         workspace
-            .apply(&json!({"type":"removePane", "groupId":"current", "paneId":"current-chat"}))
+            .apply(&json!({"type":"removePane", "paneId":"current-chat"}))
             .unwrap();
         workspace.validate().unwrap();
         assert_eq!(workspace.selected_group_id, "current");
@@ -476,7 +520,7 @@ mod presentation_tests {
             "c",
         );
         workspace
-            .apply(&json!({"type":"removePane","groupId":"b","paneId":"b-chat"}))
+            .apply(&json!({"type":"removePane","paneId":"b-chat"}))
             .unwrap();
         workspace.validate().unwrap();
         assert_eq!(
@@ -488,7 +532,9 @@ mod presentation_tests {
     #[test]
     fn deleting_final_chat_leaves_a_usable_new_chat() {
         let mut workspace = deletion_workspace(json!([repository_group("a", "/a")]), "a");
-        workspace.apply(&json!({"type":"removePane","groupId":"a","paneId":"a-chat","defaultAgentKind":"claude"})).unwrap();
+        workspace
+            .apply(&json!({"type":"removePane","paneId":"a-chat","defaultAgentKind":"claude"}))
+            .unwrap();
         workspace.validate().unwrap();
         let result = workspace.presentation().unwrap();
         assert_eq!(result["repositories"]["workspaces"], json!([]));

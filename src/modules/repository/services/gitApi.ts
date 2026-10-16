@@ -176,7 +176,6 @@ export async function restoreDocumentSession(
 		workspaceId: string;
 		sessionId: string;
 		cwd: string;
-		initialPath?: string;
 	},
 	signal?: AbortSignal,
 ) {

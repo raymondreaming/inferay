@@ -53,11 +53,12 @@ type SettingsModalSection = "all" | SettingsModalTarget;
 export function SettingsModalContent(props: { section: SettingsModalSection }) {
 	const show = (section: SettingsModalTarget) =>
 		props.section === "all" || props.section === section;
-	const accounts = useQueryResource(
-		() => fetchAgentAccountStatuses,
-		() => [],
-		() => ({ queryKey: ["agents", "account-status"], enabled: show("agents") }),
-	);
+	const accounts = useQueryResource(() => ({
+		queryKey: ["agents", "account-status"],
+		queryFn: ({ signal }) => fetchAgentAccountStatuses(signal),
+		initialData: [],
+		enabled: show("agents"),
+	}));
 	const [error, setError] = createSignal<string | null>(null);
 	const [defaults, setDefaults] = createSignal(loadDefaultChatSettings);
 	const view = createMemo(() =>

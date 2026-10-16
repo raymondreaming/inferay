@@ -300,36 +300,50 @@ impl AgentProcessHandle {
     }
 }
 
-pub struct ClaudeRun<'a> {
-    pub binary: &'a Path,
-    pub prompt: &'a str,
-    pub developer_instructions: Option<&'a str>,
-    pub cwd: &'a Path,
-    pub model: Option<&'a str>,
-    pub session_id: Option<&'a str>,
-    pub env: &'a HashMap<OsString, OsString>,
-    /// Names of the MCP servers this run actually needs. `None` keeps Claude's
-    /// ambient configuration; `Some` writes a minimal config and passes
-    /// `--strict-mcp-config`, which skips reconnecting every other server.
-    pub mcp_servers: Option<&'a [String]>,
-}
-
-pub struct CodexRun<'a> {
+pub struct ProviderRun<'a> {
     pub binary: &'a Path,
     pub prompt: &'a str,
     pub invocation: &'a CodexInvocationContext,
     pub env: &'a HashMap<OsString, OsString>,
 }
 
-pub async fn run_claude(
-    run: ClaudeRun<'_>,
+pub async fn run_agent(
+    run: ProviderRun<'_>,
+    kind: inferay_core::agent_kind::AgentKind,
+    handle: &AgentProcessHandle,
+    tracker: &RuntimePidTracker,
+    context: &mut AgentProtocolContext,
+    emissions: &mpsc::UnboundedSender<ProtocolEmission>,
+) -> String {
+    match kind {
+        inferay_core::agent_kind::AgentKind::Codex => {
+            run_codex(
+                run,
+                handle,
+                tracker,
+                context,
+                &mut CodexProtocolState::default(),
+                emissions,
+            )
+            .await
+        }
+        inferay_core::agent_kind::AgentKind::Claude => {
+            run_claude(run, handle, context, emissions).await
+        }
+    }
+}
+
+async fn run_claude(
+    run: ProviderRun<'_>,
     handle: &AgentProcessHandle,
     context: &mut AgentProtocolContext,
     emissions: &mpsc::UnboundedSender<ProtocolEmission>,
 ) -> String {
     let scoped_mcp = match run
+        .invocation
         .mcp_servers
-        .map(|wanted| crate::agent_mcp::claude(wanted, run.env, run.cwd))
+        .as_deref()
+        .map(|wanted| crate::agent_mcp::claude(wanted, run.env, &run.invocation.cwd))
         .transpose()
     {
         Ok(config) => config,
@@ -390,7 +404,7 @@ pub async fn run_claude(
             arguments.push("--strict-mcp-config".into());
         }
     }
-    let spawn = spawn_direct(&arguments, run.cwd, run.env);
+    let spawn = spawn_direct(&arguments, &run.invocation.cwd, run.env);
     let mut child = match spawn {
         Ok(child) => child,
         Err(error) => {
@@ -438,12 +452,12 @@ pub async fn run_claude(
     protocol.last_assistant_message
 }
 
-fn claude_invocation_args(run: &ClaudeRun<'_>, mcp_config: Option<&Path>) -> Vec<String> {
+fn claude_invocation_args(run: &ProviderRun<'_>, mcp_config: Option<&Path>) -> Vec<String> {
     let mut arguments = build_claude_invocation_args(
         run.binary,
         run.prompt,
-        run.model,
-        run.session_id,
+        run.invocation.model.as_deref(),
+        run.invocation.session_id.as_deref(),
         mcp_config,
     );
     arguments.extend([
@@ -452,7 +466,10 @@ fn claude_invocation_args(run: &ClaudeRun<'_>, mcp_config: Option<&Path>) -> Vec
         "--append-system-prompt".into(),
         format!(
             "{}\n\n{DIRECT_INTEGRATIONS}",
-            run.developer_instructions.unwrap_or_default()
+            run.invocation
+                .developer_instructions
+                .as_deref()
+                .unwrap_or_default()
         ),
     ]);
     arguments
@@ -470,8 +487,8 @@ pub(crate) fn write_empty_mcp_config() -> Option<tempfile::NamedTempFile> {
     Some(file)
 }
 
-pub async fn run_codex(
-    run: CodexRun<'_>,
+async fn run_codex(
+    run: ProviderRun<'_>,
     handle: &AgentProcessHandle,
     tracker: &RuntimePidTracker,
     context: &mut AgentProtocolContext,
@@ -561,6 +578,9 @@ pub async fn run_codex(
             .ok_or("Codex App Server did not return a thread id")?
             .to_owned();
         state.set_session(context, thread_id.clone());
+        state.handle_notification(context, "thread/name/updated", &json!({
+            "threadId": thread_id, "threadName": thread_response["thread"]["name"]
+        }), &Default::default());
         flush_emissions(context, emissions);
         // Resolve MCP tools before the model snapshots its tool inventory.
         // Starting discovery after turn/start leaves slow servers out of that turn.
@@ -1403,15 +1423,21 @@ mod runner_tests {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let mut context = AgentProtocolContext::new(root.clone());
         let env = HashMap::new();
-        let make_run = || ClaudeRun {
+        let invocation = CodexInvocationContext {
+            cwd: root.clone(),
+            reference_paths: vec![],
+            images: vec![],
+            model: None,
+            reasoning_level: None,
+            developer_instructions: None,
+            session_id: None,
+            mcp_servers: None,
+        };
+        let make_run = || ProviderRun {
             binary: &binary,
             prompt: "fixture",
-            developer_instructions: None,
-            cwd: &root,
-            model: None,
-            session_id: None,
+            invocation: &invocation,
             env: &env,
-            mcp_servers: None,
         };
         assert_eq!(
             run_claude(make_run(), &handle, &mut context, &tx).await,

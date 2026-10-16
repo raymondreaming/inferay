@@ -5,15 +5,16 @@ import type {
 	SelectedPanelFile,
 } from "@contracts";
 import { domStyle } from "@shared/lib/dom.tsx";
+import { visibleGitFiles } from "@shared/lib/native.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo } from "solid-js";
 import { DetailIdentity } from "./DetailIdentity.tsx";
-import { HistoricalFileList } from "./HistoricalFileList.tsx";
+import { FileGroup } from "./FileGroup.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
 
 type SelectedFile = Pick<SelectedPanelFile, "path" | "staged">;
-export function HistoricalDetailsPanel(_props: {
+function HistoricalDetailsPanel(_props: {
 	cwd?: string;
 	details: GitCommitDetails | GitComparisonDetails;
 	selectionCount?: number;
@@ -21,6 +22,13 @@ export function HistoricalDetailsPanel(_props: {
 	onSelectFile?: (file: GitCommitFile) => void;
 	viewMode: "path" | "tree";
 }) {
+	const entries = createMemo(() =>
+		visibleGitFiles(
+			_props.details.files,
+			_props.details.filePresentation,
+			_props.viewMode,
+		).map((file) => ({ ...file, staged: false })),
+	);
 	const comparison = createMemo(() => "fromHash" in _props.details);
 	return (
 		<div {...stylex.attrs(styles.detailsRoot)}>
@@ -94,12 +102,21 @@ export function HistoricalDetailsPanel(_props: {
 			</div>
 			<div {...stylex.attrs(styles.scrollArea)}>
 				{!comparison() || _props.details.files.length ? (
-					<HistoricalFileList
-						files={_props.details.files}
+					<FileGroup
+						title="Changed"
+						files={entries()}
+						isCollapsible={false}
+						showHeader={false}
 						filePresentation={_props.details.filePresentation}
-						selectedFile={_props.selectedFile}
+						selected={_props.selectedFile}
 						viewMode={_props.viewMode}
-						onSelectFile={_props.onSelectFile}
+						onSelect={(file) =>
+							_props.onSelectFile?.({
+								...file,
+								additions: file.additions ?? 0,
+								deletions: file.deletions ?? 0,
+							})
+						}
 					/>
 				) : (
 					<div {...stylex.attrs(styles.emptyStateLarge)}>
@@ -107,6 +124,43 @@ export function HistoricalDetailsPanel(_props: {
 					</div>
 				)}
 			</div>
+		</div>
+	);
+}
+
+export function HistoryFiles(_props: {
+	cwd?: string;
+	historyLoading: boolean;
+	historyDetails: GitCommitDetails | GitComparisonDetails | null;
+	selectionCount: number | undefined;
+	selectedFile: SelectedFile | null;
+	onSelectFile: ((file: GitCommitFile) => void) | undefined;
+	fileViewMode: "path" | "tree";
+	historyMessage: string;
+}) {
+	return (
+		<div {...stylex.attrs(styles.splitArea)}>
+			{_props.historyDetails ? (
+				<HistoricalDetailsPanel
+					cwd={_props.cwd}
+					details={_props.historyDetails}
+					selectionCount={_props.selectionCount}
+					selectedFile={_props.selectedFile}
+					onSelectFile={_props.onSelectFile}
+					viewMode={_props.fileViewMode}
+				/>
+			) : (
+				<div {...stylex.attrs(styles.emptyStateLarge)}>
+					<p
+						{...stylex.attrs(
+							styles.mutedText,
+							!_props.historyLoading && styles.centerText,
+						)}
+					>
+						{_props.historyMessage}
+					</p>
+				</div>
+			)}
 		</div>
 	);
 }

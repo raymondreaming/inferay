@@ -31,14 +31,12 @@ export function McpSourceMark(props: { source: McpToolSource }) {
 			}
 		};
 	});
-	const icons = useQueryResource(
-		() => loadMcpIcons,
-		() => ({}) as Record<string, string>,
-		() => ({
-			queryKey: ["mcp-icons"],
-			staleTime: 15_000,
-		}),
-	);
+	const icons = useQueryResource<Record<string, string>>(() => ({
+		queryKey: ["mcp-icons"],
+		queryFn: ({ signal }) => loadMcpIcons(signal),
+		initialData: {},
+		staleTime: 15_000,
+	}));
 	const [failed, setFailed] = createSignal<Set<string>>(new Set());
 	const mark = () => {
 		const supplied = icons.data[props.source.serverId];

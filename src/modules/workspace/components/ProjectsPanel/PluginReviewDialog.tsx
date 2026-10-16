@@ -5,7 +5,10 @@ import { SettingsRow } from "@shared/ui/SettingsSurface/index.tsx";
 import { Switch } from "@shared/ui/Switch/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createSignal, For } from "solid-js";
-import { saveProjectCommand } from "../../hooks/useProjects.tsx";
+import {
+	saveProjectCommand,
+	useProjectAction,
+} from "../../hooks/useProjects.tsx";
 import { automationScheduleLabel } from "../../model/automationSchedule.ts";
 import { ConnectionReview } from "./ConnectionReview.tsx";
 import { DefinitionChanges } from "./DefinitionChanges.tsx";
@@ -17,12 +20,9 @@ export function PluginReviewDialog(props: {
 	close: () => void;
 }) {
 	const [enable, setEnable] = createSignal(false);
-	const [busy, setBusy] = createSignal(false);
-	const [error, setError] = createSignal("");
-	async function approve() {
-		setBusy(true);
-		setError("");
-		try {
+	const { busy, error, run } = useProjectAction();
+	const approve = () =>
+		run(async () => {
 			await saveProjectCommand({
 				type: "approvePlugin",
 				id: props.review.id,
@@ -30,12 +30,8 @@ export function PluginReviewDialog(props: {
 				enable: enable(),
 			});
 			props.close();
-		} catch (error) {
-			setError(String(error));
-		} finally {
-			setBusy(false);
-		}
-	}
+		});
+
 	return (
 		<Modal
 			label={`Review ${props.review.name}`}

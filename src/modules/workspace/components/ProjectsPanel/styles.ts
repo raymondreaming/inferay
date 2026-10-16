@@ -147,16 +147,6 @@ export const styles = stylex.create({
 		gap: 8,
 	},
 
-	documentCard: { cursor: "pointer", textAlign: "left", overflow: "hidden" },
-	documentThumbnail: {
-		width: "100%",
-		height: 160,
-		objectFit: "cover",
-		borderRadius: 8,
-	},
-	documentImage: { width: "100%", maxHeight: "65vh", objectFit: "contain" },
-	resourceCategories: { display: "flex", flexWrap: "wrap", gap: 8 },
-	resourceCard: { padding: 24, gap: 12, minHeight: 210, borderRadius: 16 },
 	resourcePreview: {
 		color: color.textSoft,
 		fontSize: font.size_3,
@@ -166,21 +156,6 @@ export const styles = stylex.create({
 		display: "-webkit-box",
 		WebkitLineClamp: 4,
 		WebkitBoxOrient: "vertical",
-	},
-	resourceEmpty: {
-		display: "flex",
-		flexDirection: "column",
-		alignItems: "center",
-		justifyContent: "center",
-		minHeight: 320,
-		padding: 40,
-		textAlign: "center",
-		color: color.textMuted,
-		borderWidth: 1,
-		borderStyle: "dashed",
-		borderColor: color.borderSubtle,
-		borderRadius: 16,
-		gap: 12,
 	},
 
 	libraryToolbar: {
@@ -206,16 +181,6 @@ export const styles = stylex.create({
 		gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 280px), 1fr))",
 		gap: 16,
 		width: "100%",
-	},
-	libraryCardTitle: {
-		backgroundColor: "transparent",
-		borderWidth: 0,
-		padding: 0,
-		color: color.textMain,
-		fontSize: 16,
-		fontWeight: 600,
-		textAlign: "left",
-		cursor: "pointer",
 	},
 
 	automationMain: {
@@ -356,19 +321,7 @@ export const styles = stylex.create({
 		minHeight: 0,
 		overflow: "hidden",
 	},
-	automationListItem: {
-		display: "flex",
-		flexDirection: "column",
-		gap: 8,
-		padding: 12,
-		textAlign: "left",
-		color: color.textMain,
-		borderRadius: radius.md,
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.controlHover,
-		},
-	},
+
 	automationContent: {
 		display: "flex",
 		flexDirection: "column",
@@ -421,15 +374,7 @@ export const styles = stylex.create({
 		fontSize: font.size_3,
 	},
 	compactCode: { minHeight: 80, maxHeight: 180 },
-	scheduleSection: {
-		display: "flex",
-		flexDirection: "column",
-		gap: 12,
-		paddingTop: 18,
-		borderTopWidth: 1,
-		borderTopStyle: "solid",
-		borderTopColor: color.borderSubtle,
-	},
+
 	automationSettings: {
 		display: "flex",
 		flexDirection: "column",
@@ -440,6 +385,9 @@ export const styles = stylex.create({
 	},
 
 	repositoryNavList: {
+		display: "grid",
+		gridAutoRows: "max-content",
+		rowGap: 4,
 		paddingLeft: 14,
 		maxHeight: 240,
 		overflowY: "auto",
@@ -475,6 +423,30 @@ export const styles = stylex.create({
 		overflow: "hidden",
 	},
 	hidden: { display: "none" },
+	repositoryDialog: {
+		width: 480,
+		maxWidth: "calc(100vw - 48px)",
+		overflowY: "auto",
+	},
+	repositoryManager: {
+		display: "flex",
+		flexDirection: "column",
+		gap: 12,
+		padding: 24,
+		fontSize: font.size_3,
+	},
+	repositoryManagerActions: {
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "space-between",
+		gap: 8,
+	},
+	repositoryError: {
+		flex: 1,
+		margin: 0,
+		color: color.textMain,
+		overflowWrap: "anywhere",
+	},
 	repositoryChoices: {
 		borderWidth: 0,
 		padding: 0,
@@ -530,15 +502,7 @@ export const styles = stylex.create({
 		color: color.textFaint,
 		marginBottom: 6,
 	},
-	heading: {
-		width: "100%",
-		boxSizing: "border-box",
-		display: "flex",
-		alignItems: "center",
-		justifyContent: "space-between",
-		gap: 16,
-		marginBottom: 12,
-	},
+
 	list: {
 		width: "100%",
 		boxSizing: "border-box",
@@ -548,22 +512,7 @@ export const styles = stylex.create({
 		borderTopStyle: "solid",
 		borderTopColor: color.borderSubtle,
 	},
-	projectRow: {
-		display: "flex",
-		alignItems: "center",
-		gap: 14,
-		minHeight: 60,
-		padding: 16,
-		textAlign: "left",
-		color: color.textSoft,
-		borderBottomWidth: 1,
-		borderBottomStyle: "solid",
-		borderBottomColor: color.borderSubtle,
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.controlHover,
-		},
-	},
+
 	listText: {
 		display: "flex",
 		flexDirection: "column",

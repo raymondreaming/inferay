@@ -5,7 +5,6 @@ use serde_json::{Value, json};
 #[serde(rename_all = "camelCase")]
 pub struct RepositoryPreferences {
     sidebar_width: f64,
-    diff_width: f64,
     #[ts(type = "'path' | 'tree'")]
     file_view_mode: String,
     diff_view_mode: crate::diff::DiffViewMode,
@@ -21,7 +20,6 @@ pub fn preferences(input: &Value) -> RepositoryPreferences {
     };
     RepositoryPreferences {
         sidebar_width: width("sidebarWidth", 230.).clamp(230., 420.),
-        diff_width: width("diffWidth", 680.).max(320.),
         file_view_mode: if input["fileViewMode"] == "path" {
             "path"
         } else {
@@ -37,11 +35,7 @@ pub fn preferences(input: &Value) -> RepositoryPreferences {
 }
 
 pub fn resize(input: &Value) -> Value {
-    json!(if flag(&input["diff"]) {
-        number(&input["width"]).clamp(320., number(&input["availableWidth"]).max(320.))
-    } else {
-        number(&input["width"]).clamp(230., 420.)
-    })
+    json!(number(&input["width"]).clamp(230., 420.))
 }
 
 pub fn context(input: &Value) -> Value {
@@ -198,21 +192,6 @@ pub fn keyboard_action(input: &Value) -> Value {
         }
         _ => Value::Null,
     }
-}
-
-pub fn resize_start(input: &Value) -> Value {
-    let diff = flag(&input["diff"]);
-    let sidebar_width = number(&input["sidebarWidth"]);
-    let diff_width = number(&input["diffWidth"]);
-    json!({
-        "availableWidth": number(&input["containerWidth"])
-            - if flag(&input["sidebarVisible"]) { sidebar_width } else { 0. }
-            - number(&input["minimumPaneWidth"]),
-        "startWidth": if diff && input["railWidth"].as_f64().is_some() {
-            number(&input["railWidth"])
-        } else if diff { diff_width } else { sidebar_width },
-        "width": if diff { diff_width } else { sidebar_width },
-    })
 }
 
 #[derive(serde::Serialize, ts_rs::TS)]
@@ -568,7 +547,18 @@ pub struct WorkspaceMutationPlan {
 pub fn workspace_mutation_plan(state: &Value, action: &Value) -> WorkspaceMutationPlan {
     let selection: Option<WorkspaceSelection> = match string(&action["type"]) {
         "selectRepository" => repository_selection(state, &action["cwd"]),
-        "selectPane" | "selectWorkspace" => Some(WorkspaceSelection {
+        "selectPane" => array(&state["groups"])
+            .iter()
+            .find(|group| {
+                array(&group["panes"])
+                    .iter()
+                    .any(|pane| pane["id"] == action["paneId"])
+            })
+            .map(|group| WorkspaceSelection {
+                group_id: string(&group["id"]).to_owned(),
+                pane_id: action["paneId"].as_str().map(str::to_owned),
+            }),
+        "selectWorkspace" => Some(WorkspaceSelection {
             group_id: string(&action["groupId"]).to_owned(),
             pane_id: action["paneId"].as_str().map(str::to_owned),
         }),
@@ -834,99 +824,5 @@ mod ref_dialog_tests {
             git_operation_model(&json!({}))["operationActivity"]["phase"],
             "idle"
         );
-    }
-}
-
-/// One ordering policy for keyboard moves, pointer drops, and native persistence.
-pub fn tab_order(input: &Value) -> Value {
-    let pending = array(&input["pending"]);
-    let ranks: std::collections::HashMap<_, _> = pending
-        .iter()
-        .enumerate()
-        .map(|(index, path)| (string(path), index))
-        .collect();
-    let paths = array(&input["paths"]);
-    let mut indices: Vec<_> = (0..paths.len()).collect();
-    indices.sort_by_key(|index| {
-        ranks
-            .get(string(&paths[*index]))
-            .copied()
-            .unwrap_or(pending.len())
-    });
-    json!(indices)
-}
-
-#[derive(serde::Serialize, ts_rs::TS)]
-pub struct RepositoryTabMove {
-    pub(crate) order: Vec<String>,
-    pub(crate) before: Option<String>,
-}
-
-pub fn reorder_tabs(input: &Value) -> Option<RepositoryTabMove> {
-    let paths: Vec<String> = array(&input["paths"])
-        .iter()
-        .map(|p| string(p).to_owned())
-        .collect();
-    let cwd = string(&input["cwd"]);
-    let before = if let Some(direction) = input["direction"].as_i64() {
-        let from = paths.iter().position(|p| p == cwd)?;
-        let to = from as i64 + direction;
-        if to < 0 || to >= paths.len() as i64 {
-            return None;
-        }
-        paths
-            .get((if direction < 0 { to } else { to + 1 }) as usize)
-            .map(String::as_str)
-    } else {
-        input["before"].as_str()
-    };
-    match inferay_core::agent_state::reorder_repositories(paths.clone(), cwd, before) {
-        Ok(next) if next != paths => Some(RepositoryTabMove {
-            order: next,
-            before: before.map(str::to_owned),
-        }),
-        _ => None,
-    }
-}
-
-/// DOM measurements enter here; hit testing and edge-scroll speed are pure.
-#[derive(serde::Serialize, ts_rs::TS)]
-pub struct RepositoryTabDrag {
-    pub(crate) valid: bool,
-    pub(crate) before: Option<String>,
-    scroll: f64,
-}
-
-pub fn tab_drag(input: &Value) -> RepositoryTabDrag {
-    let rect = &input["rect"];
-    let left = number(&rect["left"]);
-    let right = number(&rect["right"]);
-    let x = number(&input["x"]);
-    let y = number(&input["y"]);
-    let valid = x >= left - 24.
-        && x <= right + 24.
-        && y >= number(&rect["top"]) - 24.
-        && y <= number(&rect["bottom"]) + 24.;
-    let edge = (number(&rect["width"]) / 3.).min(40.);
-    let speed = if !valid || edge <= 0. {
-        0.
-    } else if x < left + edge {
-        -((left + edge - x) / edge).min(1.)
-    } else if x > right - edge {
-        ((x - right + edge) / edge).min(1.)
-    } else {
-        0.
-    };
-    let before = array(&input["tabs"])
-        .iter()
-        .find(|tab| {
-            tab["cwd"] != input["cwd"] && x < number(&tab["left"]) + number(&tab["width"]) / 2.
-        })
-        .and_then(|tab| tab["cwd"].as_str())
-        .map(str::to_owned);
-    RepositoryTabDrag {
-        valid,
-        before,
-        scroll: speed * number(&input["elapsed"]) * 0.6,
     }
 }

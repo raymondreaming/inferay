@@ -114,3 +114,29 @@ fn codex_usage_notifications_preserve_cumulative_snapshots() {
         assert_eq!(event["usage"], usage);
     }
 }
+
+#[test]
+fn codex_thread_names_follow_the_active_session() {
+    use inferay_core::agent_protocol::{
+        AgentProtocolContext, CodexProtocolState, ProtocolEmission, ProtocolFiles,
+    };
+    let mut state = CodexProtocolState::default();
+    let mut context = AgentProtocolContext::new("/repo");
+    context.session_id = Some("current".into());
+    for (id, title) in [
+        ("other", "Wrong title"),
+        ("current", "  "),
+        ("current", "Fix repository picker"),
+    ] {
+        state.handle_notification(
+            &mut context,
+            "thread/name/updated",
+            &serde_json::json!({"threadId":id,"threadName":title}),
+            &ProtocolFiles::default(),
+        );
+    }
+    assert_eq!(
+        context.emissions,
+        vec![ProtocolEmission::Title("Fix repository picker".into())]
+    );
+}

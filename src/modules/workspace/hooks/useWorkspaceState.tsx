@@ -14,9 +14,10 @@ import {
 import {
 	type Accessor,
 	createEffect,
+	createMemo,
+	createSignal,
 	createStore,
 	reconcile,
-	snapshot as storeSnapshot,
 } from "solid-js";
 import {
 	addProjectRepository,
@@ -60,9 +61,6 @@ export function createWorkspaceSession(
 		initialize,
 		get snapshot() {
 			return snapshot;
-		},
-		publish(next: WorkspaceSnapshot) {
-			publish(model.publish(JSON.stringify(next)));
 		},
 		load(): Promise<import("@contracts").AgentSavedState | null> {
 			if (read) return read;
@@ -125,6 +123,9 @@ const [published, setPublished] = createStore<WorkspaceSnapshot>({
 	state: null,
 	error: null,
 });
+const [projectChats, setProjectChats] = createSignal<
+	Record<string, { groupId: string; paneId: string }>
+>({});
 let configuredSession: WorkspaceSession | undefined;
 export function configureWorkspaceState(
 	port: WorkspacePersistencePort,
@@ -153,7 +154,22 @@ export async function mutateAgentWorkspaceState(action: AgentWorkspaceAction) {
 	const project = projects.catalog()?.projects.find((p) => p.id === projectId);
 	if (action.type === "addPane" && !action.cwd && project)
 		action = { ...action, cwd: project.directory };
-	const saved = await workspaceSession().mutate(action);
+	const rememberChat = (state: import("@contracts").AgentSavedState | null) => {
+		const group = state?.groups.find((g) => g.id === state.selectedGroupId);
+		if (projectId && group?.selectedPaneId) {
+			const selection = { groupId: group.id, paneId: group.selectedPaneId };
+			setProjectChats((current) => ({ ...current, [projectId]: selection }));
+		}
+	};
+	const saving = workspaceSession().mutate(action);
+	if (action.type === "selectPane" || action.type === "selectWorkspace")
+		rememberChat(workspaceSession().snapshot.state);
+	const saved = await saving;
+	if (
+		saved &&
+		["addPane", "directorySelected", "addWorkspace"].includes(action.type)
+	)
+		rememberChat(saved);
 	if (saved && action.type === "selectRepository")
 		openProjectRepository(action.cwd);
 	if (
@@ -185,12 +201,8 @@ export async function mutateAgentWorkspaceState(action: AgentWorkspaceAction) {
 	return saved;
 }
 /** Selects a chat, lets the caller reveal the workspace, then focuses its composer. */
-export const openAgentPane = async (
-	groupId: string,
-	paneId: string,
-	reveal: () => void,
-) => {
-	await mutateAgentWorkspaceState({ type: "selectPane", groupId, paneId });
+export const openAgentPane = async (paneId: string, reveal: () => void) => {
+	await mutateAgentWorkspaceState({ type: "selectPane", paneId });
 	showProjectView("chat");
 	reveal();
 	requestAnimationFrame(() =>
@@ -219,7 +231,7 @@ export const startAgentChatWithDraft = async (
 		const pane = group.panes.find((p) => !before.has(p.id));
 		if (!pane) continue;
 		saveStoredInput(pane.id, draft);
-		await openAgentPane(group.id, pane.id, reveal);
+		await openAgentPane(pane.id, reveal);
 		return pane.id;
 	}
 	return undefined;
@@ -234,69 +246,80 @@ export const changePaneAgentKind = (
 		agentKind,
 	});
 };
-export const availableProjectRepositories = () => [
-	...new Set([
-		...(published.state?.repositories.workspaces ?? [])
-			.filter(
-				(repository) =>
-					!projects.list().some((p) => p.directory === repository.cwd),
-			)
-			.map((repository) => repository.cwd),
-		...(projects.catalog()?.repositoryPaths ?? []),
-	]),
-];
-
 export interface SidebarWorkspaceState {
 	repositories: RepositoryWorkspaceIndex;
 	groups: Group[];
 	selectedGroupId: string | null;
 }
+const emptyGroups: Group[] = [];
+const scopedGroups = createMemo(() => {
+	const groups = published.state?.groups ?? emptyGroups;
+	if (!projects.selectedId()) return groups;
+	const catalog = projects.catalog();
+	return groups
+		.map((g) => ({
+			...g,
+			selectedPaneId:
+				projectChats()[projects.selectedId()]?.groupId === g.id &&
+				g.panes.some(
+					(p) => p.id === projectChats()[projects.selectedId()]?.paneId,
+				)
+					? projectChats()[projects.selectedId()]!.paneId
+					: g.selectedPaneId,
+			panes: g.panes.filter(
+				(p) =>
+					catalog?.conversationProjects[p.id] === projects.selectedId() ||
+					(!catalog?.conversationProjects[p.id] &&
+						!!catalog?.repositoryPaths.includes(p.cwd ?? "")),
+			),
+		}))
+		.filter((g) => g.panes.length > 0);
+});
+const scopedRepositories = createMemo(() => {
+	const repositories = published.state?.repositories ?? EMPTY;
+	if (!projects.selectedId()) return repositories;
+	const allowed = new Set([
+		...(projects.catalog()?.repositoryPaths ?? []),
+		...scopedGroups().flatMap((g) =>
+			g.panes.map((p) => p.cwd).filter((cwd): cwd is string => !!cwd),
+		),
+	]);
+	return {
+		...repositories,
+		workspaces: repositories.workspaces.filter((r) => allowed.has(r.cwd)),
+		activeWorkspace: allowed.has(repositories.activePath ?? "")
+			? repositories.activeWorkspace
+			: null,
+		activePath: allowed.has(repositories.activePath ?? "")
+			? repositories.activePath
+			: null,
+		visibleEntries: scopedGroups().flatMap((g) =>
+			g.panes.map((pane) => ({ groupId: g.id, pane })),
+		),
+	};
+});
 export function useWorkspaceState(
 	_loadCanonical: Accessor<boolean> = () => true,
 	_selectFirst: Accessor<boolean> = () => true,
 ) {
-	const emptyGroups: Group[] = [];
 	const state: SidebarWorkspaceState = {
 		get groups() {
-			const groups = published.state?.groups ?? emptyGroups;
-			if (!projects.selectedId()) return groups;
-			const catalog = projects.catalog();
-			return groups
-				.map((g) => ({
-					...g,
-					panes: g.panes.filter(
-						(p) =>
-							catalog?.conversationProjects[p.id] === projects.selectedId() ||
-							(!catalog?.conversationProjects[p.id] &&
-								!!catalog?.repositoryPaths.includes(p.cwd ?? "")),
-					),
-				}))
-				.filter((g) => g.panes.length > 0);
+			return scopedGroups();
 		},
 		get repositories() {
-			const repositories = published.state?.repositories ?? EMPTY;
-			if (!projects.selectedId()) return repositories;
-			const allowed = new Set([
-				...(projects.catalog()?.repositoryPaths ?? []),
-				...state.groups.flatMap((g) =>
-					g.panes.map((p) => p.cwd).filter((cwd): cwd is string => !!cwd),
-				),
-			]);
-			return {
-				...repositories,
-				workspaces: repositories.workspaces.filter((r) => allowed.has(r.cwd)),
-				activeWorkspace: allowed.has(repositories.activePath ?? "")
-					? repositories.activeWorkspace
-					: null,
-				activePath: allowed.has(repositories.activePath ?? "")
-					? repositories.activePath
-					: null,
-				visibleEntries: state.groups.flatMap((g) =>
-					g.panes.map((pane) => ({ groupId: g.id, pane })),
-				),
-			};
+			return scopedRepositories();
 		},
 		get selectedGroupId() {
+			if (projects.selectedId()) {
+				const groups = state.groups;
+				const remembered = projectChats()[projects.selectedId()];
+				return (
+					groups.find((g) => g.id === remembered?.groupId)?.id ??
+					groups.find((g) => g.id === published.state?.selectedGroupId)?.id ??
+					groups[0]?.id ??
+					null
+				);
+			}
 			return (
 				published.state?.selectedGroupId ??
 				(_selectFirst() ? published.state?.groups[0]?.id : null) ??
@@ -307,31 +330,5 @@ export function useWorkspaceState(
 	createEffect(_loadCanonical, (load) => {
 		if (load) void loadCanonicalAgentState();
 	});
-	const setState = (
-		update:
-			| SidebarWorkspaceState
-			| ((state: SidebarWorkspaceState) => SidebarWorkspaceState),
-	) => {
-		const session = workspaceSession();
-		const current = session.snapshot.state;
-		if (!current) return;
-		const next = storeSnapshot(
-			typeof update === "function"
-				? update({
-						groups: current.groups,
-						repositories: current.repositories,
-						selectedGroupId: current.selectedGroupId,
-					})
-				: update,
-		);
-		session.publish({
-			...session.snapshot,
-			state: {
-				...current,
-				...next,
-				selectedGroupId: next.selectedGroupId ?? current.selectedGroupId,
-			},
-		});
-	};
-	return [() => state, setState, () => published.error] as const;
+	return [() => state, () => published.error] as const;
 }

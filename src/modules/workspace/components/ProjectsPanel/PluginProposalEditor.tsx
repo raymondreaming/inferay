@@ -4,6 +4,7 @@ import { Modal } from "@shared/ui/Modal/index.tsx";
 import { TextInput } from "@shared/ui/TextInput/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createSignal, For } from "solid-js";
+import { useProjectAction } from "../../hooks/useProjects.tsx";
 import { reviewPluginProposal } from "../../services/projectsApi.ts";
 import { styles } from "./styles.ts";
 
@@ -31,8 +32,7 @@ export function PluginProposalEditor(props: {
 			JSON.stringify(
 				props.command.type === "updatePlugin" ? props.command.remove : [],
 			);
-	const [busy, setBusy] = createSignal(false);
-	const [error, setError] = createSignal("");
+	const { busy, error, setError, run } = useProjectAction();
 	function add(removal: boolean) {
 		const value = path().trim();
 		if (
@@ -62,21 +62,15 @@ export function PluginProposalEditor(props: {
 		}
 		setPath("");
 	}
-	async function review() {
-		setBusy(true);
-		setError("");
-		const command: Bundle =
-			props.command.type === "updatePlugin"
-				? { ...props.command, files: files(), remove: remove() }
-				: { ...props.command, files: files() };
-		try {
+	const review = () =>
+		run(async () => {
+			const command: Bundle =
+				props.command.type === "updatePlugin"
+					? { ...props.command, files: files(), remove: remove() }
+					: { ...props.command, files: files() };
 			props.reviewed(command, await reviewPluginProposal(command));
-		} catch (error) {
-			setError(String(error));
-		} finally {
-			setBusy(false);
-		}
-	}
+		});
+
 	return (
 		<Modal
 			label="Edit plugin proposal"

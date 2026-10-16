@@ -190,6 +190,19 @@ export const styles = stylex.create({
 		boxShadow: "none",
 		padding: controlSize._2,
 	},
+	stableFrame: { height: 280 },
+	stableList: {
+		flex: 1,
+		minHeight: 0,
+		maxHeight: "none",
+		scrollbarGutter: "stable",
+	},
+	stableSelection: { flexShrink: 0 },
+	emptyResults: {
+		color: color.textMuted,
+		fontSize: font.size_2,
+		padding: controlSize._2,
+	},
 	unifiedList: {
 		display: "flex",
 		flexDirection: "column",
@@ -201,6 +214,7 @@ export const styles = stylex.create({
 		paddingBlock: controlSize._0_5,
 	},
 	resultRowCompact: {
+		flexShrink: 0,
 		display: "flex",
 		width: "100%",
 		minWidth: controlSize._0,
@@ -217,6 +231,7 @@ export const styles = stylex.create({
 		backgroundImage: "none",
 	},
 	inputRow: {
+		flexShrink: 0,
 		display: "flex",
 		alignItems: "center",
 		gap: controlSize._2,

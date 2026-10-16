@@ -33,13 +33,10 @@ export function MemoryGraph(props: { projectId: string }) {
 	const [category, setCategory] = createSignal<MemoryCategory>("all");
 	const [query, setQuery] = createSignal("");
 	const [matches, setMatches] = createSignal<Set<string> | null>(null);
-	const graph = useBackgroundQuery(
-		() => ({
-			queryKey: ["project-memory-graph", props.projectId],
-			queryFn: () => loadMemoryGraph(props.projectId),
-		}),
-		() => queryClient,
-	);
+	const graph = useBackgroundQuery(() => ({
+		queryKey: ["project-memory-graph", props.projectId],
+		queryFn: () => loadMemoryGraph(props.projectId),
+	}));
 	const refresh = () =>
 		queryClient.invalidateQueries({ queryKey: ["project-memory-graph"] });
 	const positions = createMemo(() => {

@@ -59,6 +59,12 @@ Plugins are deliberately created libraries. An ordinary automation does not requ
 
 The local checkout path for a repository ID is local state, not part of this file.
 
+### Saving project membership and local folders
+
+The host's `saveProject` command accepts `definition` (the complete project definition), `expectedHash` (null only for creation), and `repositoryPaths` (a map from declared repository IDs to local directories). Omitted bindings are retained for repositories that remain declared. Removed repositories lose their local bindings. All supplied paths are canonicalized and checked before writing; two repository IDs cannot bind the same folder in one project. Referenced repositories must remain declared until their automation/tool references are changed.
+
+One native operation owns validation, definition writing and local binding updates. An unchanged definition preserves its source hash, and unchanged paths do not revoke approvals. Changed bindings require review before automations run again. Local paths never enter the portable definition, and removing a binding never deletes checkout files. Ordinary definition edits still use `saveDefinition`; it cannot set local bindings.
+
 ## memory/&lt;type&gt;/&lt;slug&gt;.json
 
 ```json

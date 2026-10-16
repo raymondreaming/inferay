@@ -3,6 +3,7 @@ import {
 	runtimeColor,
 	surfaceStyles,
 } from "@design-system/styles.stylex.ts";
+import type { RefCell } from "@shared/lib/dom.tsx";
 import { ariaValue, assignRef, domStyle } from "@shared/lib/dom.tsx";
 import { BorderBeamOverlay } from "@shared/ui/BorderBeamOverlay/index.tsx";
 import { IconButton } from "@shared/ui/IconButton/index.tsx";
@@ -13,7 +14,18 @@ import {
 	IconStop,
 } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { createEffect, onSettled, Show } from "solid-js";
+import {
+	createEffect,
+	createMemo,
+	createSignal,
+	type Element,
+	merge,
+	onSettled,
+	Show,
+} from "solid-js";
+import type { useAgentChatComposerState } from "../../hooks/useAgentChatComposerState.tsx";
+import type { useAgentChatMenus } from "../../hooks/useAgentChatMenus.tsx";
+import type { useSpeechToText } from "../../hooks/useSpeechToText.tsx";
 import { InputHighlights } from "../ChatTokenDecorators/index.tsx";
 import { CommandMenu } from "./CommandMenu.tsx";
 import { ComposerAttachments } from "./ComposerAttachments.tsx";
@@ -24,12 +36,30 @@ import { ProviderConfigMenu } from "./ProviderConfigMenu.tsx";
 import { QueuedMessages } from "./QueuedMessages.tsx";
 import * as inlineStyles from "./styles.ts";
 import { styles } from "./styles.ts";
-import { useChatComposerState } from "./useChatComposerState.tsx";
+import { useAgentConfiguration } from "./useAgentConfiguration.tsx";
 
 export const ChatComposer = function ChatComposer(
-	props: ReturnType<Parameters<typeof useChatComposerState>[0]>,
+	props: ReturnType<typeof useAgentChatComposerState> &
+		ReturnType<typeof useAgentChatMenus> &
+		ReturnType<Parameters<typeof useAgentConfiguration>[0]> & {
+			active?: boolean;
+			input: string;
+			setInput: (value: string) => void;
+			handleKeyDown: (event: KeyboardEvent) => void;
+			textareaRef: RefCell<HTMLTextAreaElement | null>;
+			highlightOverlayRef: RefCell<HTMLDivElement | null>;
+			voiceInput?: ReturnType<typeof useSpeechToText>;
+			workspaceControl?: Element;
+			beamActive?: boolean;
+		},
 ) {
-	const view = useChatComposerState(() => props);
+	const view = merge(
+		props,
+		useAgentConfiguration(() => props),
+	);
+	const [messageInputFocused, setMessageInputFocused] = createSignal(false);
+	const usePlainTextarea = createMemo(() => props.input.length > 6000);
+	let fileInput: HTMLInputElement | undefined;
 	let textareaElement: HTMLTextAreaElement | undefined;
 	let measuredInput: string | undefined;
 	createEffect(
@@ -62,7 +92,9 @@ export const ChatComposer = function ChatComposer(
 		<>
 			<input
 				type="file"
-				ref={(_element) => assignRef(view.fileInputRef, _element)}
+				ref={(element) => {
+					fileInput = element;
+				}}
 				accept="image/*"
 				multiple
 				{...stylex.attrs(styles.hidden)}
@@ -88,7 +120,7 @@ export const ChatComposer = function ChatComposer(
 						{...stylex.attrs(surfaceStyles.panel, styles.inputFrame)}
 					>
 						<BorderBeamOverlay
-							active={view.beamActive || view.messageInputFocused}
+							active={view.beamActive || messageInputFocused()}
 						/>
 						{view.fileMenu.show && view.fileResults.length > 0 && (
 							<FileMenu {...view} />
@@ -100,7 +132,7 @@ export const ChatComposer = function ChatComposer(
 							<div {...stylex.attrs(styles.inputActions)}>
 								<IconButton
 									type="button"
-									onClick={() => view.fileInputRef.current?.click()}
+									onClick={() => fileInput?.click()}
 									variant="ghost"
 									size="md"
 									class={stylex.attrs(styles.noShrink).class}
@@ -111,7 +143,7 @@ export const ChatComposer = function ChatComposer(
 								{view.voiceInput && (
 									<IconButton
 										type="button"
-										onClick={view.voiceInput.onToggleListening}
+										onClick={view.voiceInput.toggleListening}
 										variant="ghost"
 										size="md"
 										class={
@@ -160,7 +192,7 @@ export const ChatComposer = function ChatComposer(
 									inlineStyles.getChatComposerTextAreaWrapStyle(),
 								)}
 							>
-								{!view.usePlainTextarea && (
+								{!usePlainTextarea() && (
 									<div
 										ref={(_element2) =>
 											assignRef(view.highlightOverlayRef, _element2)
@@ -181,8 +213,8 @@ export const ChatComposer = function ChatComposer(
 									data-chat-composer
 									ref={textarea}
 									value={view.input}
-									onFocus={() => view.setMessageInputFocused(true)}
-									onBlur={() => view.setMessageInputFocused(false)}
+									onFocus={() => setMessageInputFocused(true)}
+									onBlur={() => setMessageInputFocused(false)}
 									onInput={(e) => {
 										const val = e.currentTarget.value;
 										view.setInput(val);
@@ -209,10 +241,10 @@ export const ChatComposer = function ChatComposer(
 									{...stylex.attrs(styles.textarea)}
 									style={domStyle(
 										inlineStyles.getChatComposerTextareaStyle(
-											view.usePlainTextarea
+											usePlainTextarea()
 												? runtimeColor.textMain
 												: "transparent",
-											view.usePlainTextarea
+											usePlainTextarea()
 												? runtimeColor.textMain
 												: "transparent",
 										),

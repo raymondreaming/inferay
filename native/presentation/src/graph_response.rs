@@ -84,7 +84,18 @@ mod tests {
         assert_eq!(value["commits"][0]["parents"], json!(["parent"]));
         assert_eq!(value["commits"][1]["hash"], "parent");
         assert_eq!(
-            value["presentation"]["containingBranches"]["parent"]["fullName"],
+            value["presentation"]["references"][&branch]["fullName"],
+            branch
+        );
+        assert_eq!(
+            value["presentation"]["references"]
+                .as_object()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            value["commits"][1]["navigation"]["containingBranch"],
             branch
         );
         assert_eq!(value["presentation"]["hiddenRefNames"], json!([branch]));
@@ -106,6 +117,44 @@ mod tests {
                 .as_object()
                 .is_some_and(|actions| !actions.is_empty())
         );
+    }
+
+    #[test]
+    fn branch_metadata_is_shared_across_long_histories() {
+        let branch = "refs/heads/main";
+        let reference: GitGraphRef = serde_json::from_value(json!({
+            "fullName": branch, "displayName": "main", "label": "main",
+            "kind": "localBranch", "target": "0", "isHead": true
+        }))
+        .unwrap();
+        let snapshot = GitGraphSnapshot {
+            commits: (0..10_000)
+                .map(|index| {
+                    let mut commit = GraphCommit {
+                        id: index.to_string(),
+                        hash: index.to_string(),
+                        refs: if index == 0 {
+                            vec![reference.clone()]
+                        } else {
+                            vec![]
+                        },
+                        ..Default::default()
+                    };
+                    commit.navigation.containing_branch = Some(branch.into());
+                    commit
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let value = serde_json::to_value(response(&snapshot, &[], &[], &[])).unwrap();
+        let references = &value["presentation"]["references"];
+        assert_eq!(references.as_object().unwrap().len(), 1);
+        assert!(serde_json::to_vec(references).unwrap().len() < 512);
+        assert!(value["presentation"].get("containingBranches").is_none());
+        for commit in value["commits"].as_array().unwrap() {
+            let name = commit["navigation"]["containingBranch"].as_str().unwrap();
+            assert_eq!(references[name]["target"], "0");
+        }
     }
 
     #[test]
@@ -179,7 +228,7 @@ pub struct GraphSemanticPreferences<'a> {
 #[derive(serde::Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphPresentation<'a> {
-    pub containing_branches: BTreeMap<&'a str, &'a GitGraphRef>,
+    pub references: BTreeMap<&'a str, &'a GitGraphRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub default_remote_name: Option<&'a str>,
@@ -209,15 +258,6 @@ pub fn response<'a>(
         .flat_map(|commit| &commit.refs)
         .map(|reference| (reference.full_name.as_str(), reference))
         .collect::<BTreeMap<_, _>>();
-    let containing = commits
-        .iter()
-        .filter_map(|commit| {
-            Some((
-                commit.id.as_str(),
-                *refs.get(commit.navigation.containing_branch.as_deref()?)?,
-            ))
-        })
-        .collect::<BTreeMap<_, _>>();
     let mut reachable = BTreeSet::new();
     for name in preferences.solo_refs {
         for [start, end] in snapshot.ancestry.get(name).into_iter().flatten() {
@@ -242,7 +282,6 @@ pub fn response<'a>(
         })
         .collect::<Vec<_>>();
     let presentation = GraphPresentation {
-        containing_branches: containing,
         default_remote_name: refs
             .values()
             .find(|reference| reference.kind == GitGraphRefKind::RemoteBranch)
@@ -257,6 +296,7 @@ pub fn response<'a>(
         pinned_ref_names: preferences.pinned_refs,
         reachable_history: reachable,
         selectable_items: commits.iter().map(|commit| &commit.id).collect::<Vec<_>>(),
+        references: refs,
     };
     GraphData {
         snapshot,

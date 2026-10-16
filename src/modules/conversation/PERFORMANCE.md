@@ -43,8 +43,9 @@ updates only the Solid computations that need it.
 
 ## Validation
 
-Run `bun run check:architecture` for wrapper checks, native lint and the renderer build.
-Run `bun test scripts/tests/workbench-navigation.test.ts` for Rust-backed navigation
-and persistence race checks. Temporary browser fixtures and profiling artifacts
-were retired after the migration cleanup; their earlier measurements are historical,
-not a current benchmark suite.
+Use the focused checks described in [CODING_GUIDELINES.md](../../../CODING_GUIDELINES.md).
+Transcript, subscription, Markdown streaming and workbench navigation tests live
+in `scripts/tests`; pure viewport cases live with the Rust presentation model.
+For UI validation, exercise mixed-height scrolling, history replacement,
+append/tail-follow, hidden panes and disposal without page errors. Measure with
+the production WebKit renderer before claiming an application speedup.

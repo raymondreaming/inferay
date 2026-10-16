@@ -32,6 +32,7 @@ pub enum ProtocolEmission {
     Status { status: String, is_loading: bool },
     System(String),
     Session(String),
+    Title(String),
 }
 
 #[derive(Clone, Debug)]
@@ -138,6 +139,20 @@ impl CodexProtocolState {
         let item_type = string_field(item, "type");
 
         match (method, item_type) {
+            ("thread/name/updated", _)
+                if params["threadId"].as_str() == context.session_id.as_deref() =>
+            {
+                if let Some(title) = params["threadName"]
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                {
+                    context
+                        .emissions
+                        .push(ProtocolEmission::Title(title.to_owned()));
+                }
+            }
+
             ("thread/tokenUsage/updated", _) if params["tokenUsage"].is_object() => {
                 context.emissions.push(ProtocolEmission::Chat(json!({
                     "type": "inferay.usage",

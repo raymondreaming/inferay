@@ -52,7 +52,7 @@ pub(crate) fn catalog(db: &Connection, project: Option<&str>) -> Result<ProjectF
             .query_map([project], |r|Ok(DefinitionIssue {project_id:r.get(0)?,source_path:r.get(1)?,error:r.get(2)?}))?.collect::<std::result::Result<Vec<_>,_>>()?);
     }
     issues.sort_by(|a, b| a.source_path.cmp(&b.source_path));
-    let repository_paths = db.prepare("SELECT repository_id,path FROM repository_paths WHERE project_id=? ORDER BY repository_id")?
+    let repository_paths = db.prepare("SELECT r.repository_id,r.path FROM repository_paths r JOIN projects p ON p.id=r.project_id WHERE r.project_id=? AND p.valid=1 AND EXISTS (SELECT 1 FROM json_each(p.body,'$.repositories') WHERE json_extract(value,'$.id')=r.repository_id) ORDER BY r.repository_id")?
         .query_map([project], |r|Ok((r.get(0)?,r.get(1)?)))?.collect::<std::result::Result<_,_>>()?;
     let tools = db.prepare("SELECT id,project_id,plugin_id,source_path,source_hash,error,body FROM tools WHERE project_id=? ORDER BY source_path LIMIT 512")?
         .query_map([project], indexed)?.collect::<std::result::Result<_,_>>()?;
@@ -99,34 +99,152 @@ pub(crate) fn save_definition(
     Ok(hash)
 }
 
-pub(crate) fn approve_automation(
-    db: &Connection,
+/// The host saves membership and machine-local bindings in one operation. Validate
+/// all folders before writing the definition; never publish a half-added folder
+/// because a later renderer request failed.
+pub(crate) fn save_project(
+    db: &mut Connection,
     profile: &Path,
-    automation: &str,
+    definition: &ProjectDefinition,
+    expected_hash: Option<&str>,
+    paths: BTreeMap<String, String>,
+    skills: &[inferay_core::prompts::Prompt],
+) -> Result<String> {
+    uuid::Uuid::parse_str(&definition.id)?;
+    let root = profile.join("projects").join(&definition.id);
+    let original = match files::read(&root, "project.json", MANIFEST_LIMIT) {
+        Ok(bytes) => Some(bytes),
+        Err(error)
+            if error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound) =>
+        {
+            None
+        }
+        Err(error) => return Err(error),
+    };
+    let original_hash = original.as_deref().map(hash);
+    if original_hash.as_deref() != expected_hash {
+        return Err("Project changed; reload before saving (expected hash conflict)".into());
+    }
+    let mut bindings = db
+        .prepare("SELECT repository_id,path FROM repository_paths WHERE project_id=?")?
+        .query_map([&definition.id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?
+        .collect::<std::result::Result<BTreeMap<_, _>, _>>()?;
+    let previous_count = bindings.len();
+    bindings.retain(|id, _| definition.repositories.iter().any(|r| &r.id == id));
+    let mut changed = bindings.len() != previous_count;
+    for (id, path) in paths {
+        if definition.archived || !definition.repositories.iter().any(|r| r.id == id) {
+            return Err("Repository is not declared in this project".into());
+        }
+        let path = Path::new(&path).canonicalize()?;
+        if !path.is_dir() {
+            return Err("Repository path must be a directory".into());
+        }
+        let path = path.to_string_lossy().into_owned();
+        changed |= bindings.get(&id) != Some(&path);
+        bindings.insert(id, path);
+    }
+    if bindings.values().collect::<BTreeSet<_>>().len() != bindings.len() {
+        return Err("This folder is already linked to the project".into());
+    }
+    let unchanged = original
+        .as_deref()
+        .map(|bytes| parse::<ProjectDefinition>("project.json", bytes))
+        .transpose()?
+        .as_ref()
+        == Some(definition);
+    let source_hash = if unchanged {
+        original_hash.ok_or("Project file missing")?
+    } else {
+        save_definition(
+            db,
+            profile,
+            &definition.id,
+            "project.json",
+            &serde_json::to_vec_pretty(definition)?,
+            expected_hash,
+            skills,
+        )?
+    };
+    if !changed {
+        return Ok(source_hash);
+    }
+    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    tx.execute(
+        "DELETE FROM repository_paths WHERE project_id=?",
+        [&definition.id],
+    )?;
+    for (id, path) in bindings {
+        tx.execute(
+            "INSERT INTO repository_paths VALUES(?,?,?)",
+            params![definition.id, id, path],
+        )?;
+    }
+    tx.execute("UPDATE automation_state SET enabled=0,next_due_at=NULL,inputs_changed=1,error='Repository location changed. Review before running.' WHERE automation_id IN (SELECT id FROM automations WHERE project_id=?)",[&definition.id])?;
+    tx.commit()?;
+    Ok(source_hash)
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum Approval<'a> {
+    Automation(&'a str),
+    Plugin(&'a str),
+}
+
+/// Approval consumes one verified capture; the caller's transaction makes a
+/// library and all of its automation approvals visible together.
+pub(crate) fn approve(
+    db: &rusqlite::Transaction<'_>,
+    profile: &Path,
+    approval: Approval<'_>,
     expected_inputs_hash: &str,
     enable: bool,
     skills: &[inferay_core::prompts::Prompt],
 ) -> Result<()> {
-    let inputs = execution_inputs(db, profile, automation, skills)?;
-    let fingerprint = hash(&serde_json::to_vec(&inputs)?);
-    if fingerprint != expected_inputs_hash {
-        return Err(
-            "Execution inputs changed since review. Refresh the proposal before approving.".into(),
-        );
-    }
-    let definition: AutomationDefinition = serde_json::from_value(inputs["automation"].clone())?;
-    let now = crate::project_store::now();
-    let next = if enable {
-        Some(
-            definition
-                .trigger
-                .next_after(now)?
-                .ok_or("Choose a schedule before enabling")?,
-        )
-    } else {
-        None
+    let capture = || match approval {
+        Approval::Automation(id) => execution_inputs(db, profile, id, skills),
+        Approval::Plugin(id) => plugin_inputs(db, profile, id, skills),
     };
-    db.execute("INSERT INTO automation_state(automation_id,enabled,next_due_at,approved_hash,approved_at,inputs_changed,error) VALUES(?,?,?,?,?,0,NULL) ON CONFLICT(automation_id) DO UPDATE SET enabled=excluded.enabled,next_due_at=excluded.next_due_at,approved_hash=excluded.approved_hash,approved_at=excluded.approved_at,inputs_changed=0,error=NULL", params![automation,enable,next,fingerprint,now])?;
+    let inputs = capture()?;
+    if hash(&serde_json::to_vec(&inputs)?) != expected_inputs_hash {
+        return Err("Execution inputs changed since review. Review again before approving.".into());
+    }
+    let snapshots: Vec<(&str, &Value)> = match approval {
+        Approval::Automation(id) => vec![(id, &inputs)],
+        Approval::Plugin(_) => inputs["automations"]
+            .as_object()
+            .ok_or("Plugin automations missing")?
+            .iter()
+            .map(|(id, snapshot)| (id.as_str(), snapshot))
+            .collect(),
+    };
+    let now = crate::project_store::now();
+    for (id, snapshot) in snapshots {
+        let trigger: Trigger = serde_json::from_value(snapshot["automation"]["trigger"].clone())?;
+        let enabled = enable
+            && (matches!(approval, Approval::Automation(_)) || !matches!(trigger, Trigger::Manual));
+        let next = if enabled {
+            Some(
+                trigger
+                    .next_after(now)?
+                    .ok_or("Choose a schedule before enabling")?,
+            )
+        } else {
+            None
+        };
+        let fingerprint = hash(&serde_json::to_vec(snapshot)?);
+        db.execute("INSERT INTO automation_state(automation_id,enabled,next_due_at,approved_hash,approved_at,inputs_changed,error) VALUES(?,?,?,?,?,0,NULL) ON CONFLICT(automation_id) DO UPDATE SET enabled=excluded.enabled,next_due_at=excluded.next_due_at,approved_hash=excluded.approved_hash,approved_at=excluded.approved_at,inputs_changed=0,error=NULL", params![id,enabled,next,fingerprint,now])?;
+    }
+    if let Approval::Plugin(id) = approval {
+        if capture()? != inputs {
+            return Err("Plugin inputs changed while approving".into());
+        }
+        db.execute("INSERT INTO plugin_state(plugin_id,approved_hash,approved_at,approved_inputs) VALUES(?,?,?,?) ON CONFLICT(plugin_id) DO UPDATE SET approved_hash=excluded.approved_hash,approved_at=excluded.approved_at,approved_inputs=excluded.approved_inputs",params![id,expected_inputs_hash,now,inputs.to_string()])?;
+    }
     Ok(())
 }
 
@@ -204,439 +322,469 @@ pub(crate) fn create_schema(db: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn table(path: &str) -> Option<&'static str> {
-    let parts: Vec<_> = path.split('/').collect();
-    match parts.as_slice() {
-        ["project.json"] => Some("projects"),
-        ["memory", kind, _] if !["documents", "notes"].contains(kind) => Some("resources"),
-        ["plugins", _, "plugin.json"] => Some("plugins"),
-        ["automations", _, "automation.json"]
-        | ["plugins" | "automations", _, "automations", _] => Some("automations"),
-        ["plugins" | "automations", _, "tools", _, "tool.json"] => Some("tools"),
-        ["plugins" | "automations", _, "skills", _] => Some("project_skills"),
-        ["plugins", _, "types", _] => Some("resource_types"),
-        _ => None,
-    }
-}
-fn body(definition: &DefinitionFile) -> Result<Value> {
-    Ok(match definition {
-        DefinitionFile::Project(v) => serde_json::to_value(v)?,
-        DefinitionFile::Resource(v) => serde_json::to_value(v)?,
-        DefinitionFile::Plugin(v) => serde_json::to_value(v)?,
-        DefinitionFile::Tool(v) => serde_json::to_value(v)?,
-        DefinitionFile::Automation(v) => serde_json::to_value(v)?,
-        DefinitionFile::Skill(v) => serde_json::to_value(v)?,
-        DefinitionFile::ResourceType(v) => v.clone(),
-    })
-}
-
 pub(crate) fn execution_inputs(
     db: &Connection,
     profile: &Path,
     automation: &str,
     skills: &[inferay_core::prompts::Prompt],
 ) -> Result<Value> {
-    let (project, path): (String, String) = db.query_row(
-        "SELECT project_id,source_path FROM automations WHERE id=? AND valid=1",
+    let project: String = db.query_row(
+        "SELECT project_id FROM automations WHERE id=? AND valid=1",
         [automation],
-        |r| Ok((r.get(0)?, r.get(1)?)),
+        |r| r.get(0),
     )?;
-    let root = profile.canonicalize()?.join("projects").join(&project);
-    let globals = skills.iter().map(|s| format!("global:{}", s.id)).collect();
-    let scanned = files::scan(&root, &globals)?;
-    let entry = scanned
-        .iter()
-        .find(|e| e.path == path)
-        .ok_or("Automation file is missing")?;
-    if let Some(error) = &entry.error {
-        return Err(error.clone().into());
+    let capture = InputCapture::new(profile, &project, skills)?;
+    let snapshot = capture.execution(db, automation)?;
+    capture.verify()?;
+    Ok(snapshot)
+}
+
+/// One review owns one scanned definition snapshot. Package hashes are shared
+/// only inside this capture, then checked again before the snapshot is returned.
+struct InputCapture<'a> {
+    profile: &'a Path,
+    project: &'a str,
+    skills: &'a [inferay_core::prompts::Prompt],
+    root: std::path::PathBuf,
+    scanned: Vec<files::IndexedFile>,
+    packages: std::cell::RefCell<BTreeMap<String, BTreeMap<String, String>>>,
+    inputs: std::cell::RefCell<BTreeMap<String, String>>,
+}
+impl<'a> InputCapture<'a> {
+    fn new(
+        profile: &'a Path,
+        project: &'a str,
+        skills: &'a [inferay_core::prompts::Prompt],
+    ) -> Result<Self> {
+        let root = profile.canonicalize()?.join("projects").join(project);
+        let globals = skills.iter().map(|s| format!("global:{}", s.id)).collect();
+        let scanned = files::scan(&root, &globals)?;
+        Ok(Self {
+            profile,
+            project,
+            skills,
+            root,
+            scanned,
+            packages: Default::default(),
+            inputs: Default::default(),
+        })
     }
-    let Some(DefinitionFile::Automation(definition)) = &entry.definition else {
-        return Err("Automation file is invalid".into());
-    };
-    if definition.id != automation || definition.archived {
-        return Err("Automation identity changed or was archived".into());
-    }
-    let project_entry = scanned
-        .iter()
-        .find(|e| e.path == "project.json")
-        .ok_or("Project file is missing")?;
-    let Some(DefinitionFile::Project(project_definition)) = &project_entry.definition else {
-        return Err("Project file is invalid".into());
-    };
-    if project_definition.archived || project_definition.id != project {
-        return Err("Project identity changed or was archived".into());
-    }
-    let prefix = path.split('/').take(2).collect::<Vec<_>>().join("/");
-    let package = files::package_files(&root, &prefix)?;
-    for entry in scanned
-        .iter()
-        .filter(|entry| entry.path.starts_with(&format!("{prefix}/")))
-    {
-        if entry.hash.as_ref() != package.get(&entry.path) {
-            return Err(format!(
-                "Definition changed while capturing execution inputs: {}",
-                entry.path
-            )
-            .into());
+
+    fn package(&self, prefix: &str) -> Result<BTreeMap<String, String>> {
+        let mut packages = self.packages.borrow_mut();
+        if let Some(package) = packages.get(prefix) {
+            return Ok(package.clone());
         }
-    }
-    let mut inputs = package.clone();
-    inputs.insert(
-        "project.json".into(),
-        project_entry.hash.clone().ok_or("Project hash missing")?,
-    );
-    let mut packages = BTreeMap::from([(prefix.clone(), package.clone())]);
-    let mut granted_tools = BTreeMap::new();
-    let mut selected_skills = BTreeMap::new();
-    let mut skill_context = Vec::new();
-    let mut resource_context = Vec::new();
-    let mut repositories = BTreeMap::new();
-    if let DefinitionExecution::Agent {
-        skills: selected,
-        tools: grants,
-        resources,
-        repositories: selected_repositories,
-        working_directory,
-        ..
-    } = &definition.execution
-    {
-        for grant in grants {
-            let owner = scanned.iter().find(|entry| matches!(&entry.definition, Some(DefinitionFile::Plugin(plugin)) if plugin.id == grant.plugin_id)).ok_or("Granted tool library is missing")?;
-            let owner_prefix = owner
-                .path
-                .strip_suffix("/plugin.json")
-                .ok_or("Invalid library path")?;
-            let Some(DefinitionFile::Plugin(plugin)) = &owner.definition else {
-                unreachable!()
-            };
-            if !plugin.may.is_subset(&definition.may) {
+        let package = files::package_files(&self.root, prefix)?;
+        let directory = format!("{prefix}/");
+        for entry in self
+            .scanned
+            .iter()
+            .filter(|entry| entry.path.starts_with(&directory))
+        {
+            if entry.hash.as_ref() != package.get(&entry.path) {
                 return Err(format!(
-                    "Granted tool library {} requires permissions absent from this automation",
-                    plugin.name
+                    "Definition changed while capturing execution inputs: {}",
+                    entry.path
                 )
                 .into());
             }
-            if let Some(entry) = scanned.iter().find(|entry| {
-                entry.path.starts_with(&format!("{owner_prefix}/")) && entry.error.is_some()
-            }) {
-                return Err(format!(
-                    "Granted library needs repair: {}",
-                    entry.error.as_deref().unwrap()
-                )
-                .into());
-            }
-            let entry = scanned.iter().find(|entry| entry.path.starts_with(&format!("{owner_prefix}/tools/")) && matches!(&entry.definition, Some(DefinitionFile::Tool(tool)) if tool.id == grant.tool_id)).ok_or("Granted tool is missing")?;
-            let Some(DefinitionFile::Tool(tool)) = &entry.definition else {
-                unreachable!()
-            };
-            if tool.effect_handler.is_some() {
-                return Err("Effect handlers require delivery approval and cannot be granted as ordinary automation tools".into());
-            }
-            let package = files::package_files(&root, owner_prefix)?;
-            for entry in scanned
-                .iter()
-                .filter(|entry| entry.path.starts_with(&format!("{owner_prefix}/")))
-            {
-                if entry.hash.as_ref() != package.get(&entry.path) {
-                    return Err("Granted tool library changed while capturing inputs".into());
-                }
-            }
-            let directory = entry
-                .path
-                .strip_suffix("/tool.json")
-                .ok_or("Invalid tool path")?
-                .to_owned();
-            let (entrypoint, working_directory, entrypoint_hash) = crate::project_packs::resolve(
-                db,
-                &root,
-                project_definition,
-                tool,
-                &directory,
-                &mut repositories,
-            )?;
-            granted_tools.insert(
-                grant.key(),
-                crate::project_tools::CapturedTool {
-                    grant: grant.clone(),
-                    definition: tool.clone(),
-                    directory,
-                    entrypoint,
-                    working_directory,
-                    entrypoint_hash,
-                },
-            );
-            inputs.extend(package.clone());
-            packages.insert(owner_prefix.into(), package);
         }
-        for id in resources {
-            let entry = scanned
-                .iter()
-                .find(|e| matches!(&e.definition, Some(DefinitionFile::Resource(r)) if &r.id == id))
-                .ok_or("Selected resource is missing")?;
-            if let Some(error) = &entry.error {
-                return Err(error.clone().into());
-            }
-            if matches!(&entry.definition, Some(DefinitionFile::Resource(resource)) if resource.archived)
-            {
-                return Err(format!("Selected resource {id} is archived").into());
-            }
-            inputs.insert(
-                entry.path.clone(),
-                entry.hash.clone().ok_or("Resource hash missing")?,
-            );
-            if let Some(DefinitionFile::Resource(resource)) = &entry.definition {
-                resource_context.push(resource.clone());
+        packages.insert(prefix.into(), package.clone());
+        Ok(package)
+    }
+
+    fn verify(&self) -> Result<()> {
+        let packages = self.packages.borrow();
+        for (prefix, package) in packages.iter() {
+            if files::package_files(&self.root, prefix)? != *package {
+                return Err("Plugin files changed while capturing execution inputs".into());
             }
         }
-        for id in selected {
-            if let Some(global) = id.strip_prefix("global:") {
-                let skill = skills
-                    .iter()
-                    .find(|s| s.id == global)
-                    .ok_or("Selected global skill is missing")?;
-                selected_skills.insert(id.clone(), hash(&serde_json::to_vec(skill)?));
-                skill_context
-                    .push(json!({"id":id,"name":skill.name,"instructions":skill.prompt_template}));
-            } else if let Some(reference) = id.strip_prefix("plugin:") {
-                let (plugin_id, skill_id) = reference
-                    .split_once(':')
-                    .ok_or("Invalid plugin skill reference")?;
-                let owner = scanned.iter().find(|entry| matches!(&entry.definition, Some(DefinitionFile::Plugin(plugin)) if plugin.id == plugin_id)).ok_or("Selected skill library is missing")?;
+        // Package verification already reads every package member. Only project
+        // and resource inputs need an additional read.
+        for (path, expected) in self.inputs.borrow().iter() {
+            if !packages.values().any(|package| package.contains_key(path))
+                && hash(&files::read(&self.root, path, PLUGIN_BYTE_LIMIT)?) != *expected
+            {
+                return Err(format!("Execution input changed while reading: {path}").into());
+            }
+        }
+        Ok(())
+    }
+
+    fn execution(&self, db: &Connection, automation: &str) -> Result<Value> {
+        let path: String = db.query_row(
+            "SELECT source_path FROM automations WHERE id=? AND project_id=? AND valid=1",
+            params![automation, self.project],
+            |row| row.get(0),
+        )?;
+        let Self {
+            root,
+            project,
+            skills,
+            profile,
+            scanned,
+            ..
+        } = self;
+        let entry = scanned
+            .iter()
+            .find(|e| e.path == path)
+            .ok_or("Automation file is missing")?;
+        if let Some(error) = &entry.error {
+            return Err(error.clone().into());
+        }
+        let Some(DefinitionFile::Automation(definition)) = &entry.definition else {
+            return Err("Automation file is invalid".into());
+        };
+        if definition.id != automation || definition.archived {
+            return Err("Automation identity changed or was archived".into());
+        }
+        let project_entry = scanned
+            .iter()
+            .find(|e| e.path == "project.json")
+            .ok_or("Project file is missing")?;
+        let Some(DefinitionFile::Project(project_definition)) = &project_entry.definition else {
+            return Err("Project file is invalid".into());
+        };
+        if project_definition.archived || project_definition.id != *project {
+            return Err("Project identity changed or was archived".into());
+        }
+        let prefix = path.split('/').take(2).collect::<Vec<_>>().join("/");
+        let mut inputs = self.package(&prefix)?;
+        inputs.insert(
+            "project.json".into(),
+            project_entry.hash.clone().ok_or("Project hash missing")?,
+        );
+        let mut granted_tools = BTreeMap::new();
+        let mut selected_skills = BTreeMap::new();
+        let mut skill_context = Vec::new();
+        let mut resource_context = Vec::new();
+        let mut repositories = BTreeMap::new();
+        if let DefinitionExecution::Agent {
+            skills: selected,
+            tools: grants,
+            resources,
+            repositories: selected_repositories,
+            working_directory,
+            ..
+        } = &definition.execution
+        {
+            for grant in grants {
+                let owner = scanned.iter().find(|entry| matches!(&entry.definition, Some(DefinitionFile::Plugin(plugin)) if plugin.id == grant.plugin_id)).ok_or("Granted tool library is missing")?;
                 let owner_prefix = owner
                     .path
                     .strip_suffix("/plugin.json")
-                    .ok_or("Invalid skill library path")?;
-                if scanned.iter().any(|entry| {
+                    .ok_or("Invalid library path")?;
+                let Some(DefinitionFile::Plugin(plugin)) = &owner.definition else {
+                    unreachable!()
+                };
+                if !plugin.may.is_subset(&definition.may) {
+                    return Err(format!(
+                        "Granted tool library {} requires permissions absent from this automation",
+                        plugin.name
+                    )
+                    .into());
+                }
+                if let Some(entry) = scanned.iter().find(|entry| {
                     entry.path.starts_with(&format!("{owner_prefix}/")) && entry.error.is_some()
                 }) {
-                    return Err("Selected skill library needs repair".into());
+                    return Err(format!(
+                        "Granted library needs repair: {}",
+                        entry.error.as_deref().unwrap()
+                    )
+                    .into());
                 }
-                let skill = scanned
-                    .iter()
-                    .find_map(|entry| {
-                        if !entry.path.starts_with(&format!("{owner_prefix}/skills/")) {
-                            return None;
-                        }
-                        match &entry.definition {
-                            Some(DefinitionFile::Skill(skill)) if skill.id == skill_id => {
-                                Some(skill)
-                            }
-                            _ => None,
-                        }
-                    })
-                    .ok_or("Selected library skill is missing")?;
-                let package = files::package_files(&root, owner_prefix)?;
-                for entry in scanned
-                    .iter()
-                    .filter(|entry| entry.path.starts_with(&format!("{owner_prefix}/")))
+                let entry = scanned.iter().find(|entry| entry.path.starts_with(&format!("{owner_prefix}/tools/")) && matches!(&entry.definition, Some(DefinitionFile::Tool(tool)) if tool.id == grant.tool_id)).ok_or("Granted tool is missing")?;
+                let Some(DefinitionFile::Tool(tool)) = &entry.definition else {
+                    unreachable!()
+                };
+                if tool.effect_handler.is_some() {
+                    return Err("Effect handlers require delivery approval and cannot be granted as ordinary automation tools".into());
+                }
+                let package = self.package(owner_prefix)?;
+                let directory = entry
+                    .path
+                    .strip_suffix("/tool.json")
+                    .ok_or("Invalid tool path")?
+                    .to_owned();
+                let (entrypoint, working_directory, entrypoint_hash) =
+                    crate::project_packs::resolve(
+                        db,
+                        root,
+                        project_definition,
+                        tool,
+                        &directory,
+                        &mut repositories,
+                    )?;
+                granted_tools.insert(
+                    grant.key(),
+                    crate::project_tools::CapturedTool {
+                        grant: grant.clone(),
+                        definition: tool.clone(),
+                        directory,
+                        entrypoint,
+                        working_directory,
+                        entrypoint_hash,
+                    },
+                );
+                inputs.extend(package);
+            }
+            for id in resources {
+                let entry = scanned
+                .iter()
+                .find(|e| matches!(&e.definition, Some(DefinitionFile::Resource(r)) if &r.id == id))
+                .ok_or("Selected resource is missing")?;
+                if let Some(error) = &entry.error {
+                    return Err(error.clone().into());
+                }
+                if matches!(&entry.definition, Some(DefinitionFile::Resource(resource)) if resource.archived)
                 {
-                    if entry.hash.as_ref() != package.get(&entry.path) {
-                        return Err("Selected skill library changed while capturing inputs".into());
+                    return Err(format!("Selected resource {id} is archived").into());
+                }
+                inputs.insert(
+                    entry.path.clone(),
+                    entry.hash.clone().ok_or("Resource hash missing")?,
+                );
+                if let Some(DefinitionFile::Resource(resource)) = &entry.definition {
+                    resource_context.push(resource.clone());
+                }
+            }
+            for id in selected {
+                if let Some(global) = id.strip_prefix("global:") {
+                    let skill = skills
+                        .iter()
+                        .find(|s| s.id == global)
+                        .ok_or("Selected global skill is missing")?;
+                    selected_skills.insert(id.clone(), hash(&serde_json::to_vec(skill)?));
+                    skill_context.push(
+                        json!({"id":id,"name":skill.name,"instructions":skill.prompt_template}),
+                    );
+                } else if let Some(reference) = id.strip_prefix("plugin:") {
+                    let (plugin_id, skill_id) = reference
+                        .split_once(':')
+                        .ok_or("Invalid plugin skill reference")?;
+                    let owner = scanned.iter().find(|entry| matches!(&entry.definition, Some(DefinitionFile::Plugin(plugin)) if plugin.id == plugin_id)).ok_or("Selected skill library is missing")?;
+                    let owner_prefix = owner
+                        .path
+                        .strip_suffix("/plugin.json")
+                        .ok_or("Invalid skill library path")?;
+                    if scanned.iter().any(|entry| {
+                        entry.path.starts_with(&format!("{owner_prefix}/")) && entry.error.is_some()
+                    }) {
+                        return Err("Selected skill library needs repair".into());
+                    }
+                    let skill = scanned
+                        .iter()
+                        .find_map(|entry| {
+                            if !entry.path.starts_with(&format!("{owner_prefix}/skills/")) {
+                                return None;
+                            }
+                            match &entry.definition {
+                                Some(DefinitionFile::Skill(skill)) if skill.id == skill_id => {
+                                    Some(skill)
+                                }
+                                _ => None,
+                            }
+                        })
+                        .ok_or("Selected library skill is missing")?;
+                    let package = self.package(owner_prefix)?;
+                    inputs.extend(package);
+                    skill_context
+                        .push(json!({"id":id,"name":skill.name,"instructions":skill.instructions}));
+                } else {
+                    let skill = scanned
+                        .iter()
+                        .find_map(|entry| {
+                            if entry.path.starts_with(&format!("{prefix}/skills/"))
+                                && let Some(DefinitionFile::Skill(skill)) = &entry.definition
+                                && &skill.id == id
+                            {
+                                return Some(skill);
+                            }
+                            None
+                        })
+                        .ok_or("Selected plugin skill is missing")?;
+                    skill_context.push(serde_json::to_value(skill)?);
+                }
+            }
+            let mut ids: BTreeSet<_> = selected_repositories.iter().collect();
+            if let DefinitionDirectory::Repository { id } = working_directory {
+                ids.insert(id);
+            }
+            for id in ids {
+                let path: String = db
+                    .query_row(
+                        "SELECT path FROM repository_paths WHERE project_id=? AND repository_id=?",
+                        params![project, id],
+                        |r| r.get(0),
+                    )
+                    .map_err(|_| format!("Repository {id} is not linked on this machine"))?;
+                let path = Path::new(&path)
+                    .canonicalize()
+                    .map_err(|_| format!("Repository {id} is unavailable"))?;
+                if !path.is_dir() {
+                    return Err(format!("Repository {id} is not a directory").into());
+                }
+                repositories.insert(id.clone(), path.to_string_lossy().into_owned());
+            }
+        }
+        self.inputs.borrow_mut().extend(inputs.clone());
+        let mut snapshot = json!({"projectId":project,"automation":definition,"files":inputs,"globalSkills":selected_skills,"repositoryPaths":repositories,"projectInstructions":project_definition.instructions,"resources":resource_context,"skills":skill_context,"tools":granted_tools});
+        use inferay_core::projects::{LocalTool, ProjectExecution, ProjectPath};
+        let execution = match &definition.execution {
+            DefinitionExecution::Agent {
+                provider,
+                model,
+                reasoning_level,
+                instructions,
+                skills,
+                resources,
+                working_directory,
+                timeout_seconds,
+                ..
+            } => {
+                let directory = match working_directory {
+                    DefinitionDirectory::Repository { id } => ProjectPath::External {
+                        path: repositories
+                            .get(id)
+                            .ok_or("Repository binding missing")?
+                            .clone(),
+                    },
+                    DefinitionDirectory::Project { path } => {
+                        ProjectPath::Project { path: path.clone() }
+                    }
+                    DefinitionDirectory::Plugin { path } => ProjectPath::Project {
+                        path: if path == "." {
+                            prefix.clone()
+                        } else {
+                            format!("{prefix}/{path}")
+                        },
+                    },
+                };
+                crate::project_store::resolve_path(root, &directory)?;
+                ProjectExecution::Agent {
+                    instructions: instructions.clone(),
+                    provider: provider.clone(),
+                    model: model.clone(),
+                    reasoning_level: reasoning_level.clone(),
+                    skill_ids: skills.clone(),
+                    resource_ids: resources.clone(),
+                    working_directory: directory,
+                    timeout_seconds: *timeout_seconds,
+                }
+            }
+            DefinitionExecution::Tool { tool, input } => {
+                let directory = format!("{prefix}/tools/{tool}");
+                let entry = scanned
+                    .iter()
+                    .find(|entry| entry.path == format!("{directory}/tool.json"))
+                    .ok_or("Selected tool is missing")?;
+                let Some(DefinitionFile::Tool(tool)) = &entry.definition else {
+                    return Err("Selected tool is invalid".into());
+                };
+                if tool.effect_handler.is_some() {
+                    return Err("Effect handlers require delivery approval and cannot run as ordinary automation tools".into());
+                }
+                inferay_core::projects::validate_json(&tool.input_schema, input)?;
+                let (entrypoint, working_directory, entrypoint_hash) =
+                    crate::project_packs::resolve(
+                        db,
+                        root,
+                        project_definition,
+                        tool,
+                        &directory,
+                        &mut repositories,
+                    )?;
+                let path = crate::project_store::resolve_path(root, &entrypoint)?;
+                snapshot["entrypointHash"] = json!(entrypoint_hash);
+                snapshot["entrypoint"] = json!(path);
+                snapshot["tool"] = serde_json::to_value(LocalTool {
+                    interface: tool.interface.clone(),
+                    program: tool.program.clone(),
+                    entrypoint,
+                    arguments: tool.interface.arguments(
+                        &tool.args,
+                        input,
+                        &path.to_string_lossy(),
+                    )?,
+                    working_directory,
+                    timeout_seconds: tool.timeout_seconds,
+                    input_schema: tool.input_schema.clone(),
+                    output_schema: tool.output_schema.clone(),
+                })?;
+                ProjectExecution::Tool {
+                    tool_id: tool.id.clone(),
+                    input: input.clone(),
+                }
+            }
+        };
+        let mut requirements = BTreeSet::new();
+        let mut connections = BTreeMap::new();
+        let mut connection_tool_names = BTreeMap::new();
+        let mut connection_requests = BTreeMap::new();
+        let mut selected_tools: BTreeSet<String> = granted_tools
+            .values()
+            .map(|grant| format!("{}/tool.json", grant.directory))
+            .collect();
+        if let DefinitionExecution::Tool { tool, .. } = &definition.execution {
+            selected_tools.insert(format!("{prefix}/tools/{tool}/tool.json"));
+        }
+        for entry in scanned {
+            match &entry.definition {
+                Some(DefinitionFile::Plugin(plugin))
+                    if entry.path == format!("{prefix}/plugin.json")
+                        || granted_tools
+                            .values()
+                            .any(|tool| tool.grant.plugin_id == plugin.id) =>
+                {
+                    requirements.extend(plugin.requires.iter().cloned());
+                }
+                Some(DefinitionFile::Tool(tool)) if selected_tools.contains(&entry.path) => {
+                    requirements.extend(tool.requires.iter().cloned());
+                    if !tool.connections.is_empty() {
+                        connections.insert(
+                            tool.id.clone(),
+                            tool.connections
+                                .iter()
+                                .map(|(alias, connection)| (alias.clone(), connection.id.clone()))
+                                .collect(),
+                        );
+                        connection_tool_names.insert(tool.id.clone(), tool.name.clone());
+                        connection_requests.insert(tool.id.clone(), tool.connections.clone());
                     }
                 }
-                inputs.extend(package.clone());
-                packages.insert(owner_prefix.into(), package);
-                skill_context
-                    .push(json!({"id":id,"name":skill.name,"instructions":skill.instructions}));
-            } else {
-                let skill = scanned
-                    .iter()
-                    .find_map(|entry| {
-                        if entry.path.starts_with(&format!("{prefix}/skills/"))
-                            && let Some(DefinitionFile::Skill(skill)) = &entry.definition
-                            && &skill.id == id
-                        {
-                            return Some(skill);
-                        }
-                        None
-                    })
-                    .ok_or("Selected plugin skill is missing")?;
-                skill_context.push(serde_json::to_value(skill)?);
+                _ => {}
             }
         }
-        let mut ids: BTreeSet<_> = selected_repositories.iter().collect();
-        if let DefinitionDirectory::Repository { id } = working_directory {
-            ids.insert(id);
-        }
-        for id in ids {
-            let path: String = db
-                .query_row(
-                    "SELECT path FROM repository_paths WHERE project_id=? AND repository_id=?",
-                    params![project, id],
-                    |r| r.get(0),
-                )
-                .map_err(|_| format!("Repository {id} is not linked on this machine"))?;
-            let path = Path::new(&path)
-                .canonicalize()
-                .map_err(|_| format!("Repository {id} is unavailable"))?;
-            if !path.is_dir() {
-                return Err(format!("Repository {id} is not a directory").into());
-            }
-            repositories.insert(id.clone(), path.to_string_lossy().into_owned());
-        }
-    }
-    for (path, expected) in &inputs {
-        if hash(&files::read(&root, path, PLUGIN_BYTE_LIMIT)?) != *expected {
-            return Err(format!("Execution input changed while reading: {path}").into());
-        }
-    }
-    for (prefix, package) in packages {
-        if files::package_files(&root, &prefix)? != package {
-            return Err("Plugin files changed while capturing execution inputs".into());
-        }
-    }
-    let mut snapshot = json!({"projectId":project,"automation":definition,"files":inputs,"globalSkills":selected_skills,"repositoryPaths":repositories,"projectInstructions":project_definition.instructions,"resources":resource_context,"skills":skill_context,"tools":granted_tools});
-    use inferay_core::projects::{LocalTool, ProjectExecution, ProjectPath};
-    let execution = match &definition.execution {
-        DefinitionExecution::Agent {
-            provider,
-            model,
-            reasoning_level,
-            instructions,
-            skills,
-            resources,
-            working_directory,
-            timeout_seconds,
-            ..
-        } => {
-            let directory = match working_directory {
-                DefinitionDirectory::Repository { id } => ProjectPath::External {
-                    path: repositories
-                        .get(id)
-                        .ok_or("Repository binding missing")?
-                        .clone(),
-                },
-                DefinitionDirectory::Project { path } => {
-                    ProjectPath::Project { path: path.clone() }
-                }
-                DefinitionDirectory::Plugin { path } => ProjectPath::Project {
-                    path: if path == "." {
-                        prefix.clone()
-                    } else {
-                        format!("{prefix}/{path}")
-                    },
-                },
-            };
-            crate::project_store::resolve_path(&root, &directory)?;
-            ProjectExecution::Agent {
-                instructions: instructions.clone(),
-                provider: provider.clone(),
-                model: model.clone(),
-                reasoning_level: reasoning_level.clone(),
-                skill_ids: skills.clone(),
-                resource_ids: resources.clone(),
-                working_directory: directory,
-                timeout_seconds: *timeout_seconds,
-            }
-        }
-        DefinitionExecution::Tool { tool, input } => {
-            let directory = format!("{prefix}/tools/{tool}");
-            let entry = scanned
-                .iter()
-                .find(|entry| entry.path == format!("{directory}/tool.json"))
-                .ok_or("Selected tool is missing")?;
-            let Some(DefinitionFile::Tool(tool)) = &entry.definition else {
-                return Err("Selected tool is invalid".into());
-            };
-            if tool.effect_handler.is_some() {
-                return Err("Effect handlers require delivery approval and cannot run as ordinary automation tools".into());
-            }
-            inferay_core::projects::validate_json(&tool.input_schema, input)?;
-            let (entrypoint, working_directory, entrypoint_hash) = crate::project_packs::resolve(
-                db,
-                &root,
-                project_definition,
-                tool,
-                &directory,
-                &mut repositories,
+        if !connections.is_empty() {
+            snapshot["connectionToolNames"] = json!(connection_tool_names);
+            snapshot["connectionRequests"] = json!(connection_requests);
+            snapshot["connections"] = serde_json::to_value(
+                crate::connections::Store::open(profile)?.capture(project, &connections)?,
             )?;
-            let path = crate::project_store::resolve_path(&root, &entrypoint)?;
-            snapshot["entrypointHash"] = json!(entrypoint_hash);
-            snapshot["entrypoint"] = json!(path);
-            snapshot["tool"] = serde_json::to_value(LocalTool {
-                interface: tool.interface.clone(),
-                program: tool.program.clone(),
-                entrypoint,
-                arguments: tool
-                    .interface
-                    .arguments(&tool.args, input, &path.to_string_lossy())?,
-                working_directory,
-                timeout_seconds: tool.timeout_seconds,
-                input_schema: tool.input_schema.clone(),
-                output_schema: tool.output_schema.clone(),
-            })?;
-            ProjectExecution::Tool {
-                tool_id: tool.id.clone(),
-                input: input.clone(),
-            }
         }
-    };
-    let mut requirements = BTreeSet::new();
-    let mut connections = BTreeMap::new();
-    let mut connection_tool_names = BTreeMap::new();
-    let mut connection_requests = BTreeMap::new();
-    let mut selected_tools: BTreeSet<String> = granted_tools
-        .values()
-        .map(|grant| format!("{}/tool.json", grant.directory))
-        .collect();
-    if let DefinitionExecution::Tool { tool, .. } = &definition.execution {
-        selected_tools.insert(format!("{prefix}/tools/{tool}/tool.json"));
-    }
-    for entry in &scanned {
-        match &entry.definition {
-            Some(DefinitionFile::Plugin(plugin))
-                if entry.path == format!("{prefix}/plugin.json")
-                    || granted_tools
-                        .values()
-                        .any(|tool| tool.grant.plugin_id == plugin.id) =>
-            {
-                requirements.extend(plugin.requires.iter().cloned());
-            }
-            Some(DefinitionFile::Tool(tool)) if selected_tools.contains(&entry.path) => {
-                requirements.extend(tool.requires.iter().cloned());
-                if !tool.connections.is_empty() {
-                    connections.insert(
-                        tool.id.clone(),
-                        tool.connections
-                            .iter()
-                            .map(|(alias, connection)| (alias.clone(), connection.id.clone()))
-                            .collect(),
-                    );
-                    connection_tool_names.insert(tool.id.clone(), tool.name.clone());
-                    connection_requests.insert(tool.id.clone(), tool.connections.clone());
-                }
-            }
-            _ => {}
-        }
-    }
-    if !connections.is_empty() {
-        snapshot["connectionToolNames"] = json!(connection_tool_names);
-        snapshot["connectionRequests"] = json!(connection_requests);
-        snapshot["connections"] = serde_json::to_value(
-            crate::connections::Store::open(profile)?.capture(&project, &connections)?,
+        let project_path = root.to_string_lossy().into_owned();
+        let git_metadata = crate::automation_sandbox::git_metadata_directories(
+            repositories.values().chain(std::iter::once(&project_path)),
         )?;
+        if !git_metadata.is_empty() {
+            snapshot["gitMetadataPaths"] = serde_json::to_value(git_metadata)?;
+        }
+        let git_writes = crate::automation_sandbox::AutomationSandbox::new(
+            &definition.may,
+            &json!(repositories),
+            root,
+        )
+        .git_write_paths()?;
+        if !git_writes.is_empty() {
+            snapshot["gitWritePaths"] = serde_json::to_value(git_writes)?;
+        }
+        snapshot["repositoryPaths"] = json!(repositories);
+        snapshot["requirements"] = json!(requirements);
+        snapshot["execution"] = serde_json::to_value(execution)?;
+        Ok(snapshot)
     }
-    let project_path = root.to_string_lossy().into_owned();
-    let git_metadata = crate::automation_sandbox::git_metadata_directories(
-        repositories.values().chain(std::iter::once(&project_path)),
-    )?;
-    if !git_metadata.is_empty() {
-        snapshot["gitMetadataPaths"] = serde_json::to_value(git_metadata)?;
-    }
-    let git_writes = crate::automation_sandbox::AutomationSandbox::new(
-        &definition.may,
-        &json!(repositories),
-        &root,
-    )
-    .git_write_paths()?;
-    if !git_writes.is_empty() {
-        snapshot["gitWritePaths"] = serde_json::to_value(git_writes)?;
-    }
-    snapshot["repositoryPaths"] = json!(repositories);
-    snapshot["requirements"] = json!(requirements);
-    snapshot["execution"] = serde_json::to_value(execution)?;
-    Ok(snapshot)
 }
 
 pub(crate) fn plugin_inputs(
@@ -650,28 +798,28 @@ pub(crate) fn plugin_inputs(
         [id],
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
-    let root = profile.canonicalize()?.join("projects").join(&project);
+    let capture = InputCapture::new(profile, &project, skills)?;
+    let root = &capture.root;
+    let scanned = &capture.scanned;
     let prefix = path
         .strip_suffix("/plugin.json")
         .ok_or("Invalid plugin path")?;
-    let globals = skills.iter().map(|s| format!("global:{}", s.id)).collect();
-    let scanned = files::scan(&root, &globals)?;
-    for entry in &scanned {
+    for entry in scanned {
         if (entry.path == "project.json" || entry.path.starts_with(&format!("{prefix}/")))
             && entry.error.is_some()
         {
             return Err(format!("{}: {}", entry.path, entry.error.as_deref().unwrap()).into());
         }
     }
-    let project_bytes = files::read(&root, "project.json", MANIFEST_LIMIT)?;
+    let project_bytes = files::read(root, "project.json", MANIFEST_LIMIT)?;
     let project_definition: ProjectDefinition = parse("project.json", &project_bytes)?;
     if project_definition.id != project || project_definition.archived {
         return Err("Project changed or archived".into());
     }
-    let package = files::package_files(&root, prefix)?;
+    let package = capture.package(prefix)?;
     let mut contents = BTreeMap::<String, Option<String>>::new();
     for (path, expected) in &package {
-        let bytes = files::read(&root, path, PLUGIN_BYTE_LIMIT)?;
+        let bytes = files::read(root, path, PLUGIN_BYTE_LIMIT)?;
         if hash(&bytes) != *expected {
             return Err("Plugin changed during review".into());
         }
@@ -685,37 +833,36 @@ pub(crate) fn plugin_inputs(
         );
     }
     let manifest: PluginDefinition =
-        parse("plugin.json", &files::read(&root, &path, MANIFEST_LIMIT)?)?;
+        parse("plugin.json", &files::read(root, &path, MANIFEST_LIMIT)?)?;
     if manifest.id != id {
         return Err("Plugin identity changed".into());
     }
     let mut automations = BTreeMap::new();
-    for entry in &scanned {
-        if entry.path.starts_with(&format!("{prefix}/")) {
-            if entry.hash.as_ref() != package.get(&entry.path) {
-                return Err("Plugin changed during review".into());
-            }
-            if let Some(DefinitionFile::Automation(automation)) = &entry.definition
-                && !automation.archived
-            {
-                let inputs = execution_inputs(db, profile, &automation.id, skills)?;
-                for (path, expected) in &package {
-                    if inputs["files"][path].as_str() != Some(expected.as_str()) {
-                        return Err("Plugin changed during review".into());
-                    }
-                }
-                automations.insert(automation.id.clone(), inputs);
-            }
+    for entry in scanned {
+        if entry.path.starts_with(&format!("{prefix}/"))
+            && let Some(DefinitionFile::Automation(automation)) = &entry.definition
+            && !automation.archived
+        {
+            automations.insert(
+                automation.id.clone(),
+                capture.execution(db, &automation.id)?,
+            );
         }
     }
-    if files::package_files(&root, prefix)? != package
-        || files::read(&root, "project.json", MANIFEST_LIMIT)? != project_bytes
-    {
+    capture.verify()?;
+    if files::read(root, "project.json", MANIFEST_LIMIT)? != project_bytes {
         return Err("Plugin or project changed during review".into());
     }
     Ok(
         json!({"plugin":manifest,"projectHash":hash(&project_bytes),"files":package,"contents":contents,"automations":automations}),
     )
+}
+
+fn take_text(value: &mut Value) -> Option<String> {
+    match value.take() {
+        Value::String(text) => Some(text),
+        _ => None,
+    }
 }
 
 pub(crate) fn review_plugin(
@@ -724,62 +871,25 @@ pub(crate) fn review_plugin(
     id: &str,
     skills: &[inferay_core::prompts::Prompt],
 ) -> Result<PluginReview> {
-    let inputs = plugin_inputs(db, profile, id, skills)?;
-    let previous: Option<String> = db
-        .query_row(
-            "SELECT approved_inputs FROM plugin_state WHERE plugin_id=?",
-            [id],
-            |r| r.get(0),
-        )
-        .optional()?
-        .flatten();
-    let previous: Value = previous
-        .map(|v| serde_json::from_str(&v))
-        .transpose()?
-        .unwrap_or(Value::Null);
-    let manifest: PluginDefinition = serde_json::from_value(inputs["plugin"].clone())?;
-    let paths: BTreeSet<_> = inputs["files"]
-        .as_object()
-        .into_iter()
-        .flat_map(|v| v.keys())
-        .chain(
-            previous["files"]
-                .as_object()
-                .into_iter()
-                .flat_map(|v| v.keys()),
-        )
-        .cloned()
-        .collect();
-    let files = paths
-        .into_iter()
-        .map(|path| PluginReviewFile {
-            hash: inputs["files"][&path].as_str().map(str::to_owned),
-            previous_hash: previous["files"][&path].as_str().map(str::to_owned),
-            content: inputs["contents"][&path].as_str().map(str::to_owned),
-            previous_content: previous["contents"][&path].as_str().map(str::to_owned),
-            path,
-        })
-        .collect();
-    let automations = inputs["automations"]
-        .as_object()
-        .into_iter()
-        .flat_map(|v| v.values())
-        .map(|v| serde_json::from_value(v["automation"].clone()))
-        .collect::<std::result::Result<_, _>>()?;
-    let git_write_paths = inputs["automations"]
-        .as_object()
-        .into_iter()
-        .flat_map(|automations| automations.values())
-        .flat_map(|snapshot| snapshot["gitWritePaths"].as_array().into_iter().flatten())
-        .filter_map(Value::as_str)
-        .map(str::to_owned)
-        .collect::<BTreeSet<_>>();
+    let mut inputs = plugin_inputs(db, profile, id, skills)?;
+    let inputs_hash = hash(&serde_json::to_vec(&inputs)?);
+    let manifest: PluginDefinition = serde_json::from_value(inputs["plugin"].take())?;
+    let mut automations = Vec::new();
+    let mut git_write_paths = BTreeSet::new();
     let mut connection_access = BTreeMap::new();
     for snapshot in inputs["automations"]
-        .as_object()
-        .into_iter()
-        .flat_map(|items| items.values())
+        .as_object_mut()
+        .ok_or("Plugin automations missing")?
+        .values_mut()
     {
+        git_write_paths.extend(
+            snapshot["gitWritePaths"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_owned),
+        );
         for access in inferay_core::connections::ConnectionAccess::from_snapshot(snapshot)? {
             connection_access.insert(
                 (
@@ -790,13 +900,48 @@ pub(crate) fn review_plugin(
                 access,
             );
         }
+        automations.push(serde_json::from_value(snapshot["automation"].take())?);
     }
+    let previous: Option<String> = db
+        .query_row(
+            "SELECT approved_inputs FROM plugin_state WHERE plugin_id=?",
+            [id],
+            |r| r.get(0),
+        )
+        .optional()?
+        .flatten();
+    let mut previous: Value = previous
+        .map(|text| serde_json::from_str(&text))
+        .transpose()?
+        .unwrap_or(Value::Null);
+    let paths: BTreeSet<_> = inputs["files"]
+        .as_object()
+        .into_iter()
+        .flat_map(|files| files.keys())
+        .chain(
+            previous["files"]
+                .as_object()
+                .into_iter()
+                .flat_map(|files| files.keys()),
+        )
+        .cloned()
+        .collect();
+    let files = paths
+        .into_iter()
+        .map(|path| PluginReviewFile {
+            hash: take_text(&mut inputs["files"][&path]),
+            previous_hash: take_text(&mut previous["files"][&path]),
+            content: take_text(&mut inputs["contents"][&path]),
+            previous_content: take_text(&mut previous["contents"][&path]),
+            path,
+        })
+        .collect();
     Ok(PluginReview {
         connections: connection_access.into_values().collect(),
         git_write_paths: git_write_paths.into_iter().collect(),
         id: id.into(),
         name: manifest.name,
-        inputs_hash: hash(&serde_json::to_vec(&inputs)?),
+        inputs_hash,
         permissions: manifest.may,
         automations,
         files,
@@ -857,7 +1002,7 @@ pub(crate) fn refresh(
             })
             .collect();
         for entry in scanned {
-            let Some(table) = table(&entry.path) else {
+            let Some(table) = files::definition_table(&entry.path) else {
                 if let Some(error) = entry.error {
                     tx.execute(
                         "INSERT INTO definition_errors VALUES(?,?,?)",
@@ -868,7 +1013,11 @@ pub(crate) fn refresh(
             };
             let owner = entry.path.split('/').take(2).collect::<Vec<_>>().join("/");
             let plugin_id = plugins.get(&owner);
-            let value = entry.definition.as_ref().map(body).transpose()?;
+            let value = entry
+                .definition
+                .as_ref()
+                .map(serde_json::to_value)
+                .transpose()?;
             let id = if let Some(definition) = &entry.definition {
                 match definition {
                     DefinitionFile::Project(_) => project_id.clone(),

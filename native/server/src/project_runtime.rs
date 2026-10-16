@@ -8,9 +8,7 @@ use crate::{
 };
 use inferay_core::{
     agent_kind::AgentKind,
-    agent_protocol::{
-        AgentProtocolContext, CodexInvocationContext, CodexProtocolState, ProtocolEmission,
-    },
+    agent_protocol::{AgentProtocolContext, CodexInvocationContext, ProtocolEmission},
     project_files::{ProjectFileCommand, ProjectWorkspace},
     projects::*,
 };
@@ -114,62 +112,6 @@ impl ProjectRuntime {
         let mut store = self.store.lock().map_err(|_| "Project store lock failed")?;
         let root = store.root.clone();
         crate::project_migration::workspace_projects(&mut store.db, &root, state, &skills)
-    }
-
-    pub async fn documents(
-        self: &Arc<Self>,
-        project_id: String,
-    ) -> Result<Vec<inferay_core::project_files::ProjectDocument>> {
-        let this = self.clone();
-        tokio::task::spawn_blocking(move || {
-            let store = this.store.lock().map_err(|_| "Project store lock failed")?;
-            let root = store.project_dir(&project_id)?;
-            let directory =
-                crate::project_definitions::managed_path(&root, "memory/documents", false)?;
-            if !directory.try_exists()? {
-                return Ok(vec![]);
-            }
-            let mut documents = Vec::new();
-            for (count, entry) in walkdir::WalkDir::new(&directory)
-                .follow_links(false)
-                .max_depth(16)
-                .into_iter()
-                .enumerate()
-            {
-                if count >= 10_000 {
-                    return Err("Document library exceeds the 10,000 entry browsing limit".into());
-                }
-                let entry = entry?;
-                if !entry.file_type().is_file() {
-                    continue;
-                }
-                let path = entry
-                    .path()
-                    .strip_prefix(&root)?
-                    .to_str()
-                    .ok_or("Document path is not UTF-8")?
-                    .replace('\\', "/");
-                let name = entry
-                    .file_name()
-                    .to_str()
-                    .ok_or("Document name is not UTF-8")?
-                    .to_owned();
-                documents.push(inferay_core::project_files::ProjectDocument {
-                    category: inferay_core::project_files::document_category(&name).into(),
-                    path,
-                    name,
-                    size: entry.metadata()?.len(),
-                });
-            }
-            documents.sort_by(|a, b| {
-                a.name
-                    .to_lowercase()
-                    .cmp(&b.name.to_lowercase())
-                    .then(a.path.cmp(&b.path))
-            });
-            Ok(documents)
-        })
-        .await?
     }
 
     pub async fn document_bytes(
@@ -552,7 +494,6 @@ impl ProjectRuntime {
                 );
                 let invocation=CodexInvocationContext{cwd:dir.join("output"),reference_paths:vec![],images:vec![],model:model.clone(),reasoning_level:reasoning_level.clone(),developer_instructions:Some("Run the explicitly requested project automation. Do not enable schedules or expand permissions. Report failures truthfully.".into()),session_id:None,mcp_servers:Some(vec![])};
                 let mut protocol = AgentProtocolContext::new(cwd.clone());
-                let mut codex = CodexProtocolState::default();
                 let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
                 let log = dir.join("logs/agent.jsonl");
                 let waiting = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -616,43 +557,19 @@ impl ProjectRuntime {
                     Ok::<_, Box<dyn std::error::Error + Send + Sync>>(failed)
                 });
                 let result = {
-                    let run = async {
-                        if provider == "codex" {
-                            agent_runner::run_codex(
-                                agent_runner::CodexRun {
-                                    binary: &binary,
-                                    prompt: &prompt,
-                                    invocation: &invocation,
-                                    env: &env,
-                                },
-                                &handle,
-                                &self.tracker,
-                                &mut protocol,
-                                &mut codex,
-                                &sender,
-                            )
-                            .await
-                        } else {
-                            agent_runner::run_claude(
-                                agent_runner::ClaudeRun {
-                                    binary: &binary,
-                                    prompt: &prompt,
-                                    developer_instructions: invocation
-                                        .developer_instructions
-                                        .as_deref(),
-                                    cwd: &invocation.cwd,
-                                    model: model.as_deref(),
-                                    session_id: None,
-                                    env: &env,
-                                    mcp_servers: Some(&[]),
-                                },
-                                &handle,
-                                &mut protocol,
-                                &sender,
-                            )
-                            .await
-                        }
-                    };
+                    let run = agent_runner::run_agent(
+                        agent_runner::ProviderRun {
+                            binary: &binary,
+                            prompt: &prompt,
+                            invocation: &invocation,
+                            env: &env,
+                        },
+                        kind,
+                        &handle,
+                        &self.tracker,
+                        &mut protocol,
+                        &sender,
+                    );
                     tokio::pin!(run);
                     let deadline =
                         tokio::time::Instant::now() + Duration::from_secs(timeout_seconds);

@@ -29,6 +29,15 @@ How Inferay is built. For what the product's concepts mean, read [concepts.md](c
 
 **Contracts.** `scripts/build-presentation.sh` exports Rust types to `build/presentation/contracts` (imported as `@contracts`), builds the presentation crate for `wasm32-unknown-unknown`, runs `wasm-bindgen` and inlines the module so the renderer loads it synchronously. The renderer calls Rust models through one `presentation(op, json)` entry. See [ADR 0001](adr/0001-rust-models-solid-views.md).
 
+## Workspace ownership
+
+The core workspace resolves pane actions by stable pane ID. Selecting, removing or changing a chat does not require the renderer to supply its owning group. The WebAssembly workspace replica owns optimistic selection and acknowledgement rollback; the Solid adapter owns only the request queue and a shared memoized project view. There is no second renderer state setter bypassing that queue.
+
+The chat canvas uses the native grid dock model for layout, pointer placement and scrolling. Panel transitions and optimistic replay use the same typed Rust session. Legacy snapshots are repaired only when read from storage; graph and history display flags are derived rather than persisted. Saved detached document panels still restore, while the unused document-detaching commands and drag controls have been removed. Repository documents and changes remain in the repository workbench; the chat dock has no alternate row layout or auxiliary-panel rendering path. The repository diff rail fills its available area, while the changes sidebar retains its independent resize control.
+
+Repository `+`/`−` totals count lines across staged, unstaged and untracked changes. The diff engine uses a disposable index to include new files in Git’s numstat and rename detection without staging them in the user’s index; binary files contribute no text lines.
+
+
 ## Provider runner
 
 Inferay drives the installed CLIs; accounts and credentials stay with them (`agent_account.rs` only checks that they exist).

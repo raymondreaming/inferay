@@ -6,7 +6,7 @@ import {
 	runGitChangeAction,
 	stashGitFile,
 } from "@repository/services/gitApi.ts";
-import { usePollingQuery } from "@shared/hooks/useQueryResource.tsx";
+import { useQueryResource } from "@shared/hooks/useQueryResource.tsx";
 import { type Accessor, createMemo, createSignal } from "solid-js";
 import type { useGitGraph } from "./useGitGraph.tsx";
 
@@ -38,18 +38,18 @@ export function useGitStatus(
 		const _cwdKeyValue = cwdKey();
 		return _cwdKeyValue ? _cwdKeyValue.split("\u0000") : [];
 	});
-	const _source = usePollingQuery(
-		() => {
-			const cwds = requestedCwds();
-			return (signal) => loadGitStatuses(cwds, signal);
-		},
-		() => 5000,
-		() => EMPTY_GIT_PROJECTS,
-		() => ({
+	const _source = useQueryResource(() => {
+		const cwds = requestedCwds();
+		return {
 			queryKey: ["git", "status", cwdKey()],
-			enabled: _options().enabled && requestedCwds().length > 0,
-		}),
-	);
+			queryFn: ({ signal }) => loadGitStatuses(cwds, signal),
+			initialData: EMPTY_GIT_PROJECTS,
+			refetchInterval: 5000,
+			staleTime: 5000,
+			enabled: _options().enabled && cwds.length > 0,
+		};
+	});
+
 	const projects = createMemo(() =>
 		[..._source.data, ...graphProjects()].filter((project) =>
 			_cwds().includes(project.cwd),

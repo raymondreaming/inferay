@@ -8,6 +8,21 @@ import {
 	radius,
 } from "../../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
+	operationToast: {
+		position: "absolute",
+		bottom: controlSize._4,
+		right: controlSize._4,
+		zIndex: layer.popover,
+		display: "flex",
+		alignItems: "center",
+		gap: controlSize._2,
+		maxWidth: "calc(100% - 32px)",
+		paddingBlock: controlSize._2,
+		paddingInline: controlSize._3,
+		borderRadius: radius.lg,
+		color: color.textMain,
+		fontSize: font.size_2,
+	},
 	srStatus: {
 		position: "absolute",
 		width: "1px",

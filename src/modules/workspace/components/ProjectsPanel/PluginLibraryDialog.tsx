@@ -1,12 +1,15 @@
 import type { PluginReview, PluginTextFile } from "@contracts";
 import { Markdown } from "@conversation/components/ChatRichContent/Markdown.tsx";
 import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
-import { queryClient } from "@shared/lib/dom.tsx";
 import { Button } from "@shared/ui/Button/index.tsx";
 import { Modal } from "@shared/ui/Modal/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createSignal, For, Show } from "solid-js";
-import { projects, saveProjectCommand } from "../../hooks/useProjects.tsx";
+import {
+	projects,
+	saveProjectCommand,
+	useProjectAction,
+} from "../../hooks/useProjects.tsx";
 import {
 	type ProjectPlugin,
 	type ProjectTool,
@@ -27,17 +30,15 @@ export function PluginLibraryDialog(props: {
 }) {
 	const [editing, setEditing] = createSignal<PluginTextFile | null>(null);
 	const [draft, setDraft] = createSignal("");
-	const [saving, setSaving] = createSignal(false);
+	const { busy: saving, error, setError, run } = useProjectAction();
 	const [saved, setSaved] = createSignal(false);
 	const [connectionsTool, setConnectionsTool] =
 		createSignal<ProjectTool | null>(null);
 	const dirty = () => editing() !== null && draft() !== editing()?.content;
-	async function saveFile() {
-		const file = editing();
-		if (!file || saving()) return;
-		setSaving(true);
-		setError("");
-		try {
+	const saveFile = () =>
+		run(async () => {
+			const file = editing();
+			if (!file) return;
 			await saveProjectCommand({
 				type: "saveDefinition",
 				projectId: props.plugin.file.projectId,
@@ -51,51 +52,34 @@ export function PluginLibraryDialog(props: {
 			await library.refetch();
 			await content.refetch();
 			setSaved(true);
-		} catch (error) {
-			setError(String(error));
-		} finally {
-			setSaving(false);
-		}
-	}
+		});
+
 	const [selected, setSelected] = createSignal<string | null>(null);
 	const [review, setReview] = createSignal<PluginReview | null>(null);
-	const [reviewing, setReviewing] = createSignal(false);
-	const [error, setError] = createSignal("");
-	const library = useBackgroundQuery(
-		() => ({
-			queryKey: ["plugin-library", props.plugin.file.id],
-			queryFn: () => readPluginLibrary(props.plugin.file.id),
-		}),
-		() => queryClient,
-	);
+	const reviewing = saving;
+	const library = useBackgroundQuery(() => ({
+		queryKey: ["plugin-library", props.plugin.file.id],
+		queryFn: () => readPluginLibrary(props.plugin.file.id),
+	}));
 	const path = () =>
 		selected() ??
 		(props.plugin.file.error ? "plugin.json" : undefined) ??
 		library.data?.files.find((file) => /^readme\.md$/i.test(file.path))?.path;
-	const content = useBackgroundQuery(
-		() => ({
-			queryKey: [
-				"plugin-library-file",
-				props.plugin.file.id,
-				path(),
-				library.data?.files.find((file) => file.path === path())?.sourceHash,
-			],
-			enabled: !!path(),
-			queryFn: () => readPluginTextFile(props.plugin.file.id, path()!),
-		}),
-		() => queryClient,
-	);
-	async function openReview() {
-		setReviewing(true);
-		setError("");
-		try {
+	const content = useBackgroundQuery(() => ({
+		queryKey: [
+			"plugin-library-file",
+			props.plugin.file.id,
+			path(),
+			library.data?.files.find((file) => file.path === path())?.sourceHash,
+		],
+		enabled: !!path(),
+		queryFn: () => readPluginTextFile(props.plugin.file.id, path()!),
+	}));
+	const openReview = () =>
+		run(async () => {
 			setReview(await reviewProjectPlugin(props.plugin.file.id));
-		} catch (error) {
-			setError(String(error));
-		} finally {
-			setReviewing(false);
-		}
-	}
+		});
+
 	const selectedTool = () =>
 		(projects.catalog()?.tools ?? []).find(
 			(tool) =>

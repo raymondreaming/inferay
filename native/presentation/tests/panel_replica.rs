@@ -1,10 +1,14 @@
-use inferay_presentation::panels::{PanelReplica, normalize};
+use inferay_presentation::panels::{PanelReplica, PanelSession};
 use serde_json::{Value, json};
 
 fn select(replica: &mut PanelReplica, sequence: u32, id: &str) -> Value {
     let action = json!({"type":"selectGraph","id":id,"orderedIds":[]}).to_string();
     let current = replica
-        .load("repo", u32::MAX, &normalize(&Value::Null).to_string())
+        .load(
+            "repo",
+            u32::MAX,
+            &json!(PanelSession::read(&Value::Null)).to_string(),
+        )
         .unwrap();
     let result: Value = serde_json::from_str(
         &replica
@@ -26,7 +30,11 @@ fn settle(replica: &mut PanelReplica, sequence: u32, session: Option<Value>) -> 
 fn load(replica: &mut PanelReplica, revision: u32) -> Value {
     serde_json::from_str(
         &replica
-            .load("repo", revision, &normalize(&Value::Null).to_string())
+            .load(
+                "repo",
+                revision,
+                &json!(PanelSession::read(&Value::Null)).to_string(),
+            )
             .unwrap(),
     )
     .unwrap()

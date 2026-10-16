@@ -100,11 +100,16 @@ fn chat_context_reads_current_files_and_does_not_guess_shared_repository_ownersh
             .unwrap();
         store
             .command(
-                ProjectFileCommand::LinkRepository {
-                    project_id: id.clone(),
-                    repository_id: repo,
-                    expected_project_hash: saved["sourceHash"].as_str().unwrap().into(),
-                    path: repository.path().to_string_lossy().into(),
+                ProjectFileCommand::SaveProject {
+                    definition: serde_json::from_slice(
+                        &std::fs::read(root.path().join("projects").join(&id).join("project.json"))
+                            .unwrap(),
+                    )
+                    .unwrap(),
+                    expected_hash: Some(saved["sourceHash"].as_str().unwrap().into()),
+                    repository_paths: [(repo, repository.path().to_string_lossy().into())]
+                        .into_iter()
+                        .collect(),
                 },
                 true,
                 &[],
@@ -200,13 +205,20 @@ fn point_proof_uses_native_validation_bindings_and_approval_inputs() {
     let repository = tempfile::tempdir().unwrap();
     store
         .command(
-            ProjectFileCommand::LinkRepository {
-                project_id: PROJECT.into(),
-                repository_id: "49e00196-55b9-58ff-b970-c626c85392bb".into(),
-                expected_project_hash: crate::project_store::hash(
+            ProjectFileCommand::SaveProject {
+                definition: serde_json::from_slice(
                     &std::fs::read(root.join("project.json")).unwrap(),
-                ),
-                path: repository.path().display().to_string(),
+                )
+                .unwrap(),
+                expected_hash: Some(crate::project_store::hash(
+                    &std::fs::read(root.join("project.json")).unwrap(),
+                )),
+                repository_paths: [(
+                    "49e00196-55b9-58ff-b970-c626c85392bb".into(),
+                    repository.path().display().to_string(),
+                )]
+                .into_iter()
+                .collect(),
             },
             true,
             &[],
@@ -214,6 +226,41 @@ fn point_proof_uses_native_validation_bindings_and_approval_inputs() {
         .unwrap();
     let before =
         crate::project_index::execution_inputs(&store.db, profile.path(), AUTOMATION, &[]).unwrap();
+    store
+        .command(
+            ProjectFileCommand::ApproveAutomation {
+                id: AUTOMATION.into(),
+                expected_inputs_hash: crate::project_store::hash(
+                    &serde_json::to_vec(&before).unwrap(),
+                ),
+                enable: true,
+            },
+            true,
+            &[],
+        )
+        .unwrap();
+    let bytes = std::fs::read(root.join("project.json")).unwrap();
+    store
+        .command(
+            ProjectFileCommand::SaveProject {
+                definition: serde_json::from_slice(&bytes).unwrap(),
+                expected_hash: Some(crate::project_store::hash(&bytes)),
+                repository_paths: [(
+                    "49e00196-55b9-58ff-b970-c626c85392bb".into(),
+                    repository.path().display().to_string(),
+                )]
+                .into_iter()
+                .collect(),
+            },
+            true,
+            &[],
+        )
+        .unwrap();
+    assert!(
+        crate::project_index::approved_inputs(&store.db, profile.path(), AUTOMATION, true, &[])
+            .is_ok(),
+        "Saving an unchanged binding must preserve approval"
+    );
     assert_eq!(before["automation"]["trigger"]["times"], json!(["08:00"]));
     assert_eq!(
         before["automation"]["trigger"]["timezone"],
@@ -547,5 +594,161 @@ fn existing_profile_migrates_and_rebuilds_in_disposable_copy() {
         original_jobs.len(),
         actual_history.len(),
         migrated.len()
+    );
+}
+
+#[test]
+fn project_save_validates_folders_before_membership_and_prunes_removed_bindings() {
+    let profile = tempfile::tempdir().unwrap();
+    let checkout = tempfile::tempdir().unwrap();
+    let mut store = FileProjectStore::open(profile.path(), &[]).unwrap();
+    let id = uuid::Uuid::new_v4().to_string();
+    let repo = uuid::Uuid::new_v4().to_string();
+    let definition: ProjectDefinition = serde_json::from_value(json!({
+        "schema":"inferay.project/1", "id":id, "name":"Project", "description":"", "instructions":"",
+        "repositories":[{"id":repo,"name":"Checkout"}]
+    })).unwrap();
+    let command = |definition: ProjectDefinition, expected_hash: Option<String>, path: String| {
+        ProjectFileCommand::SaveProject {
+            definition,
+            expected_hash,
+            repository_paths: [(repo.clone(), path)].into_iter().collect(),
+        }
+    };
+    assert!(
+        store
+            .command(
+                command(
+                    definition.clone(),
+                    None,
+                    profile.path().join("missing").display().to_string()
+                ),
+                true,
+                &[]
+            )
+            .is_err()
+    );
+    assert!(
+        !profile
+            .path()
+            .join("projects")
+            .join(&id)
+            .join("project.json")
+            .exists()
+    );
+    let path = checkout
+        .path()
+        .canonicalize()
+        .unwrap()
+        .display()
+        .to_string();
+    let saved = store
+        .command(command(definition.clone(), None, path.clone()), true, &[])
+        .unwrap();
+    let hash = saved["sourceHash"].as_str().unwrap().to_owned();
+    assert_eq!(
+        store.catalog(Some(&id), &[]).unwrap().repository_paths[&repo],
+        path
+    );
+    let mut renamed = definition.clone();
+    renamed.name = "Changed".into();
+    assert!(
+        store
+            .command(
+                command(renamed, Some(hash.clone()), "/does-not-exist".into()),
+                true,
+                &[]
+            )
+            .is_err()
+    );
+    assert_eq!(
+        store.catalog(Some(&id), &[]).unwrap().projects[0]
+            .definition
+            .as_ref()
+            .unwrap()
+            .name,
+        "Project"
+    );
+    assert!(
+        store
+            .command(
+                command(definition.clone(), Some("stale".into()), path.clone()),
+                true,
+                &[]
+            )
+            .is_err()
+    );
+    let mut duplicate = definition.clone();
+    let other = uuid::Uuid::new_v4().to_string();
+    duplicate
+        .repositories
+        .push(inferay_core::project_files::RepositoryDefinition {
+            id: other.clone(),
+            name: "Duplicate".into(),
+            remote: None,
+        });
+    assert!(
+        store
+            .command(
+                ProjectFileCommand::SaveProject {
+                    definition: duplicate,
+                    expected_hash: Some(hash.clone()),
+                    repository_paths: [(other, path.clone())].into_iter().collect()
+                },
+                true,
+                &[]
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("already linked")
+    );
+    let again = store
+        .command(
+            command(definition.clone(), Some(hash.clone()), path),
+            true,
+            &[],
+        )
+        .unwrap();
+    assert_eq!(saved, again, "No-op saves preserve the definition hash");
+    assert_eq!(
+        store.catalog(Some(&id), &[]).unwrap().projects[0]
+            .definition
+            .as_ref()
+            .unwrap()
+            .repositories
+            .len(),
+        1
+    );
+    let mut empty = definition;
+    empty.repositories.clear();
+    store
+        .command(
+            ProjectFileCommand::SaveProject {
+                definition: empty,
+                expected_hash: Some(hash),
+                repository_paths: Default::default(),
+            },
+            true,
+            &[],
+        )
+        .unwrap();
+    assert!(
+        store
+            .catalog(Some(&id), &[])
+            .unwrap()
+            .repository_paths
+            .is_empty()
+    );
+    assert_eq!(
+        store
+            .db
+            .query_row("SELECT count(*) FROM repository_paths", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert!(
+        checkout.path().is_dir(),
+        "Removing membership never deletes the checkout"
     );
 }

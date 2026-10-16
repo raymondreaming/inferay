@@ -68,7 +68,7 @@ pub(crate) fn migrate(db: &Connection, root: &Path) -> Result<()> {
                 )?;
                 if container == "plugins" {
                     fs::create_dir_all(directory.join("automations"))?;
-                    files::rename_directory(&source, &destination)?;
+                    files::publish_directory(&source, &destination, files::Publication::Create)?;
                 }
                 let old_file = destination.join("automations").join(format!("{id}.json"));
                 let new_file = destination.join("automation.json");

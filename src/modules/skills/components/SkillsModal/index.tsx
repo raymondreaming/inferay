@@ -4,7 +4,6 @@ import { useBackgroundQuery as useQuery } from "@shared/hooks/useQueryResource.t
 import {
 	listenWindowEvent,
 	OPEN_SKILLS_EVENT,
-	queryClient,
 	type SkillsTarget,
 } from "@shared/lib/dom.tsx";
 import { SkillDialogReplica } from "@shared/lib/native.tsx";
@@ -63,7 +62,7 @@ export function SkillsDialog(_props: {
 	const model = untrack(
 		() => new SkillDialogReplica(JSON.stringify(_props.target)),
 	);
-	const query = useQuery(skillsQuery, () => queryClient);
+	const query = useQuery(skillsQuery);
 	const [search, setSearch] = createSignal("");
 	const [revision, setRevision] = createSignal(0);
 	const read = (): SkillDialogView => JSON.parse(model.snapshot(search()));

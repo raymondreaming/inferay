@@ -6,8 +6,6 @@ import { DocumentTab } from "./DocumentTab.tsx";
 import { styles } from "./styles.ts";
 export function DocumentTabs(_props: {
 	activePath: string | null;
-	onFileTabDragStart: boolean;
-	startFileTabDrag: (event: PointerEvent, file: FileContent) => void;
 	setActivePath: (path: string) => void;
 	closeFile: (path: string) => void;
 	openFiles: FileContent[];
@@ -22,8 +20,6 @@ export function DocumentTabs(_props: {
 					{(file) => (
 						<DocumentTab
 							activePath={_props.activePath}
-							onFileTabDragStart={Boolean(_props.onFileTabDragStart)}
-							startFileTabDrag={_props.startFileTabDrag}
 							setActivePath={_props.setActivePath}
 							closeFile={_props.closeFile}
 							file={file()}

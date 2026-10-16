@@ -1,130 +1,69 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { project } from "../../src/shared/lib/native.tsx";
 
-test("Command arrows wrap repository tabs from the graph and clean chat-only views", () => {
+test("Command arrows switch project tabs and leave editing and dialogs alone", () => {
 	const source = readFileSync(
 		new URL(
-			"../../src/modules/workspace/components/RepositoryWorkspaceBar/RepositoryWorkspaceTabs.tsx",
+			"../../src/modules/workspace/components/RepositoryWorkspaceBar/index.tsx",
 			import.meta.url,
 		),
 		"utf8",
 	);
+	const start = source.indexOf("const switchProject =");
 	const code = new Bun.Transpiler({ loader: "ts" }).transformSync(
-		source.slice(
-			source.indexOf("let tabList:"),
-			source.indexOf("\n\tconst tabsProps ="),
-		),
+		source.slice(start, source.indexOf("\n\t\twindow.addEventListener", start)),
 	);
-	const tabs = [{ cwd: "/one" }, { cwd: "/two" }, { cwd: "/three" }];
-	let activePath = "/one";
-	let handler!: (event: object) => void;
-	let capture = false;
-	let cleanup = () => {};
+	let active = "one";
+	let dialog = false;
+	const tabs = [
+		{ id: "one", archived: false },
+		{ id: "old", archived: true },
+		{ id: "two", archived: false },
+		{ id: "three", archived: false },
+	];
 	class Target {
-		isContentEditable = false;
-		constructor(private editable = false) {}
-		closest(selector: string) {
-			return this.editable && selector.includes("input") ? this : null;
+		constructor(private editing = false) {}
+		closest() {
+			return this.editing ? this : null;
 		}
 	}
-	const dependencies = {
-		project,
-		repositoryKeyboardInput: (event: KeyboardEvent) => ({
-			key: event.key,
-			meta: event.metaKey,
-			ctrl: event.ctrlKey,
-			alt: event.altKey,
-			shift: event.shiftKey,
-			repeat: event.repeat,
-			blocked: event.defaultPrevented,
-		}),
-		HTMLElement: Target,
-		props: {
-			get activePath() {
-				return activePath;
-			},
-			tabDrag: { ordered: () => tabs },
-			onActivate: (tab: { cwd: string }) => {
-				activePath = tab.cwd;
-			},
+	const press = new Function(
+		"projects",
+		"selectProject",
+		"Element",
+		"document",
+		`${code}; return switchProject;`,
+	)(
+		{ list: () => tabs, selectedId: () => active },
+		(id: string) => {
+			active = id;
 		},
-		onSettled: (callback: () => () => void) => {
-			cleanup = callback();
-		},
-		window: {
-			addEventListener: (
-				_type: string,
-				callback: typeof handler,
-				capturing: boolean,
-			) => {
-				handler = callback;
-				capture = capturing;
-			},
-			removeEventListener: (
-				_type: string,
-				callback: typeof handler,
-				capturing: boolean,
-			) => {
-				expect(callback).toBe(handler);
-				expect(capturing).toBe(true);
-			},
-		},
-	};
-	new Function(...Object.keys(dependencies), code)(
-		...Object.values(dependencies),
+		Target,
+		{ querySelector: () => (dialog ? {} : null) },
 	);
-	const press = (key: string, editable = false, metaKey = true) => {
+	const key = (key: string, editing = false, metaKey = true) => {
 		let prevented = false;
-		let stopped = false;
-		handler({
+		press({
 			key,
 			metaKey,
-			target: new Target(editable),
+			target: new Target(editing),
 			preventDefault() {
 				prevented = true;
 			},
-			stopPropagation() {
-				stopped = true;
-			},
+			stopPropagation() {},
 		});
-		return { prevented, stopped };
+		return prevented;
 	};
-	try {
-		expect(capture).toBe(true);
-		expect(press("ArrowRight")).toEqual({ prevented: true, stopped: true });
-		expect(activePath).toBe("/two");
-		press("ArrowRight");
-		press("ArrowRight");
-		expect(activePath).toBe("/one");
-		press("ArrowLeft");
-		expect(activePath).toBe("/three");
-		// A clean repository with the graph hidden focuses its chat composer.
-		expect(press("ArrowRight", true)).toEqual({
-			prevented: true,
-			stopped: true,
-		});
-		expect(activePath).toBe("/one");
-		press("ArrowLeft", true);
-		expect(activePath).toBe("/three");
-		expect(press("ArrowRight", false, false)).toEqual({
-			prevented: false,
-			stopped: false,
-		});
-		expect(activePath).toBe("/three");
-		activePath = "/missing";
-		press("ArrowRight");
-		expect(activePath).toBe("/one");
-		activePath = "/missing";
-		press("ArrowLeft");
-		expect(activePath).toBe("/three");
-		tabs.splice(1);
-		activePath = "/one";
-		expect(press("ArrowRight")).toEqual({ prevented: true, stopped: true });
-		expect(activePath).toBe("/one");
-		tabs.splice(0);
-		expect(press("ArrowLeft")).toEqual({ prevented: true, stopped: true });
-	} finally {
-		cleanup();
-	}
+	expect(key("ArrowRight")).toBe(true);
+	expect(active).toBe("two");
+	key("ArrowRight");
+	key("ArrowRight");
+	expect(active).toBe("one");
+	key("ArrowLeft");
+	expect(active).toBe("three");
+	expect(key("ArrowRight", true)).toBe(false);
+	expect(key("ArrowRight", false, false)).toBe(false);
+	dialog = true;
+	expect(key("ArrowRight")).toBe(false);
+	expect(active).toBe("three");
 });

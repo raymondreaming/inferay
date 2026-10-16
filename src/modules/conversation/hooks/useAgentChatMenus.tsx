@@ -44,45 +44,30 @@ export function useAgentChatMenus(
 		query: "",
 		index: -1,
 	});
-	const _source = useQueryResource(
-		() => {
-			const kind = _options().agentKind;
-			return (signal) => loadAgentCommands(kind, signal);
-		},
-		() => getAgentDefinition(_options().agentKind).commands,
-		() => {
-			const _optionsValue = _options();
-			return {
-				queryKey: ["skills", "commands", _optionsValue.agentKind],
-				enabled: enabled(),
-			};
-		},
-	);
-	const _source2 = useQueryResource(
-		() => {
-			const cwd = _options().cwd;
-			const query = fileMenu().query;
-			return async (signal) => {
+	const _source = useQueryResource(() => {
+		const kind = _options().agentKind;
+		return {
+			queryKey: ["skills", "commands", kind],
+			queryFn: ({ signal }) => loadAgentCommands(kind, signal),
+			initialData: getAgentDefinition(kind).commands,
+			enabled: enabled(),
+		};
+	});
+	const _source2 = useQueryResource<FileSearchResult[]>(() => {
+		const cwd = _options().cwd;
+		const { query, show } = fileMenu();
+		return {
+			queryKey: ["file-completion", cwd ?? "", query],
+			queryFn: async ({ signal }) => {
 				await new Promise((resolve) => setTimeout(resolve, 150));
-				signal?.throwIfAborted();
+				signal.throwIfAborted();
 				return searchChatFiles(query, cwd, signal);
-			};
-		},
-		() => [] as FileSearchResult[],
-		() => {
-			const _optionsValue3 = _options(),
-				_fileMenuValue = fileMenu();
-			return {
-				queryKey: [
-					"file-completion",
-					_optionsValue3.cwd ?? "",
-					_fileMenuValue.query,
-				],
-				enabled: enabled() && _fileMenuValue.show,
-				gcTime: 0,
-			};
-		},
-	);
+			},
+			initialData: [],
+			enabled: enabled() && show,
+			gcTime: 0,
+		};
+	});
 	const slashCommandNames = createMemo(() =>
 		_source.data.map((command) => command.name),
 	);

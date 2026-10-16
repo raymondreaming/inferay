@@ -87,33 +87,91 @@ fn retained_workspaces_evict_only_inactive_views() {
 }
 #[test]
 fn panel_transitions_preserve_historical_context_and_validate_commands() {
-    let mut session = panels::normalize(&Value::Null);
-    panels::apply_action(&mut session, &json!({"type":"openGraph","cwd":"/repo"}), 10).unwrap();
-    panels::apply_action(
-        &mut session,
-        &json!({"type":"selectGraph","id":"a","orderedIds":["a","b","c"]}),
+    use panels::{MainView, PanelAction, PanelSession, SelectionIntent};
+    let mut session = PanelSession::read(&Value::Null);
+    session.apply(
+        PanelAction::OpenGraph {
+            cwd: "/repo".into(),
+            reset: None,
+        },
+        10,
+    );
+    session.apply(
+        PanelAction::SelectGraph {
+            id: Some("a".into()),
+            ordered_ids: vec![],
+            intent: None,
+        },
         11,
-    )
-    .unwrap();
-    panels::apply_action(&mut session,&json!({"type":"selectGraph","id":"c","orderedIds":["a","b","c"],"intent":{"range":true,"additive":false}}),12).unwrap();
-    assert_eq!(session["selectedCommitIds"], json!(["a", "b", "c"]));
-    panels::apply_action(&mut session,&json!({"type":"commitFile","cwd":"/repo","path":"a.rs","commitHash":"a","commitParent":null}),13).unwrap();
-    session = panels::normalize(&session);
-    assert_eq!(session["historicalDiff"], true);
-    assert_eq!(session["graphDrillIn"], true);
-    let _: panels::PanelSession = serde_json::from_value(session.clone()).unwrap();
-    panels::apply_action(&mut session, &json!({"type":"dismissDiff"}), 14).unwrap();
-    assert_eq!(session["mainViewMode"], "graph");
-    let before = session.clone();
+    );
+    session.apply(
+        PanelAction::SelectGraph {
+            id: Some("c".into()),
+            ordered_ids: ["a", "b", "c"].map(str::to_owned).into(),
+            intent: Some(SelectionIntent {
+                range: true,
+                additive: false,
+            }),
+        },
+        12,
+    );
+    assert_eq!(session.selected_commit_ids, ["a", "b", "c"]);
+    session.apply(
+        PanelAction::CommitFile {
+            cwd: "/repo".into(),
+            path: "a.rs".into(),
+            commit_hash: "a".into(),
+            commit_parent: None,
+        },
+        13,
+    );
+    assert!(session.presentation().historical_diff);
+    assert!(session.presentation().graph_drill_in);
+    assert!(json!(session).get("historicalDiff").is_none());
+    session.apply(PanelAction::DismissDiff, 14);
+    assert_eq!(session.main_view_mode, MainView::Graph);
+    assert!(!session.presentation().historical_diff);
     assert!(
-        panels::apply_action(
-            &mut session,
-            &json!({"type":"commitFile","path":"a.rs"}),
-            15
+        project(
+            "panelPreview",
+            &json!({"session":session,
+        "action":{"type":"commitFile","path":"a.rs"},"now":15})
         )
         .is_err()
     );
-    assert_eq!(session, before);
+}
+
+#[test]
+fn saved_panels_migrate_diff_sources_and_restore_valid_documents() {
+    let saved = json!({
+        "mainViewMode":"graph", "selectedCommitHash":"a",
+        "selectedFile":{"path":"a.rs","staged":false}, "selectedFileCommitHash":"old",
+        "fileRequest":{"path":"a.rs"},
+        "detachedFilePanels":[{"id":"old-panel","cwd":"/repo","path":"a.rs","initialFile":{"content":"discard"}}, {"id":2}],
+        "documentSessions":{"old-panel":{"cwd":"/repo","activePath":"a.rs","paths":["a.rs","b.rs"]}},
+        "historicalDiff":true
+    });
+    let mut session = panels::PanelSession::read(&saved);
+    assert!(session.repository_initialized && session.graph_visible && session.sidebar_visible);
+    assert_eq!(session.selected_commit_ids, ["a"]);
+    assert_eq!(session.detached_file_panels.len(), 1);
+    assert_eq!(session.file_request.as_ref().unwrap().token, 0);
+    assert_eq!(
+        session.document_sessions["old-panel"].paths,
+        ["a.rs", "b.rs"]
+    );
+    assert!(
+        matches!(session.selected_file.as_ref().unwrap().source, panels::DiffSource::Commit { ref commit_hash, .. } if commit_hash == "old")
+    );
+    assert!(!session.presentation().historical_diff);
+    session.apply(
+        panels::PanelAction::CloseFile {
+            id: "old-panel".into(),
+        },
+        1,
+    );
+    assert!(session.detached_file_panels.is_empty());
+    assert_eq!(panels::PanelSession::read(&json!(session)), session);
 }
 #[test]
 fn transcript_rejects_gaps_wrong_epochs_and_invalid_append_targets() {

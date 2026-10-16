@@ -61,7 +61,6 @@ test("repeated selection does not queue persistence ahead of new chat creation",
 	const selections = Array.from({ length: 12 }, () =>
 		workspace.mutateAgentWorkspaceState({
 			type: "selectPane",
-			groupId: "g",
 			paneId: "a",
 		}),
 	);
@@ -115,7 +114,6 @@ test("selection after queued creation is preserved even when it matches the old 
 	await started.promise;
 	const selecting = workspace.mutateAgentWorkspaceState({
 		type: "selectPane",
-		groupId: "g",
 		paneId: "a",
 	});
 	created.resolve();

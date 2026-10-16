@@ -6,6 +6,7 @@ import { Modal } from "@shared/ui/Modal/index.tsx";
 import { TextInput } from "@shared/ui/TextInput/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createSignal, For } from "solid-js";
+import { useProjectAction } from "../../hooks/useProjects.tsx";
 import {
 	changeProjectConnection,
 	loadProjectConnections,
@@ -19,26 +20,19 @@ export function ConnectionsDialog(props: {
 	const [editing, setEditing] = createSignal<ConnectionInfo | null>(null);
 	const [name, setName] = createSignal("");
 	const [secret, setSecret] = createSignal("");
-	const [pending, setPending] = createSignal(false);
-	const [error, setError] = createSignal("");
+	const { busy: pending, error, run } = useProjectAction();
 	const [removing, setRemoving] = createSignal<string | null>(null);
-	const connections = useBackgroundQuery(
-		() => ({
-			queryKey: ["project-connections", props.projectId],
-			queryFn: () => loadProjectConnections(props.projectId),
-		}),
-		() => queryClient,
-	);
+	const connections = useBackgroundQuery(() => ({
+		queryKey: ["project-connections", props.projectId],
+		queryFn: () => loadProjectConnections(props.projectId),
+	}));
 	const clear = () => {
 		setEditing(null);
 		setName("");
 		setSecret("");
 	};
 	async function save() {
-		if (pending()) return;
-		setPending(true);
-		setError("");
-		try {
+		await run(async () => {
 			await changeProjectConnection({
 				action: "save",
 				projectId: props.projectId,
@@ -51,16 +45,10 @@ export function ConnectionsDialog(props: {
 			await queryClient.invalidateQueries({
 				queryKey: ["project-connections", props.projectId],
 			});
-		} catch (error) {
-			setError(String(error));
-		} finally {
-			setPending(false);
-		}
+		});
 	}
 	async function remove(connection: ConnectionInfo) {
-		setPending(true);
-		setError("");
-		try {
+		await run(async () => {
 			await changeProjectConnection({
 				action: "delete",
 				projectId: props.projectId,
@@ -72,11 +60,7 @@ export function ConnectionsDialog(props: {
 			await queryClient.invalidateQueries({
 				queryKey: ["project-connections", props.projectId],
 			});
-		} catch (error) {
-			setError(String(error));
-		} finally {
-			setPending(false);
-		}
+		});
 	}
 	return (
 		<Modal

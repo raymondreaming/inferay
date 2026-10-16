@@ -60,6 +60,18 @@ Project ─┬─ Repositories (linked, never copied)
 
 **Run vs effect.** A run does work inside the project and its linked repositories. Automation agents use provider sandbox settings for filesystem and network limits; local tools use an OS sandbox. Local tools additionally require `commit` for Git metadata changes. Enforcement is partial: read isolation, provider-shell commit control, and separate push and PR permissions remain unfinished. See [architecture.md](architecture.md#provider-runner). An effect is a core-mediated external action with an approved budget, durable intent and receipt. Runs can propose effect intents for review and dismissal; nothing is delivered yet, because handler binding, delivery approval and the delivery worker are not implemented.
 
+## Managing repositories
+
+Manage repositories opens a compact dialog for the current project. Selecting a folder links it immediately; Remove unlinks it immediately without deleting files. There is no separate save step. Repositories used by automations show those automation names and cannot be removed until those references are changed. Project details and archiving remain in Edit project. Repository management can change a local folder binding while preserving the repository ID used by automations. Select a dependent automation in the dialog to edit its repository references before removing that repository. Changes save automatically; close the dialog with ×.
+
+Chat titles use the provider’s thread name when available (including Codex name updates), with the first user message as the fallback. Naming a chat does not launch a separate Claude request. Saved provider-error titles are repaired from the transcript when the workspace loads, including unopened chats.
+
+## Project navigation
+
+During an app session, each project tab remembers its last section, active conversation, and selected repository. Switching projects restores that location; a project opened for the first time starts in Chat. Clicking the active project tab keeps the current page. ⌘← and ⌘→ switch between project tabs in their displayed order, wrapping at either end. Text fields retain their normal cursor shortcuts, and dialogs suspend tab switching.
+
+Chats use the grid layout. The sidebar’s New chat action sits beside the Chats heading; layout controls are currently hidden. Press ⌘K (Ctrl+K on other keyboards) to open the command palette, where New chat is the first action.
+
 ## Reviewing run output
 
 History retains a run's result, logs and artifacts. Open a text report, image or video directly from its artifact button. Videos have playback and seeking controls, with a 50 MB preview limit and codec support determined by the browser or desktop webview.

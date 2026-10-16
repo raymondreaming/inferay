@@ -147,7 +147,7 @@ async fn unsupported_server_requests_receive_replies_during_startup_and_turns() 
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(10),
         run_codex(
-            CodexRun {
+            ProviderRun {
                 binary: &f.binary,
                 invocation: &invocation,
                 env: &env,
@@ -177,7 +177,7 @@ async fn failed_resume_does_not_silently_start_a_new_thread() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let env = HashMap::new();
     run_codex(
-        CodexRun {
+        ProviderRun {
             binary: &f.binary,
             invocation: &invocation,
             env: &env,
@@ -210,7 +210,7 @@ async fn interrupt_terminates_a_server_that_never_completes_the_turn() {
     tokio::time::timeout(std::time::Duration::from_secs(10), async {
         tokio::join!(
             run_codex(
-                CodexRun {
+                ProviderRun {
                     binary: &f.binary,
                     invocation: &invocation,
                     env: &env,
@@ -257,7 +257,7 @@ async fn notifications_do_not_reset_the_rpc_deadline() {
     tokio::time::timeout(
         std::time::Duration::from_secs(30),
         run_codex(
-            CodexRun {
+            ProviderRun {
                 binary: &f.binary,
                 invocation: &invocation,
                 env: &env,
@@ -410,7 +410,7 @@ supports_websockets = false
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(60),
         run_codex(
-            CodexRun {
+            ProviderRun {
                 binary: &binary,
                 prompt: "Execute the supplied tool probe.",
                 invocation: &invocation,
@@ -630,15 +630,20 @@ async fn installed_claude_refuses_native_file_and_shell_tools_in_automation_poli
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(60),
         run_claude(
-            ClaudeRun {
+            ProviderRun {
                 binary: &binary,
                 prompt: "Execute the supplied tool probe.",
-                developer_instructions: Some("INFERAY_APPROVED_CONTEXT_41931"),
-                cwd: &work,
-                model: Some("haiku"),
-                session_id: None,
+                invocation: &CodexInvocationContext {
+                    cwd: work.clone(),
+                    reference_paths: vec![],
+                    images: vec![],
+                    model: Some("haiku".into()),
+                    reasoning_level: None,
+                    developer_instructions: Some("INFERAY_APPROVED_CONTEXT_41931".into()),
+                    session_id: None,
+                    mcp_servers: Some(vec![]),
+                },
                 env: &env,
-                mcp_servers: Some(&[]),
             },
             &handle,
             &mut context,

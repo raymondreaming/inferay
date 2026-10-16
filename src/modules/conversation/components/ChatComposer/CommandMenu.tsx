@@ -1,15 +1,14 @@
 import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
-import { openSkills } from "@shared/lib/dom.tsx";
-import { IconPlus } from "@shared/ui/Icons/index.tsx";
+import { ariaValue, openSkills } from "@shared/lib/dom.tsx";
+import { IconPencil, IconPlus } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { For } from "solid-js";
-import { CommandMenuRow } from "./CommandMenuRow.tsx";
+import type { useAgentChatMenus } from "../../hooks/useAgentChatMenus.tsx";
 import { styles } from "./styles.ts";
-import type { useChatComposerState } from "./useChatComposerState.tsx";
 
 export function CommandMenu(
 	_props: Pick<
-		ReturnType<typeof useChatComposerState>,
+		ReturnType<typeof useAgentChatMenus>,
 		"filteredCommands" | "slashMenu" | "selectCommand" | "setSlashMenu"
 	>,
 ) {
@@ -25,13 +24,56 @@ export function CommandMenu(
 				{
 					<For each={_props.filteredCommands} keyed={(row) => row.name}>
 						{(command, idx) => (
-							<CommandMenuRow
-								command={command()}
-								index={idx()}
-								selected={idx() === _props.slashMenu.selectedIdx}
-								selectCommand={_props.selectCommand}
-								setSlashMenu={_props.setSlashMenu}
-							/>
+							<div {...stylex.attrs(styles.commandRowWrap)}>
+								<button
+									type="button"
+									onClick={() => _props.selectCommand(idx())}
+									onMouseEnter={() =>
+										_props.setSlashMenu((prev) =>
+											prev.selectedIdx === idx()
+												? prev
+												: {
+														...prev,
+														selectedIdx: idx(),
+													},
+										)
+									}
+									{...stylex.attrs(
+										styles.commandRow,
+										idx() === _props.slashMenu.selectedIdx &&
+											styles.commandRowActive,
+									)}
+								>
+									<span {...stylex.attrs(styles.commandTitleLine)}>
+										<span {...stylex.attrs(styles.commandName)}>
+											/{command().name}
+										</span>
+										{command().isLocalCommand && (
+											<span {...stylex.attrs(styles.commandBadge)}>Native</span>
+										)}
+									</span>
+								</button>
+								{command().isFromLibrary && command().id && (
+									<button
+										type="button"
+										title={`Edit /${command().name}`}
+										aria-label={ariaValue(`Edit /${command().name}`)}
+										onClick={() => {
+											_props.setSlashMenu((prev) => ({
+												...prev,
+												show: false,
+											}));
+											openSkills({
+												mode: "edit",
+												skillId: command().id!,
+											});
+										}}
+										{...stylex.attrs(styles.commandEdit)}
+									>
+										<IconPencil size={iconSize.sm} />
+									</button>
+								)}
+							</div>
 						)}
 					</For>
 				}

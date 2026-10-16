@@ -49,34 +49,29 @@ export function DefinitionChanges(props: {
 							</span>
 						</summary>
 						<div {...stylex.attrs(styles.changeColumns)}>
-							{file().previousHash && file().hash !== file().previousHash && (
-								<div {...stylex.attrs(styles.changeVersion)}>
-									<strong {...stylex.attrs(styles.muted)}>
-										{props.beforeLabel}
-									</strong>
-									<CardInstructions
-										label="View full file"
-										text={
-											file().previousContent ??
-											"Binary or large file · Content preview unavailable"
-										}
-									/>
-								</div>
-							)}
-							{file().hash && (
-								<div {...stylex.attrs(styles.changeVersion)}>
-									<strong {...stylex.attrs(styles.muted)}>
-										{props.afterLabel}
-									</strong>
-									<CardInstructions
-										label="View full file"
-										text={
-											file().content ??
-											"Binary or large file · Content preview unavailable"
-										}
-									/>
-								</div>
-							)}
+							{(["before", "after"] as const).map((version) => {
+								const before = version === "before";
+								const visible = () =>
+									before
+										? file().previousHash && file().hash !== file().previousHash
+										: file().hash;
+								return (
+									visible() && (
+										<div {...stylex.attrs(styles.changeVersion)}>
+											<strong {...stylex.attrs(styles.muted)}>
+												{before ? props.beforeLabel : props.afterLabel}
+											</strong>
+											<CardInstructions
+												label="View full file"
+												text={
+													(before ? file().previousContent : file().content) ??
+													"Binary or large file · Content preview unavailable"
+												}
+											/>
+										</div>
+									)
+								);
+							})}
 						</div>
 					</details>
 				)}

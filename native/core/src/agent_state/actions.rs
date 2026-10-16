@@ -83,23 +83,26 @@ impl Workspace {
                             2
                         }
                     })
-                    .map(|(group, pane)| SelectPane {
-                        group_id: group.id.clone(),
+                    .map(|(_, pane)| SelectPane {
                         pane_id: pane.id.clone(),
                     });
                 if let Some(target) = target {
                     self.apply_action(&target, default_kind)?;
                 }
             }
-            SelectWorkspace { group_id } | SelectPane { group_id, .. } => {
-                let group = self.group(group_id)?;
-                if let SelectPane { pane_id, .. } = action {
-                    if !group.panes.iter().any(|pane| &pane.id == pane_id) {
-                        return Err("Pane not found".into());
-                    }
-                    group.selected_pane_id = Some(pane_id.clone());
-                }
+            SelectWorkspace { group_id } => {
+                self.group(group_id)?;
                 self.selected_group_id = group_id.clone();
+                self.compact();
+            }
+            SelectPane { pane_id } => {
+                let group = self
+                    .groups
+                    .iter_mut()
+                    .find(|group| group.panes.iter().any(|pane| &pane.id == pane_id))
+                    .ok_or("Pane not found")?;
+                group.selected_pane_id = Some(pane_id.clone());
+                self.selected_group_id = group.id.clone();
                 self.compact();
             }
             AddWorkspace => {
@@ -147,20 +150,7 @@ impl Workspace {
                 self.group(&id)?.add(pane);
                 self.selected_group_id = id;
             }
-            RemovePane { group_id, pane_id } => {
-                self.remove_pane(group_id, pane_id, default_kind)?
-            }
-            ReorderPanes {
-                group_id,
-                from_index,
-                to_index,
-            } => {
-                let group = self.group(group_id)?;
-                if *from_index < group.panes.len() && *to_index < group.panes.len() {
-                    let pane = group.panes.remove(*from_index);
-                    group.panes.insert(*to_index, pane);
-                }
-            }
+            RemovePane { pane_id } => self.remove_pane(pane_id, default_kind)?,
             SetGridDimensions {
                 group_id,
                 columns,
@@ -186,25 +176,16 @@ impl Workspace {
                 self.theme_id = theme_id.clone();
             }
             DirectorySelected {
-                group_id,
                 pane_id,
                 path,
                 reference_paths,
             } => {
-                let pane = self.group_pane_mut(group_id, pane_id)?;
+                let pane = self.pane_mut(pane_id)?;
                 pane.cwd = path.clone();
                 pane.pending_cwd = false;
                 pane.reference_paths = reference_paths.clone().unwrap_or_default();
                 pane.pending_workspace_paths.clear();
                 pane.update_title();
-            }
-            SetPaneAgentKind {
-                group_id,
-                pane_id,
-                agent_kind,
-            } => {
-                let pane = self.group_pane_mut(group_id, pane_id)?;
-                pane.set_agent_kind(agent_kind.as_str());
             }
             ChangePaneAgentKind {
                 pane_id,
@@ -214,14 +195,6 @@ impl Workspace {
             }
         }
         Ok(())
-    }
-
-    fn group_pane_mut(&mut self, group_id: &str, pane_id: &str) -> Result<&mut Pane, String> {
-        self.group(group_id)?
-            .panes
-            .iter_mut()
-            .find(|pane| pane.id == pane_id)
-            .ok_or_else(|| "Pane not found".into())
     }
 }
 
@@ -234,7 +207,7 @@ impl Pane {
 }
 
 /// Shared by persisted actions and optimistic tab ordering.
-pub fn reorder_repositories(
+fn reorder_repositories(
     mut paths: Vec<String>,
     cwd: &str,
     before: Option<&str>,

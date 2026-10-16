@@ -31,12 +31,10 @@ declare global {
 }
 export const usesNativeGlass =
 	typeof window !== "undefined" && window.inferayNativeGlass === true;
-const APP_THEMES = catalog.themes;
 const APP_BACKGROUNDS = catalog.backgrounds;
 export const APP_FONTS = catalog.fonts;
 const DEFAULT_APP_BACKGROUND_SETTINGS = catalog.defaultBackground;
-export const getThemeById = (id: string) =>
-	(APP_THEMES.find((theme) => theme.id === id) ?? APP_THEMES[0]).theme;
+
 export function loadAppThemeId(): AppThemeId {
 	return "default";
 }

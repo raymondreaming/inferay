@@ -7,18 +7,12 @@ import * as stylex from "@stylexjs/stylex";
 import { styles } from "./styles.ts";
 export function DocumentTab(_props: {
 	activePath: string | null;
-	onFileTabDragStart: boolean;
-	startFileTabDrag: (event: PointerEvent, file: FileContent) => void;
 	setActivePath: (path: string) => void;
 	closeFile: (path: string) => void;
 	file: FileContent;
 }) {
 	return (
 		<div
-			data-workspace-dock-drag-source={
-				_props.onFileTabDragStart ? "true" : undefined
-			}
-			onPointerDown={(event) => _props.startFileTabDrag(event, _props.file)}
 			{...stylex.attrs(
 				styles.fileTab,
 				_props.file.path === _props.activePath && styles.fileTabActive,

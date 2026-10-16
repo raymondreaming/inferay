@@ -523,10 +523,18 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             ("/api/git/comparison-details", "GET" | "POST") => {
                 git_comparison_details(&state, request).await
             }
-            ("/api/git/stage", "POST") => git_stage_change(&state, request, true).await,
-            ("/api/git/unstage", "POST") => git_stage_change(&state, request, false).await,
-            ("/api/git/discard", "POST") => git_discard(&state, request).await,
-            ("/api/git/stash-file", "POST") => git_stash_file(&state, request).await,
+            ("/api/git/stage", "POST") => {
+                git_file_action(&state, request, GitFileAction::Stage).await
+            }
+            ("/api/git/unstage", "POST") => {
+                git_file_action(&state, request, GitFileAction::Unstage).await
+            }
+            ("/api/git/discard", "POST") => {
+                git_file_action(&state, request, GitFileAction::Discard).await
+            }
+            ("/api/git/stash-file", "POST") => {
+                git_file_action(&state, request, GitFileAction::Stash).await
+            }
             ("/api/git/commit", "POST") => git_commit(&state, request).await,
 
             ("/api/agent/commands", "GET") => state
@@ -642,7 +650,6 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
                 };
                 return api_http_response(response, &request_headers);
             }
-            ("/api/files/list", "GET") => list_project_files(&state, request).await,
             ("/api/workspace/documents", "POST") => {
                 workspace_panels::restore_documents(&state, request).await
             }
@@ -652,15 +659,6 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             ("/api/upload-temp", "POST") => upload_temp_file(&state, request).await,
             ("/api/projects/documents", "POST") => upload_project_document(&state, request).await,
             ("/api/projects/plugin-import", "POST") => upload_plugin_library(&state, request).await,
-            ("/api/projects/documents", "GET") => {
-                let id = query_value(&request, "projectId").unwrap_or_default();
-                state
-                    .projects
-                    .documents(id)
-                    .await
-                    .map(|v| json!(v))
-                    .map_err(|e| api_error(StatusCode::BAD_REQUEST, e.to_string()))
-            }
             ("/api/projects/document", "GET") => {
                 return api_http_response(
                     serve_project_document(&state, request).await,
@@ -849,6 +847,7 @@ async fn default_chat_kind(state: &ServerState) -> &'static str {
 }
 
 async fn initialize_agent_state(state: &ServerState, _request: Request) -> ApiResult {
+    state.chat_runtime.repair_saved_titles().await?;
     let kind = default_chat_kind(state).await;
     let value = state
         .agent_state_store
@@ -859,6 +858,7 @@ async fn initialize_agent_state(state: &ServerState, _request: Request) -> ApiRe
 }
 
 async fn get_agent_state(state: &ServerState, _request: Request) -> ApiResult {
+    state.chat_runtime.repair_saved_titles().await?;
     state
         .agent_state_store
         .lock()
@@ -1032,52 +1032,39 @@ async fn git_graph_action(state: &ServerState, request: Request) -> ApiResult {
         false,
     ))
 }
-async fn git_stage_change(state: &ServerState, request: Request, stage: bool) -> ApiResult {
+enum GitFileAction {
+    Stage,
+    Unstage,
+    Discard,
+    Stash,
+}
+
+async fn git_file_action(
+    state: &ServerState,
+    request: Request,
+    action: GitFileAction,
+) -> ApiResult {
     let body: GitFileBody = api_body(request).await?;
     let cwd = request_cwd(state, body.cwd.as_deref())?;
     let file = body.file.filter(|file| !file.is_empty());
     if file
         .as_deref()
         .is_some_and(|file| !is_safe_relative_path(file))
+        || (matches!(action, GitFileAction::Stash) && file.is_none())
     {
         return Err(api_error(StatusCode::BAD_REQUEST, "Invalid file parameter"));
     }
-    let success = tokio::task::spawn_blocking(move || {
-        if stage {
-            stage_git(&cwd, file.as_deref())
-        } else {
-            unstage_git(&cwd, file.as_deref())
+    let success = tokio::task::spawn_blocking(move || match action {
+        GitFileAction::Stage => Ok(stage_git(&cwd, file.as_deref())),
+        GitFileAction::Unstage => Ok(unstage_git(&cwd, file.as_deref())),
+        GitFileAction::Discard => discard_git(&cwd, body.staged, file.as_deref()).map(|()| true),
+        GitFileAction::Stash => {
+            stash_git_file(&cwd, file.as_deref().expect("validated file")).map(|()| true)
         }
     })
-    .await?;
+    .await?
+    .map_err(|error| api_error(StatusCode::CONFLICT, error))?;
     Ok(json!({"success":success}))
-}
-async fn git_discard(state: &ServerState, request: Request) -> ApiResult {
-    let body: GitFileBody = api_body(request).await?;
-    let cwd = request_cwd(state, body.cwd.as_deref())?;
-    let file = body.file.filter(|file| !file.is_empty());
-    if file
-        .as_deref()
-        .is_some_and(|file| !is_safe_relative_path(file))
-    {
-        return Err(api_error(StatusCode::BAD_REQUEST, "Invalid file parameter"));
-    }
-    tokio::task::spawn_blocking(move || discard_git(&cwd, body.staged, file.as_deref()))
-        .await?
-        .map_err(|error| api_error(StatusCode::CONFLICT, error))?;
-    Ok(json!({"success":true}))
-}
-async fn git_stash_file(state: &ServerState, request: Request) -> ApiResult {
-    let body: GitFileBody = api_body(request).await?;
-    let cwd = request_cwd(state, body.cwd.as_deref())?;
-    let file = required(
-        body.file.filter(|file| is_safe_relative_path(file)),
-        "Invalid file parameter",
-    )?;
-    tokio::task::spawn_blocking(move || stash_git_file(&cwd, &file))
-        .await?
-        .map_err(|error| api_error(StatusCode::CONFLICT, error))?;
-    Ok(json!({"success":true}))
 }
 async fn git_commit(state: &ServerState, request: Request) -> ApiResult {
     let body: GitCommitBody = api_body(request).await?;
@@ -1536,19 +1523,6 @@ fn project_root_cwd(state: &ServerState) -> String {
         .project_root()
         .to_string_lossy()
         .into_owned()
-}
-
-async fn list_project_files(state: &ServerState, request: Request) -> ApiResult {
-    let cwd = required(
-        query_value(&request, "cwd").filter(|cwd| !cwd.is_empty()),
-        "Invalid directory",
-    )?;
-    let path = query_value(&request, "path").unwrap_or_default();
-    let entries = state
-        .list_project_files(&cwd, &path)
-        .await
-        .map_err(|error| api_error(StatusCode::BAD_REQUEST, error.1))?;
-    Ok(json!({"entries":entries}))
 }
 
 async fn get_file_content(state: &ServerState, request: Request) -> ApiResult {
@@ -3423,4 +3397,71 @@ async fn project_proposal_review(state: &ServerState, request: Request) -> ApiRe
         .await
         .and_then(|review| Ok(serde_json::to_value(review)?))
         .map_err(|error| api_error(StatusCode::BAD_REQUEST, error.to_string()))
+}
+
+#[cfg(test)]
+mod saved_title_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn workspace_load_repairs_unopened_chat_titles_and_preserves_provider_names() {
+        let root = tempfile::tempdir().unwrap();
+        let profile = root.path().join("state");
+        std::fs::create_dir_all(&profile).unwrap();
+        let store = AgentStateStore::new(profile.join("agent-state.json"));
+        let workspace = store.initialize("codex").unwrap();
+        let id = workspace["groups"][0]["panes"][0]["id"].as_str().unwrap();
+        store
+            .set_pane_summary(
+                id,
+                Some("Your organization has disabled Claude subscription access".into()),
+            )
+            .unwrap();
+        let persistence = chat_persistence::ChatPersistence::new(profile.clone());
+        persistence.read_transcript(id).await;
+        let connection = rusqlite::Connection::open(profile.join("chat.sqlite3")).unwrap();
+        connection
+            .execute(
+                "INSERT INTO transcripts(pane,epoch,revision) VALUES(?1,'test','1')",
+                [id],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO transcript_messages(pane,position,body) VALUES(?1,0,?2)",
+                rusqlite::params![
+                    id,
+                    json!({"id":"message", "role":"user", "content":"Fix the repository picker"})
+                        .to_string()
+                ],
+            )
+            .unwrap();
+        drop(connection);
+        let mut config = ServerConfig::new("127.0.0.1:0".parse().unwrap(), root.path().to_owned());
+        config.home_directory = root.path().to_owned();
+        config.user_data_dir = profile;
+        let auth = config.auth_token.clone();
+        let mut server = ServerHandle::start(config).unwrap();
+        let url = format!("http://{}/api/agent/state", server.local_addr());
+        for title in ["Fix the repository picker", "Provider supplied title"] {
+            if title == "Provider supplied title" {
+                store.set_pane_summary(id, Some(title.into())).unwrap();
+            }
+            let response = Client::new()
+                .get(&url)
+                .header("x-inferay-auth", &auth)
+                .header("sec-fetch-site", "same-origin")
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let value: Value = serde_json::from_slice(&response.bytes().await.unwrap()).unwrap();
+            assert_eq!(value["groups"][0]["panes"][0]["summary"], title);
+            assert_eq!(
+                store.pane(id).unwrap().unwrap().summary.as_deref(),
+                Some(title)
+            );
+        }
+        server.shutdown();
+    }
 }

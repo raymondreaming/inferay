@@ -3,8 +3,8 @@ pub use prepared_diff::{
     prepare_conflict_lines, prepare_edit_diff, PreparedEditDiff, SequentialEdit,
 };
 mod git_exec;
-mod worktree_renames;
-use worktree_renames::WorktreeRenames;
+mod worktree_index;
+use worktree_index::WorktreeIndex;
 mod graph_semantics;
 mod path_access;
 #[cfg(test)]
@@ -155,7 +155,7 @@ fn get_raw_git_patch(cwd: &str, file_path: &str, staged: bool) -> (String, Optio
     args.pop();
     args.extend([original, file_path]);
     let rename_patch = if !staged && is_untracked_git_file(cwd, file_path) {
-        WorktreeRenames::prepare(cwd, &[file_path]).and_then(|snapshot| snapshot.git(cwd, &args))
+        WorktreeIndex::prepare(cwd, &[file_path]).and_then(|snapshot| snapshot.git(cwd, &args))
     } else {
         run_git_timed(&args, cwd, Duration::from_secs(5))
     };
@@ -2345,17 +2345,15 @@ fn git_status(cwd: &str, include_stats: bool) -> Option<GitStatusResult> {
         }
     }
 
-    if let Some(renames) = WorktreeRenames::read(cwd, &files) {
-        let stats = if include_stats {
-            parse_worktree_numstat(
-                &renames
-                    .git(cwd, &["diff", "--find-renames", "--numstat", "-z"])
-                    .unwrap_or_default(),
-            )
-        } else {
-            HashMap::new()
-        };
-        for (old, new) in renames.pairs {
+    let worktree_index = WorktreeIndex::for_status(cwd, &files, include_stats);
+    let diff_stats = get_working_tree_numstat(
+        cwd,
+        include_stats && files.iter().any(|file| !file.staged),
+        include_stats && files.iter().any(|file| file.staged),
+        worktree_index.as_ref(),
+    );
+    if let Some(index) = worktree_index {
+        for (old, new) in index.pairs {
             files.retain(|file| file.staged || file.status != "D" || file.path != old);
             if let Some(file) = files
                 .iter_mut()
@@ -2363,20 +2361,11 @@ fn git_status(cwd: &str, include_stats: bool) -> Option<GitStatusResult> {
             {
                 file.status = "R".to_owned();
                 file.original_path = Some(old);
-                if let Some((added, removed)) = stats.get(&new) {
-                    file.additions = Some(*added);
-                    file.deletions = Some(*removed);
-                }
             }
         }
     }
 
     let name = cwd.rsplit('/').next().unwrap_or(cwd).to_string();
-    let diff_stats = get_working_tree_numstat(
-        cwd,
-        include_stats && files.iter().any(|file| !file.staged && file.status != "?"),
-        include_stats && files.iter().any(|file| file.staged),
-    );
     for file in &mut files {
         let prefix = if file.staged { "staged" } else { "unstaged" };
         if let Some((additions, deletions)) = diff_stats.get(&format!("{prefix}:{}", file.path)) {
@@ -2404,16 +2393,17 @@ fn get_working_tree_numstat(
     cwd: &str,
     unstaged: bool,
     staged: bool,
+    index: Option<&WorktreeIndex>,
 ) -> HashMap<String, (usize, usize)> {
     match (unstaged, staged) {
         (false, false) => return HashMap::new(),
-        (true, false) => return get_numstat_entries(cwd, false),
-        (false, true) => return get_numstat_entries(cwd, true),
+        (true, false) => return get_numstat_entries(cwd, false, index),
+        (false, true) => return get_numstat_entries(cwd, true, None),
         (true, true) => {}
     }
     let (mut unstaged, staged) = std::thread::scope(|scope| {
-        let unstaged = scope.spawn(|| get_numstat_entries(cwd, false));
-        let staged = scope.spawn(|| get_numstat_entries(cwd, true));
+        let unstaged = scope.spawn(|| get_numstat_entries(cwd, false, index));
+        let staged = scope.spawn(|| get_numstat_entries(cwd, true, None));
         (
             unstaged.join().unwrap_or_default(),
             staged.join().unwrap_or_default(),
@@ -2423,14 +2413,22 @@ fn get_working_tree_numstat(
     unstaged
 }
 
-fn get_numstat_entries(cwd: &str, staged: bool) -> HashMap<String, (usize, usize)> {
+fn get_numstat_entries(
+    cwd: &str,
+    staged: bool,
+    index: Option<&WorktreeIndex>,
+) -> HashMap<String, (usize, usize)> {
     let args = if staged {
         ["diff", "--cached", "--find-renames", "--numstat", "-z"].as_slice()
     } else {
         ["diff", "--find-renames", "--numstat", "-z"].as_slice()
     };
     let prefix = if staged { "staged" } else { "unstaged" };
-    parse_worktree_numstat(&run_git(args, cwd).unwrap_or_default())
+    let output = match index {
+        Some(index) => index.git(cwd, args),
+        None => run_git(args, cwd),
+    };
+    parse_worktree_numstat(&output.unwrap_or_default())
         .into_iter()
         .map(|(path, counts)| (format!("{prefix}:{path}"), counts))
         .collect()

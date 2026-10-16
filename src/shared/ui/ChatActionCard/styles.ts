@@ -29,19 +29,7 @@ export const cardStyles = stylex.create({
 		fontSize: 12,
 		color: color.textMuted,
 	},
-	item: {
-		display: "inline-flex",
-		alignItems: "center",
-		gap: 6,
-		minWidth: 0,
-		maxWidth: "100%",
-	},
-	scope: {
-		overflow: "hidden",
-		textOverflow: "ellipsis",
-		whiteSpace: "nowrap",
-		maxWidth: 240,
-	},
+
 	instructions: {
 		marginInline: 12,
 		padding: 12,

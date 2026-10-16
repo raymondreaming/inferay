@@ -97,21 +97,16 @@ export function useAgentChatComposerState(
 		setAttachedImages([]);
 	});
 	const [previewPath, setPreviewPath] = createSignal<string | null>(null);
-	const preview = useQueryResource(
-		() => {
-			const path = previewPath() ?? "";
-			return (signal) => loadMarkdownPreview(path, signal);
-		},
-		() => null,
-		() => {
-			const _previewPathValue = previewPath();
-			return {
-				queryKey: ["markdown-preview", _previewPathValue],
-				enabled: _enabled() && _previewPathValue !== null,
-				gcTime: 0,
-			};
-		},
-	);
+	const preview = useQueryResource(() => {
+		const path = previewPath();
+		return {
+			queryKey: ["markdown-preview", path],
+			queryFn: ({ signal }) => loadMarkdownPreview(path ?? "", signal),
+			initialData: null,
+			enabled: _enabled() && path !== null,
+			gcTime: 0,
+		};
+	});
 	const handleMdFileClick = (path: string) => {
 		if (path === previewPath()) void preview.refresh();
 		else setPreviewPath(path);

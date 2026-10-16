@@ -30,16 +30,20 @@ function McpProvider(props: { kind: "codex" | "claude" }) {
 	const [notice, setNotice] = createSignal<string | null>(null);
 	const [loginUrl, setLoginUrl] = createSignal<string | undefined>();
 	const [refreshError, setRefreshError] = createSignal<string | null>(null);
-	const connections = useQueryResource(
-		() => (signal?: AbortSignal) => fetchMcpStatus(props.kind, signal),
-		(): McpProviderStatus => ({
-			checking: false,
-			checkedAt: null,
-			error: null,
-			servers: [],
-		}),
-		() => ({ queryKey: ["agents", "mcp", props.kind], refetchInterval: 2000 }),
-	);
+	const connections = useQueryResource<McpProviderStatus>(() => {
+		const kind = props.kind;
+		return {
+			queryKey: ["agents", "mcp", kind],
+			queryFn: ({ signal }) => fetchMcpStatus(kind, signal),
+			initialData: {
+				checking: false,
+				checkedAt: null,
+				error: null,
+				servers: [],
+			},
+			refetchInterval: 2000,
+		};
+	});
 	const refresh = async () => {
 		setRefreshError(null);
 		try {

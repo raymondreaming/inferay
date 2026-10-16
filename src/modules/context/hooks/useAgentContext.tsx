@@ -22,18 +22,15 @@ export function useAgentContext(
 		chat: null,
 		effectiveInstructions: "",
 	};
-	const query = useBackgroundQuery(
-		() => {
-			const paneId = _paneId(),
-				cwd = _cwd();
-			return {
-				queryKey: ["agent-context", paneId, cwd],
-				queryFn: ({ signal }) => loadAgentContext(paneId, cwd, signal),
-				retry: false,
-			};
-		},
-		() => queryClient,
-	);
+	const query = useBackgroundQuery(() => {
+		const paneId = _paneId(),
+			cwd = _cwd();
+		return {
+			queryKey: ["agent-context", paneId, cwd],
+			queryFn: ({ signal }) => loadAgentContext(paneId, cwd, signal),
+			retry: false,
+		};
+	});
 	const save = async (
 		scope: AgentContextUpdate["scope"],
 		instructions: string,

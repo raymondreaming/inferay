@@ -45,19 +45,18 @@ const reposResource = forgeResource<GithubRepo>("repos", loadGithubRepos);
 export const invalidateForgeAccountsCache = accountsResource.invalidate;
 export const invalidateGithubReposCache = reposResource.invalidate;
 export function useForgeAccounts(enabled: Accessor<boolean> = () => true) {
-	return useQueryResource(
-		() => accountsResource.request,
-		() => accountsResource.empty,
-		() => ({ ...accountsResource.options, enabled: enabled() }),
-	);
+	return useQueryResource(() => ({
+		...accountsResource.options,
+		queryFn: ({ signal }) => accountsResource.request(signal),
+		initialData: accountsResource.empty,
+		enabled: enabled(),
+	}));
 }
-export function useGithubRepos(_enabled: Accessor<boolean>) {
-	return useQueryResource(
-		() => reposResource.request,
-		() => reposResource.empty,
-		() => ({
-			...reposResource.options,
-			enabled: _enabled(),
-		}),
-	);
+export function useGithubRepos(enabled: Accessor<boolean>) {
+	return useQueryResource(() => ({
+		...reposResource.options,
+		queryFn: ({ signal }) => reposResource.request(signal),
+		initialData: reposResource.empty,
+		enabled: enabled(),
+	}));
 }

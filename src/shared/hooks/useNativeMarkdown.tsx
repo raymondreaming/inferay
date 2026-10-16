@@ -9,7 +9,6 @@ import {
 	createSignal,
 	untrack,
 } from "solid-js";
-import { queryClient } from "../lib/dom.tsx";
 import { useBackgroundQuery as useQuery } from "./useQueryResource.tsx";
 
 /** Query lifecycle only: native code owns all Markdown interpretation. */
@@ -33,45 +32,25 @@ export function useNativeMarkdown(
 		text: input(),
 		revision: ++revision,
 	}));
-	const query = useQuery(
-		() => {
-			const sampled = queryInput(),
-				_inputValue = sampled.text,
-				_streamingValue = _streaming(),
-				_chatValue = _chat();
-			return {
-				// A unique local revision identifies an in-flight prefix without
-				// hashing/copying its whole text into TanStack's cache key. Final
-				// documents keep their shared content key for fast tab returns.
-				queryKey: _streamingValue
-					? [
-							"native-markdown-stream",
-							1,
-							streamKey,
-							sampled.revision,
-							_chatValue,
-						]
-					: ["native-markdown", 1, _chatValue, false, _inputValue],
-				queryFn: async ({ signal }: { signal: AbortSignal }) => {
-					const requestSignal = AbortSignal.any([
-						signal,
-						AbortSignal.timeout(12000),
-					]);
-					if (_streamingValue || stream.active) {
-						const prepared = await stream.prepare(
-							_inputValue,
-							_streamingValue,
-							_chatValue,
-							requestSignal,
-						);
-						return {
-							...prepared,
-							text: _inputValue,
-							chat: _chatValue,
-							streaming: _streamingValue,
-						};
-					}
-					const prepared = await prepareNativeMarkdown(
+	const query = useQuery(() => {
+		const sampled = queryInput(),
+			_inputValue = sampled.text,
+			_streamingValue = _streaming(),
+			_chatValue = _chat();
+		return {
+			// A unique local revision identifies an in-flight prefix without
+			// hashing/copying its whole text into TanStack's cache key. Final
+			// documents keep their shared content key for fast tab returns.
+			queryKey: _streamingValue
+				? ["native-markdown-stream", 1, streamKey, sampled.revision, _chatValue]
+				: ["native-markdown", 1, _chatValue, false, _inputValue],
+			queryFn: async ({ signal }: { signal: AbortSignal }) => {
+				const requestSignal = AbortSignal.any([
+					signal,
+					AbortSignal.timeout(12000),
+				]);
+				if (_streamingValue || stream.active) {
+					const prepared = await stream.prepare(
 						_inputValue,
 						_streamingValue,
 						_chatValue,
@@ -83,22 +62,33 @@ export function useNativeMarkdown(
 						chat: _chatValue,
 						streaming: _streamingValue,
 					};
-				},
-				placeholderData: (previous) => {
-					const _textValue2 = _inputValue;
-					return previous?.chat === _chatValue &&
-						(previous.text === _textValue2 ||
-							(previous.streaming && _textValue2.startsWith(previous.text)))
-						? previous
-						: undefined;
-				},
-				staleTime: Infinity,
-				gcTime: _streamingValue ? 0 : 5 * 60_000,
-				retry: false,
-			};
-		},
-		() => queryClient,
-	);
+				}
+				const prepared = await prepareNativeMarkdown(
+					_inputValue,
+					_streamingValue,
+					_chatValue,
+					requestSignal,
+				);
+				return {
+					...prepared,
+					text: _inputValue,
+					chat: _chatValue,
+					streaming: _streamingValue,
+				};
+			},
+			placeholderData: (previous) => {
+				const _textValue2 = _inputValue;
+				return previous?.chat === _chatValue &&
+					(previous.text === _textValue2 ||
+						(previous.streaming && _textValue2.startsWith(previous.text)))
+					? previous
+					: undefined;
+			},
+			staleTime: Infinity,
+			gcTime: _streamingValue ? 0 : 5 * 60_000,
+			retry: false,
+		};
+	});
 	// Sample growing text at most once per 16ms and only after the previous
 	// request settles. Slow native work cannot be continually aborted by tokens.
 	// Resets and final messages bypass sampling through `input` above.
