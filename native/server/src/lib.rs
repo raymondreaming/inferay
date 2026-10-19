@@ -82,7 +82,6 @@ mod project_effects;
 mod project_file_commands;
 mod project_file_store;
 mod project_index;
-mod project_migration;
 mod project_packs;
 mod project_proposals;
 mod project_requirements;
@@ -311,7 +310,13 @@ fn run_server(
             .local_addr()
             .map_err(|error| format!("failed to read Rust server address: {error}"))?;
         let (connection_reset, _) = broadcast::channel(8);
-        let app = build_router_with_connection_reset(config, connection_reset.clone());
+        let app = match build_router_with_connection_reset(config, connection_reset.clone()) {
+            Ok(app) => app,
+            Err(error) => {
+                let _ = ready.send(Err(error.clone()));
+                return Err(error);
+            }
+        };
         let _ = ready.send(Ok(local_addr));
 
         axum::serve(listener, app)
@@ -327,7 +332,7 @@ fn run_server(
 fn build_router_with_connection_reset(
     mut config: ServerConfig,
     connection_reset: broadcast::Sender<()>,
-) -> Router {
+) -> Result<Router, String> {
     std::fs::create_dir_all(&config.user_data_dir)
         .expect("Could not create Inferay data directory");
     config.user_data_dir = config
@@ -369,7 +374,7 @@ fn build_router_with_connection_reset(
     )));
     let prompt_store = Arc::new(tokio::sync::Mutex::new(
         PromptStore::open(bundled_prompts, config.user_data_dir.join("prompts.json"))
-            .expect("Could not open local skills"),
+            .map_err(|error| error.to_string())?,
     ));
     let config_manager = Arc::new(tokio::sync::Mutex::new(ConfigManager::new(
         config.user_data_dir.join("settings.json"),
@@ -385,12 +390,7 @@ fn build_router_with_connection_reset(
         prompt_store.clone(),
         pid_tracker.clone(),
     )
-    .expect("Could not open local projects: close other instances using this profile");
-    if let Ok(saved) = agent_state_store.lock().expect("workspace lock").read()
-        && let Err(error) = projects.migrate_workspace(&json!(saved))
-    {
-        eprintln!("Project workspace migration: {error}");
-    }
+    .map_err(|error| error.to_string())?;
     projects.start();
     let chat_runtime = chat_runtime::ChatRuntime::new(
         chat_persistence.clone(),
@@ -428,11 +428,11 @@ fn build_router_with_connection_reset(
         connection_reset,
         live_reload: config.live_reload,
     };
-    Router::new()
+    Ok(Router::new()
         .route("/ws", any(native_websocket))
         .fallback(any(dispatch_request))
         .layer(DefaultBodyLimit::max(MAX_TEMP_UPLOAD_BYTES + 1024 * 1024))
-        .with_state(state)
+        .with_state(state))
 }
 
 async fn dispatch_request(State(state): State<ServerState>, request: Request) -> Response {
@@ -488,6 +488,17 @@ async fn dispatch_api(state: &ServerState, path: &str, request: Request) -> ApiR
                         .map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, e))
                 })
         }
+        ("/api/projects/history", "GET") => state
+            .projects
+            .history(
+                query_value(&request, "projectId").unwrap_or_default(),
+                query_value(&request, "before"),
+            )
+            .await
+            .map_err(|e| api_error(StatusCode::BAD_REQUEST, e.to_string()))
+            .and_then(|v| {
+                serde_json::to_value(v).map_err(|e| api_error(StatusCode::INTERNAL_SERVER_ERROR, e))
+            }),
         ("/api/projects/connections", "GET" | "POST") => connections::http(state, request).await,
         ("/api/projects/run-chat", "POST") => project_chat::open(state, request).await,
         ("/api/projects/effects", "GET") => project_effects::inbox_http(state, request).await,

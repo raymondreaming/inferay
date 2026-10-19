@@ -15,12 +15,12 @@ import { styles } from "./styles.ts";
 export function ProjectEditor(props: { project?: Project; close: () => void }) {
 	const [confirmingArchive, setConfirmingArchive] = createSignal(false);
 	const [archiveName, setArchiveName] = createSignal("");
-	const [name, setName] = createSignal(props.project?.name ?? "");
+	const [name, setName] = createSignal(props.project?.definition.name ?? "");
 	const [description, setDescription] = createSignal(
-		props.project?.description ?? "",
+		props.project?.definition.description ?? "",
 	);
 	const [instructions, setInstructions] = createSignal(
-		props.project?.instructions ?? "",
+		props.project?.definition.instructions ?? "",
 	);
 	const [repositories, setRepositories] = createSignal<string[]>([]);
 	const [managingRepositories, setManagingRepositories] = createSignal(false);
@@ -39,7 +39,7 @@ export function ProjectEditor(props: { project?: Project; close: () => void }) {
 			}));
 			await saveProjectCommand({
 				type: "saveProject",
-				expectedHash: existing?.file.sourceHash ?? null,
+				expectedHash: existing?.sourceHash ?? null,
 				definition: {
 					schema: "inferay.project/1",
 					id,
@@ -48,7 +48,7 @@ export function ProjectEditor(props: { project?: Project; close: () => void }) {
 					instructions: instructions(),
 					archived: false,
 					repositories:
-						existing?.repositories ??
+						existing?.definition.repositories ??
 						selected.map(({ id, name }) => ({ id, name, remote: null })),
 				},
 				repositoryPaths: Object.fromEntries(
@@ -141,7 +141,7 @@ export function ProjectEditor(props: { project?: Project; close: () => void }) {
 						{confirmingArchive() ? (
 							<>
 								<label>
-									Type {props.project.name} to confirm
+									Type {props.project.definition.name} to confirm
 									<TextInput
 										fullWidth
 										aria-label="Project name to confirm archive"
@@ -154,14 +154,16 @@ export function ProjectEditor(props: { project?: Project; close: () => void }) {
 										size="sm"
 										variant="danger"
 										disabled={
-											projects.busy() || archiveName() !== props.project.name
+											projects.busy() ||
+											archiveName() !== props.project.definition.name
 										}
 										onClick={() => {
 											const project = props.project;
-											if (!project || archiveName() !== project.name) return;
+											if (!project || archiveName() !== project.definition.name)
+												return;
 											void saveProjectCommand(
-												editDefinition(project.file, {
-													...project.file.definition!,
+												editDefinition(project, {
+													...project.definition!,
 													archived: true,
 												}),
 											)

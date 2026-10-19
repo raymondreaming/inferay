@@ -1,12 +1,13 @@
 import { DropdownButton } from "../DropdownButton/index.tsx";
-export function formatTime(value: string): string {
+
+function formatTime(value: string): string {
 	const [hour, minute] = value.split(":").map(Number);
 	return new Date(2000, 0, 1, hour, minute).toLocaleTimeString(undefined, {
 		hour: "numeric",
 		minute: "2-digit",
 	});
 }
-export function parseTime(text: string): string | null {
+function parseTime(text: string): string | null {
 	const match = text.trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i);
 	if (!match) return null;
 	let hour = Number(match[1]);

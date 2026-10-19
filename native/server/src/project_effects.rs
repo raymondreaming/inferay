@@ -1,7 +1,6 @@
-pub(crate) mod outbox;
 use crate::project_store::{Result, hash, now};
 use inferay_core::projects::EffectIntent;
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 pub(crate) fn create_schema(db: &Connection) -> Result<()> {
     db.execute_batch(
@@ -15,7 +14,7 @@ pub(crate) fn create_schema(db: &Connection) -> Result<()> {
             effect_id TEXT PRIMARY KEY REFERENCES effect_intents(id),
             intent_hash TEXT NOT NULL, dismissed_at INTEGER NOT NULL);",
     )?;
-    outbox::create_schema(db)
+    create_delivery_schema(db)
 }
 
 pub(crate) fn dismiss(
@@ -170,15 +169,133 @@ pub(crate) async fn cancel_http(
 ) -> crate::ApiResult {
     let input = crate::api_body::<inferay_core::projects::EffectReviewRequest>(request).await?;
     let mut store = state.projects.store()?;
-    let delivery = outbox::cancel(&mut store.db, &input, now())
+    let delivery = cancel(&mut store.db, &input, now())
         .map_err(|e| crate::api_error(crate::StatusCode::BAD_REQUEST, e))?;
     serde_json::to_value(delivery)
         .map_err(|e| crate::api_error(crate::StatusCode::INTERNAL_SERVER_ERROR, e))
 }
 
+fn create_delivery_schema(db: &Connection) -> Result<()> {
+    db.execute_batch("CREATE TABLE IF NOT EXISTS effect_limits(
+        project_id TEXT NOT NULL, kind TEXT NOT NULL, target TEXT NOT NULL,
+        revision TEXT NOT NULL, body TEXT NOT NULL,
+        PRIMARY KEY(project_id,kind,target));
+        CREATE TABLE IF NOT EXISTS effect_outbox(
+        id TEXT PRIMARY KEY, effect_id TEXT NOT NULL UNIQUE REFERENCES effect_intents(id),
+        project_id TEXT NOT NULL, kind TEXT NOT NULL, target TEXT NOT NULL,
+        intent_hash TEXT NOT NULL, limit_revision TEXT NOT NULL, handler_hash TEXT NOT NULL,
+        state TEXT NOT NULL CHECK(state IN ('queued','in_flight','uncertain','delivered','cancelled')),
+        queued_at INTEGER NOT NULL, not_before INTEGER NOT NULL,
+        reserved_at INTEGER, receipt TEXT);
+        CREATE TABLE IF NOT EXISTS effect_cancellations(
+        delivery_id TEXT PRIMARY KEY REFERENCES effect_outbox(id), requested_at INTEGER NOT NULL);
+        CREATE INDEX IF NOT EXISTS effect_outbox_scope ON effect_outbox(project_id,kind,target,state,reserved_at);")?;
+    Ok(())
+}
+
+pub(crate) fn recover(db: &Connection) -> Result<usize> {
+    Ok(db.execute(
+        "UPDATE effect_outbox SET state='uncertain' WHERE state='in_flight'",
+        [],
+    )?)
+}
+
+fn cancel(
+    db: &mut Connection,
+    request: &inferay_core::projects::EffectReviewRequest,
+    time: i64,
+) -> Result<inferay_core::projects::EffectDelivery> {
+    if time < 0 {
+        return Err("Invalid cancellation time".into());
+    }
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let (id, digest, state): (String, String, String) = tx.query_row(
+        "SELECT id,intent_hash,state FROM effect_outbox WHERE effect_id=?",
+        [&request.id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )?;
+    if digest != request.intent_hash {
+        return Err("Effect changed since review".into());
+    }
+    if state == "delivered" {
+        return Err("Delivered effects cannot be cancelled".into());
+    }
+    tx.execute(
+        "INSERT INTO effect_cancellations VALUES(?1,?2) ON CONFLICT(delivery_id) DO NOTHING",
+        params![id, time],
+    )?;
+    tx.execute("UPDATE effect_outbox SET state=CASE WHEN state='queued' THEN 'cancelled' WHEN state='in_flight' THEN 'uncertain' ELSE state END WHERE id=?",[&id])?;
+    let body: String=tx.query_row("SELECT json_object('id',o.id,'state',o.state,'cancellationRequestedAt',c.requested_at,'receipt',json(o.receipt)) FROM effect_outbox o LEFT JOIN effect_cancellations c ON c.delivery_id=o.id WHERE o.id=?",[id],|r|r.get(0))?;
+    let delivery = serde_json::from_str(&body)?;
+    tx.commit()?;
+    Ok(delivery)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn retained_deliveries_recover_and_cancel_without_losing_receipts() {
+        let mut db = Connection::open_in_memory().unwrap();
+        create_schema(&db).unwrap();
+        for (id, state) in [
+            ("queued", "queued"),
+            ("running", "in_flight"),
+            ("sent", "delivered"),
+        ] {
+            db.execute("INSERT INTO effect_intents VALUES(?1,'project','run','intent.json',?1,'{}','digest',0)", [id]).unwrap();
+            db.execute("INSERT INTO effect_outbox VALUES(?1,?1,'project','kind','target','digest','limit','handler',?2,0,0,NULL,NULL)", params![id,state]).unwrap();
+        }
+        assert_eq!(recover(&db).unwrap(), 1);
+        assert_eq!(recover(&db).unwrap(), 0);
+        for (id, expected) in [("queued", "cancelled"), ("running", "uncertain")] {
+            let request = inferay_core::projects::EffectReviewRequest {
+                id: id.into(),
+                intent_hash: "digest".into(),
+            };
+            let first = cancel(&mut db, &request, 100).unwrap();
+            assert_eq!(serde_json::to_value(first).unwrap()["state"], expected);
+            assert_eq!(
+                cancel(&mut db, &request, 200)
+                    .unwrap()
+                    .cancellation_requested_at,
+                Some(100)
+            );
+            assert!(
+                cancel(
+                    &mut db,
+                    &inferay_core::projects::EffectReviewRequest {
+                        intent_hash: "stale".into(),
+                        ..request
+                    },
+                    300
+                )
+                .is_err()
+            );
+        }
+        db.execute("UPDATE effect_outbox SET receipt='{}' WHERE id='sent'", [])
+            .unwrap();
+        assert!(
+            cancel(
+                &mut db,
+                &inferay_core::projects::EffectReviewRequest {
+                    id: "sent".into(),
+                    intent_hash: "digest".into(),
+                },
+                100
+            )
+            .is_err()
+        );
+        assert_eq!(
+            db.query_row(
+                "SELECT receipt FROM effect_outbox WHERE id='sent'",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "{}"
+        );
+    }
     #[test]
     fn inbox_retains_old_reviews_with_stable_pagination_and_scope() {
         let db = Connection::open_in_memory().unwrap();

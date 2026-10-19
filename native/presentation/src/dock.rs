@@ -226,27 +226,6 @@ impl Tree {
             }
         }
     }
-    fn append(mut self, id: String, columns: usize) -> Self {
-        fn last(node: &mut Tree, id: &str, columns: usize) -> bool {
-            if let Tree::Split {
-                direction, second, ..
-            } = node
-                && direction == "vertical"
-            {
-                return last(second, id, columns);
-            }
-            if node.span("horizontal") >= columns {
-                return false;
-            }
-            *node = node.clone().beside(id.into(), "right");
-            true
-        }
-        if last(&mut self, &id, columns) {
-            self
-        } else {
-            self.beside(id, "bottom")
-        }
-    }
     fn resize(&mut self, path: &[Value], ratio: f64) {
         if let Self::Split {
             ratio: current,
@@ -274,19 +253,6 @@ fn build(ids: &[String], columns: usize) -> Option<Tree> {
         })
         .reduce(|a, b| Tree::split("vertical", a, b, None))
 }
-fn reconcile(tree: Option<Tree>, ids: &[String], columns: usize) -> Option<Tree> {
-    let mut tree = tree
-        .and_then(|tree| tree.map(&|id| ids.contains(&id).then_some(Tree::Panel { id }), true))
-        .map(|t| t.constrain(columns));
-    let present = tree.as_ref().map(Tree::ids).unwrap_or_default();
-    for id in ids.iter().filter(|id| !present.contains(id)) {
-        tree = Some(match tree {
-            Some(tree) => tree.append(id.clone(), columns),
-            None => Tree::Panel { id: id.clone() },
-        });
-    }
-    tree
-}
 
 pub fn project(body: &Value) -> Result<Value, String> {
     let ids = body["ids"].as_array().ok_or("panel ids are required")?;
@@ -310,25 +276,21 @@ pub fn project(body: &Value) -> Result<Value, String> {
     let saved = body.get("saved").filter(|value| value.is_object());
     let legacy = body.get("legacy").filter(|value| value.is_object());
     let stored = saved.map(|s| &s["tree"]).or(legacy);
-    let tree = stored.and_then(|v| serde_json::from_value::<Tree>(v.clone()).ok());
+    let tree = stored
+        .and_then(|v| serde_json::from_value::<Tree>(v.clone()).ok())
+        .and_then(|tree| tree.map(&|id| Some(Tree::Panel { id }), true));
     let reset = saved.is_some_and(|s| s["preset"] != json!(preset));
-    let membership_changed = tree.as_ref().is_some_and(|tree| {
-        let present = tree.ids();
-        present.len() != ids.len() || present.iter().any(|id| !ids.contains(id))
-    });
-    let mut tree = if reset {
-        build(&ids, columns)
-    } else if membership_changed {
-        let mut remaining = tree.as_ref().unwrap().ids();
-        remaining.retain(|id| ids.contains(id));
-        for id in &ids {
-            if !remaining.contains(id) {
-                remaining.push(id.clone());
-            }
-        }
-        build(&remaining, columns)
+    let present = tree.as_ref().map(Tree::ids).unwrap_or_default();
+    let mut seen = std::collections::HashSet::new();
+    let mut ordered = present.clone();
+    ordered.retain(|id| !reset && ids.contains(id) && seen.insert(id.clone()));
+    ordered.extend(ids.iter().filter(|id| seen.insert((*id).clone())).cloned());
+    // A membership change uses the same grid builder as initial layout. Only
+    // unchanged membership keeps the user's split geometry and pane order.
+    let mut tree = if !reset && ordered == present {
+        tree.map(|tree| tree.constrain(columns))
     } else {
-        reconcile(tree, &ids, columns)
+        build(&ordered, columns)
     };
     let action = &body["action"];
     if action.is_object() {

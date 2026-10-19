@@ -82,7 +82,6 @@ export function MemoryDetails(props: {
 				.map((n) => n.path);
 			await startAgentChatWithDraft(
 				continuationDraft(props.chatTitle(item), notes, files),
-				() => {},
 			);
 		} finally {
 			setStarting(false);
@@ -158,7 +157,7 @@ export function MemoryDetails(props: {
 										<Button
 											size="sm"
 											variant="primary"
-											onClick={() => void openAgentPane(chat.pane.id, () => {})}
+											onClick={() => void openAgentPane(chat.pane.id)}
 										>
 											Open chat
 										</Button>

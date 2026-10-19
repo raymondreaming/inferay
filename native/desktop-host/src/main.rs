@@ -21,9 +21,9 @@ use {
     objc2::{MainThreadMarker, runtime::Sel, sel},
     objc2_app_kit::{
         NSAppearance, NSAppearanceCustomization, NSAppearanceNameVibrantDark, NSApplication,
-        NSAutoresizingMaskOptions, NSMenu, NSMenuItem, NSVisualEffectBlendingMode,
-        NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView, NSWindow,
-        NSWindowOrderingMode, NSWorkspace,
+        NSAutoresizingMaskOptions, NSBox, NSBoxType, NSColor, NSMenu, NSMenuItem, NSTitlePosition,
+        NSVisualEffectBlendingMode, NSVisualEffectMaterial, NSVisualEffectState,
+        NSVisualEffectView, NSWindow, NSWindowOrderingMode, NSWorkspace,
     },
     objc2_foundation::{NSString, NSURL},
 };
@@ -232,7 +232,10 @@ fn only_the_backend_origin_navigates_inside_inferay() {
 #[cfg(target_os = "macos")]
 fn install_window_backdrop(
     window: &tao::window::Window,
-) -> objc2::rc::Retained<NSVisualEffectView> {
+) -> (
+    objc2::rc::Retained<NSVisualEffectView>,
+    objc2::rc::Retained<NSBox>,
+) {
     let marker = MainThreadMarker::new().expect("window backdrop requires the main thread");
     // Wry replaces Tao's content view. Resolve the final NSWindow content view
     // after WebView::build; Tao's original ns_view is no longer in the window.
@@ -255,7 +258,19 @@ fn install_window_backdrop(
         NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
     );
     content.addSubview_positioned_relativeTo(&backdrop, NSWindowOrderingMode::Below, None);
-    backdrop
+    // Keep the tint beside the native blur. A CSS overlay follows WebKit's
+    // asynchronous repaint and leaves an undimmed strip during live resize.
+    let tint = NSBox::initWithFrame(marker.alloc(), content.bounds());
+    tint.setBoxType(NSBoxType::Custom);
+    tint.setTitlePosition(NSTitlePosition::NoTitle);
+    tint.setBorderWidth(0.0);
+    tint.setCornerRadius(0.0);
+    tint.setFillColor(&NSColor::blackColor());
+    tint.setWantsLayer(true);
+    tint.setAlphaValue(0.0);
+    tint.setAutoresizingMask(backdrop.autoresizingMask());
+    content.addSubview_positioned_relativeTo(&tint, NSWindowOrderingMode::Above, Some(&backdrop));
+    (backdrop, tint)
 }
 
 fn main() -> wry::Result<()> {
@@ -337,7 +352,7 @@ fn main() -> wry::Result<()> {
         .build(&window)?;
 
     #[cfg(target_os = "macos")]
-    let backdrop = install_window_backdrop(&window);
+    let (backdrop, tint) = install_window_backdrop(&window);
 
     sync_fullscreen(&window, &webview);
     let mut webview = Some(webview);
@@ -373,13 +388,16 @@ fn main() -> wry::Result<()> {
             }
             Event::UserEvent(UserEvent::SetBackdrop(strength)) => {
                 #[cfg(target_os = "macos")]
-                // Higher window transparency reveals some desktop detail while
-                // retaining at least 65% of the native window material.
-                backdrop.setAlphaValue(if strength > 0.0 {
-                    0.65 + 0.35 * strength
-                } else {
-                    0.0
-                });
+                {
+                    // Higher window transparency reveals some desktop detail while
+                    // retaining at least 65% of the native window material.
+                    backdrop.setAlphaValue(if strength > 0.0 {
+                        0.65 + 0.35 * strength
+                    } else {
+                        0.0
+                    });
+                    tint.setAlphaValue(strength);
+                }
                 #[cfg(not(target_os = "macos"))]
                 let _ = strength;
             }

@@ -22,6 +22,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_import_extension(Some("ts"));
     macro_rules! export { ($($ty:ty),* $(,)?) => { $(<$ty>::export_all(&cfg)?;)* }; }
     export!(
+        inferay_presentation::project_editor::NewAutomation,
+        inferay_presentation::project_editor::SkillChoices,
+        inferay_presentation::project_editor::SkillOption,
+        inferay_presentation::project_editor::EditToolGrant,
+        inferay_presentation::project_editor::ProposalPath,
+        inferay_presentation::project_editor::TriggerPreset,
+        inferay_presentation::memory_graph::MemoryGraphLayout,
+        inferay_presentation::memory_graph::GraphPoint,
+        inferay_core::projects::EffectState,
+        inferay_core::projects::EffectPresentation,
         inferay_core::projects::ProjectHistory,
         inferay_core::projects::EffectReviewRequest,
         inferay_core::projects::EffectDelivery,
@@ -144,6 +154,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         inferay_core::agent_context::EffectiveAgentContext
     );
     inferay_server::export_renderer_types(&cfg)?;
+    let projections = inferay_presentation::projection_contracts(&cfg);
+    let source = include_str!("../../../presentation/src/lib.rs");
+    let legacy = source
+        .lines()
+        .filter_map(|line| {
+            line.trim()
+                .strip_prefix('"')
+                .and_then(|line| line.split_once("\" =>"))
+                .map(|(name, _)| name)
+        })
+        .filter(|name| !projections.iter().any(|(typed, _, _)| typed == name))
+        .map(|name| format!("\"{name}\""))
+        .collect::<Vec<_>>()
+        .join(" | ");
+    let entries = projections
+        .iter()
+        .map(|(name, input, output)| format!("\"{name}\": {{input: {input}; output: {output}}};\n"))
+        .collect::<String>();
+    let imports = std::fs::read_dir(root)?
+        .map(|entry| entry.map(|e| e.path()))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .filter_map(|path| {
+            path.file_stem()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .filter(|name| {
+            entries
+                .split(|c: char| !c.is_alphanumeric() && c != '_')
+                .any(|token| token == name)
+        })
+        .map(|name| format!("import type {{ {name} }} from \"./{name}.ts\";\n"))
+        .collect::<String>();
+    std::fs::write(
+        root.join("PresentationContracts.ts"),
+        format!(
+            "{imports}export type PresentationContracts = {{{entries}}};\nexport type UntypedPresentationOperation = {legacy};\n"
+        ),
+    )?;
     // Keep the renderer's type-only entry point in sync with every exported dependency.
     let mut contracts = std::fs::read_dir(root)?
         .map(|entry| entry.map(|entry| entry.path()))
@@ -167,6 +216,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &presentation_path.join("appearance-catalog.json"),
         serde_json::to_string(&inferay_presentation::appearance::catalog())?.as_bytes(),
     )?;
+    publish_file(&presentation_path.join("project-policy.json"), serde_json::to_string(&serde_json::json!({"entryLimit":inferay_core::project_files::PLUGIN_ENTRY_LIMIT,"byteLimit":inferay_core::project_files::PLUGIN_BYTE_LIMIT}))?.as_bytes())?;
     let catalog_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../build/presentation/provider-catalog.json");
     publish_file(

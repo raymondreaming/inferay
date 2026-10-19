@@ -1,4 +1,6 @@
 import type { ProjectEffectIntent } from "@contracts";
+import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
+import { queryClient } from "@shared/lib/dom.tsx";
 import { Button } from "@shared/ui/Button/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For, Show } from "solid-js";
@@ -7,11 +9,14 @@ import {
 	refreshProjects,
 	saveProjectCommand,
 	showProjectView,
+	useProjectAction,
 } from "../../hooks/useProjects.tsx";
 import { loadCanonicalAgentState } from "../../hooks/useWorkspaceState.tsx";
-import { effectStatus } from "../../model/projectEffects.ts";
-import type { ProjectWorkspaceView } from "../../model/projectFiles.ts";
-import { loadProjects, openRunChat } from "../../services/projectsApi.ts";
+import {
+	effectPresentation,
+	loadProjectHistory,
+	openRunChat,
+} from "../../services/projectsApi.ts";
 import { EffectInbox } from "./EffectInbox.tsx";
 import { EffectIntentDialog } from "./EffectIntentDialog.tsx";
 import { RunFilePreview } from "./RunFilePreview.tsx";
@@ -24,37 +29,41 @@ export function RunHistory(props: {
 	const [reviewing, setReviewing] = createSignal<ProjectEffectIntent | null>(
 		null,
 	);
-	const [opening, setOpening] = createSignal(false);
-	async function continueRun(id: string) {
-		if (opening()) return;
-		setOpening(true);
-		setError("");
-		try {
+	const { busy: opening, error, run } = useProjectAction();
+	const continueRun = (id: string) =>
+		run(async () => {
 			await openRunChat(id);
 			await loadCanonicalAgentState();
 			await refreshProjects();
 			showProjectView("chat");
-		} catch (e) {
-			setError(String(e));
-		} finally {
-			setOpening(false);
-		}
-	}
-	const [page, setPage] = createSignal<ProjectWorkspaceView | null>(null);
+		});
+	const [cursor, setCursor] = createSignal<{
+		scope: string;
+		before: string;
+	} | null>(null);
+	const scope = () =>
+		JSON.stringify([projects.selectedId(), props.automationId]);
+	const before = () =>
+		cursor()?.scope === scope() ? cursor()?.before : undefined;
+	const history = useBackgroundQuery(() => ({
+		queryKey: ["project-history", projects.selectedId(), before() ?? ""],
+		queryFn: () => loadProjectHistory(projects.selectedId(), before()),
+		enabled: !!before(),
+	}));
 	const [preview, setPreview] = createSignal<{
 		directory: string;
 		path: string;
 	} | null>(null);
-	const [error, setError] = createSignal("");
-	const catalog = () => page() ?? projects.catalog();
+	const catalog = () => (before() ? history.data : projects.catalog());
 	const upcoming = createMemo(() =>
 		(projects.catalog()?.automations ?? [])
 			.filter(
 				(automation) =>
 					automation.enabled &&
-					!automation.archived &&
+					!automation.file.definition.archived &&
 					automation.nextDueAt !== null &&
-					(!props.automationId || automation.id === props.automationId),
+					(!props.automationId ||
+						automation.file.definition.id === props.automationId),
 			)
 			.sort((a, b) => a.nextDueAt! - b.nextDueAt!),
 	);
@@ -67,18 +76,6 @@ export function RunHistory(props: {
 	function inspect(directory: string, path: string) {
 		setPreview({ directory, path });
 	}
-	async function older() {
-		try {
-			setPage(
-				await loadProjects(
-					projects.selectedId(),
-					catalog()?.nextRunCursor ?? undefined,
-				),
-			);
-		} catch (e) {
-			setError(String(e));
-		}
-	}
 	return (
 		<>
 			<Show when={reviewing()} keyed>
@@ -86,17 +83,10 @@ export function RunHistory(props: {
 					<EffectIntentDialog
 						effect={effect}
 						close={() => setReviewing(null)}
-						changed={async (updated) => {
-							setPage((previous) =>
-								previous
-									? {
-											...previous,
-											effects: previous.effects.map((item) =>
-												item.id === updated.id ? updated : item,
-											),
-										}
-									: null,
-							);
+						changed={async () => {
+							await queryClient.invalidateQueries({
+								queryKey: ["project-history", projects.selectedId()],
+							});
 							await refreshProjects();
 						}}
 					/>
@@ -106,22 +96,27 @@ export function RunHistory(props: {
 				projectId={projects.selectedId()}
 				automationId={props.automationId}
 			/>
-			<Show when={!page() && upcoming().length > 0}>
+			<Show when={!before() && upcoming().length > 0}>
 				<section
 					aria-label="Upcoming automations"
 					{...stylex.attrs(styles.historyUpcoming)}
 				>
 					<strong {...stylex.attrs(styles.sectionLabel)}>Up next</strong>
 					<p {...stylex.attrs(styles.muted)}>Runs while Inferay is open</p>
-					<For each={upcoming()} keyed={(automation) => automation.id}>
+					<For
+						each={upcoming()}
+						keyed={(automation) => automation.file.definition.id}
+					>
 						{(automation) => (
 							<div {...stylex.attrs(styles.row)}>
 								<Button
 									size="sm"
 									variant="ghost"
-									onClick={() => props.selectAutomation(automation().id)}
+									onClick={() =>
+										props.selectAutomation(automation().file.definition.id)
+									}
 								>
-									{automation().name}
+									{automation().file.definition.name}
 								</Button>
 								<time
 									datetime={new Date(automation().nextDueAt!).toISOString()}
@@ -138,6 +133,9 @@ export function RunHistory(props: {
 				</section>
 			</Show>
 			{error() ? <p role="alert">{error()}</p> : null}
+			<Show when={before() && history.error}>
+				<p role="alert">Unable to load older runs.</p>
+			</Show>
 			<Show when={preview()} keyed>
 				{(file) => <RunFilePreview {...file} close={() => setPreview(null)} />}
 			</Show>
@@ -155,11 +153,7 @@ export function RunHistory(props: {
 						<div {...stylex.attrs(styles.historyHeader)}>
 							<div {...stylex.attrs(styles.historyIdentity)}>
 								<span {...stylex.attrs(styles.historyStatus)}>
-									{run().status === "succeeded" &&
-									(run().snapshot as { execution?: { kind?: string } } | null)
-										?.execution?.kind === "agent"
-										? "Agent finished"
-										: run().status.replaceAll("_", " ")}
+									{run().presentation.status}
 								</span>
 								<Show
 									when={run().conversationAvailable}
@@ -186,9 +180,7 @@ export function RunHistory(props: {
 								</time>
 							</div>
 							<div {...stylex.attrs(styles.row)}>
-								{["queued", "running", "waiting_input"].includes(
-									run().status,
-								) ? (
+								{run().presentation.active ? (
 									<Button
 										size="sm"
 										disabled={projects.busy()}
@@ -208,9 +200,7 @@ export function RunHistory(props: {
 										disabled={opening()}
 										onClick={() => void continueRun(run().id)}
 									>
-										{["running", "queued", "waiting_input"].includes(
-											run().status,
-										)
+										{run().presentation.active
 											? "Open progress in chat"
 											: "Open in chat"}
 									</Button>
@@ -218,12 +208,11 @@ export function RunHistory(props: {
 							</div>
 						</div>
 						{run().error ? <p role="alert">{run().error}</p> : null}
-						{typeof (run().result as { message?: unknown } | null)?.message ===
-						"string" ? (
-							<p {...stylex.attrs(styles.taskSummary)}>
-								{(run().result as { message: string }).message}
-							</p>
-						) : null}
+						<Show when={run().presentation.summary}>
+							{(summary) => (
+								<p {...stylex.attrs(styles.taskSummary)}>{summary()}</p>
+							)}
+						</Show>
 
 						<div {...stylex.attrs(styles.row)}>
 							<For
@@ -253,7 +242,8 @@ export function RunHistory(props: {
 									<div {...stylex.attrs(styles.historyIdentity)}>
 										<strong>{effect().intent.kind}</strong>
 										<span {...stylex.attrs(styles.muted)}>
-											{effect().intent.target} · {effectStatus(effect())}
+											{effect().intent.target} ·{" "}
+											{effectPresentation(effect()).status}
 										</span>
 									</div>
 									<Button
@@ -307,12 +297,7 @@ export function RunHistory(props: {
 									)}
 								</Show>{" "}
 								<div {...stylex.attrs(styles.row)}>
-									{[
-										"failed",
-										"cancelled",
-										"interrupted",
-										"waiting_input",
-									].includes(run().status) ? (
+									{run().presentation.retry ? (
 										<Button
 											size="sm"
 											disabled={projects.busy()}
@@ -335,34 +320,16 @@ export function RunHistory(props: {
 									>
 										Captured inputs
 									</Button>
-									<Button
-										size="sm"
-										onClick={() =>
-											void inspect(
-												run().directory,
-												(
-													run().snapshot as {
-														execution?: { kind?: string };
-													} | null
-												)?.execution?.kind === "agent"
-													? "logs/agent.jsonl"
-													: "logs/stdout.txt",
-											)
-										}
-									>
-										Execution log
-									</Button>
-									{(run().snapshot as { execution?: { kind?: string } } | null)
-										?.execution?.kind === "tool" ? (
-										<Button
-											size="sm"
-											onClick={() =>
-												void inspect(run().directory, "logs/stderr.txt")
-											}
-										>
-											Error log
-										</Button>
-									) : null}
+									<For each={run().presentation.logs} keyed={(log) => log[1]}>
+										{(log) => (
+											<Button
+												size="sm"
+												onClick={() => inspect(run().directory, log()[1])}
+											>
+												{log()[0]}
+											</Button>
+										)}
+									</For>
 								</div>
 								{run().result ? (
 									<details>
@@ -379,13 +346,18 @@ export function RunHistory(props: {
 				)}
 			</For>
 			<div {...stylex.attrs(styles.row)}>
-				{page() ? (
-					<Button size="sm" onClick={() => setPage(null)}>
+				{before() ? (
+					<Button size="sm" onClick={() => setCursor(null)}>
 						Latest runs
 					</Button>
 				) : null}
 				{catalog()?.hasMoreRuns ? (
-					<Button size="sm" onClick={() => void older()}>
+					<Button
+						size="sm"
+						onClick={() =>
+							setCursor({ scope: scope(), before: catalog()!.nextRunCursor! })
+						}
+					>
 						Older runs
 					</Button>
 				) : null}

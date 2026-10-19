@@ -1,17 +1,27 @@
 import { iconSize } from "@design-system/styles.stylex.ts";
 import { Button } from "@shared/ui/Button/index.tsx";
 import { IconAgent, IconGitBranch } from "@shared/ui/Icons/index.tsx";
-import { WorkspaceEmptyState } from "@shared/ui/WorkspacePage/index.tsx";
+import * as stylex from "@stylexjs/stylex";
+import { styles } from "./styles.ts";
 export function SettingsGithubEmptyState(_props: {
 	onConnect: () => void;
 	connecting: boolean;
 }) {
 	return (
-		<WorkspaceEmptyState
-			icon={<IconGitBranch size={iconSize.xl} />}
-			title="No GitHub accounts found"
-			description="Connect with the GitHub CLI and Inferay will pick up the account automatically."
-			action={
+		<div {...stylex.attrs(styles.emptyState)}>
+			<span {...stylex.attrs(styles.emptyIcon)}>
+				<IconGitBranch size={iconSize.xl} />
+			</span>
+			<div {...stylex.attrs(styles.emptyText)}>
+				<span {...stylex.attrs(styles.emptyTitle)}>
+					No GitHub accounts found
+				</span>
+				<span {...stylex.attrs(styles.emptyDescription)}>
+					Connect with the GitHub CLI and Inferay will pick up the account
+					automatically.
+				</span>
+			</div>
+			<div {...stylex.attrs(styles.emptyAction)}>
 				<Button
 					type="button"
 					onClick={_props.onConnect}
@@ -24,7 +34,7 @@ export function SettingsGithubEmptyState(_props: {
 						{_props.connecting ? "Opening GitHub…" : "Run gh auth login"}
 					</span>
 				</Button>
-			}
-		/>
+			</div>
+		</div>
 	);
 }

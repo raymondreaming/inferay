@@ -5,6 +5,17 @@ import {
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
+	memoryPanel: {
+		display: "flex",
+		flexDirection: "column",
+		width: "100%",
+		alignSelf: "stretch",
+		flexGrow: 1,
+		minWidth: 0,
+		height: "100%",
+		minHeight: 0,
+	},
+
 	historyUpcoming: {
 		width: "100%",
 		display: "flex",

@@ -768,24 +768,11 @@ pub(crate) fn import_library(
     if name.trim().is_empty() || name.len() > 200 || originals.is_empty() {
         return Err("Choose a named folder containing files".into());
     }
-    let mut entries = BTreeSet::new();
-    let mut total = 0usize;
-    for (path, bytes) in originals {
-        format::relative_path(path)?;
-        let parts: Vec<_> = path.split('/').collect();
-        if parts.len() > 13 {
-            return Err("Imported file tree is too deep".into());
-        }
-        for count in 1..=parts.len() {
-            entries.insert(parts[..count].join("/"));
-        }
-        total = total
-            .checked_add(bytes.len())
-            .ok_or("Import size overflow")?;
-    }
-    if entries.len() + 3 > PLUGIN_ENTRY_LIMIT || total > PLUGIN_BYTE_LIMIT - MANIFEST_LIMIT {
-        return Err("Library exceeds 1,000 entries or 50 MB".into());
-    }
+    format::validate_import_manifest(
+        originals
+            .iter()
+            .map(|(path, bytes)| (path.as_str(), bytes.len())),
+    )?;
     let id = uuid::Uuid::new_v4().to_string();
     let slug: String = name
         .chars()

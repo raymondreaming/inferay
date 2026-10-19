@@ -1,4 +1,5 @@
 import { iconSize } from "@design-system/styles.stylex.ts";
+import type { useGitChangeActions } from "@repository/hooks/useGitStatus.tsx";
 import { generateCommitMessage } from "@repository/services/gitApi.ts";
 import { DotMatrixLoader } from "@shared/ui/DotMatrixLoader/index.tsx";
 import { IconGitCommit, IconSparkles } from "@shared/ui/Icons/index.tsx";
@@ -6,22 +7,24 @@ import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal } from "solid-js";
 import { styles } from "./styles.ts";
 export function CommitSection(_props: {
+	actions: Pick<
+		ReturnType<typeof useGitChangeActions>,
+		"commitMessage" | "setCommitMessage" | "commit" | "isCommitting"
+	>;
 	cwd?: string;
-	commitMessage: string;
-	onCommitMessageChange: (msg: string) => void;
-	onCommit: () => void;
-	isCommitting: boolean;
 	stagedCount: number;
 }) {
 	const [generating, setGenerating] = createSignal(false);
-	const message = createMemo(() => _props.commitMessage.replace(/\s+/g, " "));
+	const message = createMemo(() =>
+		_props.actions.commitMessage.replace(/\s+/g, " "),
+	);
 	const generateMessage = async () => {
 		if (!_props.cwd || !_props.stagedCount || generating()) return;
 		setGenerating(true);
 		try {
 			const generated = await generateCommitMessage(_props.cwd);
 			if (generated) {
-				_props.onCommitMessageChange(generated.replace(/\s+/g, " ").trim());
+				_props.actions.setCommitMessage(generated.replace(/\s+/g, " ").trim());
 			}
 		} catch {
 			// ignore
@@ -38,7 +41,7 @@ export function CommitSection(_props: {
 							type="text"
 							value={message()}
 							onInput={(e) =>
-								_props.onCommitMessageChange(e.currentTarget.value)
+								_props.actions.setCommitMessage(e.currentTarget.value)
 							}
 							placeholder="Message"
 							data-git-commit-message
@@ -46,7 +49,7 @@ export function CommitSection(_props: {
 							onKeyDown={(e) => {
 								if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
 									e.preventDefault();
-									_props.onCommit();
+									_props.actions.commit();
 								}
 							}}
 						/>
@@ -76,12 +79,15 @@ export function CommitSection(_props: {
 				<div {...stylex.attrs(styles.commitButtonSurface)}>
 					<button
 						type="button"
-						onClick={_props.onCommit}
-						disabled={!_props.commitMessage.trim() || _props.isCommitting}
+						onClick={_props.actions.commit}
+						disabled={
+							!_props.actions.commitMessage.trim() ||
+							_props.actions.isCommitting
+						}
 						{...stylex.attrs(styles.commitMainAction)}
 					>
 						<IconGitCommit size={iconSize.md} />
-						{_props.isCommitting
+						{_props.actions.isCommitting
 							? "Committing…"
 							: _props.stagedCount
 								? `Commit ${_props.stagedCount} file${_props.stagedCount !== 1 ? "s" : ""}`

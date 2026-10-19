@@ -83,7 +83,6 @@ Schema version 3 (`PRAGMA user_version`). Two kinds of tables:
 | `run_events` | ordered events within a run (`memory_read`, progress, errors) |
 | `artifacts` | each declared output: name, path, size, hash |
 | `project_conversations` | which chat panes belong to which project |
-| `project_migrations` | one-time migrations already applied |
 
 Because approvals and on/off state live here and not in the files, **copying or pulling a plugin folder can never switch it on**. You approve on your own Mac.
 
@@ -158,12 +157,11 @@ An agent asks for what it needs instead of loading everything, and each run reco
 
 ## 🔄 Upgrades and migration
 
-Older profiles kept definitions in database rows. On first launch of a version-3 build, `project_migration::export` writes every project, resource, tool, skill and automation out as files (keeping all IDs, so run history still links), `replace_definition_tables` swaps in the index tables, and every automation comes over **switched off with no approval**. Absolute folder paths become repository references. Test migrations only against a disposable `INFERAY_USER_DATA_DIR`.
+Fresh profiles create the current version-3 database directly. Current file-based projects, local state and run history continue to work. Automatic upgrades from the old SQL definitions, workspace-derived projects, `resources/` project directories and generated automation-plugin wrappers have been retired. Open older profiles in the previous Inferay build to complete those migrations first. This build refuses pre-version-3 project databases without changing them; it does not export, rename or delete old files. Existing migration records can remain in an upgraded database but are no longer used.
 
 ## ⚠️ Known limits
 
 - **File validation on every refresh.** `project_index::refresh` still reads and validates definition files and checks approved inputs on each call. It updates only changed index rows and removes missing rows in one transaction; unchanged refreshes do not rewrite the index. The project pages poll every 3 seconds while visible. Large libraries can still make scanning and approval validation expensive.
-- **Old write paths remain.** `project_store.rs` still contains row-writing code for the pre-file schema (`resources`, `resource_revisions`, `projects`, `automations`, `plugins`), now used only by migration and slated for removal ([roadmap](roadmap.md), M1).
 - **Claude lacks the tools.** `inferay_projects` and `inferay_memory` are offered to Codex only; Claude gets Memory as prompt text and can search the notes folder itself.
 - **No cost on runs yet.** Token counts and cost are not recorded on `runs` ([roadmap](roadmap.md), M2).
 

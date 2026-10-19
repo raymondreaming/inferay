@@ -1,7 +1,9 @@
 import type {
 	PanelSession,
+	PresentationContracts,
 	ProviderCatalog,
 	ProviderSettings,
+	UntypedPresentationOperation,
 	WorkspaceAgentKind,
 } from "@contracts";
 import wasmUrl from "../../../build/presentation/bytes.js";
@@ -396,7 +398,15 @@ function wasmBytes(encoded: string): Uint8Array {
 	return bytes;
 }
 initSync({ module: wasmBytes(wasmUrl) });
-export function project<T>(operation: string, input: unknown): T {
+export function project<K extends keyof PresentationContracts>(
+	operation: K,
+	input: PresentationContracts[K]["input"],
+): PresentationContracts[K]["output"];
+export function project<T>(
+	operation: UntypedPresentationOperation,
+	input: unknown,
+): T;
+export function project(operation: string, input: unknown): unknown {
 	return JSON.parse(presentation(operation, JSON.stringify(input)));
 }
 export function adjacentGitFile<T>(

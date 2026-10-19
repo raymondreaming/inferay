@@ -6,6 +6,7 @@ import {
 	useForgeAccounts,
 	useGithubRepos,
 } from "@repository/hooks/useForgeAccounts.tsx";
+import { pickCloneDirectory } from "@shared/lib/native.tsx";
 import { Button } from "@shared/ui/Button/index.tsx";
 import { IconCheck, IconRefreshCw } from "@shared/ui/Icons/index.tsx";
 import {
@@ -17,11 +18,7 @@ import { Notice } from "@shared/ui/Surface/index.tsx";
 import { TextInput } from "@shared/ui/TextInput/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For } from "solid-js";
-import {
-	cloneGithubRepo,
-	connectGithub,
-	pickCloneDirectory,
-} from "../../services/settingsApi.ts";
+import { cloneGithubRepo, connectGithub } from "../../services/settingsApi.ts";
 import {
 	SettingsGithubAccount,
 	SettingsGithubEmptyState,

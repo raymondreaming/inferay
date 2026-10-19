@@ -12,7 +12,7 @@ import {
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For } from "solid-js";
 import { settingsApi } from "../../services/settingsApi.ts";
-import { styles } from "./styles.ts";
+import { editorStyles as styles } from "./styles.ts";
 
 const EMPTY_FOLDERS: string[] = [];
 export function SearchFoldersSection() {
@@ -130,6 +130,6 @@ export function SearchFoldersSection() {
 async function fetchSearchFolders() {
 	return settingsApi.loadSearchFolders();
 }
-export async function saveSearchFolders(folders: string[]) {
+async function saveSearchFolders(folders: string[]) {
 	await settingsApi.saveSearchFolders(folders);
 }

@@ -1,3 +1,4 @@
+import limits from "../../../../../build/presentation/project-policy.json";
 import type { PluginImportFile } from "../../services/projectsApi.ts";
 
 export function droppedPluginFiles(transfer: DataTransfer) {
@@ -18,7 +19,7 @@ async function collect(
 	let size = 0;
 	function add(path: string, file: File) {
 		size += file.size;
-		if (files.length >= 1000 || size > 50_000_000)
+		if (files.length >= limits.entryLimit || size > limits.byteLimit)
 			throw new Error("Library exceeds 1,000 entries or 50 MB.");
 		files.push({ path, file });
 	}
@@ -27,7 +28,7 @@ async function collect(
 		parent: string,
 		depth: number,
 	): Promise<void> {
-		if (++count > 1000 || depth > 13)
+		if (++count > limits.entryLimit || depth > 13)
 			throw new Error("Library has too many entries or nested folders.");
 		const path = parent ? `${parent}/${entry.name}` : entry.name;
 		if (entry.isFile) {

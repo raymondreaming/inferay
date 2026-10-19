@@ -19,6 +19,14 @@ pub(crate) struct PromptStore {
 impl PromptStore {
     pub fn open(bundled_path: PathBuf, local_path: PathBuf) -> crate::project_store::Result<Self> {
         let root = local_path.parent().ok_or("Skills directory missing")?;
+        // Refuse legacy SQL profiles before creating a skills import receipt.
+        if root.join("projects.sqlite3").try_exists()? {
+            let projects = rusqlite::Connection::open_with_flags(
+                root.join("projects.sqlite3"),
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )?;
+            crate::project_store::database_version(&projects)?;
+        }
         std::fs::create_dir_all(root)?;
         let mut db = rusqlite::Connection::open(root.join("skills.sqlite3"))?;
         db.busy_timeout(std::time::Duration::from_secs(5))?;
@@ -31,31 +39,8 @@ impl PromptStore {
             [],
             |r| r.get::<_, bool>(0),
         )? {
-            let mut imported: Option<Vec<Prompt>> = None;
-            if root.join("projects.sqlite3").exists() {
-                let legacy = rusqlite::Connection::open_with_flags(
-                    root.join("projects.sqlite3"),
-                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-                )?;
-                let has_marker = legacy.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='project_migrations')", [], |r| r.get::<_, bool>(0))?;
-                if has_marker
-                    && legacy.query_row(
-                        "SELECT EXISTS(SELECT 1 FROM project_migrations WHERE name='skills-v1')",
-                        [],
-                        |r| r.get::<_, bool>(0),
-                    )?
-                {
-                    imported = Some(crate::project_store::rows(
-                        &legacy,
-                        "SELECT v.body FROM resources r JOIN resource_revisions v ON v.resource_id=r.id AND v.revision=r.revision WHERE r.project_id IS NULL AND r.type_id='inferay.skill' AND r.archived=0 ORDER BY r.id",
-                        [],
-                    )?);
-                }
-            }
-            let prompts: Vec<Prompt> = match imported {
-                Some(prompts) => prompts,
-                None => crate::json_file::read_existing(&local_path)?.unwrap_or_default(),
-            };
+            let prompts: Vec<Prompt> =
+                crate::json_file::read_existing(&local_path)?.unwrap_or_default();
             for prompt in prompts.iter().filter(|p| !p.is_built_in) {
                 tx.execute(
                     "INSERT INTO skills(id,body) VALUES(?,?)",

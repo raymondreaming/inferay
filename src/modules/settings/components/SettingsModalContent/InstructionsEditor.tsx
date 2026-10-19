@@ -9,7 +9,7 @@ import {
 	onCleanup,
 } from "solid-js";
 import { settingsApi } from "../../services/settingsApi.ts";
-import { styles } from "./styles.ts";
+import { editorStyles as styles } from "./styles.ts";
 
 export function InstructionsEditor() {
 	let disposed = false;

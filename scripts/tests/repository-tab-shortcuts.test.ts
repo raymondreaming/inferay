@@ -16,10 +16,10 @@ test("Command arrows switch project tabs and leave editing and dialogs alone", (
 	let active = "one";
 	let dialog = false;
 	const tabs = [
-		{ id: "one", archived: false },
-		{ id: "old", archived: true },
-		{ id: "two", archived: false },
-		{ id: "three", archived: false },
+		{ id: "one", definition: { archived: false } },
+		{ id: "old", definition: { archived: true } },
+		{ id: "two", definition: { archived: false } },
+		{ id: "three", definition: { archived: false } },
 	];
 	class Target {
 		constructor(private editing = false) {}

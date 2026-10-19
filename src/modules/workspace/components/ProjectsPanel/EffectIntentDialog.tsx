@@ -2,9 +2,13 @@ import type { ProjectEffectIntent } from "@contracts";
 import { Button } from "@shared/ui/Button/index.tsx";
 import { Modal } from "@shared/ui/Modal/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { createSignal, Show } from "solid-js";
-import { effectStatus } from "../../model/projectEffects.ts";
-import { cancelEffect, dismissEffect } from "../../services/projectsApi.ts";
+import { createMemo, Show } from "solid-js";
+import { useProjectAction } from "../../hooks/useProjects.tsx";
+import {
+	cancelEffect,
+	dismissEffect,
+	effectPresentation,
+} from "../../services/projectsApi.ts";
 import { styles } from "./styles.ts";
 
 export function EffectIntentDialog(props: {
@@ -12,13 +16,10 @@ export function EffectIntentDialog(props: {
 	close: () => void;
 	changed: (effect: ProjectEffectIntent) => Promise<void>;
 }) {
-	const [pending, setPending] = createSignal(false);
-	const [error, setError] = createSignal("");
-	async function change(cancel: boolean) {
-		if (pending()) return;
-		setPending(true);
-		setError("");
-		try {
+	const presentation = createMemo(() => effectPresentation(props.effect));
+	const { busy: pending, error, run } = useProjectAction();
+	const change = (cancel: boolean) =>
+		run(async () => {
 			const request = {
 				id: props.effect.id,
 				intentHash: props.effect.intentHash,
@@ -28,12 +29,7 @@ export function EffectIntentDialog(props: {
 				: { ...props.effect, ...(await dismissEffect(request)) };
 			await props.changed(effect);
 			props.close();
-		} catch (error) {
-			setError(String(error));
-		} finally {
-			setPending(false);
-		}
-	}
+		});
 	return (
 		<Modal
 			label="Review intent"
@@ -44,7 +40,7 @@ export function EffectIntentDialog(props: {
 			<div {...stylex.attrs(styles.form)}>
 				<strong>{props.effect.intent.kind}</strong>
 				<p {...stylex.attrs(styles.muted)}>
-					{props.effect.intent.target} · {effectStatus(props.effect)}
+					{props.effect.intent.target} · {presentation().status}
 				</p>
 				<Show when={props.effect.intent.notBefore !== null}>
 					<p {...stylex.attrs(styles.muted)}>
@@ -72,32 +68,20 @@ export function EffectIntentDialog(props: {
 					<p role="alert">{error()}</p>
 				</Show>
 				<div {...stylex.attrs(styles.row)}>
-					<Show
-						when={
-							props.effect.delivery &&
-							["queued", "in_flight", "uncertain"].includes(
-								props.effect.delivery.state,
-							) &&
-							props.effect.delivery.cancellationRequestedAt === null
-						}
-					>
+					<Show when={presentation().cancel}>
 						<Button
 							size="sm"
 							variant="ghost"
 							disabled={pending()}
 							onClick={() => void change(true)}
 						>
-							{props.effect.delivery?.state === "queued"
-								? "Cancel delivery"
-								: "Request stop"}
+							{presentation().cancel}
 						</Button>
 					</Show>
 					<Button size="sm" disabled={pending()} onClick={props.close}>
 						Close
 					</Button>
-					<Show
-						when={props.effect.dismissedAt === null && !props.effect.delivery}
-					>
+					<Show when={presentation().dismissible}>
 						<Button
 							size="sm"
 							variant="ghost"

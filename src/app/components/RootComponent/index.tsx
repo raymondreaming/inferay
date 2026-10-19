@@ -2,9 +2,14 @@ import { queryClient } from "@shared/lib/dom.tsx";
 import { ErrorBoundary } from "@shared/ui/ErrorBoundary/index.tsx";
 import { QueryClientProvider } from "@tanstack/solid-query";
 import { createSignal, Loading, lazy, onSettled } from "solid-js";
-import { Router } from "../../../router.tsx";
+import { AppLayout } from "../AppLayout/index.tsx";
 import "@design-system/styles.css";
 
+const AgentPage = lazy(() =>
+	import("@workspace/components/AgentPage/index.tsx").then((module) => ({
+		default: module.AgentPage,
+	})),
+);
 const PerformanceRecorder = lazy(
 	() => import("../PerformanceRecorder/index.tsx"),
 );
@@ -28,7 +33,9 @@ export function RootComponent() {
 		<QueryClientProvider client={queryClient}>
 			<ErrorBoundary>
 				<Loading fallback={<div role="status">Loading Inferay…</div>}>
-					<Router />
+					<AppLayout>
+						<AgentPage />
+					</AppLayout>
 					{recording() && (
 						<Loading fallback={null}>
 							<PerformanceRecorder onClose={() => setRecording(false)} />

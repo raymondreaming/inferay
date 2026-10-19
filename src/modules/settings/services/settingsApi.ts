@@ -11,7 +11,7 @@ import type {
 import {
 	fetchJson,
 	fetchJsonOr,
-	pickCloneDirectory as pickNativeDirectory,
+	pickCloneDirectory,
 	postJson,
 	sendJson,
 } from "@shared/lib/native.tsx";
@@ -62,7 +62,7 @@ export const settingsApi: SettingsApi = {
 		);
 		if (!response.ok) throw new Error("Could not save search folders");
 	},
-	pickSearchFolder: pickNativeDirectory,
+	pickSearchFolder: pickCloneDirectory,
 };
 
 export async function fetchAgentAccountStatuses(signal?: AbortSignal) {
@@ -93,8 +93,6 @@ export function updateMcpConnection(action: McpAction) {
 export async function connectGithub() {
 	await postJson("/api/forge/connect", { provider: "github" });
 }
-
-export const pickCloneDirectory = pickNativeDirectory;
 
 export async function cloneGithubRepo(
 	repo: GithubRepo,

@@ -4,7 +4,7 @@ import * as stylex from "@stylexjs/stylex";
 import { createSignal, onSettled, Show } from "solid-js";
 import { projects, refreshProjects } from "../../hooks/useProjects.tsx";
 import { AutomationWorkspace } from "./AutomationWorkspace.tsx";
-import { MemoryPanel } from "./MemoryPanel/index.tsx";
+import { MemoryGraph } from "./MemoryGraph/index.tsx";
 import { PluginsPanel } from "./PluginsPanel.tsx";
 import { ProjectEditor } from "./ProjectEditor.tsx";
 import { styles } from "./styles.ts";
@@ -41,7 +41,8 @@ export function ProjectsPanel() {
 			) : null}
 			{!current() ? (
 				<div {...stylex.attrs(styles.list)}>
-					{projects.catalog() && !projects.list().some((p) => !p.archived) ? (
+					{projects.catalog() &&
+					!projects.list().some((p) => !p.definition.archived) ? (
 						<div {...stylex.attrs(styles.empty)}>
 							<IconFolder size={28} />
 							<strong>A home for your next idea</strong>
@@ -57,7 +58,14 @@ export function ProjectsPanel() {
 				</div>
 			) : null}
 			<Show when={projects.view() === "memory" && current()?.id} keyed>
-				{(id) => <MemoryPanel projectId={id} />}
+				{(id) => (
+					<section
+						aria-label="Project memory"
+						{...stylex.attrs(styles.memoryPanel)}
+					>
+						<MemoryGraph projectId={id} />
+					</section>
+				)}
 			</Show>
 			{current() && projects.view() === "plugins" ? <PluginsPanel /> : null}
 			{current() && projects.view() === "automations" ? (

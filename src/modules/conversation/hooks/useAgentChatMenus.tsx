@@ -19,7 +19,7 @@ import {
 	createMemo,
 	createSignal,
 } from "solid-js";
-export type FileSearchResult = ChatFileSearchResult;
+
 interface UseAgentChatMenusOptions {
 	agentKind: WorkspaceAgentKind;
 	cwd?: string;
@@ -53,7 +53,7 @@ export function useAgentChatMenus(
 			enabled: enabled(),
 		};
 	});
-	const _source2 = useQueryResource<FileSearchResult[]>(() => {
+	const _source2 = useQueryResource<ChatFileSearchResult[]>(() => {
 		const cwd = _options().cwd;
 		const { query, show } = fileMenu();
 		return {

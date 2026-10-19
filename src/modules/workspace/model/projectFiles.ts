@@ -5,16 +5,15 @@ import type {
 	IndexedPlugin,
 	ProjectDefinition,
 	ProjectWorkspace,
-	ResourceDefinition,
 	ToolDefinition,
 } from "@contracts";
 
-export type ProjectFile<T> = T & { file: IndexedDefinition<T> };
+export type ProjectFile<T> = IndexedDefinition<T> & { definition: T };
 export type Project = ProjectFile<ProjectDefinition> & { directory: string };
 export type ProjectTool = ProjectFile<ToolDefinition>;
-export type ProjectResource = ProjectFile<ResourceDefinition>;
-export type ProjectAutomation = ProjectFile<AutomationDefinition> &
-	Omit<IndexedAutomation, "file">;
+export type ProjectAutomation = {
+	file: ProjectFile<AutomationDefinition>;
+} & Omit<IndexedAutomation, "file">;
 export type ProjectPlugin = IndexedPlugin & { directory: string };
 export function pluginName(plugin: ProjectPlugin): string {
 	return (
@@ -24,8 +23,8 @@ export function pluginName(plugin: ProjectPlugin): string {
 	);
 }
 
-function defined<T>(file: IndexedDefinition<T>): ProjectFile<T>[] {
-	return file.definition && !file.error ? [{ ...file.definition, file }] : [];
+function defined<T>(file: IndexedDefinition<T>): file is ProjectFile<T> {
+	return !!file.definition && !file.error;
 }
 export function projectWorkspaceView(workspace: ProjectWorkspace) {
 	const { catalog, history, root, conversationProjects } = workspace;
@@ -36,18 +35,18 @@ export function projectWorkspaceView(workspace: ProjectWorkspace) {
 		conversationProjects,
 		repositoryBindings: catalog.repositoryPaths,
 		repositoryPaths: Object.values(catalog.repositoryPaths),
-		projects: catalog.projects.flatMap((file): Project[] =>
-			defined(file).map((project) => ({
-				...project,
-				directory: `${root}/projects/${project.id}`,
-			})),
+		projects: catalog.projects.filter(defined).map(
+			(file): Project => ({
+				...file,
+				directory: `${root}/projects/${file.definition.id}`,
+			}),
 		),
-		resources: catalog.resources.flatMap(defined),
-		tools: catalog.tools.flatMap(defined),
-		skills: catalog.skills.flatMap(defined),
-		automations: catalog.automations.flatMap(
-			({ file, ...state }): ProjectAutomation[] =>
-				file.definition ? [{ ...file.definition, file, ...state }] : [],
+		resources: catalog.resources.filter(defined),
+		tools: catalog.tools.filter(defined),
+		skills: catalog.skills.filter(defined),
+		automations: catalog.automations.filter(
+			(automation): automation is ProjectAutomation =>
+				!!automation.file.definition,
 		),
 		plugins: catalog.plugins.map(
 			(plugin): ProjectPlugin => ({

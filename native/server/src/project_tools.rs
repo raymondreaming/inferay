@@ -1,10 +1,10 @@
 use crate::{
-    project_runtime::{ProjectRuntime, tool},
+    project_runtime::{ExecutionInputs, ProjectRuntime, tool},
     project_store::{Result, event, resolve_path},
 };
 use inferay_core::{
     project_files::{AgentToolGrant, ToolDefinition},
-    projects::{LocalTool, ProjectPath, ToolArgument, ToolInterface},
+    projects::{LocalTool, ProjectExecution, ProjectPath, ToolArgument, ToolInterface},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -35,7 +35,7 @@ pub(crate) struct ToolScope {
     root: PathBuf,
     dir: PathBuf,
     snapshot: Value,
-    tools: BTreeMap<String, CapturedTool>,
+    inputs: Arc<ExecutionInputs>,
     active: AtomicBool,
     serial: Semaphore,
     calls: AtomicU32,
@@ -71,25 +71,24 @@ impl ToolScope {
         root: PathBuf,
         dir: PathBuf,
         snapshot: Value,
-    ) -> Result<Arc<Self>> {
-        let tools =
-            serde_json::from_value(snapshot.get("tools").cloned().unwrap_or_else(|| json!({})))?;
-        Ok(Arc::new(Self {
+        inputs: Arc<ExecutionInputs>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
             runtime,
             run: run.into(),
             root,
             dir,
             snapshot,
-            tools,
+            inputs,
             active: AtomicBool::new(true),
             serial: Semaphore::new(1),
             calls: AtomicU32::new(0),
             artifacts: Mutex::new(vec![]),
             outcomes: Mutex::new(BTreeMap::new()),
-        }))
+        })
     }
     pub(crate) fn available(&self) -> bool {
-        !self.tools.is_empty()
+        !self.inputs.tools.is_empty()
     }
     pub(crate) fn definition() -> Value {
         json!({"type":"function","name":"inferay_tools","description":"List or call the reusable library tools explicitly granted to this automation. Use list to discover names, pluginId, toolId and input schemas, then call with those IDs and input. Undeclared tools are refused. Tools marked required must be called and pass before the run can succeed. Their latest attempt must succeed; repair failures and retry. Optional tool failures may be recovered.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["list","call"]},"pluginId":{"type":"string"},"toolId":{"type":"string"},"input":{}},"required":["action"],"additionalProperties":false}})
@@ -107,6 +106,7 @@ impl ToolScope {
             .lock()
             .map_err(|_| "Tool outcome lock failed")?;
         let missing: Vec<_> = self
+            .inputs
             .tools
             .iter()
             .filter(|(key, tool)| tool.grant.required && outcomes.get(*key) != Some(&true))
@@ -136,7 +136,7 @@ impl ToolScope {
         let request: Request = serde_json::from_value(args)?;
         if matches!(request, Request::List) {
             return Ok(
-                json!({"tools":self.tools.values().map(|tool| json!({"pluginId":tool.grant.plugin_id,"toolId":tool.grant.tool_id,"name":tool.definition.name,"required":tool.grant.required,"inputSchema":tool.definition.input_schema})).collect::<Vec<_>>() }),
+                json!({"tools":self.inputs.tools.values().map(|tool| json!({"pluginId":tool.grant.plugin_id,"toolId":tool.grant.tool_id,"name":tool.definition.name,"required":tool.grant.required,"inputSchema":tool.definition.input_schema})).collect::<Vec<_>>() }),
             );
         }
         let _permit = self
@@ -154,6 +154,7 @@ impl ToolScope {
             }
             .key();
             let captured = self
+                .inputs
                 .tools
                 .get(&key)
                 .ok_or("This tool is not granted to the automation")?;
@@ -171,15 +172,10 @@ impl ToolScope {
         let skills = self.runtime.prompts.lock().await.load()?;
         {
             let store = self.runtime.store()?;
-            let automation = self
-                .snapshot
-                .pointer("/automation/id")
-                .and_then(Value::as_str)
-                .ok_or("Missing automation identity")?;
             let current = crate::project_index::approved_inputs(
                 &store.db,
                 &store.root,
-                automation,
+                &self.inputs.automation.id,
                 false,
                 &skills,
             )?;
@@ -203,7 +199,7 @@ impl ToolScope {
         let call = uuid::Uuid::new_v4().to_string();
         let (tool, input, entrypoint_hash) = match request {
             Request::Call { input, .. } => {
-                let captured = &self.tools[&grant.as_ref().unwrap().key()];
+                let captured = &self.inputs.tools[&grant.as_ref().unwrap().key()];
                 let definition = &captured.definition;
                 let entrypoint = resolve_path(&self.root, &captured.entrypoint)?;
                 let tool = LocalTool {
@@ -226,9 +222,12 @@ impl ToolScope {
                 command,
                 timeout_seconds,
             } => {
-                if self.snapshot["execution"]["kind"] != "agent" {
+                let ProjectExecution::Agent {
+                    working_directory, ..
+                } = &self.inputs.execution
+                else {
                     return Err("Only agent automations can execute commands".into());
-                }
+                };
                 if command.trim().is_empty() || command.contains('\0') {
                     return Err("Command must be nonempty text without NUL bytes".into());
                 }
@@ -244,9 +243,7 @@ impl ToolScope {
                     program: "/bin/sh".into(),
                     entrypoint: ProjectPath::Project { path },
                     arguments: vec![ToolArgument::Literal(source.to_string_lossy().into_owned())],
-                    working_directory: serde_json::from_value(
-                        self.snapshot["execution"]["workingDirectory"].clone(),
-                    )?,
+                    working_directory: working_directory.clone(),
                     timeout_seconds: timeout,
                     input_schema: json!({"type":"object"}),
                     output_schema: json!({"type":"object"}),
@@ -269,7 +266,6 @@ impl ToolScope {
                 &json!({"callId":call,"grant":grant,"input":input}),
             )?;
         }
-        let permissions = serde_json::from_value(self.snapshot["automation"]["may"].clone())?;
         let cancelled = || self.runtime.stopped(&self.run) || !self.active.load(Ordering::Acquire);
         let result = tool::execute(
             &self.runtime,
@@ -283,7 +279,7 @@ impl ToolScope {
                 input,
                 snapshot: &self.snapshot,
                 entrypoint_hash: &entrypoint_hash,
-                permissions: &permissions,
+                permissions: &self.inputs.automation.may,
                 cancelled: &cancelled,
             },
         )

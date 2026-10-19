@@ -46,18 +46,14 @@ export function AppLayout(props: { children: Element }) {
 					filter: `blur(${_source.background.blur}px)`,
 				}}
 			/>
-			{_source.background.mode === "glass" ? (
+			{_source.background.mode === "glass" && !usesNativeGlass ? (
 				<div
 					aria-hidden="true"
 					data-glass-backdrop="true"
 					{...stylex.attrs(styles.glassBackdrop)}
 					style={{
-						"-webkit-backdrop-filter": usesNativeGlass
-							? "none"
-							: `blur(${_source.background.glassBlur}px) saturate(115%)`,
-						"backdrop-filter": usesNativeGlass
-							? "none"
-							: `blur(${_source.background.glassBlur}px) saturate(115%)`,
+						"-webkit-backdrop-filter": `blur(${_source.background.glassBlur}px) saturate(115%)`,
+						"backdrop-filter": `blur(${_source.background.glassBlur}px) saturate(115%)`,
 						"background-color": `color-mix(in srgb, #000000 ${_source.background.glassOpacity}%, transparent)`,
 					}}
 				/>

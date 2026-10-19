@@ -2,7 +2,7 @@ import type { GitGraphRef } from "@contracts";
 import { surfaceStyles } from "@design-system/styles.stylex.ts";
 import { IconSearch, IconSettings } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { createMemo, For } from "solid-js";
+import { For } from "solid-js";
 import { styles } from "./styles.ts";
 import {
 	type ColumnKey,
@@ -20,14 +20,14 @@ export function GraphColumnMenu(_props: {
 	onQueryChange: (query: string) => void;
 	matchCount: number;
 }) {
-	const labels = createMemo<Record<ColumnKey, string>>(() => ({
+	const labels: Record<ColumnKey, string> = {
 		date: "Date",
 		refs: "Branch",
 		graph: "Graph",
 		message: "Message",
 		author: "Author",
 		sha: "SHA",
-	}));
+	};
 	return (
 		<div {...stylex.attrs(styles.columnMenuOverlay)}>
 			<div {...stylex.attrs(styles.headerTools)}>
@@ -69,7 +69,7 @@ export function GraphColumnMenu(_props: {
 										onClick={() => _props.onToggleColumn(key())}
 										{...stylex.attrs(styles.columnsMenuItem)}
 									>
-										{labels()[key()]}
+										{labels[key()]}
 										<span {...stylex.attrs(styles.columnsState)}>
 											{_props.columns[key()] ? "On" : "Off"}
 										</span>

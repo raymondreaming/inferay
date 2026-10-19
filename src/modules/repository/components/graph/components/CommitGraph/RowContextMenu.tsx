@@ -19,10 +19,8 @@ export function RowContextMenu(
 	const item = createMemo(() => _props.itemContextMenu.item);
 	const entries = createMemo(() => {
 		const entries: ContextMenuEntry[] = [];
-		const multiple = createMemo(
-			() =>
-				_props.selectedIds.length > 1 && _props.selectedIds.includes(item().id),
-		);
+		const multiple =
+			_props.selectedIds.length > 1 && _props.selectedIds.includes(item().id);
 		if (item().itemKind !== "worktreeWip") {
 			if (item().itemKind === "commit" && _props.onCompareWithWip)
 				entries.push({
@@ -40,10 +38,10 @@ export function RowContextMenu(
 					},
 				});
 		}
-		const labels = createMemo(() => ({
+		const labels = {
 			createBranch: "Create branch here…",
 			createTag: "Create tag here…",
-			cherryPick: multiple()
+			cherryPick: multiple
 				? `Cherry-pick ${_props.selectedIds.length} commits…`
 				: "Cherry-pick commit…",
 			revert: "Revert commit…",
@@ -55,14 +53,13 @@ export function RowContextMenu(
 			resetSoft: "Reset branch here (soft)…",
 			resetMixed: "Reset branch here (mixed)…",
 			resetHard: "Reset branch here (hard)…",
-		}));
-		const actions = createMemo<Array<keyof ReturnType<typeof labels>>>(() => {
-			const _itemValue = item();
-			return _itemValue.itemKind === "worktreeWip"
-				? _itemValue.id === "wip"
+		};
+		const actions: Array<keyof typeof labels> =
+			item().itemKind === "worktreeWip"
+				? item().id === "wip"
 					? ["stashPush"]
 					: []
-				: _itemValue.itemKind === "stash"
+				: item().itemKind === "stash"
 					? ["stashApply", "stashPop", "stashRename", "stashDrop"]
 					: [
 							"createBranch",
@@ -73,10 +70,9 @@ export function RowContextMenu(
 							"resetMixed",
 							"resetHard",
 						];
-		});
-		for (const action of actions())
+		for (const action of actions)
 			entries.push({
-				label: labels()[action],
+				label: labels[action],
 				run: () => {
 					const _itemValue2 = item();
 					return _props.onGraphAction?.({
@@ -87,7 +83,7 @@ export function RowContextMenu(
 								: _itemValue2.hash,
 						itemId: _itemValue2.id,
 						targets:
-							action === "cherryPick" && multiple()
+							action === "cherryPick" && multiple
 								? _props.commits
 										.filter(
 											(commit) =>

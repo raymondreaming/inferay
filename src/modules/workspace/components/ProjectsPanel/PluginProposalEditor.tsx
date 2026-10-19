@@ -1,4 +1,5 @@
 import type { PluginProposalReview, ProjectFileCommand } from "@contracts";
+import { project } from "@shared/lib/native.tsx";
 import { Button } from "@shared/ui/Button/index.tsx";
 import { Modal } from "@shared/ui/Modal/index.tsx";
 import { TextInput } from "@shared/ui/TextInput/index.tsx";
@@ -34,22 +35,18 @@ export function PluginProposalEditor(props: {
 			);
 	const { busy, error, setError, run } = useProjectAction();
 	function add(removal: boolean) {
-		const value = path().trim();
-		if (
-			!value ||
-			value.startsWith("/") ||
-			value.includes("\\") ||
-			value.split("/").some((part) => !part || part === "." || part === "..")
-		) {
-			setError("Use a relative file path inside this library.");
+		let value: string;
+		try {
+			value = project("proposalPath", {
+				path: path(),
+				removal,
+			});
+		} catch (error) {
+			setError(String(error));
 			return;
 		}
 		setError("");
 		if (removal) {
-			if (value === "plugin.json") {
-				setError("The library needs its plugin.json manifest.");
-				return;
-			}
 			setRemove([...new Set([...remove(), value])]);
 			const next = { ...files() };
 			delete next[value];

@@ -24,7 +24,6 @@ import {
 } from "@shared/lib/native.tsx";
 import { Button } from "@shared/ui/Button/index.tsx";
 import { IconPlus, IconSettings, IconUser } from "@shared/ui/Icons/index.tsx";
-import { useLocation, useNavigate } from "@solidjs/router";
 import * as stylex from "@stylexjs/stylex";
 import {
 	checkNativeUpdate,
@@ -115,8 +114,6 @@ export function useSidebarResize(collapsed: () => boolean) {
 }
 
 export function WorkspaceSidebar() {
-	const navigate = useNavigate();
-	const location = useLocation();
 	const [collapsed, setCollapsed] = createSignal(loadSidebarCollapsed);
 	const resize = useSidebarResize(collapsed);
 	const [updateStatus, setUpdateStatus] =
@@ -133,7 +130,6 @@ export function WorkspaceSidebar() {
 			_source2.data[0] ??
 			null,
 	);
-	const showWorkspaceSidebar = createMemo(() => location.pathname === "/");
 	onSettled(() => {
 		return listenWindowEvent(WORKSPACE_SIDEBAR_COLLAPSED_EVENT, (event) => {
 			setCollapsed(
@@ -144,16 +140,13 @@ export function WorkspaceSidebar() {
 	});
 	const [workspaces] = useWorkspaceState();
 	const selectPane = (_groupId: string, paneId: string) =>
-		openAgentPane(paneId, () => {
-			if (location.pathname !== "/") navigate("/");
-		});
+		openAgentPane(paneId);
 	const addChat = async (target: CreateAgentChatTarget) => {
 		if (target === "new-repository") {
 			await mutateAgentWorkspaceState({
 				type: "addWorkspace",
 			});
 			showProjectView("code");
-			navigate("/");
 			return;
 		}
 		await mutateAgentWorkspaceState({
@@ -161,7 +154,6 @@ export function WorkspaceSidebar() {
 			agentKind: loadDefaultChatSettings().agentKind,
 		});
 		showProjectView("chat");
-		navigate("/");
 	};
 	onSettled(() =>
 		listenWindowEvent(CREATE_AGENT_CHAT_EVENT, (event) => {
@@ -214,9 +206,7 @@ export function WorkspaceSidebar() {
 	const shellProps = createMemo(() =>
 		stylex.attrs(
 			styles.shell,
-			!showWorkspaceSidebar() || collapsed()
-				? styles.shellHidden
-				: styles.shellOpen,
+			collapsed() ? styles.shellHidden : styles.shellOpen,
 			resize.resizing() && styles.shellResizing,
 		),
 	);
@@ -227,14 +217,14 @@ export function WorkspaceSidebar() {
 			{...shellProps()}
 			class={`${APP_REGION_DRAG_CLASS} ${shellProps().class ?? ""}`}
 			style={
-				!showWorkspaceSidebar() || collapsed()
+				collapsed()
 					? undefined
 					: {
 							width: px(resize.width()),
 						}
 			}
 		>
-			{showWorkspaceSidebar() && !collapsed() && (
+			{!collapsed() && (
 				<button
 					type="button"
 					aria-label="Resize sidebar"
@@ -243,7 +233,7 @@ export function WorkspaceSidebar() {
 					onMouseDown={resize.start}
 				/>
 			)}
-			{showWorkspaceSidebar() && !collapsed() ? (
+			{!collapsed() ? (
 				<>
 					<ProjectNavigation />
 					<nav aria-label="Workspaces" {...stylex.attrs(styles.nav)}>

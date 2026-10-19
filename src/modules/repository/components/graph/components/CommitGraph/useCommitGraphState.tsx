@@ -377,7 +377,7 @@ export type GitGraphActionRequest = Pick<
 	itemId: string;
 	suggestedName?: string;
 };
-export interface GraphPreferences {
+interface GraphPreferences {
 	columns: ColumnVisibility;
 	widths: ColumnWidths;
 	order: ColumnKey[];

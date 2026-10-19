@@ -34,7 +34,7 @@ native/server/                      HTTP, persistence, process and application o
   ↓
 src/modules/                        feature hooks and rendering components
   ↓
-src/app/, src/router.tsx, client.tsx composition root
+src/app/, src/client.tsx            composition root
 ```
 
 `native/core` must not depend on the server, desktop host, renderer, or Solid. Pure Rust projections and engines must not reach into HTTP, persistence, or UI. Cargo owns Rust crate acyclicity; do not add reverse dependencies to make a local import convenient.

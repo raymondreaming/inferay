@@ -20,7 +20,7 @@ export function ToolConnectionsDialog(props: {
 	saved: () => Promise<void>;
 }) {
 	let nextKey = 0;
-	const initial = Object.entries(props.tool.connections ?? {}).map(
+	const initial = Object.entries(props.tool.definition.connections ?? {}).map(
 		([alias, binding]) => ({
 			key: nextKey++,
 			alias,
@@ -31,8 +31,8 @@ export function ToolConnectionsDialog(props: {
 	const { busy: pending, error, setError, run } = useProjectAction();
 	const dirty = () => JSON.stringify(rows()) !== JSON.stringify(initial);
 	const connections = useBackgroundQuery(() => ({
-		queryKey: ["project-connections", props.tool.file.projectId],
-		queryFn: () => loadProjectConnections(props.tool.file.projectId),
+		queryKey: ["project-connections", props.tool.projectId],
+		queryFn: () => loadProjectConnections(props.tool.projectId),
 	}));
 	function change(key: number, binding: Partial<ToolConnection>) {
 		setRows(
@@ -63,8 +63,8 @@ export function ToolConnectionsDialog(props: {
 		}
 		await run(async () => {
 			await saveProjectCommand(
-				editDefinition(props.tool.file, {
-					...props.tool.file.definition!,
+				editDefinition(props.tool, {
+					...props.tool.definition!,
 					connections: Object.fromEntries(
 						rows().map((row) => [row.alias, row.binding]),
 					),
@@ -76,7 +76,7 @@ export function ToolConnectionsDialog(props: {
 	}
 	return (
 		<Modal
-			label={`${props.tool.name} connections`}
+			label={`${props.tool.definition.name} connections`}
 			onClose={props.close}
 			closeDisabled={dirty() || pending()}
 			class={stylex.attrs(styles.dialog).class}
@@ -88,7 +88,7 @@ export function ToolConnectionsDialog(props: {
 					void save();
 				}}
 			>
-				<strong>{props.tool.name} · Connections</strong>
+				<strong>{props.tool.definition.name} · Connections</strong>
 				<p {...stylex.attrs(styles.muted)}>
 					Choose a saved key and the HTTPS destination this tool can request.
 					Changed inputs require approval before schedules can run.

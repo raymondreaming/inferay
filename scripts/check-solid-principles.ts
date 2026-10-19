@@ -22,7 +22,7 @@ const staticLists = new Map([
 		new Set(["SETTINGS_SECTIONS"]),
 	],
 	[
-		"modules/settings/components/Settings/BackgroundScenePicker.tsx",
+		"modules/settings/components/SettingsModalContent/BackgroundScenePicker.tsx",
 		new Set(["BACKGROUND_MODES"]),
 	],
 	[

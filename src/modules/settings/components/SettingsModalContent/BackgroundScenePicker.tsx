@@ -15,7 +15,7 @@ import {
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For } from "solid-js";
 import { settingsApi } from "../../services/settingsApi.ts";
-import { styles } from "./styles.ts";
+import { editorStyles as styles } from "./styles.ts";
 
 const BACKGROUND_MODES = [
 	{ id: "solid", label: "Black" },

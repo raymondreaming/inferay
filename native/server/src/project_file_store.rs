@@ -1,5 +1,5 @@
 use crate::{
-    project_file_commands, project_index, project_migration,
+    project_file_commands, project_index,
     project_store::{Result, now},
 };
 use inferay_core::{
@@ -144,16 +144,9 @@ impl FileProjectStore {
             .map_err(|_| "This Inferay profile is already open in another process")?;
         let lease = ProfileLease(lease);
         let mut db = crate::project_store::open_database(&root)?;
-        let version: i64 = db.pragma_query_value(None, "user_version", |r| r.get(0))?;
-        if version < 3 {
-            project_migration::export(&mut db, &root, skills)?;
-            project_migration::replace_definition_tables(&mut db)?;
-        }
         project_index::create_schema(&db)?;
         crate::project_effects::create_schema(&db)?;
-        crate::project_effects::outbox::recover(&db)?;
-        project_migration::memory_directories(&db, &root)?;
-        project_migration::standalone::migrate(&db, &root)?;
+        crate::project_effects::recover(&db)?;
         project_index::refresh(&mut db, &root, skills)?;
         db.execute("UPDATE runs SET status=CASE WHEN stop_requested_at IS NULL THEN 'interrupted' ELSE 'cancelled' END,finished_at=?,error='Execution interrupted; inspect its output before retrying' WHERE status='running'",[now()])?;
         Ok(Self {

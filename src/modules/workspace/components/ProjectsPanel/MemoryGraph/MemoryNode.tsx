@@ -1,7 +1,7 @@
-import type { MemoryGraphNode } from "@contracts";
+import type { GraphPoint, MemoryGraphNode } from "@contracts";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, Show } from "solid-js";
-import { type GraphPoint, memoryIconPath } from "../../../model/memoryGraph.ts";
+import { memoryIconPath } from "../../../model/memoryGraph.ts";
 import { projectDocumentUrl } from "../../../services/projectsApi.ts";
 import { styles } from "./styles.ts";
 

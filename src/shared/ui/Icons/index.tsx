@@ -1,6 +1,7 @@
 import type { JSX } from "@solidjs/web";
 import { omit } from "solid-js";
-export type IconProps = JSX.SVGAttributes<SVGSVGElement> & {
+
+type IconProps = JSX.SVGAttributes<SVGSVGElement> & {
 	size?: number;
 };
 function icon(

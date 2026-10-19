@@ -94,7 +94,7 @@ export async function selectProject(id: string) {
 	)
 		setRepositoryPath(catalog()?.repositoryPaths[0] ?? null);
 	if (!id && selectedId() === id) {
-		const first = list().find((p) => !p.archived);
+		const first = list().find((p) => !p.definition.archived);
 		if (first) await selectProject(first.id);
 	}
 }
@@ -114,7 +114,9 @@ export async function initializeProjects() {
 	await selectProject(readStoredValue("inferay-selected-project-id") ?? "");
 	if (
 		selectedId() &&
-		!catalog()?.projects.some((p) => p.id === selectedId() && !p.archived)
+		!catalog()?.projects.some(
+			(p) => p.id === selectedId() && !p.definition.archived,
+		)
 	)
 		await selectProject("");
 }
@@ -134,19 +136,11 @@ export async function saveProjectCommand(command: ProjectFileCommand) {
 }
 
 export async function addProjectRepository(project: Project, path: string) {
-	const repository = {
-		id: crypto.randomUUID(),
-		name: path.split("/").filter(Boolean).at(-1) ?? "Repository",
-		remote: null,
-	};
 	await saveProjectCommand({
-		type: "saveProject",
-		definition: {
-			...project.file.definition!,
-			repositories: [...project.repositories, repository],
-		},
-		expectedHash: project.file.sourceHash,
-		repositoryPaths: { [repository.id]: path },
+		type: "editRepository",
+		projectId: project.id,
+		expectedHash: project.sourceHash!,
+		change: { kind: "add", path },
 	});
 }
 

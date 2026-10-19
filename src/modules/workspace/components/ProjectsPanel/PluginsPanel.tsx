@@ -6,6 +6,7 @@ import {
 	refreshProjects,
 	saveProjectCommand,
 	showProjectView,
+	useProjectAction,
 } from "../../hooks/useProjects.tsx";
 import { pluginName } from "../../model/projectFiles.ts";
 import { importPluginLibrary } from "../../services/projectsApi.ts";
@@ -34,26 +35,18 @@ export function PluginsPanel() {
 					plugin.file.projectId === libraryTarget()?.projectId,
 			);
 	const [search, setSearch] = createSignal("");
-	const [error, setError] = createSignal("");
-	const [importing, setImporting] = createSignal(false);
+	const { busy: importing, error, setError, run } = useProjectAction();
 	let picker: HTMLInputElement | undefined;
 	async function importFolder(files: File[]) {
 		if (!files.length || importing()) return;
 		const projectId = projects.selectedId();
-		setImporting(true);
-		setError("");
-		try {
+		await run(async () => {
 			const slug = files[0].webkitRelativePath.split("/")[0];
 			if (
 				!slug ||
 				files.some((file) => !file.webkitRelativePath.startsWith(`${slug}/`))
 			)
 				throw new Error("Choose one folder to import as a draft library.");
-			if (
-				files.length > 1000 ||
-				files.reduce((size, file) => size + file.size, 0) > 50_000_000
-			)
-				throw new Error("Plugin exceeds the 1,000 entry or 50 MB limit.");
 			await importPluginLibrary(
 				projectId,
 				slug,
@@ -63,11 +56,7 @@ export function PluginsPanel() {
 				})),
 			);
 			await refreshProjects(projectId);
-		} catch (error) {
-			setError(String(error));
-		} finally {
-			setImporting(false);
-		}
+		});
 	}
 	const plugins = () =>
 		(projects.catalog()?.plugins ?? []).filter((plugin) =>
@@ -96,19 +85,13 @@ export function PluginsPanel() {
 				if (!event.dataTransfer || importing()) return;
 				const projectId = projects.selectedId();
 				const intake = droppedPluginFiles(event.dataTransfer);
-				setImporting(true);
-				setError("");
-				try {
+				await run(async () => {
 					const { name, files } = await intake;
 					if (!files.length)
 						throw new Error("Drop a folder or files to create a library.");
 					await importPluginLibrary(projectId, name, files);
 					await refreshProjects(projectId);
-				} catch (error) {
-					setError(String(error));
-				} finally {
-					setImporting(false);
-				}
+				});
 			}}
 		>
 			{dragging() && (
@@ -174,63 +157,11 @@ export function PluginsPanel() {
 					}
 				>
 					{(plugin) => {
-						const automations = () =>
-							(projects.catalog()?.automations ?? []).filter(
-								(item) =>
-									item.file.sourcePath.startsWith(
-										plugin().file.sourcePath.replace(/plugin\.json$/, ""),
-									) && !item.archived,
-							);
-						const consumers = () => {
-							const current = plugin();
-							const id = current.file.definition?.id;
-							const prefix = current.file.sourcePath.replace(
-								/plugin\.json$/,
-								"",
-							);
-							return (projects.catalog()?.automations ?? []).filter(
-								(automation) => {
-									if (
-										automation.archived ||
-										automation.file.projectId !== current.file.projectId
-									)
-										return false;
-									if (automation.file.sourcePath.startsWith(prefix))
-										return true;
-									const execution = automation.execution;
-									return (
-										!!id &&
-										execution.kind === "agent" &&
-										(execution.tools.some((tool) => tool.pluginId === id) ||
-											execution.skills.some((skill) =>
-												skill.startsWith(`plugin:${id}:`),
-											))
-									);
-								},
-							);
-						};
-						const tools = () =>
-							(projects.catalog()?.tools ?? []).filter((item) =>
-								item.file.sourcePath.startsWith(
-									plugin().file.sourcePath.replace(/plugin\.json$/, ""),
-								),
-							);
-						const issues = () =>
-							(projects.catalog()?.issues ?? []).filter(
-								(issue) =>
-									issue.projectId === plugin().file.projectId &&
-									issue.sourcePath.startsWith(
-										plugin().file.sourcePath.replace(/plugin\.json$/, ""),
-									),
-							);
+						const overview = () => plugin().overview;
 						const latestRun = () =>
-							(projects.catalog()?.runs ?? [])
-								.filter((run) =>
-									consumers().some(
-										(automation) => automation.id === run.automationId,
-									),
-								)
-								.sort((a, b) => b.requestedAt - a.requestedAt)[0];
+							projects
+								.catalog()
+								?.runs.find((run) => run.id === overview().latestRunId);
 						return (
 							<article {...stylex.attrs(styles.card)}>
 								<strong {...stylex.attrs(styles.listText)}>
@@ -240,17 +171,7 @@ export function PluginsPanel() {
 									{plugin().file.definition && (
 										<>Version {plugin().file.definition?.version} · </>
 									)}
-									{issues().length > 0
-										? "Needs repair"
-										: (plugin().approvedAt !== null &&
-													!plugin().approvedHash) ||
-												automations().some((item) => item.inputsChanged)
-											? "Changed · Review required"
-											: automations().some((item) => item.enabled)
-												? "Schedules active"
-												: automations().length
-													? "Schedules off"
-													: "Reusable library"}
+									{overview().status}
 								</span>
 								<p {...stylex.attrs(styles.resourcePreview)}>
 									{plugin().file.definition?.description}
@@ -261,7 +182,7 @@ export function PluginsPanel() {
 									</p>
 								)}
 								<For
-									each={issues().filter(
+									each={overview().issues.filter(
 										(issue) => issue.sourcePath !== plugin().file.sourcePath,
 									)}
 									keyed={(issue) => issue.sourcePath}
@@ -301,9 +222,9 @@ export function PluginsPanel() {
 									)}
 								</Show>
 								<PluginContentsSummary id={plugin().file.id} />
-								<For each={tools()} keyed={(tool) => tool.id}>
+								<For each={overview().tools} keyed={(name) => name}>
 									{(tool) => (
-										<span {...stylex.attrs(styles.muted)}>{tool().name}</span>
+										<span {...stylex.attrs(styles.muted)}>{tool()}</span>
 									)}
 								</For>
 								<span {...stylex.attrs(styles.muted)}>
@@ -325,7 +246,7 @@ export function PluginsPanel() {
 								>
 									Open library
 								</Button>
-								{automations().some((item) => item.enabled) && (
+								{overview().schedulesActive && (
 									<Button
 										size="sm"
 										variant="ghost"
@@ -340,16 +261,13 @@ export function PluginsPanel() {
 										Turn off schedules
 									</Button>
 								)}
-								{consumers().length > 0 && (
+								{Object.keys(overview().consumers).length > 0 && (
 									<Button
 										size="sm"
 										variant="ghost"
 										onClick={() => showProjectView("automations")}
 									>
-										Used by:{" "}
-										{consumers()
-											.map((automation) => automation.name)
-											.join(", ")}
+										Used by: {Object.values(overview().consumers).join(", ")}
 									</Button>
 								)}
 							</article>

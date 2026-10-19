@@ -1,31 +1,40 @@
+import type { Trigger } from "@contracts";
+import { project } from "@shared/lib/native.tsx";
 import { DropdownButton } from "@shared/ui/DropdownButton/index.tsx";
 import { TimePicker } from "@shared/ui/TimePicker/index.tsx";
 import * as stylex from "@stylexjs/stylex";
+import { createSignal } from "solid-js";
 import { styles } from "./styles.ts";
+
 export function AutomationTrigger(props: {
-	seconds: () => string;
-	customSchedule: () => boolean;
-	scheduleTime: () => string;
-	timezone: () => string;
-	weekday: () => string;
-	setSeconds: (value: string) => void;
-	setCustomSchedule: (value: boolean) => void;
-	setScheduleTime: (value: string) => void;
-	setTimezone: (value: string) => void;
-	setWeekday: (value: string) => void;
+	trigger: Trigger;
+	onChange: (trigger: Trigger) => void;
 }) {
+	const [custom, setCustom] = createSignal(
+		props.trigger.kind === "interval" && props.trigger.seconds !== 3600,
+	);
+	const calendar = () =>
+		props.trigger.kind === "calendar" ? props.trigger : undefined;
+	const seconds = () =>
+		props.trigger.kind === "interval"
+			? props.trigger.seconds
+			: calendar()
+				? calendar()!.days.length === 7
+					? 86400
+					: 604800
+				: 0;
+	const editCalendar = (
+		patch: Partial<Extract<Trigger, { kind: "calendar" }>>,
+	) => {
+		const current = calendar();
+		if (current) props.onChange({ ...current, ...patch });
+	};
 	return (
 		<section aria-label="Schedule" {...stylex.attrs(styles.editorSection)}>
 			<span {...stylex.attrs(styles.editorLabel)}>Triggers</span>
 			<div {...stylex.attrs(styles.row)}>
 				<DropdownButton
-					value={
-						props.seconds()
-							? props.customSchedule()
-								? "custom"
-								: props.seconds()
-							: null
-					}
+					value={custom() ? "custom" : seconds() ? String(seconds()) : null}
 					placeholder="＋ Add trigger"
 					minWidth={180}
 					options={[
@@ -35,19 +44,23 @@ export function AutomationTrigger(props: {
 						{ id: "custom", label: "Scheduled · Custom interval" },
 						{ id: "", label: "Manual only" },
 					]}
-					onChange={(value) => {
-						props.setCustomSchedule(value === "custom");
-						if (value !== "custom") props.setSeconds(value);
-						else if (!props.seconds()) props.setSeconds("3600");
+					onChange={(preset) => {
+						setCustom(preset === "custom");
+						props.onChange(
+							project("triggerPreset", {
+								trigger: props.trigger,
+								preset,
+								timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+							}),
+						);
 					}}
 				/>
-				{!props.customSchedule() &&
-				["86400", "604800"].includes(props.seconds()) ? (
+				{calendar() ? (
 					<div {...stylex.attrs(styles.row)}>
-						{props.seconds() === "604800" ? (
+						{calendar()!.days.length !== 7 ? (
 							<DropdownButton
 								label="Day of week"
-								value={props.weekday()}
+								value={String((calendar()!.days[0] ?? 1) - 1)}
 								options={[
 									"Monday",
 									"Tuesday",
@@ -57,34 +70,45 @@ export function AutomationTrigger(props: {
 									"Saturday",
 									"Sunday",
 								].map((label, id) => ({ id: String(id), label }))}
-								onChange={props.setWeekday}
+								onChange={(value) =>
+									editCalendar({
+										days: [
+											...new Set([
+												Number(value) + 1,
+												...calendar()!.days.slice(1),
+											]),
+										],
+									})
+								}
 							/>
 						) : null}
 						<span>at</span>
 						<TimePicker
-							value={props.scheduleTime()}
-							onChange={props.setScheduleTime}
+							value={calendar()!.times[0]}
+							onChange={(value) =>
+								editCalendar({ times: [value, ...calendar()!.times.slice(1)] })
+							}
 						/>
 						<DropdownButton
 							label="Timezone"
-							value={props.timezone()}
+							value={calendar()!.timezone}
 							options={[
 								...new Set([
-									props.timezone(),
+									calendar()!.timezone,
 									...Intl.supportedValuesOf("timeZone"),
 								]),
 							].map((zone) => ({ id: zone, label: zone.replaceAll("_", " ") }))}
-							onChange={props.setTimezone}
+							onChange={(value) => editCalendar({ timezone: value })}
 						/>
 					</div>
 				) : null}
 			</div>
-			{props.seconds() ? (
+			{seconds() ? (
 				<span {...stylex.attrs(styles.muted)}>
 					Enable after saving · Runs while Inferay is open
 				</span>
 			) : null}
-			{props.customSchedule() ? (
+			{custom() ? (
 				<label {...stylex.attrs(styles.settingRow)}>
 					Every (minutes)
 					<input
@@ -93,9 +117,12 @@ export function AutomationTrigger(props: {
 						min="1"
 						max="525600"
 						step="any"
-						value={Number(props.seconds()) / 60}
+						value={seconds() / 60}
 						onInput={(e) =>
-							props.setSeconds(String(Number(e.currentTarget.value) * 60))
+							props.onChange({
+								kind: "interval",
+								seconds: Number(e.currentTarget.value) * 60,
+							})
 						}
 						{...stylex.attrs(styles.inlineControl)}
 					/>

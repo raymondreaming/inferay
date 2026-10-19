@@ -40,9 +40,12 @@ export function AutomationWorkspace() {
 	>();
 	const [search, setSearch] = createSignal("");
 	const automations = () =>
-		projects.catalog()?.automations.filter((a) => !a.archived) ?? [];
+		projects
+			.catalog()
+			?.automations.filter((a) => !a.file.definition.archived) ?? [];
 	const current = () =>
-		automations().find((a) => a.id === selected()) ?? automations()[0];
+		automations().find((a) => a.file.definition.id === selected()) ??
+		automations()[0];
 	async function act(command: ProjectFileCommand) {
 		try {
 			await saveProjectCommand(command);
@@ -64,13 +67,16 @@ export function AutomationWorkspace() {
 		run = false,
 	) {
 		if (!enabled) {
-			await act({ type: "disableAutomation", id: automation.id });
+			await act({
+				type: "disableAutomation",
+				id: automation.file.definition.id,
+			});
 			return;
 		}
 		try {
 			const review = await saveProjectCommand({
 				type: "reviewAutomation",
-				id: automation.id,
+				id: automation.file.definition.id,
 			});
 			if (!review.inputsHash)
 				throw new Error("Review did not return an input hash");
@@ -78,7 +84,7 @@ export function AutomationWorkspace() {
 				if (
 					await act({
 						type: "runAutomation",
-						id: automation.id,
+						id: automation.file.definition.id,
 						requestId: crypto.randomUUID(),
 					})
 				)
@@ -152,26 +158,29 @@ export function AutomationWorkspace() {
 					</For>
 					<For
 						each={automations().filter((a) =>
-							a.name.toLowerCase().includes(search().toLowerCase()),
+							a.file.definition.name
+								.toLowerCase()
+								.includes(search().toLowerCase()),
 						)}
-						keyed={(item) => item.id}
+						keyed={(item) => item.file.definition.id}
 					>
 						{(a) => (
 							<div
 								{...stylex.attrs(
 									listStyles.row,
 									screen() === "detail" &&
-										current()?.id === a().id &&
+										current()?.file.definition.id === a().file.definition.id &&
 										styles.selectedTab,
 								)}
 							>
 								<button
 									type="button"
 									aria-pressed={ariaValue(
-										screen() === "detail" && current()?.id === a().id,
+										screen() === "detail" &&
+											current()?.file.definition.id === a().file.definition.id,
 									)}
 									onClick={() => {
-										setSelected(a().id);
+										setSelected(a().file.definition.id);
 										setScreen("detail");
 									}}
 									{...stylex.attrs(listStyles.button)}
@@ -179,11 +188,13 @@ export function AutomationWorkspace() {
 									<span {...stylex.attrs(listStyles.meta)}>
 										{a().file.error
 											? "Needs repair"
-											: automationScheduleLabel(a())}
+											: automationScheduleLabel(a().file.definition)}
 									</span>
-									<strong {...stylex.attrs(listStyles.name)}>{a().name}</strong>
+									<strong {...stylex.attrs(listStyles.name)}>
+										{a().file.definition.name}
+									</strong>
 									{(() => {
-										const execution = a().execution;
+										const execution = a().file.definition.execution;
 										if (execution.kind !== "agent")
 											return (
 												<span {...stylex.attrs(listStyles.meta)}>
@@ -207,7 +218,7 @@ export function AutomationWorkspace() {
 													? (projects
 															.list()
 															.find((p) => p.id === a().file.projectId)
-															?.repositories.find(
+															?.definition.repositories.find(
 																(repo) => repo.id === target.id,
 															)?.name ?? "Repository")
 													: "Project-wide"}
@@ -218,12 +229,12 @@ export function AutomationWorkspace() {
 									})()}
 								</button>
 								<Switch
-									label={`Enable ${a().name}`}
+									label={`Enable ${a().file.definition.name}`}
 									checked={a().enabled}
 									disabled={
 										projects.busy() ||
 										!!a().file.error ||
-										a().trigger.kind === "manual"
+										a().file.definition.trigger.kind === "manual"
 									}
 									onChange={(enabled) => void enable(a(), enabled)}
 								/>
@@ -252,7 +263,6 @@ export function AutomationWorkspace() {
 						projectId={projects.selectedId()}
 						automation={editing()}
 						seed={starter()}
-						resources={projects.catalog()?.resources ?? []}
 						save={async (command) => {
 							const result = await saveProjectCommand(command);
 							if (result.id) setSelected(result.id);
@@ -309,7 +319,10 @@ export function AutomationWorkspace() {
 						</div>
 					</>
 				) : (
-					<For each={current() ? [current()!] : []} keyed={(a) => a.id}>
+					<For
+						each={current() ? [current()!] : []}
+						keyed={(a) => a.file.definition.id}
+					>
 						{(a) => (
 							<>
 								<div {...stylex.attrs(styles.row)}>
@@ -335,7 +348,6 @@ export function AutomationWorkspace() {
 									}}
 									projectId={a().file.projectId}
 									automation={a()}
-									resources={projects.catalog()?.resources ?? []}
 									busy={projects.busy()}
 									close={() => {}}
 									save={async (command) => {
@@ -358,9 +370,12 @@ export function AutomationWorkspace() {
 					>
 						<div {...stylex.attrs(styles.form)}>
 							<h3>
-								{review.run ? "Run" : "Enable"} {review.automation.name}?
+								{review.run ? "Run" : "Enable"}{" "}
+								{review.automation.file.definition.name}?
 							</h3>
-							<p>{automationScheduleLabel(review.automation)}</p>
+							<p>
+								{automationScheduleLabel(review.automation.file.definition)}
+							</p>
 							<p>
 								The current plugin files, selected resources, and skills will be
 								approved for this automation.
@@ -371,7 +386,7 @@ export function AutomationWorkspace() {
 								onClick={async () => {
 									const approved = await act({
 										type: "approveAutomation",
-										id: review.automation.id,
+										id: review.automation.file.definition.id,
 										expectedInputsHash: review.hash,
 										enable: review.run ? review.automation.enabled : true,
 									});
@@ -380,7 +395,7 @@ export function AutomationWorkspace() {
 										if (
 											!(await act({
 												type: "runAutomation",
-												id: review.automation.id,
+												id: review.automation.file.definition.id,
 												requestId: crypto.randomUUID(),
 											}))
 										)
@@ -405,7 +420,7 @@ export function AutomationWorkspace() {
 					}}
 					closeDisabled={projects.busy()}
 				>
-					<h3>Delete “{removing()?.name}”?</h3>
+					<h3>Delete “{removing()?.file.definition.name}”?</h3>
 					<p>
 						This archives the automation and stops future scheduled runs.
 						History is kept; any run already in progress can finish.

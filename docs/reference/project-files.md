@@ -52,7 +52,7 @@ Plugins are deliberately created libraries. An ordinary automation does not requ
 
 | Field | Rule |
 |---|---|
-| `archived` | optional boolean, defaults to false; preserves archive state during migration |
+| `archived` | optional boolean, defaults to false; retains archived projects without deleting their files |
 | `description` | up to 8,000 bytes |
 | `instructions` | up to 64,000 bytes; given to every agent run in the project |
 | `repositories` | up to 512; each `id` a unique UUID, `name` 1–200 bytes, optional `remote` up to 2,048 bytes |
@@ -62,6 +62,13 @@ The local checkout path for a repository ID is local state, not part of this fil
 ### Saving project membership and local folders
 
 The host's `saveProject` command accepts `definition` (the complete project definition), `expectedHash` (null only for creation), and `repositoryPaths` (a map from declared repository IDs to local directories). Omitted bindings are retained for repositories that remain declared. Removed repositories lose their local bindings. All supplied paths are canonicalized and checked before writing; two repository IDs cannot bind the same folder in one project. Referenced repositories must remain declared until their automation/tool references are changed.
+
+The repository controls use the host-only `editRepository` command with `projectId`, `expectedHash` and an `add`, `relink` or `remove` change. Rust loads the current definition, assigns IDs for additions, checks automation and tool dependencies for removals, and delegates to the same validated project writer. The renderer does not reconstruct project definitions for membership edits.
+
+Catalog responses include derived resource, skill and tool choices, repository dependencies, and plugin overviews. Definitions remain authoritative; these relationships are rebuilt in Rust and are not persisted. Plugin overviews retain invalid libraries for repair, exclude archived consumers from display, and include cross-library skill/tool consumers. Repository dependency checks include archived automations and repository-backed tools.
+
+`GET /api/projects/history?projectId=…&before=…` returns only a `ProjectHistory` page, using the same cursor, active-run, artifact and effect rules as the initial catalog response. It does not rescan definitions or reload global skills. Run rows include native status/action/log projections. Browser pagination uses query keys scoped to project and cursor, with selection-scoped cursor state.
+
 
 One native operation owns validation, definition writing and local binding updates. An unchanged definition preserves its source hash, and unchanged paths do not revoke approvals. Changed bindings require review before automations run again. Local paths never enter the portable definition, and removing a binding never deletes checkout files. Ordinary definition edits still use `saveDefinition`; it cannot set local bindings.
 

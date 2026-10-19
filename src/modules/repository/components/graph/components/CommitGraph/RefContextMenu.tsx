@@ -47,14 +47,10 @@ export function RefContextMenu(
 					...extra,
 				});
 			});
-		const local = createMemo(() => {
-			const _refValue2 = ref();
-			return (
-				(_refValue2.kind === "head" || _refValue2.kind === "localBranch") &&
-				_refValue2.fullName.startsWith("refs/heads/")
-			);
-		});
-		if (local()) {
+		const local =
+			(ref().kind === "head" || ref().kind === "localBranch") &&
+			ref().fullName.startsWith("refs/heads/");
+		if (local) {
 			add(`Checkout ${ref().displayName}`, () =>
 				_props.onCheckoutRef?.(ref().displayName),
 			);

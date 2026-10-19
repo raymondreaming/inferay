@@ -37,14 +37,12 @@ import {
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For, Loading } from "solid-js";
 import { fetchAgentAccountStatuses } from "../../services/settingsApi.ts";
-import {
-	BackgroundScenePicker,
-	InstructionsEditor,
-	SearchFoldersSection,
-} from "../Settings/index.tsx";
 import { SettingsErrorBanner } from "../SettingsStatus/index.tsx";
+import { BackgroundScenePicker } from "./BackgroundScenePicker.tsx";
 import { GithubSettings } from "./GithubSettings.tsx";
+import { InstructionsEditor } from "./InstructionsEditor.tsx";
 import { McpSettings } from "./McpSettings.tsx";
+import { SearchFoldersSection } from "./SearchFoldersSection.tsx";
 import { styles } from "./styles.ts";
 
 type SettingsModalSection = "all" | SettingsModalTarget;

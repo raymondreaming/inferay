@@ -20,7 +20,6 @@ import {
 	IconPlus,
 	IconWrench,
 } from "@shared/ui/Icons/index.tsx";
-import { useLocation, useNavigate } from "@solidjs/router";
 import * as stylex from "@stylexjs/stylex";
 import {
 	panelQuery,
@@ -43,8 +42,6 @@ import { SidebarChatFlyout } from "./SidebarChatFlyout.tsx";
 import { styles } from "./styles.ts";
 
 export function RepositoryWorkspaceBar() {
-	const navigate = useNavigate();
-	const location = useLocation();
 	const [state] = useWorkspaceState(
 		() => true,
 		() => false,
@@ -94,7 +91,9 @@ export function RepositoryWorkspaceBar() {
 			)
 				return;
 			if (document.querySelector('[role="dialog"], dialog[open]')) return;
-			const tabs = projects.list().filter((project) => !project.archived);
+			const tabs = projects
+				.list()
+				.filter((project) => !project.definition.archived);
 			if (tabs.length < 2) return;
 			const index = tabs.findIndex(
 				(project) => project.id === projects.selectedId(),
@@ -111,9 +110,7 @@ export function RepositoryWorkspaceBar() {
 	});
 	const chatFlyoutOpen = createMemo(
 		() =>
-			chatFlyoutHovered() &&
-			!creatingProject() &&
-			(workspaceSidebarCollapsed() || location.pathname !== "/"),
+			chatFlyoutHovered() && !creatingProject() && workspaceSidebarCollapsed(),
 	);
 	const activePaneId = createMemo(
 		() =>
@@ -122,9 +119,7 @@ export function RepositoryWorkspaceBar() {
 	);
 	const selectPane = (_groupId: string, paneId: string) => {
 		setChatFlyoutHovered(false);
-		void openAgentPane(paneId, () => {
-			if (location.pathname !== "/") navigate("/");
-		});
+		void openAgentPane(paneId);
 	};
 	const barProps = createMemo(() => stylex.attrs(styles.bar));
 	const workspaceSidebarToggleProps = createMemo(() =>
@@ -191,7 +186,7 @@ export function RepositoryWorkspaceBar() {
 			) : null}
 			<div role="tablist" aria-label="Projects" {...stylex.attrs(styles.tabs)}>
 				<For
-					each={projects.list().filter((p) => !p.archived)}
+					each={projects.list().filter((p) => !p.definition.archived)}
 					keyed={(item) => item.id}
 				>
 					{(project) => (
@@ -200,7 +195,7 @@ export function RepositoryWorkspaceBar() {
 							role="tab"
 							draggable="true"
 							data-project-tab={project().id}
-							title={`${project().name} · Drag to reorder`}
+							title={`${project().definition.name} · Drag to reorder`}
 							onDragStart={(event) => {
 								setDraggedProject(project().id);
 								event.dataTransfer?.setData(
@@ -216,7 +211,7 @@ export function RepositoryWorkspaceBar() {
 								const bounds = event.currentTarget.getBoundingClientRect();
 								const ids = projects
 									.list()
-									.filter((p) => !p.archived)
+									.filter((p) => !p.definition.archived)
 									.map((p) => p.id);
 								setDropBefore(
 									event.clientX < bounds.left + bounds.width / 2
@@ -245,7 +240,7 @@ export function RepositoryWorkspaceBar() {
 								dropBefore() === null &&
 									projects
 										.list()
-										.filter((p) => !p.archived)
+										.filter((p) => !p.definition.archived)
 										.at(-1)?.id === project().id &&
 									styles.dropAfter,
 								...selectionAppearance(
@@ -272,7 +267,7 @@ export function RepositoryWorkspaceBar() {
 								) {
 									const ids = projects
 										.list()
-										.filter((p) => !p.archived)
+										.filter((p) => !p.definition.archived)
 										.map((p) => p.id);
 									const index = ids.indexOf(project().id);
 									if (event.key === "ArrowLeft" && index > 0)
@@ -301,7 +296,9 @@ export function RepositoryWorkspaceBar() {
 							}}
 						>
 							<IconFolder size={iconSize.sm} />
-							<span {...stylex.attrs(styles.tabLabel)}>{project().name}</span>
+							<span {...stylex.attrs(styles.tabLabel)}>
+								{project().definition.name}
+							</span>
 						</button>
 					)}
 				</For>

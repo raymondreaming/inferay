@@ -16,7 +16,6 @@ import {
 	useAgentChatState,
 } from "./useAgentChatState.tsx";
 
-export type { ChatLoadingState } from "@contracts";
 export type {
 	AgentChatHandle,
 	AgentChatViewProps,

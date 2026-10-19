@@ -8,6 +8,7 @@ import type {
 	SelectedPanelFile,
 } from "@contracts";
 import { iconSize, selectionAppearance } from "@design-system/styles.stylex.ts";
+import type { useGitChangeActions } from "@repository/hooks/useGitStatus.tsx";
 import { ariaValue } from "@shared/lib/dom.tsx";
 import { project as rustProject } from "@shared/lib/native.tsx";
 import { DotMatrixLoader } from "@shared/ui/DotMatrixLoader/index.tsx";
@@ -42,6 +43,7 @@ export type ChangesPanelModel = Omit<
 };
 
 export const ChangesPanel = function ChangesPanel(props: {
+	actions: ReturnType<typeof useGitChangeActions>;
 	onPrefetchFiles?: (files: GitFileEntry[]) => void;
 	filePresentation?: GitFilePresentation;
 	cwd?: string;
@@ -50,12 +52,6 @@ export const ChangesPanel = function ChangesPanel(props: {
 	model: ChangesPanelModel;
 	selectedFile: SelectedFile | null;
 	onSelectFile: (f: GitFileEntry) => void;
-	onStageFile: (path: string) => void;
-	onUnstageFile: (path: string) => void;
-	onStageAll: () => void;
-	onUnstageAll: () => void;
-	onStashFile: (path: string) => void;
-	onDiscard: (staged: boolean, path?: string) => void;
 	hasProject: boolean;
 	projectLoading?: boolean;
 	selectedCommitCount?: number;
@@ -63,10 +59,6 @@ export const ChangesPanel = function ChangesPanel(props: {
 	onOpenWorktree?: () => void;
 	onSelectCommitFile?: (file: GitCommitFile) => void;
 	onSelectComparisonFile?: (file: GitCommitFile) => void;
-	commitMessage: string;
-	onCommitMessageChange: (msg: string) => void;
-	onCommit: () => void;
-	isCommitting: boolean;
 	showFileActions?: boolean;
 	showCommitSection?: boolean;
 }) {
@@ -173,15 +165,15 @@ export const ChangesPanel = function ChangesPanel(props: {
 										? {
 												actionLabel: staged ? "Unstage" : "Stage",
 												onAction: staged
-													? props.onUnstageFile
-													: props.onStageFile,
+													? props.actions.unstageFile
+													: props.actions.stageFile,
 												onActionAll: staged
-													? props.onUnstageAll
-													: props.onStageAll,
-												onStash: props.onStashFile,
+													? props.actions.unstageAll
+													: props.actions.stageAll,
+												onStash: props.actions.stashFile,
 												onDiscard: (path: string) =>
-													props.onDiscard(staged, path),
-												onDiscardAll: () => props.onDiscard(staged),
+													props.actions.discard(staged, path),
+												onDiscardAll: () => props.actions.discard(staged),
 											}
 										: {})}
 									viewMode={props.fileViewMode}
@@ -200,10 +192,7 @@ export const ChangesPanel = function ChangesPanel(props: {
 					: props.showCommitSection) && (
 					<CommitSection
 						cwd={props.cwd}
-						commitMessage={props.commitMessage}
-						onCommitMessageChange={props.onCommitMessageChange}
-						onCommit={props.onCommit}
-						isCommitting={props.isCommitting}
+						actions={props.actions}
 						stagedCount={props.model.stagedFiles.length}
 					/>
 				)}

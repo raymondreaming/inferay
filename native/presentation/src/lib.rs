@@ -13,13 +13,11 @@ pub mod graph;
 pub mod graph_response;
 pub mod image;
 pub mod markdown;
+pub mod memory_graph;
 pub mod onboarding;
 pub mod panels;
+pub mod project_editor;
 pub mod shortcuts;
-/// Renderer compatibility facade for repository contracts owned by the core.
-pub mod repository {
-    pub use inferay_core::repository::*;
-}
 pub mod skills;
 pub mod transcript;
 pub mod ui_performance;
@@ -44,7 +42,39 @@ fn flag(value: &Value) -> bool {
     value.as_bool().unwrap_or(false)
 }
 
+// Each typed dispatch entry also supplies its generated renderer signature.
+macro_rules! typed_projections {
+    ($($name:literal => ($request:ty, $response:ty, $handler:expr)),* $(,)?) => {
+        fn typed_project(operation: &str, input: &Value) -> Option<Result<Value, String>> {
+            match operation {
+                $($name => Some((|| {
+                    let request = <$request>::deserialize(input).map_err(|e| e.to_string())?;
+                    let response: $response = ($handler)(request)?;
+                    serde_json::to_value(response).map_err(|e| e.to_string())
+                })()),)*
+                _ => None,
+            }
+        }
+        pub fn projection_contracts(cfg: &ts_rs::Config) -> Vec<(&'static str, String, String)> {
+            use ts_rs::TS;
+            vec![$(($name, <$request>::name(cfg), <$response>::name(cfg))),*]
+        }
+    };
+}
+typed_projections! {
+    "effectPresentation" => (inferay_core::projects::EffectState, inferay_core::projects::EffectPresentation, |input: inferay_core::projects::EffectState| Ok::<_, String>(input.presentation())),
+    "skillChoices" => (project_editor::SkillChoices, Vec<project_editor::SkillOption>, |input| Ok::<_, String>(project_editor::skill_choices(input))),
+    "editToolGrant" => (project_editor::EditToolGrant, Vec<inferay_core::project_files::AgentToolGrant>, |input| Ok::<_, String>(project_editor::edit_tool_grant(input))),
+    "newAutomation" => (project_editor::NewAutomation, inferay_core::project_files::AutomationDefinition, |input| Ok::<_, String>(project_editor::new_automation(input))),
+    "triggerPreset" => (project_editor::TriggerPreset, inferay_core::project_files::Trigger, project_editor::trigger_preset),
+    "proposalPath" => (project_editor::ProposalPath, String, project_editor::proposal_path),
+    "memoryGraphLayout" => (memory_graph::MemoryGraphLayout, Vec<(String, memory_graph::GraphPoint)>, |input| Ok::<_, String>(memory_graph::layout(input))),
+    "pluginImportManifest" => (std::collections::BTreeMap<String, usize>, (), |files: std::collections::BTreeMap<String, usize>| inferay_core::project_files::validate_import_manifest(files.iter().map(|(path, size)| (path.as_str(), *size)))),
+}
 pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
+    if let Some(result) = typed_project(operation, input) {
+        return result;
+    }
     Ok(match operation {
         "workspaceChatEntries" => json!(workbench::workspace_chat_entries(input)),
         "markdownImageSource" => image::source(input),

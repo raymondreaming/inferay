@@ -6,6 +6,7 @@ for (const fixture of [
 	"git-summary-subscription",
 	"git-diff-retention",
 	"project-navigation",
+	"automation-editor",
 ]) {
 	test(`${fixture} uses the browser reactive runtime`, () => {
 		const result = Bun.spawnSync(

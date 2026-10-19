@@ -22,17 +22,11 @@ current artifact contract. Capture, inspection and dismissal do not execute a
 handler. Delivery approval controls, handler binding and the outbox worker remain
 unimplemented.
 
-Native outbox storage primitives retain reviewed scope revisions, a queued delivery
-identity, count reservations and receipts. Admission uses an immediate transaction;
-uncertain attempts retain capacity past the rolling window. Cancellation is serialized
-with admission: queued work becomes cancelled, while an in-flight attempt becomes
-uncertain with a durable stop request. A later delivery receipt remains valid even
-after a stop request. History shows these states and provides cancellation controls;
-requesting a stop does not claim that an action was undone. Startup changes
-in-flight records to uncertain without resending. Storage tests exercise competing
-SQLite connections and an independent local destination that commits before
-losing its reply. These primitives are not yet connected to delivery controls or
-handler execution; the full local conformance gate below remains incomplete.
+Existing outbox records and receipts remain readable. Cancellation turns queued
+work into cancelled and marks in-flight attempts uncertain, retaining a durable
+stop request. Startup marks in-flight records uncertain without resending.
+History retains these states and cancellation controls. Production admission,
+count reservations, delivery and reconciliation are not implemented.
 
 The shared callable runner accepts explicit reviewed permissions and an owner-supplied
 cancellation check. Direct automation tools, granted library tools and MCP tools

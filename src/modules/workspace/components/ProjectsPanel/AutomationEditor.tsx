@@ -1,12 +1,12 @@
 import type {
-	AgentToolGrant,
 	AutomationDefinition,
+	DefinitionExecution,
 	ProjectFileCommand,
 } from "@contracts";
 import { ComposerControls } from "@conversation/components/ChatComposer/ComposerControls.tsx";
 import { surfaceStyles } from "@design-system/styles.stylex.ts";
 import { ariaValue } from "@shared/lib/dom.tsx";
-import { getAgentDefinition } from "@shared/lib/native.tsx";
+import { getAgentDefinition, project } from "@shared/lib/native.tsx";
 import { BorderBeamOverlay } from "@shared/ui/BorderBeamOverlay/index.tsx";
 import { Button } from "@shared/ui/Button/index.tsx";
 import { DropdownButton } from "@shared/ui/DropdownButton/index.tsx";
@@ -14,13 +14,10 @@ import { IconFolder, IconGitBranch } from "@shared/ui/Icons/index.tsx";
 import { SettingsRow } from "@shared/ui/SettingsSurface/index.tsx";
 import { Switch } from "@shared/ui/Switch/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { createSignal, Show } from "solid-js";
+import { createSignal, createStore, Show } from "solid-js";
 import { useAutomationAutosave } from "../../hooks/useAutomationAutosave.tsx";
 import { projects } from "../../hooks/useProjects.tsx";
-import type {
-	ProjectAutomation,
-	ProjectResource,
-} from "../../model/projectFiles.ts";
+import type { ProjectAutomation } from "../../model/projectFiles.ts";
 import { AutomationContext } from "./AutomationContext.tsx";
 import { AutomationTools } from "./AutomationTools.tsx";
 import { AutomationTrigger } from "./AutomationTrigger.tsx";
@@ -38,153 +35,78 @@ export function AutomationEditor(props: {
 	projectId: string;
 	seed?: { name: string; instructions: string; intervalSeconds: number | null };
 	automation?: ProjectAutomation;
-	resources: ProjectResource[];
 	save: (command: ProjectFileCommand) => Promise<void>;
 	close: () => void;
 	busy: boolean;
 }) {
-	const trigger = props.automation?.trigger;
-	const schedule = trigger?.kind === "calendar" ? trigger : undefined;
-	const automationId = props.automation?.id ?? crypto.randomUUID();
+	const automationId =
+		props.automation?.file.definition.id ?? crypto.randomUUID();
 	const pluginPath =
 		props.automation?.file.sourcePath.split("/").slice(0, 2).join("/") ??
 		`automations/${automationId}`;
 	const tools = () =>
 		(projects.catalog()?.tools ?? []).filter((tool) =>
-			tool.file.sourcePath.startsWith(`${pluginPath}/`),
+			tool.sourcePath.startsWith(`${pluginPath}/`),
 		);
-	const [scheduleTime, setScheduleTime] = createSignal(
-		schedule?.times[0] ?? "09:00",
+	const defaults = () =>
+		project("newAutomation", {
+			id: automationId,
+			name: props.seed?.instructions ? props.seed.name : "",
+			instructions: props.seed?.instructions ?? "",
+			model: getAgentDefinition("codex").defaultModel,
+			intervalSeconds: props.seed?.intervalSeconds ?? null,
+			timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+		});
+	const [fields, setFields] = createStore(
+		structuredClone(props.automation?.file.definition ?? defaults()),
+		{ shallow: true },
 	);
-	const [timezone, setTimezone] = createSignal(
-		schedule?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
-	);
-	const [weekday, setWeekday] = createSignal(
-		String(
-			(schedule?.days[0] !== undefined ? schedule.days[0] - 1 : undefined) ?? 0,
-		),
+	const edit = (patch: Partial<AutomationDefinition>) =>
+		setFields((draft) => {
+			Object.assign(draft, patch);
+		});
+	const editExecution = (patch: Partial<DefinitionExecution>) =>
+		edit({
+			execution: { ...fields.execution, ...patch } as DefinitionExecution,
+		});
+	const agent = () =>
+		fields.execution.kind === "agent" ? fields.execution : undefined;
+	const tool = () =>
+		fields.execution.kind === "tool" ? fields.execution : undefined;
+	const cwd = () => {
+		const directory = agent()?.workingDirectory;
+		return directory?.base === "repository" ? directory.id : "";
+	};
+	let previousExecution: DefinitionExecution | undefined;
+	const switchExecution = (kind: string) => {
+		if (kind === fields.execution.kind) return;
+		const next =
+			previousExecution ??
+			(kind === "agent"
+				? defaults().execution
+				: {
+						kind: "tool" as const,
+						tool: tools()[0]?.definition.id ?? "",
+						input: {},
+					});
+		previousExecution = structuredClone(fields.execution);
+		edit({ execution: next });
+	};
+	const [input, setInput] = createSignal(
+		JSON.stringify(tool()?.input ?? {}, null, 2),
 	);
 	const [instructionsFocused, setInstructionsFocused] = createSignal(false);
-	const initial = props.automation?.execution;
-	const [grants, setGrants] = createSignal<AgentToolGrant[]>(
-		initial?.kind === "agent" ? initial.tools : [],
-	);
-	const [name, setName] = createSignal(
-		props.automation?.name ?? (props.seed?.instructions ? props.seed.name : ""),
-	);
-	const [kind, setKind] = createSignal(initial?.kind ?? "agent");
-	const [toolId, setToolId] = createSignal(
-		initial?.kind === "tool"
-			? initial.tool
-			: (tools()[0]?.file.sourcePath.split("/").at(-2) ?? ""),
-	);
-	const [input, setInput] = createSignal(
-		JSON.stringify(initial?.kind === "tool" ? initial.input : {}, null, 2),
-	);
-	const [instructions, setInstructions] = createSignal(
-		initial?.kind === "agent"
-			? initial.instructions
-			: (props.seed?.instructions ?? ""),
-	);
-	const [provider, setProvider] = createSignal(
-		initial?.kind === "agent" ? initial.provider : "codex",
-	);
-	const [model, setModel] = createSignal(
-		initial?.kind === "agent"
-			? (initial.model ??
-					getAgentDefinition(initial.provider === "claude" ? "claude" : "codex")
-						.defaultModel)
-			: getAgentDefinition("codex").defaultModel,
-	);
-	const [reasoning, setReasoning] = createSignal(
-		initial?.kind === "agent" ? initial.reasoningLevel || "low" : "low",
-	);
-	const [context, setContext] = createSignal(
-		initial?.kind === "agent" ? initial.resources.join(", ") : "",
-	);
-	const [skills, setSkills] = createSignal(
-		initial?.kind === "agent" ? initial.skills.join(", ") : "",
-	);
-	const [cwd, setCwd] = createSignal(
-		initial?.kind === "agent" && initial.workingDirectory.base === "repository"
-			? initial.workingDirectory.id
-			: "",
-	);
-	const [seconds, setSeconds] = createSignal(
-		String(
-			(trigger?.kind === "interval"
-				? trigger.seconds
-				: schedule
-					? schedule.days.length === 7
-						? 86400
-						: 604800
-					: undefined) ??
-				props.seed?.intervalSeconds ??
-				"",
-		),
-	);
-	const [overlap, setOverlap] = createSignal(
-		props.automation?.overlap ?? "skip",
-	);
 	const [settingsOpen, setSettingsOpen] = createSignal(false);
 	const [toolInputOpen, setToolInputOpen] = createSignal(
-		initial?.kind === "tool" && JSON.stringify(initial.input) !== "{}",
-	);
-	const presets = [
-		{ value: "", label: "Manually" },
-		{ value: "3600", label: "Hourly" },
-		{ value: "86400", label: "Daily" },
-		{ value: "604800", label: "Weekly" },
-	];
-	const [customSchedule, setCustomSchedule] = createSignal(
-		!!seconds() && !presets.some((p) => p.value === seconds()),
+		!!tool() && input() !== "{}",
 	);
 	const [error, setError] = createSignal("");
 	const definition = (): AutomationDefinition => ({
-		schema: "inferay.automation/1",
-		id: automationId,
-		name: name(),
-		archived: false,
-		may: props.automation?.may ?? [],
-		overlap: overlap(),
-		trigger: !seconds()
-			? { kind: "manual" }
-			: !customSchedule() && ["86400", "604800"].includes(seconds())
-				? {
-						kind: "calendar",
-						timezone: timezone(),
-						days:
-							seconds() === "604800"
-								? [Number(weekday()) + 1]
-								: [1, 2, 3, 4, 5, 6, 7],
-						times: [scheduleTime()],
-					}
-				: { kind: "interval", seconds: Number(seconds()) },
+		...fields,
 		execution:
-			kind() === "tool"
-				? { kind: "tool", tool: toolId(), input: JSON.parse(input()) }
-				: {
-						kind: "agent",
-						provider: provider(),
-						model: model() || null,
-						reasoningLevel: reasoning() || null,
-						instructions: instructions(),
-						resources: context()
-							.split(",")
-							.map((s) => s.trim())
-							.filter(Boolean),
-						tools: grants(),
-						skills: skills()
-							.split(",")
-							.map((s) => s.trim())
-							.filter(Boolean),
-						repositories: cwd() ? [cwd()] : [],
-						workingDirectory: cwd()
-							? { base: "repository", id: cwd() }
-							: { base: "project", path: "." },
-						timeoutSeconds:
-							initial?.kind === "agent" ? initial.timeoutSeconds : 300,
-					},
+			fields.execution.kind === "tool"
+				? { ...fields.execution, input: JSON.parse(input()) }
+				: fields.execution,
 	});
 	const draft = (): ProjectFileCommand => ({
 		type: "saveDefinition",
@@ -230,8 +152,8 @@ export function AutomationEditor(props: {
 					aria-label="Name"
 					required
 					placeholder="Untitled"
-					value={name()}
-					onInput={(e) => setName(e.currentTarget.value)}
+					value={fields.name}
+					onInput={(e) => edit({ name: e.currentTarget.value })}
 					{...stylex.attrs(styles.editorTitle)}
 				/>
 				<div {...stylex.attrs(styles.row)}>
@@ -271,8 +193,10 @@ export function AutomationEditor(props: {
 							variant="primary"
 							disabled={
 								props.busy ||
-								!name().trim() ||
-								(kind() === "tool" ? !toolId() : !instructions().trim())
+								!fields.name.trim() ||
+								(fields.execution.kind === "tool"
+									? !tool()?.tool
+									: !(agent()?.instructions ?? "").trim())
 							}
 						>
 							{props.automation ? "Save changes" : "Create"}
@@ -288,7 +212,7 @@ export function AutomationEditor(props: {
 						disabled={
 							props.busy ||
 							!!props.automation?.file.error ||
-							props.automation?.trigger.kind === "manual"
+							props.automation?.file.definition.trigger.kind === "manual"
 						}
 						onChange={async (enabled) => {
 							if (await flush()) props.onEnabledChange?.(enabled);
@@ -298,14 +222,14 @@ export function AutomationEditor(props: {
 				</Show>
 				<span {...stylex.attrs(styles.muted)}>Project automation</span>
 				<DropdownButton
-					value={kind()}
+					value={fields.execution.kind}
 					options={[
 						{ id: "agent", label: "Agent task" },
 						{ id: "tool", label: "Local tool" },
 					]}
-					onChange={(value) => setKind(value as "agent" | "tool")}
+					onChange={(value) => switchExecution(value)}
 				/>
-				{kind() === "agent" ? (
+				{fields.execution.kind === "agent" ? (
 					<DropdownButton
 						value={cwd() || "project"}
 						placeholder="Target"
@@ -321,14 +245,25 @@ export function AutomationEditor(props: {
 							},
 							...(
 								projects.list().find((p) => p.id === props.projectId)
-									?.repositories ?? []
+									?.definition.repositories ?? []
 							).map((repo) => ({
 								id: repo.id,
 								label: repo.name,
 								iconComponent: RepositoryIcon,
 							})),
 						]}
-						onChange={(id) => setCwd(id === "project" ? "" : id)}
+						onChange={(id) =>
+							editExecution({
+								workingDirectory:
+									id === "project"
+										? { base: "project", path: "." }
+										: { base: "repository", id },
+								repositories:
+									id === "project"
+										? (agent()?.repositories ?? [])
+										: [...new Set([...(agent()?.repositories ?? []), id])],
+							})
+						}
 					/>
 				) : (
 					<span {...stylex.attrs(styles.muted)}>
@@ -337,35 +272,25 @@ export function AutomationEditor(props: {
 				)}
 			</div>
 			<AutomationTrigger
-				seconds={seconds}
-				customSchedule={customSchedule}
-				scheduleTime={scheduleTime}
-				timezone={timezone}
-				weekday={weekday}
-				setSeconds={setSeconds}
-				setCustomSchedule={setCustomSchedule}
-				setScheduleTime={setScheduleTime}
-				setTimezone={setTimezone}
-				setWeekday={setWeekday}
+				trigger={fields.trigger}
+				onChange={(trigger) => edit({ trigger })}
 			/>
-			{kind() === "tool" ? (
+			{fields.execution.kind === "tool" ? (
 				<>
 					<div>
 						<span>Tool</span>
 						<DropdownButton
-							value={toolId() || null}
+							value={tool()?.tool || null}
 							placeholder="Select a tool"
 							emptyLabel="No tools in this project"
 							options={tools().map((tool) => ({
-								id: tool.file.sourcePath.split("/").at(-2)!,
-								label: tool.name,
+								id: tool.definition.id,
+								label: tool.definition.name,
 							}))}
-							onChange={setToolId}
+							onChange={(value) => editExecution({ tool: value })}
 						/>
 					</div>
-					{props.resources.some(
-						(r) => r.type === "inferay.tool" && !r.archived,
-					) ? (
+					{tools().length > 0 ? (
 						<>
 							<Button
 								size="sm"
@@ -404,26 +329,39 @@ export function AutomationEditor(props: {
 								onBlur={() => setInstructionsFocused(false)}
 								required
 								placeholder="Tell the agent what to do when this automation runs…"
-								value={instructions()}
-								onInput={(e) => setInstructions(e.currentTarget.value)}
+								value={agent()?.instructions ?? ""}
+								onInput={(e) =>
+									editExecution({ instructions: e.currentTarget.value })
+								}
 								{...stylex.attrs(styles.instructionInput)}
 							/>
 							<div {...stylex.attrs(styles.composerControls)}>
 								<ComposerControls
-									agentKind={provider() === "claude" ? "claude" : "codex"}
+									agentKind={
+										agent()?.provider === "claude" ? "claude" : "codex"
+									}
 									agentKindOptions={[
 										{ id: "codex", label: "Codex" },
 										{ id: "claude", label: "Claude" },
 									]}
-									model={model()}
-									reasoningLevel={reasoning()}
-									onAgentKindChange={(kind) => {
-										setProvider(kind);
-										setModel(getAgentDefinition(kind).defaultModel);
-										setReasoning("low");
-									}}
-									onModelChange={setModel}
-									onReasoningLevelChange={setReasoning}
+									model={
+										agent()?.model ??
+										getAgentDefinition(
+											agent()?.provider === "claude" ? "claude" : "codex",
+										).defaultModel
+									}
+									reasoningLevel={agent()?.reasoningLevel ?? "low"}
+									onAgentKindChange={(kind) =>
+										editExecution({
+											provider: kind,
+											model: getAgentDefinition(kind).defaultModel,
+											reasoningLevel: "low",
+										})
+									}
+									onModelChange={(value) => editExecution({ model: value })}
+									onReasoningLevelChange={(value) =>
+										editExecution({ reasoningLevel: value })
+									}
 								/>
 							</div>
 						</div>
@@ -449,12 +387,16 @@ export function AutomationEditor(props: {
 							description="When the previous run is still active"
 						>
 							<DropdownButton
-								value={overlap()}
+								value={fields.overlap}
 								options={[
 									{ id: "skip", label: "Skip" },
 									{ id: "queue_one", label: "Queue one" },
 								]}
-								onChange={setOverlap}
+								onChange={(value) =>
+									edit({
+										overlap: value === "queue_one" ? "queue_one" : "skip",
+									})
+								}
 							/>
 						</SettingsRow>
 					</section>
@@ -464,18 +406,15 @@ export function AutomationEditor(props: {
 							{...stylex.attrs(styles.automationSettings)}
 						>
 							<AutomationContext
-								resources={props.resources}
-								context={context()}
-								onContextChange={setContext}
-								projectId={props.projectId}
+								context={agent()?.resources ?? []}
+								onContextChange={(value) => editExecution({ resources: value })}
 								ownerPath={pluginPath}
-								value={skills()}
-								onChange={setSkills}
+								value={agent()?.skills ?? []}
+								onChange={(value) => editExecution({ skills: value })}
 							/>
 							<AutomationTools
-								projectId={props.projectId}
-								value={grants()}
-								onChange={setGrants}
+								value={agent()?.tools ?? []}
+								onChange={(value) => editExecution({ tools: value })}
 							/>
 						</section>
 					) : null}

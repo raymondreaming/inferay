@@ -1,3 +1,4 @@
+import type { RepositoryChange } from "@contracts";
 import { Button } from "@shared/ui/Button/index.tsx";
 import { Modal } from "@shared/ui/Modal/index.tsx";
 import * as stylex from "@stylexjs/stylex";
@@ -16,7 +17,9 @@ export function RepositoryManager(props: {
 		null,
 	);
 	const automation = () =>
-		projects.catalog()?.automations.find((a) => a.id === editingAutomation());
+		projects
+			.catalog()
+			?.automations.find((a) => a.file.definition.id === editingAutomation());
 	const [relinking, setRelinking] = createSignal<string | null>(null);
 	const saving = projects.busy;
 	const [status, setStatus] = createSignal("");
@@ -24,69 +27,38 @@ export function RepositoryManager(props: {
 	const bindings = () => {
 		const all = projects.catalog()?.repositoryBindings ?? {};
 		return Object.fromEntries(
-			props.project.repositories.flatMap((r) =>
+			props.project.definition.repositories.flatMap((r) =>
 				all[r.id] ? [[r.id, all[r.id]!]] : [],
 			),
 		);
 	};
-	const usedBy = (id: string) =>
-		(projects.catalog()?.automations ?? []).filter((a) => {
-			const execution = a.execution;
-			return (
-				execution.kind === "agent" &&
-				(execution.repositories.includes(id) ||
-					(execution.workingDirectory.base === "repository" &&
-						execution.workingDirectory.id === id))
-			);
-		});
-	const save = async (
-		repositories: Project["repositories"],
-		paths: Record<string, string>,
-		message: string,
-	) => {
+	const usedBy = (id: string) => projects.catalog()?.repositoryUsers[id] ?? [];
+	const save = async (change: RepositoryChange, message: string) => {
 		if (saving()) return;
 		setStatus("Saving…");
 		setError("");
-		const current = props.project;
 		try {
 			await saveProjectCommand({
-				type: "saveProject",
-				definition: { ...current.file.definition!, repositories },
-				expectedHash: current.file.sourceHash,
-				repositoryPaths: paths,
+				type: "editRepository",
+				projectId: props.project.id,
+				expectedHash: props.project.sourceHash!,
+				change,
 			});
 			setStatus(message);
-			return true;
+			setRelinking(null);
 		} catch (e) {
 			setStatus("");
-			setError(e instanceof Error ? e.message : String(e));
-			return false;
+			setError(String(e));
 		}
 	};
 	const add = (path: string | null) => {
-		if (!path || saving()) return;
-		const target = relinking();
-		if (target) {
+		if (path)
 			void save(
-				props.project.repositories,
-				{ [target]: path },
-				"Folder updated",
-			).then((saved) => {
-				if (saved) setRelinking(null);
-			});
-			return;
-		}
-		if (Object.values(bindings()).includes(path)) return;
-		const id = crypto.randomUUID();
-		const name = path.split("/").filter(Boolean).at(-1) ?? "Repository";
-		const repositories = props.project.repositories;
-		void save(
-			repositories.some((r) => r.id === id)
-				? repositories
-				: [...repositories, { id, name, remote: null }],
-			{ [id]: path },
-			`Added ${name}`,
-		);
+				relinking()
+					? { kind: "relink", id: relinking()!, path }
+					: { kind: "add", path },
+				relinking() ? "Folder updated" : "Repository added",
+			);
 	};
 	return (
 		<Modal
@@ -105,7 +77,6 @@ export function RepositoryManager(props: {
 				<AutomationEditor
 					automation={automation()!}
 					projectId={props.project.id}
-					resources={projects.catalog()?.resources ?? []}
 					save={async (command) => {
 						await saveProjectCommand(command);
 					}}
@@ -115,9 +86,12 @@ export function RepositoryManager(props: {
 			) : (
 				<div {...stylex.attrs(styles.repositoryManager)}>
 					<strong>Manage repositories</strong>
-					{props.project.repositories.length > 0 ? (
+					{props.project.definition.repositories.length > 0 ? (
 						<div {...stylex.attrs(styles.repositoryChoiceList)}>
-							<For each={props.project.repositories} keyed={(r) => r.id}>
+							<For
+								each={props.project.definition.repositories}
+								keyed={(r) => r.id}
+							>
 								{(repository) => (
 									<div {...stylex.attrs(styles.row)}>
 										<span {...stylex.attrs(styles.listText)}>
@@ -130,15 +104,19 @@ export function RepositoryManager(props: {
 												<span {...stylex.attrs(styles.muted)}>
 													<For
 														each={usedBy(repository().id)}
-														keyed={(a) => a.id}
+														keyed={(a) => a.automationId ?? a.name}
 													>
 														{(a) => (
 															<Button
 																size="sm"
 																variant="ghost"
-																onClick={() => setEditingAutomation(a().id)}
+																disabled={!a().automationId}
+																onClick={() =>
+																	setEditingAutomation(a().automationId)
+																}
 															>
-																{a().name} ↗
+																{a().name}
+																{a().automationId ? " ↗" : " · Tool"}
 															</Button>
 														)}
 													</For>
@@ -160,15 +138,12 @@ export function RepositoryManager(props: {
 											aria-label={`Remove ${repository().name} from project`}
 											title={
 												usedBy(repository().id).length
-													? "Remove this repository from its automations first"
+													? "Remove this repository from its automations and tools first"
 													: "Unlink from this project; files stay on disk"
 											}
 											onClick={() =>
 												void save(
-													props.project.repositories.filter(
-														(r) => r.id !== repository().id,
-													),
-													{},
+													{ kind: "remove", id: repository().id },
 													`Removed ${repository().name}`,
 												)
 											}
@@ -186,7 +161,7 @@ export function RepositoryManager(props: {
 					>
 						<legend>
 							{relinking()
-								? `Folder for ${props.project.repositories.find((r) => r.id === relinking())?.name}`
+								? `Folder for ${props.project.definition.repositories.find((r) => r.id === relinking())?.name}`
 								: "Add repository"}
 						</legend>
 						{relinking() ? (

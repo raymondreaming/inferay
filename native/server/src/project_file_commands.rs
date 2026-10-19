@@ -75,6 +75,64 @@ pub(crate) fn apply(
         )?;
         return Ok(json!({"sourceHash":source_hash,"sourcePath":path}));
     }
+    if let ProjectFileCommand::EditRepository {
+        project_id,
+        expected_hash,
+        change,
+    } = command
+    {
+        uuid::Uuid::parse_str(&project_id)?;
+        index::refresh(db, profile, skills)?;
+        let root = profile.join("projects").join(&project_id);
+        let mut definition: ProjectDefinition = parse(
+            "project.json",
+            &files::read(&root, "project.json", MANIFEST_LIMIT)?,
+        )?;
+        let mut paths = std::collections::BTreeMap::new();
+        match change {
+            catalog::RepositoryChange::Add { path } => {
+                let id = uuid::Uuid::new_v4().to_string();
+                let name = Path::new(&path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("Repository")
+                    .to_owned();
+                definition.repositories.push(RepositoryDefinition {
+                    id: id.clone(),
+                    name,
+                    remote: None,
+                });
+                paths.insert(id, path);
+            }
+            catalog::RepositoryChange::Relink { id, path } => {
+                paths.insert(id, path);
+            }
+            catalog::RepositoryChange::Remove { id } => {
+                if index::catalog(db, Some(&project_id))?
+                    .repository_users
+                    .get(&id)
+                    .is_some_and(|users| !users.is_empty())
+                {
+                    return Err(
+                        "Remove this repository from its automations and tools first".into(),
+                    );
+                }
+                if !definition.repositories.iter().any(|r| r.id == id) {
+                    return Err("Repository is not declared in this project".into());
+                }
+                definition.repositories.retain(|r| r.id != id);
+            }
+        }
+        let source_hash = index::save_project(
+            db,
+            profile,
+            &definition,
+            Some(&expected_hash),
+            paths,
+            skills,
+        )?;
+        return Ok(json!({"sourceHash":source_hash,"sourcePath":"project.json"}));
+    }
     if let ProjectFileCommand::SaveProject {
         definition,
         expected_hash,
@@ -121,18 +179,41 @@ pub(crate) fn apply(
                 None => {
                     let package = files::package_files(&root, prefix)?;
                     let source_hash = hash(&serde_json::to_vec(&package)?);
+                    let mut counts = [0usize; 3];
                     let entries = package
                         .into_iter()
-                        .map(|(path, hash)| PluginLibraryFile {
-                            path: path
-                                .strip_prefix(&format!("{prefix}/"))
-                                .unwrap_or(&path)
-                                .into(),
-                            source_hash: hash,
+                        .map(|(path, hash)| {
+                            match files::definition_table(&path) {
+                                Some("project_skills") => counts[0] += 1,
+                                Some("tools") => counts[1] += 1,
+                                Some("plugins" | "automations") => {}
+                                _ => counts[2] += 1,
+                            }
+                            PluginLibraryFile {
+                                path: path
+                                    .strip_prefix(&format!("{prefix}/"))
+                                    .unwrap_or(&path)
+                                    .into(),
+                                source_hash: hash,
+                            }
                         })
                         .collect::<Vec<_>>();
+                    let summary = [
+                        ("skill", "skills"),
+                        ("tool", "tools"),
+                        ("supporting file", "supporting files"),
+                    ]
+                    .into_iter()
+                    .zip(counts)
+                    .filter(|(_, count)| *count > 0)
+                    .map(|((singular, plural), count)| {
+                        format!("{count} {}", if count == 1 { singular } else { plural })
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" · ");
                     serde_json::to_value(PluginLibrary {
                         id,
+                        summary,
                         source_hash,
                         files: entries,
                     })?
@@ -224,7 +305,8 @@ pub(crate) fn apply(
             tx.execute("INSERT INTO project_conversations VALUES(?,?) ON CONFLICT(pane_id) DO UPDATE SET project_id=excluded.project_id",params![pane_id,project_id])?;
             json!({"id":pane_id})
         }
-        ProjectFileCommand::SaveProject { .. }
+        ProjectFileCommand::EditRepository { .. }
+        | ProjectFileCommand::SaveProject { .. }
         | ProjectFileCommand::SaveDefinition { .. }
         | ProjectFileCommand::CreatePlugin { .. }
         | ProjectFileCommand::UpdatePlugin { .. } => {

@@ -83,8 +83,8 @@ export function PluginLibraryDialog(props: {
 	const selectedTool = () =>
 		(projects.catalog()?.tools ?? []).find(
 			(tool) =>
-				tool.file.projectId === props.plugin.file.projectId &&
-				tool.file.sourcePath ===
+				tool.projectId === props.plugin.file.projectId &&
+				tool.sourcePath ===
 					props.plugin.file.sourcePath.replace(/plugin\.json$/, "") + path(),
 		);
 	return (

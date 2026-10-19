@@ -244,7 +244,7 @@ try {
 	};
 	const setupCatalog = await api("/api/projects");
 	const fixtureProject = setupCatalog.projects.find(
-		(project) => project.name === "Brand Lab",
+		(project) => project.definition.name === "Brand Lab",
 	);
 	const reportAutomationId = randomUUID();
 	const reportPluginId = randomUUID();
@@ -323,17 +323,17 @@ try {
 		.waitFor();
 	await page.getByRole("button", { name: /Scheduled · Every week/ }).click();
 	await page
-		.getByRole("button", { name: "Scheduled · Every day", exact: true })
+		.getByRole("menuitemradio", { name: "Scheduled · Every day", exact: true })
 		.click();
 	await page.getByRole("button", { name: /^Model:/ }).click();
 	await page
-		.getByRole("menu", { name: "Model", exact: true })
+		.getByRole("menu", { name: /^Model:/ })
 		.getByRole("menuitemradio")
 		.first()
 		.click();
 	await page.getByRole("button", { name: /^Reasoning:/ }).click();
 	await page
-		.getByRole("menu", { name: "Reasoning", exact: true })
+		.getByRole("menu", { name: /^Reasoning:/ })
 		.getByRole("menuitemradio")
 		.first()
 		.click();
@@ -345,27 +345,30 @@ try {
 		.waitFor({ state: "attached" });
 	await page.getByRole("button", { name: "Run time", exact: true }).click();
 	await page.getByPlaceholder("Type a time, e.g. 10:15 AM").fill("10:15 AM");
-	await page.getByRole("button", { name: /10:15/ }).click();
+	await page.getByRole("menuitemradio", { name: /10:15/ }).click();
 	await page.screenshot({ path: join(output, "automation-editor.png") });
 	await page.getByRole("button", { name: "Create", exact: true }).click();
 	await page.getByRole("textbox", { name: "Name", exact: true }).waitFor();
 	const savedDraft = await api(
 		"/api/projects?projectId=" +
-			setupCatalog.projects.find((p) => p.name === "Brand Lab").id,
+			setupCatalog.projects.find((p) => p.definition.name === "Brand Lab").id,
 	);
 	assert.equal(
-		savedDraft.automations.find((a) => a.name === "Briefing draft").trigger
-			.kind,
+		savedDraft.automations.find(
+			(a) => a.file.definition.name === "Briefing draft",
+		).file.definition.trigger.kind,
 		"calendar",
 	);
 	assert.equal(
-		savedDraft.automations.find((a) => a.name === "Briefing draft").trigger
-			.times[0],
+		savedDraft.automations.find(
+			(a) => a.file.definition.name === "Briefing draft",
+		).file.definition.trigger.times[0],
 		"10:15",
 	);
 	assert.ok(
-		savedDraft.automations.find((a) => a.name === "Briefing draft").execution
-			.reasoningLevel,
+		savedDraft.automations.find(
+			(a) => a.file.definition.name === "Briefing draft",
+		).file.definition.execution.reasoningLevel,
 	);
 	await page.getByRole("button", { name: /Weekly report example/ }).click();
 	await page.getByRole("textbox", { name: "Name", exact: true }).waitFor();
@@ -655,7 +658,9 @@ with sqlite3.connect(sys.argv[1]) as db:
 	);
 	await page.screenshot({ path: join(output, "chat.png") });
 	const cardCatalog = await api("/api/projects");
-	const cardProject = cardCatalog.projects.find((p) => p.name === "Brand Lab");
+	const cardProject = cardCatalog.projects.find(
+		(p) => p.definition.name === "Brand Lab",
+	);
 	const cardPane = await page
 		.locator("[data-chat-pane-id]")
 		.first()
@@ -759,9 +764,12 @@ with sqlite3.connect(sys.argv[1]) as db:
 		1,
 	);
 	const savedAutomation = savedCardCatalog.automations.find(
-		(automation) => automation.id === proposalAutomationId,
+		(automation) => automation.file.definition.id === proposalAutomationId,
 	);
-	assert.equal(savedAutomation.execution.reasoningLevel, "medium");
+	assert.equal(
+		savedAutomation.file.definition.execution.reasoningLevel,
+		"medium",
+	);
 	assert.equal(savedAutomation.enabled, false);
 	await page.screenshot({ path: join(output, "plugin-chat-card.png") });
 	const review = page.getByRole("dialog", {
@@ -791,7 +799,7 @@ with sqlite3.connect(sys.argv[1]) as db:
 	);
 	assert.equal(
 		approvedCatalog.automations.find(
-			(automation) => automation.id === proposalAutomationId,
+			(automation) => automation.file.definition.id === proposalAutomationId,
 		).enabled,
 		true,
 	);
@@ -813,7 +821,7 @@ with sqlite3.connect(sys.argv[1]) as db:
 		await upcoming.locator("time").getAttribute("datetime"),
 		new Date(
 			approvedCatalog.automations.find(
-				(automation) => automation.id === proposalAutomationId,
+				(automation) => automation.file.definition.id === proposalAutomationId,
 			).nextDueAt,
 		).toISOString(),
 	);
@@ -843,6 +851,26 @@ with sqlite3.connect(sys.argv[1]) as db:
 	);
 	assert.equal(executed.length, 1);
 	assert.equal(executed[0].status, "succeeded");
+	const history = await api(
+		`/api/projects/history?projectId=${cardProject.id}`,
+	);
+	assert.deepEqual(history.runs, executedCatalog.runs);
+	assert.deepEqual(history.artifacts, executedCatalog.artifacts);
+	assert.deepEqual(history.effects, executedCatalog.effects);
+	assert.equal(history.catalog, undefined);
+	assert.equal(executed[0].presentation.status, "succeeded");
+	assert.equal(executed[0].presentation.active, false);
+	assert.deepEqual(executed[0].presentation.logs, [
+		["Execution log", "logs/stdout.txt"],
+		["Error log", "logs/stderr.txt"],
+	]);
+	assert.equal(
+		executedCatalog.plugins.find(
+			(plugin) => plugin.overview.consumers[chatReportId],
+		)?.overview.latestRunId,
+		executed[0].id,
+	);
+
 	await page.screenshot({ path: join(output, "chat-plugin-run.png") });
 	await writeFile(
 		join(profile, "projects", cardProject.id, "plugins/briefing-kit/README.md"),
@@ -851,13 +879,13 @@ with sqlite3.connect(sys.argv[1]) as db:
 	const changedCatalog = await api(`/api/projects?projectId=${cardProject.id}`);
 	assert.equal(
 		changedCatalog.automations.find(
-			(automation) => automation.id === proposalAutomationId,
+			(automation) => automation.file.definition.id === proposalAutomationId,
 		).enabled,
 		false,
 	);
 	assert.equal(
 		changedCatalog.automations.find(
-			(automation) => automation.id === proposalAutomationId,
+			(automation) => automation.file.definition.id === proposalAutomationId,
 		).inputsChanged,
 		true,
 	);
@@ -1126,7 +1154,7 @@ with sqlite3.connect(sys.argv[1]) as db:
 	);
 	assert.equal(
 		repaired.automations.find(
-			(automation) => automation.id === proposalAutomationId,
+			(automation) => automation.file.definition.id === proposalAutomationId,
 		).enabled,
 		false,
 	);
@@ -1286,15 +1314,15 @@ with sqlite3.connect(sys.argv[1]) as db:
 		.getByRole("tab", { name: "Brand Lab", exact: true })
 		.waitFor();
 	const catalog = await api("/api/projects");
-	const brand = catalog.projects.find((p) => p.name === "Brand Lab");
+	const brand = catalog.projects.find((p) => p.definition.name === "Brand Lab");
 	const repositoryId = randomUUID();
 	await api("/api/projects/command", {
 		type: "saveProject",
-		expectedHash: brand.file.sourceHash,
+		expectedHash: brand.sourceHash,
 		definition: {
-			...brand.file.definition,
+			...brand.definition,
 			repositories: [
-				...brand.repositories,
+				...brand.definition.repositories,
 				{ id: repositoryId, name: "fixture-repository" },
 			],
 		},
@@ -1349,7 +1377,7 @@ with sqlite3.connect(sys.argv[1]) as db:
 	await gitApproval.waitFor({ state: "hidden" });
 	assert.equal(
 		(await api(`/api/projects?projectId=${brand.id}`)).automations.find(
-			(a) => a.id === gitReviewId,
+			(a) => a.file.definition.id === gitReviewId,
 		).enabled,
 		false,
 	);
@@ -1467,7 +1495,9 @@ with sqlite3.connect(sys.argv[1]) as db:
 		0,
 	);
 	const currentCatalog = await api("/api/projects");
-	const aivre = currentCatalog.projects.find((p) => p.name === "Aivre");
+	const aivre = currentCatalog.projects.find(
+		(p) => p.definition.name === "Aivre",
+	);
 	let state = await api("/api/agent/state");
 	const groupId = state.selectedGroupId;
 	for (const cwd of [repository, profile, repository]) {
@@ -1618,7 +1648,8 @@ with sqlite3.connect(sys.argv[1]) as db:
 	);
 	const archived = await api("/api/projects");
 	assert.equal(
-		archived.projects.find((p) => p.name === "Second project").archived,
+		archived.projects.find((p) => p.definition.name === "Second project")
+			.definition.archived,
 		true,
 	);
 	await navigation
@@ -1657,15 +1688,18 @@ with sqlite3.connect(sys.argv[1]) as db:
 	await removal.waitFor({ state: "hidden" });
 	const removedCatalog = await api(
 		"/api/projects?projectId=" +
-			setupCatalog.projects.find((p) => p.name === "Brand Lab").id,
+			setupCatalog.projects.find((p) => p.definition.name === "Brand Lab").id,
 	);
 	assert.equal(
-		removedCatalog.automations.find((a) => a.name === "Briefing draft")
-			.archived,
+		removedCatalog.automations.find(
+			(a) => a.file.definition.name === "Briefing draft",
+		).file.definition.archived,
 		true,
 	);
 	assert.equal(
-		removedCatalog.automations.find((a) => a.name === "Briefing draft").enabled,
+		removedCatalog.automations.find(
+			(a) => a.file.definition.name === "Briefing draft",
+		).enabled,
 		false,
 	);
 	await page.setViewportSize({ width: 1000, height: 720 });

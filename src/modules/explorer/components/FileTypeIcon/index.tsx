@@ -1,7 +1,6 @@
 import { px } from "@shared/lib/dom.tsx";
-import { resolveFileIconUrl } from "./FolderTypeIcon.tsx";
+import { DEFAULT_FILE, getIconForFile } from "@yutengjing/vscode-icons";
 
-export { FolderTypeIcon, resolveFolderIconUrl } from "./FolderTypeIcon.tsx";
 export function FileTypeIcon(_props: {
 	readonly path: string;
 	readonly size?: number;
@@ -12,7 +11,7 @@ export function FileTypeIcon(_props: {
 			aria-hidden="true"
 			alt=""
 			draggable={false}
-			src={resolveFileIconUrl(_props.path)}
+			src={`/file-icons/${getIconForFile(_props.path.split(/[\\/]/).pop() || _props.path) ?? DEFAULT_FILE}`}
 			class={_props.class}
 			style={{
 				width: _props.size === undefined ? "15px" : px(_props.size),

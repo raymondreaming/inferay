@@ -20,7 +20,7 @@ fn corrupt_import_is_preserved_and_can_be_repaired() {
 }
 
 #[test]
-fn global_skills_migrate_once_and_survive_project_database_removal() {
+fn json_skills_import_once_without_resurrecting_deleted_skills() {
     let root = tempfile::tempdir().unwrap();
     let prompt = Prompt::custom(
         json!({"name":"Research","command":"research","promptTemplate":"Read the sources"})
@@ -29,15 +29,11 @@ fn global_skills_migrate_once_and_survive_project_database_removal() {
         42,
     )
     .unwrap();
-    let db = crate::project_store::open_database(root.path()).unwrap();
-    db.execute("INSERT INTO resources(id,project_id,type_id,name,revision) VALUES(?,NULL,'inferay.skill',?,1)", rusqlite::params![prompt.id, prompt.name]).unwrap();
-    db.execute(
-        "INSERT INTO resource_revisions VALUES(?,1,1,?,'legacy',42)",
-        rusqlite::params![prompt.id, serde_json::to_string(&prompt).unwrap()],
+    std::fs::write(
+        root.path().join("prompts.json"),
+        serde_json::to_vec(&vec![prompt.clone()]).unwrap(),
     )
     .unwrap();
-    db.execute("INSERT INTO project_migrations VALUES('skills-v1',42)", [])
-        .unwrap();
     let mut store = PromptStore::open(
         root.path().join("bundled.json"),
         root.path().join("prompts.json"),
@@ -63,8 +59,6 @@ fn global_skills_migrate_once_and_survive_project_database_removal() {
             43,
         )
         .unwrap();
-    drop(db);
-    std::fs::remove_file(root.path().join("projects.sqlite3")).unwrap();
     let loaded = store.load().unwrap();
     assert_eq!(loaded.len(), 1);
     assert_eq!(loaded[0].id, saved.id);

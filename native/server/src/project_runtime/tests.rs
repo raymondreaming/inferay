@@ -689,9 +689,9 @@ async fn agent_tool_grants_execute_only_approved_library_inputs() {
         &run,
         root.clone(),
         root.join("runs").join(&run),
-        snapshot,
-    )
-    .unwrap();
+        snapshot.clone(),
+        Arc::new(ExecutionInputs::deserialize(&snapshot).unwrap()),
+    );
     assert!(
         scope
             .verify_required()
@@ -2266,9 +2266,9 @@ async fn mcp_agent_grant_records_outputs_and_revokes_after_library_edit() {
         &run,
         root.clone(),
         root.join("runs").join(&run),
-        snapshot,
-    )
-    .unwrap();
+        snapshot.clone(),
+        Arc::new(ExecutionInputs::deserialize(&snapshot).unwrap()),
+    );
     assert!(scope.verify_required().is_err());
     let request = json!({"action":"call","pluginId":plugin,"toolId":tool["id"],"input":{"text":"Agent MCP report"}});
     let result = scope.call(request.clone()).await.unwrap();

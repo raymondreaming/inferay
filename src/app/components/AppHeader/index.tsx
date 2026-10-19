@@ -13,18 +13,12 @@ import {
 	IconSettings,
 	IconSparkles,
 } from "@shared/ui/Icons/index.tsx";
-import { useLocation, useNavigate } from "@solidjs/router";
+import { showProjectView } from "@workspace/hooks/useProjects.tsx";
 import { useWorkspaceState } from "@workspace/hooks/useWorkspaceState.tsx";
 import { createMemo } from "solid-js";
 import { CommandPalette } from "../CommandPalette/index.tsx";
 export function AppHeader() {
-	const navigate = useNavigate();
-	const location = useLocation();
 	const [shellState] = useWorkspaceState(() => false);
-	const isAgentRoute = createMemo(() => location.pathname === "/");
-	const activateMainView = () => {
-		if (!isAgentRoute()) navigate("/");
-	};
 	const selectedGroup = createMemo(() =>
 		shellState().groups.find(
 			(group) => group.id === shellState().selectedGroupId,
@@ -38,11 +32,9 @@ export function AppHeader() {
 	);
 	const openCommitGraph = () => {
 		if (!selectedCwd()) return;
-		activateMainView();
 		requestAnimationFrame(dispatchOpenActiveGitGraph);
 	};
 	const createNewChat = () => {
-		activateMainView();
 		requestAnimationFrame(() =>
 			requestAnimationFrame(() => dispatchCreateAgentChat()),
 		);
@@ -62,7 +54,7 @@ export function AppHeader() {
 			detail: "Return to your agent conversations",
 			keywords: "conversation chats",
 			icon: <IconMessageCircle size={iconSize.compact} />,
-			run: () => activateMainView(),
+			run: () => showProjectView("chat"),
 		},
 		{
 			id: "graph",

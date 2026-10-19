@@ -3,31 +3,6 @@ use serde_json::Value;
 use ts_rs::TS;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct Project {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-    pub instructions: String,
-    pub revision: i64,
-    pub created_at: i64,
-    pub updated_at: i64,
-    pub archived: bool,
-    pub directory: String,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectResource {
-    pub id: String,
-    pub project_id: String,
-    pub type_id: String,
-    pub name: String,
-    pub revision: i64,
-    pub schema_version: i64,
-    pub body: Value,
-    pub archived: bool,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "base", rename_all = "camelCase", deny_unknown_fields)]
 pub enum ProjectPath {
     Project { path: String },
@@ -237,24 +212,6 @@ pub enum ProjectExecution {
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
-pub struct ProjectAutomation {
-    #[serde(default)]
-    pub inputs_changed: bool,
-    pub id: String,
-    pub project_id: String,
-    pub name: String,
-    pub revision: i64,
-    pub execution: ProjectExecution,
-    pub interval_seconds: Option<i64>,
-    #[serde(default)]
-    pub calendar: Option<CalendarSchedule>,
-    pub enabled: bool,
-    pub next_due_at: Option<i64>,
-    pub overlap_policy: String,
-    pub archived: bool,
-}
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
 pub struct RunUsage {
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
@@ -311,6 +268,8 @@ impl RunUsage {
 #[serde(rename_all = "camelCase")]
 pub struct ProjectRun {
     #[serde(default)]
+    pub presentation: RunPresentation,
+    #[serde(default)]
     pub usage: Option<RunUsage>,
     #[serde(default)]
     pub conversation_available: bool,
@@ -326,6 +285,50 @@ pub struct ProjectRun {
     pub error: Option<String>,
     pub snapshot: Value,
     pub directory: String,
+}
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RunPresentation {
+    pub status: String,
+    pub active: bool,
+    pub retry: bool,
+    pub logs: Vec<[String; 2]>,
+    pub summary: Option<String>,
+}
+impl ProjectRun {
+    pub fn presentation(&self) -> RunPresentation {
+        let kind = self.snapshot["execution"]["kind"].as_str().unwrap_or("");
+        let mut logs = vec![[
+            "Execution log".into(),
+            if kind == "agent" {
+                "logs/agent.jsonl"
+            } else {
+                "logs/stdout.txt"
+            }
+            .into(),
+        ]];
+        if kind == "tool" {
+            logs.push(["Error log".into(), "logs/stderr.txt".into()]);
+        }
+        RunPresentation {
+            status: if self.status == "succeeded" && kind == "agent" {
+                "Agent finished".into()
+            } else {
+                self.status.replace('_', " ")
+            },
+            active: matches!(self.status.as_str(), "queued" | "running" | "waiting_input"),
+            retry: matches!(
+                self.status.as_str(),
+                "failed" | "cancelled" | "interrupted" | "waiting_input"
+            ),
+            logs,
+            summary: self
+                .result
+                .as_ref()
+                .and_then(|r| r["message"].as_str())
+                .map(str::to_owned),
+        }
+    }
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -432,6 +435,52 @@ pub struct EffectDelivery {
     pub receipt: Option<EffectReceipt>,
 }
 
+#[derive(Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectState {
+    pub delivery: Option<EffectDelivery>,
+    pub dismissed_at: Option<i64>,
+}
+#[derive(Serialize, TS)]
+pub struct EffectPresentation {
+    pub status: String,
+    pub dismissible: bool,
+    pub cancel: Option<String>,
+}
+impl EffectState {
+    pub fn presentation(self) -> EffectPresentation {
+        use EffectDeliveryState::*;
+        let state = self.delivery.as_ref().map(|d| &d.state);
+        let stopping = self
+            .delivery
+            .as_ref()
+            .is_some_and(|d| d.cancellation_requested_at.is_some());
+        let status = match state {
+            Some(Queued) => "Queued · Not sent",
+            Some(InFlight) => "In progress · Outcome pending",
+            Some(Uncertain) if stopping => "Stop requested · Outcome unknown",
+            Some(Uncertain) => "Outcome unknown · Needs reconciliation",
+            Some(Delivered) => "Delivered",
+            Some(Cancelled) => "Cancelled · Not sent",
+            None if self.dismissed_at.is_none() => "Pending review · Not sent",
+            None => "Dismissed · Not sent",
+        }
+        .into();
+        EffectPresentation {
+            status,
+            dismissible: state.is_none() && self.dismissed_at.is_none(),
+            cancel: if stopping {
+                None
+            } else {
+                match state {
+                    Some(Queued) => Some("Cancel delivery".into()),
+                    Some(InFlight | Uncertain) => Some("Request stop".into()),
+                    _ => None,
+                }
+            },
+        }
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct EffectInboxPage {
@@ -445,17 +494,6 @@ pub struct EffectReviewRequest {
     pub id: String,
     pub intent_hash: String,
 }
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectPlugin {
-    pub id: String,
-    pub project_id: String,
-    pub name: String,
-    pub version: String,
-    pub enabled: bool,
-    pub directory: String,
-}
-
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(
     tag = "type",

@@ -299,6 +299,7 @@ pub(crate) fn history(
     }
     attach_usage(db, &mut runs)?;
     for run in &mut runs {
+        run.presentation = run.presentation();
         run.conversation_available = conversation_available(run);
     }
     let artifacts = rows(

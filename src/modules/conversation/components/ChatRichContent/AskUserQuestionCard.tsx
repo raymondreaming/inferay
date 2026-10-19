@@ -228,7 +228,7 @@ export function AskUserQuestionCard(_props: {
 	);
 }
 
-export function formatAskUserAnswer(
+function formatAskUserAnswer(
 	questions: AskUserQuestion[],
 	selections: Map<number, Set<number>>,
 ): string {
@@ -240,7 +240,7 @@ export function formatAskUserAnswer(
 	});
 }
 
-export function hasAskUserSelections(
+function hasAskUserSelections(
 	questions: AskUserQuestion[],
 	selections: Map<number, Set<number>>,
 ) {

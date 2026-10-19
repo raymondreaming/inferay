@@ -189,11 +189,10 @@ export async function mutateAgentWorkspaceState(action: AgentWorkspaceAction) {
 	}
 	return saved;
 }
-/** Selects a chat, lets the caller reveal the workspace, then focuses its composer. */
-export const openAgentPane = async (paneId: string, reveal: () => void) => {
+/** Selects a chat and focuses its composer after the workspace renders. */
+export const openAgentPane = async (paneId: string) => {
 	await mutateAgentWorkspaceState({ type: "selectPane", paneId });
 	showProjectView("chat");
-	reveal();
 	requestAnimationFrame(() =>
 		requestAnimationFrame(() => dispatchFocusAgentChatComposer(paneId)),
 	);
@@ -205,10 +204,7 @@ export const findAgentPane = (paneId: string) => {
 	}
 	return undefined;
 };
-export const startAgentChatWithDraft = async (
-	draft: string,
-	reveal: () => void,
-) => {
+export const startAgentChatWithDraft = async (draft: string) => {
 	const before = new Set(
 		(published.state?.groups ?? []).flatMap((g) => g.panes.map((p) => p.id)),
 	);
@@ -220,7 +216,7 @@ export const startAgentChatWithDraft = async (
 		const pane = group.panes.find((p) => !before.has(p.id));
 		if (!pane) continue;
 		saveStoredInput(pane.id, draft);
-		await openAgentPane(pane.id, reveal);
+		await openAgentPane(pane.id);
 		return pane.id;
 	}
 	return undefined;

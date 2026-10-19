@@ -12,21 +12,30 @@ import type {
 	PluginTextFile,
 	ProjectEffectIntent,
 	ProjectFileCommand,
+	ProjectHistory,
 	ProjectProposalRequest,
 	ProjectProposalView,
 	ProjectWorkspace,
 	TablePreview,
 } from "@contracts";
-import { fetchJson, postJson } from "@shared/lib/native.tsx";
+import { fetchJson, postJson, project } from "@shared/lib/native.tsx";
 import { projectWorkspaceView } from "../model/projectFiles.ts";
 
-export async function loadProjects(projectId = "", before?: string) {
+export async function loadProjects(projectId = "") {
 	const query = new URLSearchParams({ projectId });
-	if (before !== undefined) query.set("before", String(before));
 	return projectWorkspaceView(
 		await fetchJson<ProjectWorkspace>(`/api/projects?${query}`, undefined, {
 			server: true,
 		}),
+	);
+}
+export function loadProjectHistory(projectId: string, before?: string) {
+	const query = new URLSearchParams({ projectId });
+	if (before) query.set("before", before);
+	return fetchJson<ProjectHistory>(
+		`/api/projects/history?${query}`,
+		undefined,
+		{ server: true },
 	);
 }
 export function changeProject(command: ProjectFileCommand) {
@@ -121,6 +130,10 @@ export function importPluginLibrary(
 	name: string,
 	files: PluginImportFile[],
 ) {
+	project(
+		"pluginImportManifest",
+		Object.fromEntries(files.map(({ path, file }) => [path, file.size])),
+	);
 	const body = new FormData();
 	for (const { path, file } of files) body.append(path, file, file.name);
 	return fetchJson<{ id: string }>(
@@ -201,4 +214,11 @@ export function cancelEffect(request: EffectReviewRequest) {
 		undefined,
 		{ server: true },
 	);
+}
+
+export function effectPresentation(effect: ProjectEffectIntent) {
+	return project("effectPresentation", {
+		delivery: effect.delivery,
+		dismissedAt: effect.dismissedAt,
+	});
 }

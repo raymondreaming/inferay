@@ -1,7 +1,7 @@
 import type { MemoryGraphNode } from "@contracts";
 import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
 import { queryClient } from "@shared/lib/dom.tsx";
-import { readStoredValue } from "@shared/lib/native.tsx";
+import { project, readStoredValue } from "@shared/lib/native.tsx";
 import { loadMemoryGraph, searchMemory } from "@shared/services/memoryApi.ts";
 import * as stylex from "@stylexjs/stylex";
 import {
@@ -15,7 +15,6 @@ import {
 import { findAgentPane } from "../../../hooks/useWorkspaceState.tsx";
 import {
 	clampZoom,
-	layoutMemoryGraph,
 	type MemoryCategory,
 	memoryCategory,
 } from "../../../model/memoryGraph.ts";
@@ -46,7 +45,12 @@ export function MemoryGraph(props: { projectId: string }) {
 	const positions = createMemo(() => {
 		const data = graph.data;
 		return data
-			? layoutMemoryGraph(data.nodes, data.edges)
+			? new Map(
+					project("memoryGraphLayout", {
+						nodes: data.nodes.map(({ id }) => ({ id })),
+						edges: data.edges,
+					}),
+				)
 			: new Map<string, { x: number; y: number }>();
 	});
 

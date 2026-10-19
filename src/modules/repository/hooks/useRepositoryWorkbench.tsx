@@ -593,7 +593,6 @@ export function useRepositoryWorkbench(
 	const selectChangedFile = selectFile.bind(null, "workingTree");
 	const selectCommitFile = selectFile.bind(null, "commit");
 	const selectComparisonFile = selectFile.bind(null, "comparison");
-	const openGraphSelection = setPendingGraphFileOpen;
 	createEffect(
 		() => {
 			const request = pendingGraphFileOpen();
@@ -633,34 +632,36 @@ export function useRepositoryWorkbench(
 		});
 		if (action) updatePanelSession(action);
 	};
-	const cycleFile = (direction: -1 | 1) => {
+	const navigation = (sidebar = false) => {
 		const session = panelSession();
-		const comparisonDiff = historical().comparisonSource !== null;
-		const kind =
-			session.mainViewMode === "graph"
-				? session.sidebarContent === "workingTree"
-					? "workingTree"
-					: session.selectedCommitIds.length > 1
-						? "comparison"
-						: "commit"
-				: session.historicalDiff
-					? comparisonDiff
-						? "comparison"
-						: "commit"
-					: "workingTree";
-		const files: (GitFileEntry | GitCommitFile)[] =
-			kind === "workingTree"
+		const graph = sidebar || session.mainViewMode === "graph";
+		const workingTree = graph
+			? session.sidebarContent === "workingTree"
+			: !session.historicalDiff;
+		const kind = workingTree
+			? "workingTree"
+			: (
+						graph
+							? session.selectedCommitIds.length > 1
+							: historical().comparisonSource !== null
+					)
+				? "comparison"
+				: "commit";
+		return {
+			kind,
+			files: workingTree
 				? changesModel().navigableFiles
-				: changesModel().navigableHistoricalFiles;
-		const nextFile = adjacentGitFile(
-			files,
-			(file) =>
+				: changesModel().navigableHistoricalFiles,
+			matches: (file: GitFileEntry | GitCommitFile) =>
 				file.path === session.selectedFile?.path &&
-				(kind !== "workingTree" ||
+				(!workingTree ||
 					("staged" in file && file.staged === session.selectedFile?.staged)),
-			direction,
-		);
-		if (nextFile) selectFile(kind, nextFile);
+		} as const;
+	};
+	const cycleFile = (direction: -1 | 1) => {
+		const { kind, files, matches } = navigation();
+		const next = adjacentGitFile(files, matches, direction);
+		if (next) selectFile(kind, next);
 	};
 	const handleDiffKeyboardNavigation = (event: KeyboardEvent) => {
 		const session = panelSession();
@@ -710,24 +711,8 @@ export function useRepositoryWorkbench(
 		}
 		event.preventDefault();
 		if (action.type === "enterSidebar") {
-			const kind =
-				session.sidebarContent === "workingTree"
-					? "workingTree"
-					: session.selectedCommitIds.length > 1
-						? "comparison"
-						: "commit";
-			const files =
-				kind === "workingTree"
-					? changesModel().navigableFiles
-					: changesModel().navigableHistoricalFiles;
-			const first =
-				files.find(
-					(file) =>
-						file.path === session.selectedFile?.path &&
-						(kind !== "workingTree" ||
-							("staged" in file &&
-								file.staged === session.selectedFile?.staged)),
-				) ?? files[0];
+			const { kind, files, matches } = navigation(true);
+			const first = files.find(matches) ?? files[0];
 			if (!first) return;
 			// Focus the mounted sidebar before selection renders the diff and file rows.
 			sidebarElement?.focus({ preventScroll: true });
@@ -911,20 +896,21 @@ export function useRepositoryWorkbench(
 						mainViewMode={panelSession().mainViewMode}
 						onMainViewModeChange={changeMainViewMode}
 						graph={graph}
-						graphPreferences={graphPreferences()}
-						onGraphPreferencesChange={setGraphPreferences}
-						graphLoading={graph.loading}
+						graphView={{
+							preferences: graphPreferences(),
+							onPreferencesChange: setGraphPreferences,
+							selectedHash: panelSession().selectedCommitHash ?? undefined,
+							selectedIds: panelSession().selectedCommitIds,
+							onSelect: selectGraphCommit,
+							onOpenSelection: setPendingGraphFileOpen,
+							onCheckoutRef: checkoutGraphRef,
+							onLoadMore: () => setGraphLimit(nextGitGraphHistoryLimit),
+						}}
 						graphError={graphActionError() ?? graph.error}
 						selectionAnnouncement={graphSelectionAnnouncement()}
 						repositoryKey={graphCwd()}
-						selectedCommitHash={panelSession().selectedCommitHash}
-						selectedCommitIds={panelSession().selectedCommitIds}
-						onSelectCommit={selectGraphCommit}
-						onOpenGraphSelection={openGraphSelection}
-						onCheckoutRef={checkoutGraphRef}
 						onRunRefOperation={runGraphRefOperation}
 						onRunGraphAction={runGraphActionRequest}
-						onLoadMoreCommits={() => setGraphLimit(nextGitGraphHistoryLimit)}
 						branch={project()?.branch}
 						onClose={closeDiffViewer}
 						closeLabel={
@@ -958,6 +944,7 @@ export function useRepositoryWorkbench(
 					onResize={handleResizeStart}
 				>
 					<ChangesPanel
+						actions={changeActions}
 						onPrefetchFiles={prefetchFiles()}
 						filePresentation={workingTreePresentation()}
 						cwd={selectedWorkingTreeCwd()}
@@ -968,12 +955,6 @@ export function useRepositoryWorkbench(
 							context().selectedFileVisible ? panelSession().selectedFile : null
 						}
 						onSelectFile={selectChangedFile}
-						onStageFile={changeActions.stageFile}
-						onUnstageFile={changeActions.unstageFile}
-						onStageAll={changeActions.stageAll}
-						onUnstageAll={changeActions.unstageAll}
-						onStashFile={changeActions.stashFile}
-						onDiscard={changeActions.discard}
 						hasProject={!!project() || !!selectedLinkedWorktreeStatus()}
 						projectLoading={!!activeCwd() && !gitStatus.loaded}
 						selectedCommitCount={panelSession().selectedCommitIds.length}
@@ -985,10 +966,6 @@ export function useRepositoryWorkbench(
 						}
 						onSelectCommitFile={selectCommitFile}
 						onSelectComparisonFile={selectComparisonFile}
-						commitMessage={changeActions.commitMessage}
-						onCommitMessageChange={changeActions.setCommitMessage}
-						onCommit={changeActions.commit}
-						isCommitting={changeActions.isCommitting}
 						showFileActions={!selectedLinkedWorktreeStatus()}
 						showCommitSection={!selectedLinkedWorktreeStatus()}
 					/>

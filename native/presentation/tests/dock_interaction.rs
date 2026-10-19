@@ -121,3 +121,22 @@ fn grid_reflows_after_out_of_order_deletions_and_additions() {
     assert_eq!(tree["first"]["second"]["id"], "f");
     assert_eq!(tree["second"]["id"], "g");
 }
+
+#[test]
+fn unchanged_membership_retains_custom_splits_and_reordering() {
+    let mut input = json!({"ids":["a","b","c"],"columns":3,"visibleColumns":3});
+    let initial = inferay_presentation::dock::project(&input).unwrap();
+    input["saved"] = initial["saved"].clone();
+    input["action"] = json!({"type":"place","source":"c","target":"a","edge":"center"});
+    let reordered = inferay_presentation::dock::project(&input).unwrap();
+    input["saved"] = reordered["saved"].clone();
+    input["action"] = json!({"type":"resize","path":[],"ratio":0.72});
+    let resized = inferay_presentation::dock::project(&input).unwrap();
+    input["saved"] = resized["saved"].clone();
+    input["action"] = Value::Null;
+    input["ids"] = json!(["b", "a", "c"]);
+    let restored = inferay_presentation::dock::project(&input).unwrap();
+    assert_eq!(restored["saved"], resized["saved"]);
+    assert_eq!(restored["saved"]["tree"]["ratio"], 0.72);
+    assert_eq!(restored["saved"]["tree"]["first"]["first"]["id"], "c");
+}

@@ -1,3 +1,4 @@
+use serde::Deserialize;
 pub(crate) mod tool;
 use crate::{
     agent_command::AgentCommandResolver,
@@ -20,6 +21,17 @@ use std::{
     time::Duration,
 };
 use tokio::{io::AsyncWriteExt, sync::Semaphore};
+
+// Runtime view only: approval comparisons and persisted run files retain the original JSON.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ExecutionInputs {
+    pub automation: inferay_core::project_files::AutomationDefinition,
+    pub execution: ProjectExecution,
+    pub project_id: String,
+    #[serde(default)]
+    pub tools: std::collections::BTreeMap<String, crate::project_tools::CapturedTool>,
+}
 
 pub(crate) struct ProjectRuntime {
     store: Mutex<FileProjectStore>,
@@ -90,8 +102,18 @@ impl ProjectRuntime {
         )?;
         let mut run = runs.pop().ok_or("Run not found")?;
         crate::project_runs::attach_usage(&store.db, std::slice::from_mut(&mut run))?;
+        run.presentation = run.presentation();
         run.conversation_available = crate::project_runs::conversation_available(&run);
         Ok(run)
+    }
+    pub async fn history(
+        self: &Arc<Self>,
+        project: String,
+        before: Option<String>,
+    ) -> Result<inferay_core::projects::ProjectHistory> {
+        let this = self.clone();
+        tokio::task::spawn_blocking(move || this.store()?.history(&project, before.as_deref()))
+            .await?
     }
     pub async fn catalog(
         self: &Arc<Self>,
@@ -102,25 +124,17 @@ impl ProjectRuntime {
         let this = self.clone();
         tokio::task::spawn_blocking(move || {
             let mut store = this.store()?;
-            let catalog = store.catalog(project.as_deref(), &skills)?;
+            let mut catalog = store.catalog(project.as_deref(), &skills)?;
             let history = store.history(project.as_deref().unwrap_or(""), before.as_deref())?;
+            for plugin in &mut catalog.plugins {
+                plugin.overview.latest_run_id = history.runs.iter().filter(|run| plugin.overview.consumers.contains_key(&run.automation_id)).min_by_key(|run| std::cmp::Reverse(run.requested_at)).map(|run| run.id.clone());
+            }
             let conversation_projects = store.db.prepare("SELECT pane_id,project_id FROM project_conversations ORDER BY pane_id LIMIT 4096")?
                 .query_map([], |r| Ok((r.get(0)?,r.get(1)?)))?
                 .collect::<std::result::Result<_,_>>()?;
             Ok(ProjectWorkspace {catalog,history,conversation_projects,root:store.root.to_string_lossy().into()})
         }).await?
     }
-    pub fn migrate_workspace(&self, state: &Value) -> Result<()> {
-        let skills = self
-            .prompts
-            .try_lock()
-            .map_err(|_| "Skills startup lock unavailable")?
-            .load()?;
-        let mut store = self.store()?;
-        let root = store.root.clone();
-        crate::project_migration::workspace_projects(&mut store.db, &root, state, &skills)
-    }
-
     pub async fn document_bytes(
         self: &Arc<Self>,
         project_id: String,
@@ -340,21 +354,18 @@ impl ProjectRuntime {
             .unwrap_or(true)
     }
     async fn execute(self: &Arc<Self>, id: &str, project: &str, snapshot: &Value) -> Result<Value> {
-        let automation = snapshot
-            .pointer("/automation/id")
-            .and_then(Value::as_str)
-            .ok_or("Run is missing its file-backed automation definition")?;
+        let inputs = Arc::new(ExecutionInputs::deserialize(snapshot)?);
         let skills = self.prompts.lock().await.load()?;
         let root = {
             let store = self.store()?;
             let current = crate::project_index::approved_inputs(
                 &store.db,
                 &store.root,
-                automation,
+                &inputs.automation.id,
                 false,
                 &skills,
             )?;
-            if current != *snapshot || snapshot["projectId"].as_str() != Some(project) {
+            if current != *snapshot || inputs.project_id != project {
                 return Err("Execution inputs changed after admission. Review and retry.".into());
             }
             uuid::Uuid::parse_str(project)?;
@@ -382,21 +393,20 @@ impl ProjectRuntime {
             dir.join("inputs/run.json"),
             serde_json::to_vec_pretty(snapshot)?,
         )?;
-        let definition: inferay_core::project_files::AutomationDefinition =
-            serde_json::from_value(snapshot["automation"].clone())?;
         if snapshot["connections"]
             .as_object()
             .is_some_and(|connections| !connections.is_empty())
-            && !definition
+            && !inputs
+                .automation
                 .may
                 .contains(&inferay_core::project_files::Permission::Network)
         {
             return Err("Connection requests require network permission".into());
         }
         crate::project_requirements::check(snapshot, &root, &dir).await?;
-        match serde_json::from_value::<ProjectExecution>(snapshot["execution"].clone())? {
+        match inputs.execution.clone() {
             ProjectExecution::Tool { tool_id, input } => {
-                let tool: LocalTool = serde_json::from_value(snapshot["tool"].clone())?;
+                let tool: LocalTool = LocalTool::deserialize(&snapshot["tool"])?;
                 let cancelled = || self.stopped(id);
                 tool::execute(
                     self,
@@ -412,7 +422,7 @@ impl ProjectRuntime {
                         entrypoint_hash: snapshot["entrypointHash"]
                             .as_str()
                             .ok_or("Missing entrypoint hash")?,
-                        permissions: &definition.may,
+                        permissions: &inputs.automation.may,
                         cancelled: &cancelled,
                     },
                 )
@@ -447,20 +457,17 @@ impl ProjectRuntime {
                     root.clone(),
                     dir.clone(),
                     snapshot.clone(),
-                )?;
+                    inputs.clone(),
+                );
                 let _tool_lease = crate::project_tools::ToolLease(tools.clone());
-                let handle =
-                    AgentProcessHandle::with_skills(self.prompts.clone())
-                        .with_memory(Some(memory.clone()))
-                        .with_tools(tools.clone())
-                        .with_sandbox(crate::automation_sandbox::AutomationSandbox::new(
-                            &serde_json::from_value::<
-                                inferay_core::project_files::AutomationDefinition,
-                            >(snapshot["automation"].clone())?
-                            .may,
-                            &snapshot["repositoryPaths"],
-                            &root,
-                        ));
+                let handle = AgentProcessHandle::with_skills(self.prompts.clone())
+                    .with_memory(Some(memory.clone()))
+                    .with_tools(tools.clone())
+                    .with_sandbox(crate::automation_sandbox::AutomationSandbox::new(
+                        &inputs.automation.may,
+                        &snapshot["repositoryPaths"],
+                        &root,
+                    ));
                 let kind = if provider == "codex" {
                     AgentKind::Codex
                 } else {

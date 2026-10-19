@@ -1,7 +1,5 @@
 import { DiffViewer } from "@repository/components/diff/components/DiffViewer/index.tsx";
-import type { GraphSelectionIntent } from "@repository/components/graph/components/CommitGraph/index.tsx";
 import { CommitGraph } from "@repository/components/graph/components/CommitGraph/index.tsx";
-import type { GraphPreferences } from "@repository/components/graph/components/CommitGraph/useCommitGraphState.tsx";
 import type { useGitGraph } from "@repository/hooks/useGitGraph.tsx";
 import { ErrorBoundary } from "@shared/ui/ErrorBoundary/index.tsx";
 import * as stylex from "@stylexjs/stylex";
@@ -35,24 +33,19 @@ export function ChatDiffPanel(
 		ReturnType<Parameters<typeof useGitOperations>[0]> & {
 			readonly loading: boolean;
 			readonly error?: string;
-			readonly graphPreferences: GraphPreferences;
-			readonly onGraphPreferencesChange: (
-				update:
-					| GraphPreferences
-					| ((current: GraphPreferences) => GraphPreferences),
-			) => void;
-			readonly graphLoading: boolean;
+			readonly graphView: Pick<
+				ComponentProps<typeof CommitGraph>,
+				| "preferences"
+				| "onPreferencesChange"
+				| "selectedHash"
+				| "selectedIds"
+				| "onSelect"
+				| "onOpenSelection"
+				| "onCheckoutRef"
+				| "onLoadMore"
+			>;
 			readonly graphError: string | null;
 			readonly selectionAnnouncement: string;
-			readonly selectedCommitHash: string | null;
-			readonly selectedCommitIds: readonly string[];
-			readonly onSelectCommit: (
-				itemId: string,
-				intent?: GraphSelectionIntent,
-			) => void;
-			readonly onOpenGraphSelection: (itemId: string) => void;
-			readonly onCheckoutRef: (ref: string) => void;
-			readonly onLoadMoreCommits: () => void;
 			readonly startAtFirstChange: boolean;
 		},
 ) {
@@ -86,7 +79,7 @@ export function ChatDiffPanel(
 			) : null}
 			<div {...stylex.attrs(styles.viewerBody)}>
 				{props.mainViewMode === "graph" ? (
-					props.graphLoading &&
+					props.graph.loading &&
 					props.graph.commits.length === 0 &&
 					!props.graph.searchQuery ? (
 						<div {...stylex.attrs(styles.viewerEmpty)}>Loading history…</div>
@@ -100,12 +93,13 @@ export function ChatDiffPanel(
 						</div>
 					) : (
 						<CommitGraph
+							{...props.graphView}
 							commits={props.graph.commits}
 							onSearchChange={props.graph.setSearchQuery}
 							searchActive={Boolean(props.graph.searchQuery)}
 							searchQuery={props.graph.searchQuery}
 							emptyLabel={
-								props.graphLoading
+								props.graph.loading
 									? "Searching history…"
 									: (props.graphError ??
 										props.graph.stateError ??
@@ -113,19 +107,11 @@ export function ChatDiffPanel(
 							}
 							rows={props.graph.rows}
 							presentation={props.graph.presentation}
-							preferences={props.graphPreferences}
-							onPreferencesChange={props.onGraphPreferencesChange}
 							worktrees={props.graph.worktrees}
-							selectedHash={props.selectedCommitHash ?? undefined}
-							selectedIds={props.selectedCommitIds}
-							onSelect={props.onSelectCommit}
-							onOpenSelection={props.onOpenGraphSelection}
-							onCheckoutRef={props.onCheckoutRef}
 							branch={props.branch}
 							hasMore={props.graph.hasMore}
 							loadingMore={props.graph.loading}
 							repositoryKey={props.repositoryKey}
-							onLoadMore={props.onLoadMoreCommits}
 							onRefDrop={(source, target) => {
 								operations.update({
 									refOperationResult: null,
@@ -139,8 +125,8 @@ export function ChatDiffPanel(
 										item.itemKind === "worktreeWip" && item.id === "wip",
 								);
 								if (!wip) return;
-								props.onSelectCommit(wip.id);
-								props.onSelectCommit(itemId, {
+								props.graphView.onSelect?.(wip.id);
+								props.graphView.onSelect?.(itemId, {
 									additive: true,
 									range: false,
 								});

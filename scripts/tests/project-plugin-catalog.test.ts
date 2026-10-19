@@ -24,6 +24,10 @@ test("invalid libraries remain visible and retain their file identity for repair
 			automations: [],
 			issues: [],
 			repositoryPaths: {},
+			repositoryUsers: {},
+			resourceChoices: [],
+			skillChoices: [],
+			toolChoices: [],
 			plugins: [
 				{
 					file: {
@@ -37,6 +41,14 @@ test("invalid libraries remain visible and retain their file identity for repair
 					},
 					approvedHash: null,
 					approvedAt: null,
+					overview: {
+						status: "Needs repair",
+						schedulesActive: false,
+						consumers: {},
+						tools: [],
+						issues: [],
+						latestRunId: null,
+					},
 				},
 			],
 		},

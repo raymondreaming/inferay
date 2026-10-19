@@ -39,7 +39,7 @@ pub(crate) fn catalog(db: &Connection, project: Option<&str>) -> Result<ProjectF
     let resources = db.prepare("SELECT id,project_id,plugin_id,source_path,source_hash,error,body FROM resources WHERE project_id=? ORDER BY source_path LIMIT 512")?
         .query_map([project], indexed)?.collect::<std::result::Result<_,_>>()?;
     let plugins = db.prepare("SELECT p.id,p.project_id,p.plugin_id,p.source_path,p.source_hash,p.error,p.body,s.approved_hash,s.approved_at FROM plugins p LEFT JOIN plugin_state s ON s.plugin_id=p.id WHERE p.project_id=? ORDER BY p.source_path LIMIT 100")?
-        .query_map([project], |r| Ok(IndexedPlugin {file:indexed(r)?,approved_hash:r.get(7)?,approved_at:r.get(8)?}))?.collect::<std::result::Result<_,_>>()?;
+        .query_map([project], |r| Ok(IndexedPlugin {overview:Default::default(),file:indexed(r)?,approved_hash:r.get(7)?,approved_at:r.get(8)?}))?.collect::<std::result::Result<_,_>>()?;
     let automations = db.prepare("SELECT a.id,a.project_id,a.plugin_id,a.source_path,a.source_hash,a.error,a.body,coalesce(s.enabled,0),s.next_due_at,coalesce(s.inputs_changed,0),s.error FROM automations a LEFT JOIN automation_state s ON s.automation_id=a.id WHERE a.project_id=? ORDER BY a.source_path LIMIT 256")?
         .query_map([project], |r| Ok(IndexedAutomation {file:indexed(r)?,enabled:r.get(7)?,next_due_at:r.get(8)?,inputs_changed:r.get(9)?,execution_error:r.get(10)?}))?.collect::<std::result::Result<_,_>>()?;
     let mut issues = Vec::new();
@@ -58,7 +58,11 @@ pub(crate) fn catalog(db: &Connection, project: Option<&str>) -> Result<ProjectF
         .query_map([project], indexed)?.collect::<std::result::Result<_,_>>()?;
     let skills = db.prepare("SELECT id,project_id,plugin_id,source_path,source_hash,error,body FROM project_skills WHERE project_id=? ORDER BY source_path LIMIT 512")?
         .query_map([project], indexed)?.collect::<std::result::Result<_,_>>()?;
-    Ok(ProjectFileCatalog {
+    let mut catalog = ProjectFileCatalog {
+        resource_choices: vec![],
+        repository_users: Default::default(),
+        skill_choices: vec![],
+        tool_choices: vec![],
         tools,
         skills,
         projects,
@@ -67,7 +71,9 @@ pub(crate) fn catalog(db: &Connection, project: Option<&str>) -> Result<ProjectF
         automations,
         issues,
         repository_paths,
-    })
+    };
+    catalog.derive_relationships();
+    Ok(catalog)
 }
 
 const TABLES: &[&str] = &[

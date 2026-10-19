@@ -11,6 +11,11 @@ import {
 export const styles = stylex.create({
 	root: {
 		display: "flex",
+		flex: 1,
+		width: "100%",
+		minWidth: controlSize._0,
+		minHeight: controlSize._0,
+		overflow: "hidden",
 		position: "relative",
 		height: "100%",
 		flexDirection: "column",

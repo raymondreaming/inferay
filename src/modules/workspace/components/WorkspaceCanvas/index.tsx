@@ -7,14 +7,24 @@ import type {
 	Pane,
 	WorkspaceAgentKind,
 } from "@contracts";
-import type { AgentChatHandle } from "@conversation/components/AgentChatView/index.tsx";
+import {
+	type AgentChatHandle,
+	AgentChatView,
+} from "@conversation/components/AgentChatView/index.tsx";
 import {
 	captureEvent,
 	createPointerResize,
 	lockPointerSelection,
 	px,
 } from "@shared/lib/dom.tsx";
-import { DockSession, project, readStoredValue } from "@shared/lib/native.tsx";
+import {
+	DockSession,
+	isChatAgentKind,
+	loadDefaultChatSettings,
+	project,
+	readStoredValue,
+} from "@shared/lib/native.tsx";
+import { ErrorBoundary } from "@shared/ui/ErrorBoundary/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { saveWorkspaceDock } from "@workspace/services/workspaceApi.ts";
 import {
@@ -27,7 +37,6 @@ import {
 	Show,
 	untrack,
 } from "solid-js";
-import { PaneView } from "../PaneView/index.tsx";
 import { DockSplit } from "./DockSplit.tsx";
 
 type DockSplitNode = Extract<DockTree, { readonly type: "split" }>;
@@ -187,8 +196,6 @@ const shouldFocusPaneComposer = (target: EventTarget | null) =>
 	(!target.closest("button,input,textarea,select,a,[contenteditable='true']") &&
 		window.getSelection()?.isCollapsed !== false);
 
-export type { DockSplitNode, DockTree };
-
 interface WorkspaceCanvasProps {
 	active?: boolean;
 	panes: Pane[];
@@ -287,11 +294,7 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 	};
 	let cancelDockDrag: (() => void) | undefined;
 	onCleanup(() => cancelDockDrag?.());
-	const beginPointerDock = (
-		event: PointerEvent,
-		sourceId: string,
-		sourceIndex: number | null,
-	) => {
+	const beginPointerDock = (event: PointerEvent, sourceId: string) => {
 		if (event.button !== 0) return;
 		cancelDockDrag?.();
 		event.preventDefault();
@@ -354,7 +357,7 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 			releaseSelection();
 			if (commit && activated && target) {
 				commitDockPlacement(sourceId, target);
-			} else if (!activated && sourceIndex !== null) {
+			} else if (!activated) {
 				props.onSelectPane(sourceId);
 			}
 			clearDragState();
@@ -369,10 +372,6 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 		window.addEventListener("pointercancel", cancelDrop);
 		window.addEventListener("blur", cancelAbandonedDrag);
 		source?.addEventListener("lostpointercapture", cancelAbandonedDrag);
-	};
-	const handleHeaderDragStart = (event: PointerEvent, index: number) => {
-		const paneId = props.panes[index]?.id;
-		if (paneId) beginPointerDock(event, paneId, index);
 	};
 	const handleDividerPointerDown = (
 		event: PointerEvent & {
@@ -470,18 +469,6 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 			};
 		},
 	);
-	const paneViewProps = (pane: Pane, paneIndex: number) => ({
-		pane,
-		isSelected: props.active !== false && pane.id === props.selectedPaneId,
-		isVisible: props.active !== false,
-		onClose: props.onClosePane,
-		onDirectorySelect: props.onDirectorySelect,
-		onDirectoryCancel: props.onDirectoryCancel,
-		chatRef: props.onChatRef,
-		paneIndex,
-		onHeaderDragStart: handleHeaderDragStart,
-		onSetPaneAgentKind: props.onSetPaneAgentKind,
-	});
 	return (
 		<>
 			{(() => {
@@ -539,13 +526,9 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 				const DockPanel = (panelProps: {
 					id: string;
 				}): import("solid-js").Element => {
-					const paneIndex = createMemo(() =>
-						props.panes.findIndex((pane) => pane.id === panelProps.id),
+					const pane = createMemo(() =>
+						props.panes.find((pane) => pane.id === panelProps.id),
 					);
-					const pane = createMemo(() => {
-						const index = paneIndex();
-						return index >= 0 ? props.panes[index] : null;
-					});
 					const isDropTarget = createMemo(
 						() =>
 							dockTarget()?.id === panelProps.id &&
@@ -579,7 +562,41 @@ export const WorkspaceCanvas = function WorkspaceCanvas(
 							]}
 						>
 							<For each={pane() ? [pane()!] : []} keyed={(item) => item.id}>
-								{(item) => <PaneView {...paneViewProps(item(), paneIndex())} />}
+								{(item) => (
+									<ErrorBoundary label="Chat pane" contained>
+										<AgentChatView
+											paneId={item().id}
+											cwd={item().cwd}
+											referencePaths={item().referencePaths}
+											pendingWorkspacePaths={item().pendingWorkspacePaths}
+											agentKind={
+												isChatAgentKind(item().agentKind)
+													? item().agentKind
+													: undefined
+											}
+											isSelected={
+												props.active !== false &&
+												item().id === props.selectedPaneId
+											}
+											isVisible={props.active !== false}
+											onClose={props.onClosePane}
+											onDirectoryChange={(id, cwd, refs) => {
+												if (!isChatAgentKind(item().agentKind))
+													props.onSetPaneAgentKind?.(
+														id,
+														loadDefaultChatSettings().agentKind,
+													);
+												props.onDirectorySelect(id, cwd, refs);
+											}}
+											onDirectoryCancel={props.onDirectoryCancel}
+											draggable
+											onDragStart={(event) =>
+												beginPointerDock(event, item().id)
+											}
+											ref={(handle) => props.onChatRef(item().id, handle)}
+										/>
+									</ErrorBoundary>
+								)}
 							</For>
 							{isDropTarget() ? (
 								<div

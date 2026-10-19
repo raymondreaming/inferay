@@ -1,3 +1,4 @@
+pub mod catalog;
 use crate::projects::{CalendarSchedule, bounded_text, validate_json, validate_schema_definition};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -78,6 +79,11 @@ pub enum ProjectFileCommand {
         #[serde(default)]
         repository_paths: BTreeMap<String, String>,
     },
+    EditRepository {
+        project_id: String,
+        expected_hash: String,
+        change: catalog::RepositoryChange,
+    },
     AssociateConversation {
         project_id: String,
         pane_id: String,
@@ -109,6 +115,8 @@ pub struct IndexedAutomation {
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct IndexedPlugin {
+    #[serde(default)]
+    pub overview: catalog::PluginOverview,
     pub file: IndexedDefinition<PluginDefinition>,
     pub approved_hash: Option<String>,
     pub approved_at: Option<i64>,
@@ -125,6 +133,14 @@ pub struct DefinitionIssue {
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectFileCatalog {
+    #[serde(default)]
+    pub resource_choices: Vec<[String; 2]>,
+    #[serde(default)]
+    pub repository_users: BTreeMap<String, Vec<catalog::RepositoryUser>>,
+    #[serde(default)]
+    pub skill_choices: Vec<catalog::SkillChoice>,
+    #[serde(default)]
+    pub tool_choices: Vec<catalog::ToolChoice>,
     pub projects: Vec<IndexedDefinition<ProjectDefinition>>,
     pub resources: Vec<IndexedDefinition<ResourceDefinition>>,
     pub plugins: Vec<IndexedPlugin>,
@@ -755,6 +771,7 @@ pub struct PluginReviewFile {
 #[serde(rename_all = "camelCase")]
 pub struct PluginLibrary {
     pub id: String,
+    pub summary: String,
     pub source_hash: String,
     pub files: Vec<PluginLibraryFile>,
 }
@@ -813,4 +830,27 @@ pub struct PluginProposalReview {
     pub permissions: BTreeSet<Permission>,
     pub previous_permissions: BTreeSet<Permission>,
     pub files: Vec<PluginReviewFile>,
+}
+
+/// Counts directories and reserves room for generated import metadata as well as files.
+pub fn validate_import_manifest<'a>(
+    files: impl IntoIterator<Item = (&'a str, usize)>,
+) -> Result<(), String> {
+    let mut entries = BTreeSet::new();
+    let mut total = 0usize;
+    for (path, size) in files {
+        relative_path(path)?;
+        let parts: Vec<_> = path.split('/').collect();
+        if parts.len() > 13 {
+            return Err("Imported file tree is too deep".into());
+        }
+        for count in 1..=parts.len() {
+            entries.insert(parts[..count].join("/"));
+        }
+        total = total.checked_add(size).ok_or("Import size overflow")?;
+    }
+    if entries.len() + 3 > PLUGIN_ENTRY_LIMIT || total > PLUGIN_BYTE_LIMIT - MANIFEST_LIMIT {
+        return Err("Library exceeds 1,000 entries or 50 MB".into());
+    }
+    Ok(())
 }

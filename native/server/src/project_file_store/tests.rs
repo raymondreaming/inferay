@@ -2,6 +2,56 @@ use super::*;
 use serde_json::json;
 
 #[test]
+fn server_start_returns_old_profile_recovery_instructions() {
+    let root = tempfile::tempdir().unwrap();
+    let db = Connection::open(root.path().join("projects.sqlite3")).unwrap();
+    db.pragma_update(None, "user_version", 2).unwrap();
+    drop(db);
+    let mut config =
+        crate::ServerConfig::new("127.0.0.1:0".parse().unwrap(), root.path().to_owned());
+    config.home_directory = root.path().to_owned();
+    config.user_data_dir = root.path().to_owned();
+    let error = crate::ServerHandle::start(config).err().unwrap();
+    assert!(error.contains("previous Inferay build"), "{error}");
+    assert!(!root.path().join("skills.sqlite3").exists());
+}
+
+#[test]
+fn old_and_future_databases_are_refused_without_modification() {
+    for version in [0, 1, 2, 4] {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("projects.sqlite3");
+        let db = Connection::open(&path).unwrap();
+        db.execute_batch(
+            "CREATE TABLE projects(id TEXT); INSERT INTO projects VALUES('preserved');",
+        )
+        .unwrap();
+        db.pragma_update(None, "user_version", version).unwrap();
+        drop(db);
+        let original = std::fs::read(&path).unwrap();
+        assert!(
+            crate::prompt_store::PromptStore::open(
+                root.path().join("bundled.json"),
+                root.path().join("prompts.json")
+            )
+            .is_err()
+        );
+        assert!(!root.path().join("skills.sqlite3").exists());
+        let error = FileProjectStore::open(root.path(), &[])
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(error.contains(if version > 3 {
+            "newer"
+        } else {
+            "previous Inferay build"
+        }));
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert!(!root.path().join("projects").exists());
+    }
+}
+
+#[test]
 fn startup_reopens_and_rebuilds_file_definitions_without_database_ownership() {
     let root = tempfile::tempdir().unwrap();
     let project = uuid::Uuid::new_v4().to_string();
@@ -9,6 +59,14 @@ fn startup_reopens_and_rebuilds_file_definitions_without_database_ownership() {
     let saved_hash;
     {
         let mut store = FileProjectStore::open(root.path(), &[]).unwrap();
+        assert_eq!(
+            store
+                .db
+                .pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))
+                .unwrap(),
+            3
+        );
+        assert_eq!(store.db.query_row("SELECT count(*) FROM sqlite_schema WHERE name IN ('resource_revisions', 'automation_approvals', 'project_migrations')", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
         assert!(FileProjectStore::open(root.path(), &[]).is_err());
         let result = store
             .command(
@@ -751,4 +809,155 @@ fn project_save_validates_folders_before_membership_and_prunes_removed_bindings(
         checkout.path().is_dir(),
         "Removing membership never deletes the checkout"
     );
+}
+
+#[test]
+fn repository_commands_preserve_definitions_and_reject_stale_duplicate_or_used_removals() {
+    use inferay_core::project_files::catalog::RepositoryChange;
+    let profile = tempfile::tempdir().unwrap();
+    let checkout = tempfile::tempdir().unwrap();
+    let replacement = tempfile::tempdir().unwrap();
+    let mut store = FileProjectStore::open(profile.path(), &[]).unwrap();
+    let project = uuid::Uuid::new_v4().to_string();
+    let definition: ProjectDefinition = serde_json::from_value(json!({"schema":"inferay.project/1","id":project,"name":"Keep name","description":"Keep description","instructions":"Keep instructions","repositories":[]})).unwrap();
+    let saved = store
+        .command(
+            ProjectFileCommand::SaveProject {
+                definition,
+                expected_hash: None,
+                repository_paths: Default::default(),
+            },
+            true,
+            &[],
+        )
+        .unwrap();
+    let command = |hash: &str, change| ProjectFileCommand::EditRepository {
+        project_id: project.clone(),
+        expected_hash: hash.into(),
+        change,
+    };
+    let path = checkout.path().display().to_string();
+    let hash = saved["sourceHash"].as_str().unwrap();
+    assert!(
+        store
+            .command(
+                command(hash, RepositoryChange::Add { path: path.clone() }),
+                false,
+                &[]
+            )
+            .is_err()
+    );
+    assert!(
+        store
+            .command(
+                command("stale", RepositoryChange::Add { path: path.clone() }),
+                true,
+                &[]
+            )
+            .is_err()
+    );
+    let added = store
+        .command(
+            command(hash, RepositoryChange::Add { path: path.clone() }),
+            true,
+            &[],
+        )
+        .unwrap();
+    let hash = added["sourceHash"].as_str().unwrap();
+    assert!(
+        store
+            .command(
+                command(hash, RepositoryChange::Add { path: path.clone() }),
+                true,
+                &[]
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("already linked")
+    );
+    let catalog = store.catalog(Some(&project), &[]).unwrap();
+    let definition = catalog.projects[0].definition.as_ref().unwrap();
+    assert_eq!(
+        (
+            &*definition.name,
+            &*definition.description,
+            &*definition.instructions
+        ),
+        ("Keep name", "Keep description", "Keep instructions")
+    );
+    assert_eq!(definition.repositories.len(), 1);
+    let repo = definition.repositories[0].id.clone();
+    let linked = store
+        .command(
+            command(
+                hash,
+                RepositoryChange::Relink {
+                    id: repo.clone(),
+                    path: replacement.path().display().to_string(),
+                },
+            ),
+            true,
+            &[],
+        )
+        .unwrap();
+    let hash = linked["sourceHash"].as_str().unwrap();
+    assert_eq!(
+        store.catalog(Some(&project), &[]).unwrap().repository_paths[&repo],
+        replacement
+            .path()
+            .canonicalize()
+            .unwrap()
+            .display()
+            .to_string()
+    );
+    let root = profile.path().join("projects").join(&project);
+    let job = uuid::Uuid::new_v4().to_string();
+    let body = json!({"schema":"inferay.automation/1","id":job,"name":"Archived dependency","archived":true,"trigger":{"kind":"manual"},"overlap":"skip","may":[],"execution":{"kind":"agent","provider":"codex","instructions":"Run","skills":[],"resources":[],"repositories":[repo],"workingDirectory":{"base":"repository","id":repo},"timeoutSeconds":300}});
+    crate::project_definitions::write(
+        &root,
+        "automations/job/automation.json",
+        body.to_string().as_bytes(),
+        None,
+    )
+    .unwrap();
+    let catalog = store.catalog(Some(&project), &[]).unwrap();
+    assert_eq!(
+        catalog.repository_users[&repo].len(),
+        1,
+        "Working directory and selected repositories are one dependency"
+    );
+    assert_eq!(
+        catalog.repository_users[&repo][0].automation_id.as_deref(),
+        Some(job.as_str())
+    );
+    assert!(
+        store
+            .command(
+                command(hash, RepositoryChange::Remove { id: repo.clone() }),
+                true,
+                &[]
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("automations and tools")
+    );
+    std::fs::remove_dir_all(root.join("automations")).unwrap();
+    store
+        .command(
+            command(hash, RepositoryChange::Remove { id: repo.clone() }),
+            true,
+            &[],
+        )
+        .unwrap();
+    let catalog = store.catalog(Some(&project), &[]).unwrap();
+    assert!(catalog.repository_paths.is_empty());
+    assert!(
+        catalog.projects[0]
+            .definition
+            .as_ref()
+            .unwrap()
+            .repositories
+            .is_empty()
+    );
+    assert!(checkout.path().is_dir() && replacement.path().is_dir());
 }
