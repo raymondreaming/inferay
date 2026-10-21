@@ -11,7 +11,12 @@ import { ProjectsPanel } from "@workspace/components/ProjectsPanel/index.tsx";
 import { ProjectRepositoryWorkbench } from "@workspace/components/ProjectsPanel/ProjectRepositoryWorkbench.tsx";
 import { RepositoryWorkspaceBar } from "@workspace/components/RepositoryWorkspaceBar/index.tsx";
 import { WorkspaceSidebar } from "@workspace/components/WorkspaceSidebar/index.tsx";
-import { initializeProjects, projects } from "@workspace/hooks/useProjects.tsx";
+import {
+	initializeProjects,
+	projects,
+	refreshProjects,
+} from "@workspace/hooks/useProjects.tsx";
+import { loadCanonicalAgentState } from "@workspace/hooks/useWorkspaceState.tsx";
 import type { Element } from "solid-js";
 import { Loading, onSettled, Show } from "solid-js";
 import { AppHeader } from "../AppHeader/index.tsx";
@@ -21,6 +26,13 @@ export function AppLayout(props: { children: Element }) {
 	onSettled(() => {
 		wsClient.connect();
 		void initializeProjects();
+		const timer = setInterval(() => {
+			if (!document.hidden && !projects.busy()) {
+				void refreshProjects();
+				void loadCanonicalAgentState();
+			}
+		}, 3000);
+		return () => clearInterval(timer);
 	});
 	return (
 		<div

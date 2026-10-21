@@ -429,6 +429,9 @@ impl CodexProtocolState {
         context
             .emissions
             .push(ProtocolEmission::System(message.into()));
+        context.emissions.push(ProtocolEmission::Chat(
+            json!({"type":"chat:error","error":message}),
+        ));
     }
 
     fn emit_status(&self, context: &mut AgentProtocolContext, status: &str, is_loading: bool) {

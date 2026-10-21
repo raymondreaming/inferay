@@ -1,4 +1,5 @@
 //! Owns live sessions, queued turns, transcript publication and checkpoint lifecycle.
+mod automation;
 use crate::prompt_store::PromptStore;
 use crate::unix_millis as now_millis;
 use inferay_core::agent_kind::AgentKind;
@@ -160,6 +161,8 @@ struct ChatSession {
 
     session_instructions: Option<String>,
     pending_steers: Vec<PendingSteer>,
+    automation: Option<automation::AutomationRun>,
+    turn_failed: bool,
 }
 
 impl ChatSession {
@@ -184,6 +187,7 @@ pub struct ChatRuntime {
     sessions: Arc<Mutex<HashMap<String, Arc<Mutex<ChatSession>>>>>,
     persistence: ChatPersistence,
     queue_publication: Arc<Mutex<()>>,
+    client_storage: Arc<Mutex<crate::client_storage::ClientStorage>>,
     checkpoints: CheckpointService,
     workspaces: Arc<std::sync::Mutex<AgentStateStore>>,
     resolver: Arc<AgentCommandResolver>,
@@ -204,10 +208,12 @@ impl ChatRuntime {
         workspaces: Arc<std::sync::Mutex<AgentStateStore>>,
         resolver: Arc<AgentCommandResolver>,
         projects: Arc<crate::project_runtime::ProjectRuntime>,
+        client_storage: Arc<Mutex<crate::client_storage::ClientStorage>>,
     ) -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             queue_publication: Arc::new(Mutex::new(())),
+            client_storage,
             persistence,
             checkpoints,
             pid_tracker,
@@ -415,6 +421,7 @@ impl ChatRuntime {
                     return;
                 }
                 state.turn_active = true;
+                state.turn_failed = false;
                 prefix
             };
 
@@ -1015,6 +1022,8 @@ impl ChatRuntime {
 
             session_instructions: self.persistence.read_agent_context(&input.pane_id).await,
             pending_steers: Vec::new(),
+            automation: None,
+            turn_failed: false,
         }));
         // Restoration can overlap across connections. Publish only one owner;
         // callers register their own clients after acquiring that shared owner.
@@ -1135,9 +1144,18 @@ impl ChatRuntime {
         checkpoint_id: Option<&str>,
         turn_instructions: Option<&str>,
     ) -> String {
-        let _permit = match self.projects.capacity.clone().acquire_owned().await {
-            Ok(permit) => permit,
-            Err(_) => return "Execution admission unavailable".into(),
+        let admission = self.projects.capacity.clone().acquire_owned();
+        tokio::pin!(admission);
+        let _permit = loop {
+            tokio::select! {
+                permit = &mut admission => match permit {
+                    Ok(permit) => break permit,
+                    Err(_) => return String::new(),
+                },
+                _ = tokio::time::sleep(Duration::from_millis(100)) => {
+                    if session.lock().await.cancelled { return String::new(); }
+                }
+            }
         };
         let (agent_kind, invocation, handle) = {
             let mut state = session.lock().await;
@@ -1160,14 +1178,31 @@ impl ChatRuntime {
                     reads: Arc::default(),
                 });
             let memory_context = memory.as_ref().map(|m| {
-                self.projects
-                    .memory
-                    .prompt(&m.project, &m.dir, &prompt, state.agent_kind == "codex")
-                    .text
+                let recalled = self.projects.memory.prompt(
+                    &m.project,
+                    &m.dir,
+                    &prompt,
+                    state.agent_kind == "codex",
+                );
+                if let Some(run) = &state.automation
+                    && !recalled.read.is_empty()
+                    && let Ok(store) = self.projects.store()
+                {
+                    let _ = crate::project_store::event(
+                        &store.db,
+                        &run.id,
+                        "memory_read",
+                        &json!({"notes":recalled.read}),
+                    );
+                }
+                recalled.text
             });
-            let handle = AgentProcessHandle::with_skills(self.prompts.clone())
+            let mut handle = AgentProcessHandle::with_skills(self.prompts.clone())
                 .with_projects(self.projects.clone())
                 .with_memory(memory);
+            if let Some(run) = &state.automation {
+                handle = handle.with_tools(run.tools.clone());
+            }
             state.current_handle = Some(handle.clone());
             let project_context = project.map(|(id,instructions,dir)|format!("<inferay-project>Project ID: {id}\nManaged files: {}\n{instructions}\nUse inferay_projects to discover and prepare resources, files, and automations. Put newly created tools and plugin files in this managed directory unless the user specifies another location. Never edit the database directly. An automation is a scheduled or manually triggered task with execution settings; a skill is reusable instructions. For automation requests, first call inferay_projects help for the current file format and supported commands. Do not also create a skill unless explicitly requested. Definition writes and execution approval require a user action. Never claim saved or enabled before a successful result.</inferay-project>",dir.display()));
             let developer_instructions = [
@@ -1227,7 +1262,11 @@ impl ChatRuntime {
             |emission| self.apply_emission(session, emission, checkpoint_id),
         )
         .await;
-        session.lock().await.current_handle = None;
+        {
+            let mut state = session.lock().await;
+            state.current_handle = None;
+            state.turn_failed |= executed.trim().is_empty();
+        }
         self.flush_pending_steers(session).await;
         executed
     }
@@ -1238,6 +1277,7 @@ impl ChatRuntime {
         emission: ProtocolEmission,
         checkpoint_id: Option<&str>,
     ) {
+        self.record_automation_emission(session, &emission).await;
         // Only the Status and Session branches need pane_id. Taking the session
         // lock and cloning it up front paid that cost on every streamed event,
         // including the Chat branch that locks again immediately after.
@@ -1372,6 +1412,9 @@ impl ChatRuntime {
     async fn emit_chat_event(&self, session: &Arc<Mutex<ChatSession>>, event: Value) {
         let pane_id = {
             let mut state = session.lock().await;
+            if event["type"] == "chat:error" || event["is_error"] == true {
+                state.turn_failed = true;
+            }
             state.message_buffer.apply_event(&event);
             state.pane_id.clone()
         };

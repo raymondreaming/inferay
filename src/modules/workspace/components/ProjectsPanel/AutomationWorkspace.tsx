@@ -380,6 +380,17 @@ export function AutomationWorkspace() {
 								The current plugin files, selected resources, and skills will be
 								approved for this automation.
 							</p>
+							<Show
+								when={
+									review.automation.file.definition.execution.kind === "agent"
+								}
+							>
+								<p>
+									Each run starts a regular local chat with the same tools and
+									access as your other chats. Open it from History to follow its
+									progress or keep talking.
+								</p>
+							</Show>
 							<GitWriteAccess paths={review.gitWritePaths} />
 							<ConnectionReview connections={review.connections} />
 							<Button

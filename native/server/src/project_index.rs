@@ -638,6 +638,11 @@ impl<'a> InputCapture<'a> {
         self.inputs.borrow_mut().extend(inputs.clone());
         let mut snapshot = json!({"projectId":project,"automation":definition,"files":inputs,"globalSkills":selected_skills,"repositoryPaths":repositories,"projectInstructions":project_definition.instructions,"resources":resource_context,"skills":skill_context,"tools":granted_tools});
         use inferay_core::projects::{LocalTool, ProjectExecution, ProjectPath};
+        if matches!(definition.execution, DefinitionExecution::Agent { .. }) {
+            // Access now follows ordinary local chat policy. Old restricted-run
+            // approvals must not silently authorize the changed execution mode.
+            snapshot["agentRuntime"] = json!("local-chat/1");
+        }
         let execution = match &definition.execution {
             DefinitionExecution::Agent {
                 provider,

@@ -56,7 +56,6 @@ pub struct AgentProcessHandle {
     projects: Option<Arc<crate::project_runtime::ProjectRuntime>>,
     memory: Option<MemoryScope>,
     tools: Option<Arc<crate::project_tools::ToolScope>>,
-    sandbox: Option<crate::automation_sandbox::AutomationSandbox>,
 }
 
 #[derive(Clone)]
@@ -84,7 +83,6 @@ impl AgentProcessHandle {
             projects: None,
             memory: None,
             tools: None,
-            sandbox: None,
             pid: Arc::default(),
             cancelled: Arc::default(),
             codex_control: Arc::default(),
@@ -104,14 +102,6 @@ impl AgentProcessHandle {
         self
     }
 
-    pub(crate) fn with_sandbox(
-        mut self,
-        sandbox: crate::automation_sandbox::AutomationSandbox,
-    ) -> Self {
-        self.sandbox = Some(sandbox);
-        self
-    }
-
     pub(crate) fn with_tools(mut self, tools: Arc<crate::project_tools::ToolScope>) -> Self {
         self.tools = Some(tools);
         self
@@ -119,12 +109,6 @@ impl AgentProcessHandle {
 
     pub(crate) fn tool_definitions(&self) -> Value {
         let mut definitions = inferay_core::prompts::tools::tool_definitions();
-        if self.tools.is_some() {
-            definitions
-                .as_array_mut()
-                .unwrap()
-                .push(crate::project_tools::ToolScope::execution_definition());
-        }
         if self.tools.as_ref().is_some_and(|tools| tools.available()) {
             definitions
                 .as_array_mut()
@@ -148,19 +132,6 @@ impl AgentProcessHandle {
         tool: &str,
         args: Value,
     ) -> Result<(Value, Option<Value>), String> {
-        if tool == "inferay_exec" {
-            let scope = self.tools.as_ref().ok_or("No automation execution scope")?;
-            let mut args = args
-                .as_object()
-                .cloned()
-                .ok_or("Command arguments must be an object")?;
-            args.insert("action".into(), json!("execute"));
-            return scope
-                .call(json!(args))
-                .await
-                .map(|result| (result, None))
-                .map_err(|error| error.to_string());
-        }
         if tool == "inferay_tools" {
             let scope = self
                 .tools
@@ -397,16 +368,6 @@ async fn run_claude(
             bridge.config.path().to_string_lossy().into_owned(),
         ]);
     }
-    if let Some(policy) = &handle.sandbox {
-        if let Err(error) = policy.claude(&mut arguments) {
-            emit_error(context, error);
-            flush_emissions(context, emissions).await;
-            return String::new();
-        }
-        if !arguments.iter().any(|arg| arg == "--strict-mcp-config") {
-            arguments.push("--strict-mcp-config".into());
-        }
-    }
     let spawn = spawn_direct(&arguments, &run.invocation.cwd, run.env);
     let mut child = match spawn {
         Ok(child) => child,
@@ -452,7 +413,11 @@ async fn run_claude(
         emit_error(context, stderr);
     }
     flush_emissions(context, emissions).await;
-    protocol.last_assistant_message
+    if exit.as_ref().is_ok_and(std::process::ExitStatus::success) {
+        protocol.last_assistant_message
+    } else {
+        String::new()
+    }
 }
 
 fn claude_invocation_args(run: &ProviderRun<'_>, mcp_config: Option<&Path>) -> Vec<String> {
@@ -498,12 +463,7 @@ async fn run_codex(
     state: &mut CodexProtocolState,
     emissions: &mpsc::Sender<ProtocolEmission>,
 ) -> String {
-    let mut child = match spawn_codex_app_server(
-        run.binary,
-        &run.invocation.cwd,
-        run.env,
-        handle.sandbox.as_ref(),
-    ) {
+    let mut child = match spawn_codex_app_server(run.binary, &run.invocation.cwd, run.env) {
         Ok(child) => child,
         Err(error) => {
             if !handle.is_cancelled() {
@@ -546,12 +506,10 @@ async fn run_codex(
             .await?;
         let mut start_params = codex_thread_params(run.invocation);
         configure_codex_session(&mut start_params, &config["config"], run.env, run.invocation.mcp_servers.as_deref())?;
-        if let Some(policy) = &handle.sandbox { policy.thread(&mut start_params, &config["config"]); }
         start_params["dynamicTools"] = handle.tool_definitions();
         let thread_response = if let Some(thread_id) = &run.invocation.session_id {
             let mut params = codex_thread_params(run.invocation);
             configure_codex_session(&mut params, &config["config"], run.env, run.invocation.mcp_servers.as_deref())?;
-            if let Some(policy) = &handle.sandbox { policy.thread(&mut params, &config["config"]); }
             params["threadId"] = json!(thread_id);
             rpc.request(
                 "thread/resume",
@@ -603,8 +561,7 @@ async fn run_codex(
                 break;
             }
         }
-        let mut turn_params = codex_turn_params(&thread_id, run.prompt, run.invocation);
-        if let Some(policy) = &handle.sandbox { turn_params["sandboxPolicy"] = policy.turn(); }
+        let turn_params = codex_turn_params(&thread_id, run.prompt, run.invocation);
         let turn_response = rpc
             .request(
                 "turn/start",
@@ -876,7 +833,7 @@ pub(crate) async fn inspect_codex_mcp(
     env: &HashMap<OsString, OsString>,
     wanted: Option<&[String]>,
 ) -> Result<(Value, Vec<Value>), String> {
-    let mut child = spawn_codex_app_server(binary, cwd, env, None).map_err(|e| e.to_string())?;
+    let mut child = spawn_codex_app_server(binary, cwd, env).map_err(|e| e.to_string())?;
     let stderr = tokio::spawn(drain_bounded(child.stderr.take().expect("piped stderr")));
     let mut rpc = CodexConnection {
         stdin: child.stdin.take().expect("piped stdin"),
@@ -1113,22 +1070,19 @@ async fn finish_codex_child(
         emit_error(context, stderr);
     }
     flush_emissions(context, emissions).await;
-    state.last_assistant_message.clone()
+    if state.completed_from_event {
+        state.last_assistant_message.clone()
+    } else {
+        String::new()
+    }
 }
 
 fn spawn_codex_app_server(
     binary: &Path,
     cwd: &Path,
     env: &HashMap<OsString, OsString>,
-    policy: Option<&crate::automation_sandbox::AutomationSandbox>,
 ) -> std::io::Result<tokio::process::Child> {
-    let mut command = match policy {
-        Some(policy) => policy
-            .codex_command(binary, env)
-            .map_err(std::io::Error::other)?,
-        None => Command::new(binary),
-    };
-    command
+    Command::new(binary)
         .args(["app-server", "--listen", "stdio://"])
         .current_dir(cwd)
         .env_clear()

@@ -166,7 +166,7 @@ struct ServerState {
     background_dir: PathBuf,
     client_storage: Arc<tokio::sync::Mutex<client_storage::ClientStorage>>,
     chat_persistence: chat_persistence::ChatPersistence,
-    chat_runtime: chat_runtime::ChatRuntime,
+    chat_runtime: Arc<chat_runtime::ChatRuntime>,
     projects: Arc<project_runtime::ProjectRuntime>,
     checkpoint_service: checkpoint::CheckpointService,
     config_manager: Arc<tokio::sync::Mutex<ConfigManager>>,
@@ -386,13 +386,11 @@ fn build_router_with_connection_reset(
     )));
     let projects = project_runtime::ProjectRuntime::open(
         &config.user_data_dir,
-        agent_command_resolver.clone(),
         prompt_store.clone(),
         pid_tracker.clone(),
     )
     .map_err(|error| error.to_string())?;
-    projects.start();
-    let chat_runtime = chat_runtime::ChatRuntime::new(
+    let chat_runtime = Arc::new(chat_runtime::ChatRuntime::new(
         chat_persistence.clone(),
         checkpoint_service.clone(),
         pid_tracker.clone(),
@@ -401,7 +399,10 @@ fn build_router_with_connection_reset(
         agent_state_store.clone(),
         agent_command_resolver.clone(),
         projects.clone(),
-    );
+        client_storage.clone(),
+    ));
+    let _ = projects.chat.set(Arc::downgrade(&chat_runtime));
+    projects.start();
     let state = ServerState {
         dist_dir,
         public_dir: config.app_root.join("public"),
@@ -2799,6 +2800,19 @@ async fn handle_native_websocket_message(
     }
     match message_type {
         "chat:destroy" if !pane_id.is_empty() => {
+            // Removing a run's pane only hides it. History retains the same
+            // conversation, and an active task continues without a viewer.
+            if state
+                .projects
+                .is_run_chat(pane_id)
+                .map_err(|e| e.to_string())?
+            {
+                state
+                    .chat_runtime
+                    .detach_client(client_id, Some(pane_id))
+                    .await;
+                return Ok(());
+            }
             state
                 .chat_runtime
                 .destroy_session(pane_id)

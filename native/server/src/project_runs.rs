@@ -330,6 +330,14 @@ pub(crate) fn conversation_available(run: &inferay_core::projects::ProjectRun) -
     if run.snapshot["execution"]["kind"] != "agent" {
         return false;
     }
+    if run
+        .result
+        .as_ref()
+        .and_then(|value| value["chatPaneId"].as_str())
+        .is_some()
+    {
+        return true;
+    }
     crate::project_definitions::managed_path(
         std::path::Path::new(&run.directory),
         "logs/agent.jsonl",

@@ -16,6 +16,59 @@ pub(super) async fn open(state: &ServerState, request: Request) -> ApiResult {
         .projects
         .run_for_chat(&input.id)
         .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
+    // New runs already own their live chat. Never import a snapshot over it.
+    if let Some(pane_id) = run
+        .result
+        .as_ref()
+        .and_then(|value| value["chatPaneId"].as_str())
+    {
+        let store = state
+            .agent_state_store
+            .lock()
+            .map_err(|_| api_error(StatusCode::INTERNAL_SERVER_ERROR, "Workspace lock failed"))?;
+        let pane = store
+            .pane(pane_id)
+            .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
+        if let Some(pane) = pane {
+            store
+                .restore_pane(pane)
+                .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
+            return Ok(json!({"paneId":pane_id}));
+        }
+        let saved = crate::project_definitions::managed_path(
+            Path::new(&run.directory),
+            "inputs/chat-pane.json",
+            false,
+        )
+        .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
+        if saved.exists() {
+            let pane: inferay_core::agent_state::Pane = serde_json::from_slice(
+                &crate::project_definitions::read(
+                    Path::new(&run.directory),
+                    "inputs/chat-pane.json",
+                    1_048_576,
+                )
+                .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?,
+            )
+            .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
+            if pane.id != pane_id {
+                return Err(api_error(
+                    StatusCode::BAD_REQUEST,
+                    "Run chat identity mismatch",
+                ));
+            }
+            store
+                .restore_pane(pane)
+                .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
+            return Ok(json!({"paneId":pane_id}));
+        }
+        if run.snapshot["agentRuntime"] == "local-chat/1" {
+            return Err(api_error(
+                StatusCode::BAD_REQUEST,
+                "Saved chat pane metadata is missing; the conversation was not replaced.",
+            ));
+        }
+    }
     let active = ["running", "queued", "waiting_input"].contains(&run.status.as_str());
     let execution = &run.snapshot["execution"];
     if execution["kind"] != "agent" {

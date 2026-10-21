@@ -1,8 +1,8 @@
 import { Button } from "@shared/ui/Button/index.tsx";
 import { IconFolder } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import { createSignal, onSettled, Show } from "solid-js";
-import { projects, refreshProjects } from "../../hooks/useProjects.tsx";
+import { createSignal, Show } from "solid-js";
+import { projects } from "../../hooks/useProjects.tsx";
 import { AutomationWorkspace } from "./AutomationWorkspace.tsx";
 import { MemoryGraph } from "./MemoryGraph/index.tsx";
 import { PluginsPanel } from "./PluginsPanel.tsx";
@@ -13,12 +13,6 @@ export function ProjectsPanel() {
 	const [creatingProject, setCreatingProject] = createSignal(false);
 	const current = () =>
 		projects.catalog()?.projects.find((p) => p.id === projects.selectedId());
-	onSettled(() => {
-		const timer = setInterval(() => {
-			if (!document.hidden && !projects.busy()) void refreshProjects();
-		}, 3000);
-		return () => clearInterval(timer);
-	});
 
 	return (
 		<section

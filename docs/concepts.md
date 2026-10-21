@@ -58,7 +58,7 @@ Project ─┬─ Repositories (linked, never copied)
 
 **Definition vs state.** Definitions (project, resources, plugins, skills, tools, automations) are files you can read, copy and put under Git if you want. State (approvals, enabled schedules, next due times, runs, events, artifacts, which folder a repository ID means on this Mac) stays in Inferay's local database and is never shared by copying a folder. Pulling or copying someone's plugin never enables anything.
 
-**Run vs effect.** A run does work inside the project and its linked repositories. Automation agents use provider sandbox settings for filesystem and network limits; local tools use an OS sandbox. Local tools additionally require `commit` for Git metadata changes. Enforcement is partial: read isolation, provider-shell commit control, and separate push and PR permissions remain unfinished. See [architecture.md](architecture.md#provider-runner). An effect is a core-mediated external action with an approved budget, durable intent and receipt. Runs can propose effect intents for review and dismissal; nothing is delivered yet, because handler binding, delivery approval and the delivery worker are not implemented.
+**Run vs effect.** An agent run starts a regular local chat with its configured instructions, provider and working directory. It has the same tools and access as other local chats. Tool-only runs and explicitly granted library tools use declared permissions and the native process sandbox. An effect is a core-mediated external action with an approved budget, durable intent and receipt. Runs can propose effect intents for review and dismissal; delivery remains planned. Ordinary chat shell/network access is not restricted to the effects interface.
 
 ## Managing repositories
 
@@ -74,7 +74,7 @@ Chats use the grid layout. The sidebar’s New chat action sits beside the Chats
 
 ## Reviewing run output
 
-History retains a run's result, logs and artifacts. Open a text report, image or video directly from its artifact button. Videos have playback and seeking controls, with a 50 MB preview limit and codec support determined by the browser or desktop webview.
+History retains a run's result, logs and artifacts. Agent runs appear as regular chats in the grid. **Open chat** selects the same live conversation, with its full history and normal replies; it does not copy progress into another chat. Removing that pane hides it without stopping the run or deleting its history, and Open chat restores it. After the task completes or the app restarts, replies resume the saved conversation. Run Now and scheduled triggers use the same launch path. Open a text report, image or video directly from its artifact button. Videos have playback and seeking controls, with a 50 MB preview limit and codec support determined by the browser or desktop webview.
 
 CSV and TSV files display their first record as column headings. JSON arrays of objects display their field names as columns. Table previews show up to 200 rows and 64 columns from files up to 1 MB; the row count identifies a partial preview. **View source** shows the original text. Invalid or unsupported table shapes remain available as text. Previews never execute formulas or markup from a cell.
 

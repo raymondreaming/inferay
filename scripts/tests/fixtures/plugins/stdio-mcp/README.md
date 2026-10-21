@@ -32,7 +32,7 @@ cargo test -p inferay-server calls_mcp_library_tool --lib -- --ignored --nocaptu
 ```
 
 This opt-in gate consumes Claude and Codex account usage. Each provider runs in a
-disposable Inferay project, reads a fresh marker through `inferay_exec`, discovers
+disposable Inferay project, reads a fresh marker with normal chat tools, discovers
 the granted Report tool and invokes it through `inferay_tools`. The gate requires
 the exact marker in the generated report and MCP structured response, and checks
 both report and agent response in run history. Both provider checks pass. No user

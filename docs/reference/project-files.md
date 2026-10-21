@@ -268,7 +268,7 @@ An agent execution can include `tools: [{ "pluginId": "<plugin UUID>", "toolId":
 
 The automation editor exposes these grants under Context & execution → Configure → Library tools. Claude and Codex receive the same `inferay_tools` interface: `{"action":"list"}` lists only granted tools and their input schemas; `{"action":"call","pluginId":"…","toolId":"…","input":{}}` runs one. Approval captures the entire referenced library, including companion scripts and binary assets. Each invocation rechecks current approved inputs. Outside edits require review again.
 
-Calls run serially, with at most 64 calls per agent run. Each call retains its input, entrypoint, stdout, stderr and result event under the parent run; returned artifacts become parent-run artifacts. Ending or cancelling the agent closes the tool grants and stops an active helper. These controls govern Inferay’s tool interface; they do not yet sandbox an agent’s own shell.
+Calls run serially, with at most 64 calls per agent run. Each call retains its input, entrypoint, stdout, stderr and result event under the parent run; returned artifacts become parent-run artifacts. Ending or cancelling the agent closes the tool grants and stops an active helper. These controls govern the explicit library-tool interface. Agent runs use normal local chat tools and access; `may` does not restrict their native shell or MCP tools.
 
 ## Automation proposals from chat
 
@@ -314,6 +314,19 @@ Library discovery uses `readPlugin`. Its inventory includes per-file hashes and 
 `archived` is an optional boolean, defaulting to false. It belongs to the definition; enabled state remains local.
 
 ### execution
+
+Agent execution creates one ordinary local chat in the grid using the selected
+provider, model, working directory, skills and resources. Both Run Now and due
+schedules use this path. History opens the same conversation, including during
+execution; users can reply normally and continue after completion. Closing its
+pane retains its transcript and session for reopening. Cancelling a run stops the
+active chat task, and its deadline still applies. Run status describes completion
+of the submitted task, not a guarantee that the requested outcome was achieved.
+
+Agent approval includes the `local-chat/1` runtime marker. Previous restricted-run
+approvals require review again because normal chat access replaces those limits.
+Tool-only executions and granted library tools keep their declared permissions.
+
 
 Agent tool grants accept `required: true` alongside `pluginId` and `toolId`.
 Required tools must be called, and their latest attempt must succeed before the

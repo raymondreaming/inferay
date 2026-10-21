@@ -200,9 +200,7 @@ export function RunHistory(props: {
 										disabled={opening()}
 										onClick={() => void continueRun(run().id)}
 									>
-										{run().presentation.active
-											? "Open progress in chat"
-											: "Open in chat"}
+										Open in chat
 									</Button>
 								) : null}
 							</div>

@@ -1,15 +1,12 @@
 use serde::Deserialize;
 pub(crate) mod tool;
 use crate::{
-    agent_command::AgentCommandResolver,
-    agent_runner::{self, AgentProcessHandle, RuntimePidTracker},
+    agent_runner::{self, RuntimePidTracker},
     project_file_store::FileProjectStore,
     project_store::{self, Result, event, now, resolve_path},
     prompt_store::PromptStore,
 };
 use inferay_core::{
-    agent_kind::AgentKind,
-    agent_protocol::{AgentProtocolContext, CodexInvocationContext, ProtocolEmission},
     project_files::{ProjectFileCommand, ProjectWorkspace},
     projects::*,
 };
@@ -37,7 +34,7 @@ pub(crate) struct ProjectRuntime {
     store: Mutex<FileProjectStore>,
     pub capacity: Arc<Semaphore>,
     background: Arc<Semaphore>,
-    resolver: Arc<AgentCommandResolver>,
+    pub(crate) chat: std::sync::OnceLock<std::sync::Weak<crate::chat_runtime::ChatRuntime>>,
     pub(crate) prompts: Arc<tokio::sync::Mutex<PromptStore>>,
     tracker: RuntimePidTracker,
     pub memory: crate::memory_store::MemoryStore,
@@ -46,7 +43,6 @@ pub(crate) struct ProjectRuntime {
 impl ProjectRuntime {
     pub fn open(
         root: &Path,
-        resolver: Arc<AgentCommandResolver>,
         prompts: Arc<tokio::sync::Mutex<PromptStore>>,
         tracker: RuntimePidTracker,
     ) -> Result<Arc<Self>> {
@@ -59,7 +55,7 @@ impl ProjectRuntime {
             store: Mutex::new(store),
             capacity: Arc::new(Semaphore::new(4)),
             background: Arc::new(Semaphore::new(2)),
-            resolver,
+            chat: std::sync::OnceLock::new(),
             prompts,
             tracker,
             memory: crate::memory_store::MemoryStore::open(root)?,
@@ -85,6 +81,14 @@ impl ProjectRuntime {
             }
         });
     }
+    pub fn is_run_chat(&self, pane: &str) -> Result<bool> {
+        Ok(self.store()?.db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM runs WHERE json_extract(result,'$.chatPaneId')=?1)",
+            [pane],
+            |row| row.get(0),
+        )?)
+    }
+
     pub fn attach_run_chat(&self, id: &str, pane: &str) -> Result<()> {
         let store = self.store()?;
         store.db.execute(
@@ -329,7 +333,14 @@ impl ProjectRuntime {
                 };
                 let runtime = this.clone();
                 tokio::spawn(async move {
-                    let _permits = (background, capacity);
+                    let _background = background;
+                    // Regular chats acquire their own shared execution permit.
+                    let _capacity = if snapshot["execution"]["kind"] == "agent" {
+                        drop(capacity);
+                        None
+                    } else {
+                        Some(capacity)
+                    };
                     let result = runtime.execute(&id, &project, &snapshot).await;
                     if let Err(e) = runtime.finish(&id, &project, result) {
                         eprintln!("Run completion retained for recovery: {e}");
@@ -428,183 +439,14 @@ impl ProjectRuntime {
                 )
                 .await
             }
-            ProjectExecution::Agent {
-                instructions,
-                provider,
-                model,
-                reasoning_level,
-                working_directory,
-                timeout_seconds,
-                ..
-            } => {
-                let cwd = resolve_path(&root, &working_directory)?;
-                let memory = crate::agent_runner::MemoryScope {
-                    runtime: self.clone(),
-                    project: project.to_owned(),
-                    dir: root.clone(),
-                    allow_save: false,
-                    reads: Arc::default(),
-                };
-                let recalled =
-                    self.memory
-                        .prompt(project, &root, &instructions, provider == "codex");
-                if let Ok(mut reads) = memory.reads.lock() {
-                    reads.extend(recalled.read);
-                }
-                let tools = crate::project_tools::ToolScope::new(
-                    self.clone(),
-                    id,
-                    root.clone(),
-                    dir.clone(),
-                    snapshot.clone(),
-                    inputs.clone(),
-                );
-                let _tool_lease = crate::project_tools::ToolLease(tools.clone());
-                let handle = AgentProcessHandle::with_skills(self.prompts.clone())
-                    .with_memory(Some(memory.clone()))
-                    .with_tools(tools.clone())
-                    .with_sandbox(crate::automation_sandbox::AutomationSandbox::new(
-                        &inputs.automation.may,
-                        &snapshot["repositoryPaths"],
-                        &root,
-                    ));
-                let kind = if provider == "codex" {
-                    AgentKind::Codex
-                } else {
-                    AgentKind::Claude
-                };
-                let binary = self.resolver.resolve_agent_binary(kind);
-                let env = self.resolver.create_agent_env(kind);
-                let prompt = format!(
-                    "{}\n\n{}\n\nPinned resources:\n{}\n\nPinned skill instructions (use these captured versions for this run):\n{}\n\nManaged project files: {}\nConfigured working directory: {}\nUse inferay_exec for file reads, searches, commands and edits; provider-native filesystem tools and shell access are disabled. Each command receives INFERAY_RUN_OUTPUT for artifacts. Write intended outputs there. The run output root is {}. Report the outcome accurately; ask for input if blocked.",
-                    snapshot["projectInstructions"].as_str().unwrap_or(""),
-                    instructions,
-                    snapshot["resources"],
-                    snapshot["skills"],
-                    root.display(),
-                    cwd.display(),
-                    dir.join("output").display()
-                );
-                let prompt = format!(
-                    "{prompt}\n\n{}\n\nGranted library tools: {}. Use inferay_tools list to discover their input schemas and call them through inferay_tools; do not bypass the granted interface with shell commands.",
-                    recalled.text, snapshot["tools"]
-                );
-                let invocation=CodexInvocationContext{cwd:dir.join("output"),reference_paths:vec![],images:vec![],model:model.clone(),reasoning_level:reasoning_level.clone(),developer_instructions:Some("Run the explicitly requested project automation. Do not enable schedules or expand permissions. Report failures truthfully.".into()),session_id:None,mcp_servers:Some(vec![])};
-                let mut protocol = AgentProtocolContext::new(cwd.clone());
-                let (sender, mut receiver) =
-                    tokio::sync::mpsc::channel(agent_runner::PROTOCOL_BUFFER_CAPACITY);
-                let log = dir.join("logs/agent.jsonl");
-                let waiting = Arc::new(std::sync::atomic::AtomicBool::new(false));
-                let waiting_signal = waiting.clone();
-                let event_runtime = self.clone();
-                let event_run_id = id.to_owned();
-                let drain = tokio::spawn(async move {
-                    let mut file = tokio::fs::File::create(log).await?;
-                    let mut size = 0;
-                    let mut failed = false;
-                    let mut last_usage = None;
-                    while let Some(emission) = receiver.recv().await {
-                        let data = match emission {
-                            ProtocolEmission::Chat(value) => {
-                                if value["type"] == "chat:error" || value["is_error"] == true {
-                                    failed = true;
-                                }
-                                if value.pointer("/content_block/name").and_then(Value::as_str)
-                                    == Some("AskUserQuestion")
-                                    || value
-                                        .pointer("/message/content")
-                                        .and_then(Value::as_array)
-                                        .is_some_and(|items| {
-                                            items.iter().any(|v| v["name"] == "AskUserQuestion")
-                                        })
-                                {
-                                    waiting_signal
-                                        .store(true, std::sync::atomic::Ordering::Release);
-                                }
-                                value
-                            }
-                            ProtocolEmission::System(text) => json!({"system":text}),
-                            ProtocolEmission::Session(id) => json!({"providerSessionId":id}),
-                            _ => continue,
-                        };
-                        let usage = if data["type"] == "inferay.usage" {
-                            Some(data.clone())
-                        } else if data["type"] == "result" && data["usage"].is_object() {
-                            Some(
-                                json!({"provider":"claude","usage":data["usage"],"modelUsage":data["modelUsage"],"reportedCostUsd":data["total_cost_usd"]}),
-                            )
-                        } else {
-                            None
-                        };
-                        if let Some(usage) =
-                            usage.filter(|usage| Some(usage) != last_usage.as_ref())
-                        {
-                            let store = event_runtime.store()?;
-                            event(&store.db, &event_run_id, "provider_usage", &usage)?;
-                            last_usage = Some(usage);
-                        }
-                        let line = format!("{data}\n");
-                        if size + line.len() <= 1_048_576 {
-                            file.write_all(line.as_bytes()).await?;
-                            size += line.len();
-                        }
-                    }
-                    Ok::<_, Box<dyn std::error::Error + Send + Sync>>(failed)
-                });
-                let result = {
-                    let run = agent_runner::run_agent(
-                        agent_runner::ProviderRun {
-                            binary: &binary,
-                            prompt: &prompt,
-                            invocation: &invocation,
-                            env: &env,
-                        },
-                        kind,
-                        &handle,
-                        &self.tracker,
-                        &mut protocol,
-                        &sender,
-                    );
-                    tokio::pin!(run);
-                    let deadline =
-                        tokio::time::Instant::now() + Duration::from_secs(timeout_seconds);
-                    loop {
-                        tokio::select! {value=&mut run=>break Ok(value),_=tokio::time::sleep(Duration::from_millis(100))=>{if self.stopped(id)||waiting.load(std::sync::atomic::Ordering::Acquire)||tokio::time::Instant::now()>=deadline{handle.kill();break Err("Agent run stopped or timed out");}}}
-                    }
-                };
-                tools.close().await;
-                drop(sender);
-                let provider_failed = drain.await??;
-                let reads = memory.reads.lock().map(|r| r.clone()).unwrap_or_default();
-                if !reads.is_empty()
-                    && let Ok(store) = self.store.lock()
-                {
-                    event(&store.db, id, "memory_read", &json!({"notes": reads}))?;
-                }
-                if waiting.load(std::sync::atomic::Ordering::Acquire) {
-                    return Ok(
-                        json!({"waitingForInput":true,"message":"This run needs your input. Read the agent log, update its instructions, and retry. No provider process remains running."}),
-                    );
-                }
-                if provider_failed {
-                    return Err("Provider failed; inspect the agent log".into());
-                }
-                if let Ok(text) = result {
-                    std::fs::write(dir.join("output/response.md"), &text)?;
-                    if text.trim().is_empty() {
-                        return Err(
-                            "Provider returned no final response; inspect the agent log".into()
-                        );
-                    }
-                    tools.verify_required()?;
-                    let mut artifacts = tools.artifacts()?;
-                    artifacts.push("response.md".into());
-                    Ok(
-                        json!({"message":text,"artifacts":artifacts,"completion":"provider turn completed; not an independently verified business outcome"}),
-                    )
-                } else {
-                    Err("Agent run stopped or timed out".into())
-                }
+            ProjectExecution::Agent { .. } => {
+                let chat = self
+                    .chat
+                    .get()
+                    .and_then(std::sync::Weak::upgrade)
+                    .ok_or("Chat runtime is unavailable")?;
+                chat.run_automation(id, project, &root, &dir, snapshot, inputs.clone())
+                    .await
             }
         }
     }

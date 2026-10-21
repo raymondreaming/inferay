@@ -4,7 +4,7 @@ use crate::{
 };
 use inferay_core::{
     project_files::{AgentToolGrant, ToolDefinition},
-    projects::{LocalTool, ProjectExecution, ProjectPath, ToolArgument, ToolInterface},
+    projects::{LocalTool, ProjectPath},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -53,11 +53,6 @@ impl Drop for ToolLease {
 enum Request {
     List,
     #[serde(rename_all = "camelCase")]
-    Execute {
-        command: String,
-        timeout_seconds: Option<u64>,
-    },
-    #[serde(rename_all = "camelCase")]
     Call {
         plugin_id: String,
         tool_id: String,
@@ -92,9 +87,6 @@ impl ToolScope {
     }
     pub(crate) fn definition() -> Value {
         json!({"type":"function","name":"inferay_tools","description":"List or call the reusable library tools explicitly granted to this automation. Use list to discover names, pluginId, toolId and input schemas, then call with those IDs and input. Undeclared tools are refused. Tools marked required must be called and pass before the run can succeed. Their latest attempt must succeed; repair failures and retry. Optional tool failures may be recovered.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["list","call"]},"pluginId":{"type":"string"},"toolId":{"type":"string"},"input":{}},"required":["action"],"additionalProperties":false}})
-    }
-    pub(crate) fn execution_definition() -> Value {
-        json!({"type":"function","name":"inferay_exec","description":"Execute a shell command for this automation through Inferay's permission boundary. Use this for reading files, editing, Git and local commands. The working directory is the automation's configured directory. Outputs intended as artifacts belong in $INFERAY_RUN_OUTPUT. Commands, stdout/stderr and artifacts are retained with the run. Calls are serial, bounded and cancelled with the automation. Do not use provider shell or file-edit tools.","inputSchema":{"type":"object","properties":{"command":{"type":"string","maxLength":64000},"timeoutSeconds":{"type":"integer","minimum":1,"maximum":600}},"required":["command"],"additionalProperties":false}})
     }
     pub(crate) async fn close(&self) {
         self.active.store(false, Ordering::Release);
@@ -143,29 +135,30 @@ impl ToolScope {
             .serial
             .try_acquire()
             .map_err(|_| "Another tool is running; wait for its result before calling again")?;
-        let grant = if let Request::Call {
-            plugin_id, tool_id, ..
-        } = &request
-        {
-            let key = AgentToolGrant {
-                plugin_id: plugin_id.clone(),
-                tool_id: tool_id.clone(),
-                required: false,
-            }
-            .key();
-            let captured = self
-                .inputs
-                .tools
-                .get(&key)
-                .ok_or("This tool is not granted to the automation")?;
-            self.outcomes
-                .lock()
-                .map_err(|_| "Tool outcome lock failed")?
-                .insert(key, false);
-            Some(captured.grant.clone())
-        } else {
-            None
+        let Request::Call {
+            plugin_id,
+            tool_id,
+            input,
+        } = request
+        else {
+            unreachable!()
         };
+        let key = AgentToolGrant {
+            plugin_id,
+            tool_id,
+            required: false,
+        }
+        .key();
+        let captured = self
+            .inputs
+            .tools
+            .get(&key)
+            .ok_or("This tool is not granted to the automation")?;
+        self.outcomes
+            .lock()
+            .map_err(|_| "Tool outcome lock failed")?
+            .insert(key, false);
+        let grant = &captured.grant;
         if oversized {
             return Err("Tool input exceeds 64 KB".into());
         }
@@ -197,65 +190,21 @@ impl ToolScope {
             return Err("Automation reached its limit of 64 tool calls".into());
         }
         let call = uuid::Uuid::new_v4().to_string();
-        let (tool, input, entrypoint_hash) = match request {
-            Request::Call { input, .. } => {
-                let captured = &self.inputs.tools[&grant.as_ref().unwrap().key()];
-                let definition = &captured.definition;
-                let entrypoint = resolve_path(&self.root, &captured.entrypoint)?;
-                let tool = LocalTool {
-                    interface: definition.interface.clone(),
-                    program: definition.program.clone(),
-                    entrypoint: captured.entrypoint.clone(),
-                    arguments: definition.interface.arguments(
-                        &definition.args,
-                        &input,
-                        &entrypoint.to_string_lossy(),
-                    )?,
-                    working_directory: captured.working_directory.clone(),
-                    timeout_seconds: definition.timeout_seconds,
-                    input_schema: definition.input_schema.clone(),
-                    output_schema: definition.output_schema.clone(),
-                };
-                (tool, input, captured.entrypoint_hash.clone())
-            }
-            Request::Execute {
-                command,
-                timeout_seconds,
-            } => {
-                let ProjectExecution::Agent {
-                    working_directory, ..
-                } = &self.inputs.execution
-                else {
-                    return Err("Only agent automations can execute commands".into());
-                };
-                if command.trim().is_empty() || command.contains('\0') {
-                    return Err("Command must be nonempty text without NUL bytes".into());
-                }
-                let timeout = timeout_seconds.unwrap_or(60);
-                if !(1..=600).contains(&timeout) {
-                    return Err("Command timeout must be 1–600 seconds".into());
-                }
-                let path = format!("runs/{}/inputs/commands/{call}.sh", self.run);
-                let source = crate::project_definitions::managed_path(&self.root, &path, true)?;
-                std::fs::write(&source, command.as_bytes())?;
-                let tool = LocalTool {
-                    interface: ToolInterface::Cli,
-                    program: "/bin/sh".into(),
-                    entrypoint: ProjectPath::Project { path },
-                    arguments: vec![ToolArgument::Literal(source.to_string_lossy().into_owned())],
-                    working_directory: working_directory.clone(),
-                    timeout_seconds: timeout,
-                    input_schema: json!({"type":"object"}),
-                    output_schema: json!({"type":"object"}),
-                };
-                let hash = crate::project_store::hash(command.as_bytes());
-                (
-                    tool,
-                    json!({"command":command,"timeoutSeconds":timeout}),
-                    hash,
-                )
-            }
-            Request::List => unreachable!(),
+        let definition = &captured.definition;
+        let entrypoint = resolve_path(&self.root, &captured.entrypoint)?;
+        let tool = LocalTool {
+            interface: definition.interface.clone(),
+            program: definition.program.clone(),
+            entrypoint: captured.entrypoint.clone(),
+            arguments: definition.interface.arguments(
+                &definition.args,
+                &input,
+                &entrypoint.to_string_lossy(),
+            )?,
+            working_directory: captured.working_directory.clone(),
+            timeout_seconds: definition.timeout_seconds,
+            input_schema: definition.input_schema.clone(),
+            output_schema: definition.output_schema.clone(),
         };
         {
             let store = self.runtime.store()?;
@@ -274,11 +223,11 @@ impl ToolScope {
                 root: &self.root,
                 dir: &self.dir,
                 call: Some(&call),
-                connection_tool: grant.as_ref().map(|grant| grant.tool_id.as_str()),
+                connection_tool: Some(&grant.tool_id),
                 tool,
                 input,
                 snapshot: &self.snapshot,
-                entrypoint_hash: &entrypoint_hash,
+                entrypoint_hash: &captured.entrypoint_hash,
                 permissions: &self.inputs.automation.may,
                 cancelled: &cancelled,
             },
@@ -328,9 +277,7 @@ impl ToolScope {
             },
             &outcome,
         )?;
-        if result.is_ok()
-            && let Some(grant) = grant
-        {
+        if result.is_ok() {
             self.outcomes
                 .lock()
                 .map_err(|_| "Tool outcome lock failed")?

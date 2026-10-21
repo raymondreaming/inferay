@@ -57,6 +57,15 @@ impl AgentStateStore {
         self.save(state)
     }
 
+    pub fn restore_pane(&self, pane: Pane) -> Result<Workspace, String> {
+        let mut state = self
+            .read()?
+            .unwrap_or_else(|| Workspace::new(&pane.agent_kind));
+        state.restore_pane(pane)?;
+        state.validate()?;
+        self.save(state)
+    }
+
     pub fn set_pending_workspace(&self, id: &str, paths: Vec<String>) -> Result<(), String> {
         let mut state = self.require_state()?;
         state.set_pending_workspace(id, paths)?;

@@ -26,54 +26,43 @@ Plugins contribute through these extension points only: skills, callables (tools
 
 ### Invariants
 
-1. A plugin never holds a secret, never acts outside its declared permissions, and never ships renderer code. It declares; the kernel executes. (This is the target invariant. Automation write/socket controls and local-tool GPU grants are implemented; read isolation, privileged Git actions and secret connections remain incomplete. Interactive chats retain their existing access.)
+1. A plugin never holds a secret, never acts outside its declared permissions, and never ships renderer code. It declares; the kernel executes. (This is the target invariant. Automation write/socket controls and local-tool GPU grants are implemented; read isolation, privileged Git actions and secret connections remain incomplete. Interactive chats and agent automations use ordinary local chat access; declared permissions govern library callables.)
 2. Nothing runs on a schedule without a local approval bound to the hash of its inputs. Any change to an input, including a pulled file or an upstream pack commit, disables the schedule until a person enables it again. Copying or pulling a definition never enables it.
 3. Every external consequence is an effect: within an approved budget, recorded before it is sent, receipted after, reconciled after a crash. No duplicate is acceptable.
 4. Definitions are files; the database holds state and an index that can be rebuilt from them.
 5. Every run is bounded in time, concurrency and size, and records honest failure states. An interrupted run is never reported as a success.
 6. The kernel contains no domain vocabulary. Words like post, render, blender or app appear only in plugins (an effect kind is an opaque string to the kernel).
 
-### Execution authority: remaining boundary
+### Agent runs are regular local chats
 
-Automation shell commands use the Inferay-owned `inferay_exec` callable, sharing
-the library-tool runner, approval checks, process sandbox and retained evidence.
-Codex native tools run read-only with its shell disabled; Claude exposes only
-Inferay MCP. Installed-provider checks supply native
-mutation calls from local API fixtures and verify actual refusals: Codex patch
-and shell, and Claude Bash, Write, Edit, Read, Glob and Grep. Target files remain
-absent or unchanged, and private read contents stay out of the fixture transcript.
-Real Claude and Codex checks read a project file through `inferay_exec`, then pass
-its contents to a granted library tool and retain its report. The provider
-processes still load runtime, credentials and context outside the native runner;
-ambient context isolation needs a separate audit. Provider updates must keep passing these execution checks; a model
-choosing not to call a tool is not enforcement evidence.
+Manual and scheduled agent runs submit their instructions through the same chat
+runtime as interactive conversations. Each run owns one durable pane and provider
+session, created before the task starts. The configured repository is its actual
+working directory. Normal provider tools, local instructions, MCP configuration,
+project context and skills remain available under the regular chat policy.
 
-**Planned:** external consequences use approved effects. A provider shell
-command is not an authorization record. Matching `git push` in a command string
-cannot enforce `push`: a script, another Git client, or a direct API call can do
-the same work. Likewise, allowing general network access does not distinguish
-research from publication. Credentials and consequence-bearing requests must
-stay behind the connections and effects boundary.
+History opens that same conversation while it is running or after it finishes.
+Removing its pane from the grid hides the conversation without clearing its
+history or stopping the task; History restores the original pane identity.
+Replies use normal steering or queuing, and later turns resume the saved provider
+session. A restart interrupts the run record but preserves the chat for continuation.
+The scheduler submits the initial task once; it does not own a second agent process.
 
-The native runner preserves approved working-file edits while withholding Git
-metadata mutation unless `commit` is approved. Tests must cover direct file
-writes, linked worktrees, separate Git directories, existing aliases and renamed
-ancestors, as the local-tool checks do. An ordinary `git commit` refusal alone is
-insufficient. Approved commits also need a positive execution check.
+Run admission, input approval, overlap handling, deadlines, cancellation and
+required library-tool outcomes still apply. Agent runs consume one shared chat
+execution permit. Logs and reported usage remain run evidence; the ordinary chat
+transcript retains the full conversation. A provider completion is not independent
+verification of the requested business outcome.
 
-On the installed macOS runtime, an outer `sandbox-exec` policy cannot simply be
-wrapped around Codex's own sandbox: the inner sandbox fails to initialize with
-`Operation not permitted`, before the command runs. Do not ship that composition
-or remove the provider sandbox to make it pass. Provider-native filesystem rules
-or execution through Inferay's bounded callable runner must establish the
-boundary. If execution is brokered, built-in provider execution and file mutation
-paths must be disabled and tested too; adding another tool alongside unrestricted
-alternatives does not enforce authority.
+Agent access follows ordinary chat policy, not the automation's `may` list.
+`may` still governs explicit library tools and tool-only automations, whose native
+runner retains its process sandbox, connection grants and Git metadata controls.
+Approving an agent automation authorizes a regular local chat. Its captured inputs
+include `agentRuntime: "local-chat/1"`, so approvals issued for the old restricted
+runner are invalidated and must be reviewed before another launch.
 
-Release evidence must come from the actual supported provider versions and both
-allowed and refused operations in disposable profiles. The current real-provider
-write and TCP checks establish only those tested limits. Interactive chats keep
-their existing policy; automation policy changes must not silently change them.
+Effects remain a separate explicit interface for reviewed external actions;
+ordinary chat shell/network access is not an effects enforcement boundary.
 
 ### Local library ownership
 

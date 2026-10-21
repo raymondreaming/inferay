@@ -1,16 +1,45 @@
 use super::*;
+use crate::agent_command::AgentCommandResolver;
 use serde_json::json;
 
 fn runtime(root: &Path) -> Arc<ProjectRuntime> {
     ProjectRuntime::open(
         root,
-        Arc::new(AgentCommandResolver::new(root, root.join("mcp.json"))),
         Arc::new(tokio::sync::Mutex::new(
             PromptStore::open(root.join("bundled.json"), root.join("prompts.json")).unwrap(),
         )),
         RuntimePidTracker::new(root.join("pids.json")),
     )
     .unwrap()
+}
+
+fn chats(runtime: &Arc<ProjectRuntime>, root: &Path) -> Arc<crate::chat_runtime::ChatRuntime> {
+    crate::workspace_store::AgentStateStore::new(root.join("agent-state.json"))
+        .initialize("claude")
+        .unwrap();
+    let chat = Arc::new(crate::chat_runtime::ChatRuntime::new(
+        crate::chat_persistence::ChatPersistence::new(root.into()),
+        crate::checkpoint::CheckpointService::new(
+            inferay_core::path_security::AllowedPaths::new(root, root, root).unwrap(),
+            root.join("checkpoints.json"),
+            root.join("client-storage.json"),
+        ),
+        runtime.tracker.clone(),
+        Arc::new(tokio::sync::Mutex::new(
+            crate::agent_context_store::AgentContextStore::new(root.join("context.json")),
+        )),
+        runtime.prompts.clone(),
+        Arc::new(Mutex::new(crate::workspace_store::AgentStateStore::new(
+            root.join("agent-state.json"),
+        ))),
+        Arc::new(AgentCommandResolver::new(root, root.join("mcp.json"))),
+        runtime.clone(),
+        Arc::new(tokio::sync::Mutex::new(
+            crate::client_storage::ClientStorage::new(root.join("client-storage.json")),
+        )),
+    ));
+    assert!(runtime.chat.set(Arc::downgrade(&chat)).is_ok());
+    chat
 }
 
 fn definition_files(root: &Path, script: &str) -> (String, String) {
@@ -741,22 +770,6 @@ async fn agent_tool_grants_execute_only_approved_library_inputs() {
     );
     scope.call(request.clone()).await.unwrap();
     scope.verify_required().unwrap();
-    let command = json!({"action":"execute","command":"printf 'command artifact' > \"$INFERAY_RUN_OUTPUT/command.txt\"; printf 'command output'","timeoutSeconds":2});
-    let executed = scope.call(command.clone()).await.unwrap();
-    assert_eq!(executed["stdout"], "command output");
-    let artifact = executed["artifacts"][0].as_str().unwrap();
-    assert_eq!(
-        std::fs::read_to_string(root.join("runs").join(&run).join("output").join(artifact))
-            .unwrap(),
-        "command artifact"
-    );
-    let denied = scope.call(json!({"action":"execute","command":"printf forbidden > \"$INFERAY_PROJECT_DIR/unapproved.txt\""})).await.unwrap_err().to_string();
-    assert!(
-        denied.contains("Operation not permitted") || denied.contains("Permission denied"),
-        "{denied}"
-    );
-    assert!(!root.join("unapproved.txt").exists());
-    scope.verify_required().unwrap();
     std::fs::write(
         root.join("plugins/report/README.md"),
         "Changed library instructions",
@@ -765,10 +778,6 @@ async fn agent_tool_grants_execute_only_approved_library_inputs() {
     assert!(
         scope.call(request.clone()).await.is_err(),
         "An outside library edit must invalidate the grant"
-    );
-    assert!(
-        scope.call(command).await.is_err(),
-        "Changed inputs must also revoke command execution"
     );
     std::fs::remove_file(root.join("plugins/report/README.md")).unwrap();
     let running = scope.clone();
@@ -862,328 +871,6 @@ time.sleep(60)
 
 #[tokio::test]
 #[ignore = "launches a real provider and consumes account usage"]
-async fn real_claude_automation_uses_sandbox_and_records_a_run() {
-    real_provider_sandbox("claude", Some("haiku")).await;
-}
-
-#[tokio::test]
-#[ignore = "launches a real provider and consumes account usage"]
-async fn real_codex_automation_uses_sandbox_and_records_a_run() {
-    real_provider_sandbox("codex", None).await;
-}
-
-async fn real_provider_sandbox(provider: &str, model: Option<&str>) {
-    let profile = tempfile::tempdir().unwrap();
-    let (project, automation) = definition_files(profile.path(), "print('{}')");
-    let root = profile
-        .path()
-        .join("projects")
-        .join(&project)
-        .canonicalize()
-        .unwrap();
-    let path = root.join("plugins/report/automations/report.json");
-    let mut definition: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    let outside = profile
-        .path()
-        .canonicalize()
-        .unwrap()
-        .join("outside-probe.txt");
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.set_nonblocking(true).unwrap();
-    let port = listener.local_addr().unwrap().port();
-    let network_probe = root.join("plugins/report/network_probe.py");
-    std::fs::write(&network_probe, format!(r#"import errno, json, socket
-from pathlib import Path
-result = {{}}
-# A numeric public destination avoids mistaking DNS failure for enforcement.
-# Open a TCP connection only; send no application data.
-for name, address in [("loopback", ("127.0.0.1", {port})), ("external", ("1.1.1.1", 443))]:
-    outcome = {{"denied": False}}
-    try:
-        with socket.create_connection(address, timeout=3):
-            pass
-    except OSError as error:
-        outcome = {{"denied": error.errno in (errno.EPERM, errno.EACCES), "errno": error.errno, "error": str(error)}}
-    result[name] = outcome
-Path("network-probe.json").write_text(json.dumps(result))
-print("NETWORK_PROBE", json.dumps(result))
-"#)).unwrap();
-    definition["execution"] = json!({
-        "kind":"agent","provider":provider,"model":model,"instructions":format!(
-            "This is an authorized sandbox verification in a disposable project. Use inferay_exec for all commands and start each command with cd \"$INFERAY_RUN_OUTPUT\". Run both probes: first write the literal text inside-ok into ./inside-probe.txt in your current directory. Then attempt to write outside-ok into {}. The second write should fail; do not bypass the sandbox or retry another way. Report both command outcomes. You must actually run the commands, not just describe them. Finally run python3 {} exactly once from your current directory. That script attempts a connection to a listening disposable loopback socket and a public numeric TCP destination, sends no application data, and records network-probe.json. Network access is not granted: report the refusal and do not bypass, rewrite the script, or fabricate the result file.", outside.display(), network_probe.display()),
-        "tools":[],"skills":[],"resources":[],"repositories":[],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":90
-    });
-    if provider == "codex" {
-        definition["may"] = json!(["write_project_files"]);
-        let plugin_path = root.join("plugins/report/plugin.json");
-        let mut plugin: Value =
-            serde_json::from_slice(&std::fs::read(&plugin_path).unwrap()).unwrap();
-        plugin["may"] = json!(["write_project_files"]);
-        std::fs::write(plugin_path, plugin.to_string()).unwrap();
-    }
-    std::fs::write(path, definition.to_string()).unwrap();
-    let runtime = runtime(profile.path());
-    let run = approved_run(&runtime, &automation, "real-provider-gate").await;
-    runtime.tick().await.unwrap();
-    let done = tokio::time::timeout(Duration::from_secs(110), async {
-        loop {
-            let catalog = runtime.catalog(Some(project.clone()), None).await.unwrap();
-            let run = catalog
-                .history
-                .runs
-                .into_iter()
-                .find(|candidate| candidate.id == run)
-                .unwrap();
-            if !["queued", "running"].contains(&run.status.as_str()) {
-                break run;
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-    })
-    .await
-    .unwrap();
-    let dir = root.join("runs").join(&run);
-    let log = std::fs::read_to_string(dir.join("logs/agent.jsonl")).unwrap_or_default();
-    assert_eq!(done.status, "succeeded", "{:?}\n{}", done.error, log);
-    let output_file = |name: &str| {
-        walkdir::WalkDir::new(dir.join("output"))
-            .into_iter()
-            .filter_map(std::result::Result::ok)
-            .find(|entry| entry.file_type().is_file() && entry.file_name() == name)
-            .unwrap_or_else(|| panic!("Missing output {name}: {log}"))
-            .into_path()
-    };
-    assert_eq!(
-        std::fs::read_to_string(output_file("inside-probe.txt"))
-            .unwrap()
-            .trim(),
-        "inside-ok",
-        "{}",
-        log
-    );
-    assert!(
-        !outside.exists(),
-        "Provider wrote outside its approved boundary"
-    );
-    let network: Value = serde_json::from_slice(
-        &std::fs::read(output_file("network-probe.json"))
-            .expect("Provider must execute the network probe"),
-    )
-    .unwrap();
-    for destination in ["loopback", "external"] {
-        assert_eq!(
-            network[destination]["denied"], true,
-            "{destination} network access was not refused by the sandbox (timeouts and unreachable routes do not count): {network}\n{log}"
-        );
-    }
-    assert!(
-        matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
-        "An undeclared network connection reached the listener"
-    );
-    let refused = log
-        .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .any(|event| {
-            event["type"] == "user"
-                && event
-                    .pointer("/message/content")
-                    .and_then(Value::as_array)
-                    .is_some_and(|blocks| {
-                        blocks.iter().any(|block| {
-                            let content = block["content"].to_string().to_ascii_lowercase();
-                            block["type"] == "tool_result"
-                                && (content.contains("operation not permitted")
-                                    || content.contains("permission denied"))
-                        })
-                    })
-        });
-    if provider == "claude" {
-        assert!(
-            refused,
-            "Missing tool-result evidence of refused shell write: {}",
-            log
-        );
-    } else {
-        let output: String = log
-            .lines()
-            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-            .filter(|event| {
-                event.pointer("/delta/type").and_then(Value::as_str) == Some("input_json_delta")
-            })
-            .filter_map(|event| {
-                event
-                    .pointer("/delta/partial_json")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-            })
-            .collect();
-        let output = output.to_ascii_lowercase();
-        assert!(
-            refused
-                || output.contains("operation not permitted")
-                || output.contains("permission denied"),
-            "Missing refused command output: {}",
-            log
-        );
-    }
-    assert!(dir.join("output/response.md").is_file());
-    let store = runtime.store().unwrap();
-    let usage: String = store.db.query_row("SELECT payload FROM run_events WHERE run_id=? AND kind='provider_usage' ORDER BY sequence DESC LIMIT 1", [&run], |row| row.get(0)).expect("Real provider must report usage");
-    let usage: Value = serde_json::from_str(&usage).unwrap();
-    assert_eq!(usage["provider"], provider);
-    let input = if provider == "codex" {
-        usage.pointer("/usage/total/inputTokens")
-    } else {
-        usage.pointer("/usage/input_tokens")
-    };
-    assert!(
-        input.and_then(Value::as_u64).is_some(),
-        "Missing reported token totals: {usage}"
-    );
-}
-
-#[tokio::test]
-#[ignore = "launches a real provider and consumes account usage"]
-async fn real_claude_honors_git_commit_permission() {
-    real_provider_git_permission("claude", Some("haiku"), false).await;
-    real_provider_git_permission("claude", Some("haiku"), true).await;
-}
-
-#[tokio::test]
-#[ignore = "launches a real provider and consumes account usage"]
-async fn real_codex_honors_git_commit_permission() {
-    real_provider_git_permission("codex", None, false).await;
-    real_provider_git_permission("codex", None, true).await;
-}
-
-async fn real_provider_git_permission(provider: &str, model: Option<&str>, commit: bool) {
-    let profile = tempfile::tempdir().unwrap();
-    let (project, automation) = definition_files(profile.path(), "print('{}')");
-    let root = profile
-        .path()
-        .join("projects")
-        .join(&project)
-        .canonicalize()
-        .unwrap();
-    let result = std::process::Command::new("git")
-        .args(["init", "-q"])
-        .arg(&root)
-        .output()
-        .unwrap();
-    assert!(
-        result.status.success(),
-        "{}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    let probe = root.join("plugins/report/git_probe.py");
-    std::fs::write(&probe, r#"import json, os, subprocess, sys
-from pathlib import Path
-repo = Path(sys.argv[1])
-(repo / 'working-file.txt').write_text('ordinary edit allowed')
-env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
-env['GIT_CONFIG_NOSYSTEM'] = '1'
-env['GIT_CONFIG_GLOBAL'] = '/dev/null'
-result = {}
-for name, args in [('stage', ['add', 'working-file.txt']), ('commit', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgSign=false', '-c', 'core.hooksPath=/dev/null', 'commit', '--allow-empty', '-qm', 'permission probe'])]:
-    done = subprocess.run(['git', '-C', str(repo), *args], capture_output=True, text=True, env=env, timeout=10)
-    result[name] = {'code': done.returncode, 'stderr': done.stderr}
-(repo / 'git-probe.json').write_text(json.dumps(result))
-print(json.dumps(result))
-"#).unwrap();
-    let path = root.join("plugins/report/automations/report.json");
-    let mut definition: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    let may = if commit {
-        json!(["write_project_files", "commit"])
-    } else {
-        json!(["write_project_files"])
-    };
-    definition["may"] = may.clone();
-    definition["execution"] = json!({
-        "kind":"agent", "provider":provider, "model":model,
-        "instructions":format!("Run python3 {} {} exactly once using inferay_exec. This is an authorized permission probe in a disposable project. It edits one working file and attempts Git staging and an empty commit, recording actual command results as git-probe.json in the project root. Run the script unchanged, do not fabricate results or retry denied operations. Report the results briefly.", probe.display(), root.display()),
-        "tools":[],"skills":[],"resources":[],"repositories":[],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":90
-    });
-    std::fs::write(path, definition.to_string()).unwrap();
-    let path = root.join("plugins/report/plugin.json");
-    let mut plugin: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    plugin["may"] = may;
-    std::fs::write(path, plugin.to_string()).unwrap();
-    let runtime = runtime(profile.path());
-    let id = approved_run(&runtime, &automation, "git-permission-gate").await;
-    runtime.tick().await.unwrap();
-    let done = tokio::time::timeout(Duration::from_secs(110), async {
-        loop {
-            let run = runtime
-                .catalog(Some(project.clone()), None)
-                .await
-                .unwrap()
-                .history
-                .runs
-                .into_iter()
-                .find(|run| run.id == id)
-                .unwrap();
-            if !["queued", "running"].contains(&run.status.as_str()) {
-                break run;
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-    })
-    .await
-    .unwrap();
-    let dir = root.join("runs").join(&id);
-    let log = std::fs::read_to_string(dir.join("logs/agent.jsonl")).unwrap_or_default();
-    assert_eq!(done.status, "succeeded", "{:?}\n{log}", done.error);
-    assert_eq!(
-        std::fs::read_to_string(root.join("working-file.txt")).unwrap(),
-        "ordinary edit allowed"
-    );
-    let result: Value = serde_json::from_slice(
-        &std::fs::read(root.join("git-probe.json"))
-            .unwrap_or_else(|error| panic!("Provider must execute the Git probe: {error}\n{log}")),
-    )
-    .unwrap();
-    for operation in ["stage", "commit"] {
-        if commit {
-            assert_eq!(
-                result[operation]["code"], 0,
-                "Approved Git mutation failed: {result}\n{log}"
-            );
-            continue;
-        }
-        assert_ne!(
-            result[operation]["code"], 0,
-            "Unapproved Git mutation: {result}\n{log}"
-        );
-        let error = result[operation]["stderr"]
-            .as_str()
-            .unwrap()
-            .to_ascii_lowercase();
-        assert!(
-            error.contains("operation not permitted") || error.contains("permission denied"),
-            "Git failed without permission evidence: {result}\n{log}"
-        );
-    }
-    assert_eq!(
-        root.join(".git/index").exists(),
-        commit,
-        "Unexpected Git index state"
-    );
-    assert_eq!(
-        std::process::Command::new("git")
-            .arg("-C")
-            .arg(&root)
-            .args(["rev-parse", "--verify", "HEAD"])
-            .output()
-            .unwrap()
-            .status
-            .success(),
-        commit,
-        "Unexpected commit state"
-    );
-}
-
-#[tokio::test]
-#[ignore = "launches a real provider and consumes account usage"]
 async fn real_claude_calls_granted_library_tool() {
     real_provider_library_tool("claude", Some("haiku"), false).await;
 }
@@ -1250,12 +937,13 @@ async fn real_provider_library_tool(provider: &str, model: Option<&str>, mcp: bo
     std::fs::write(root.join("context.txt"), &marker).unwrap();
     definition["execution"] = json!({
         "kind":"agent","provider":provider,"model":model,
-        "instructions":"Read context.txt in the project working directory using inferay_exec. Then use inferay_tools to list the granted tools and call the Report tool with its text input equal to the exact contents you read. Use the actual Report tool to create the report, not a shell write or a description. Once the call succeeds, report its result briefly.",
+        "instructions":"Read context.txt in the project working directory using your normal file or shell tools. Then use inferay_tools to list the granted tools and call the Report tool with its text input equal to the exact contents you read. Use the actual Report tool to create the report, not a shell write or a description. Once the call succeeds, report its result briefly.",
         "tools":[{"pluginId":plugin,"toolId":tool}],"skills":[],"resources":[],"repositories":[],
         "workingDirectory":{"base":"project","path":"."},"timeoutSeconds":90
     });
     std::fs::write(path, definition.to_string()).unwrap();
     let runtime = runtime(profile.path());
+    let _chat = chats(&runtime, profile.path());
     let id = approved_run(&runtime, &automation, "real-library-tool").await;
     runtime.tick().await.unwrap();
     let run = tokio::time::timeout(Duration::from_secs(110), async {
@@ -1858,6 +1546,7 @@ async fn real_scheduled_studio_uses_library_skill_and_required_tools() {
         }
     }
     let runtime = runtime(profile.path());
+    let _chat = chats(&runtime, profile.path());
     runtime
         .command(
             ProjectFileCommand::SaveProject {
@@ -2033,6 +1722,7 @@ async fn real_codex_usage_is_durable_before_cancellation() {
     definition["execution"] = json!({"kind":"agent","provider":"codex","instructions":"This is a disposable cancellation test. Execute exactly one shell command: sleep 30. Wait for it to finish before replying done. Do not substitute a shorter wait or perform any other task.","tools":[],"skills":[],"resources":[],"repositories":[],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":90});
     std::fs::write(path, definition.to_string()).unwrap();
     let runtime = runtime(profile.path());
+    let _chat = chats(&runtime, profile.path());
     let id = approved_run(&runtime, &automation, "live-usage").await;
     runtime.tick().await.unwrap();
     let observed = tokio::time::timeout(Duration::from_secs(60), async {
@@ -2811,5 +2501,364 @@ async fn scheduler_starts_due_work_after_an_idle_tick() {
     assert_eq!(
         completed(&runtime, &project, &run).await.status,
         "succeeded"
+    );
+}
+
+#[cfg(unix)]
+fn chat_fixture(root: &Path) -> (String, String) {
+    use std::os::unix::fs::PermissionsExt;
+    let binary = root.join(".local/bin/claude");
+    std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
+    std::fs::write(&binary, r#"#!/usr/bin/python3
+import json, sys, time
+from pathlib import Path
+args = sys.argv[1:]
+assert '--tools' not in args, args
+assert 'provider-native filesystem tools and shell access are disabled' not in str(args)
+assert '<available-skills>' in str(args), args
+assert 'Captured skill instructions' in str(args), args
+with Path('invocations.jsonl').open('a') as f:
+    f.write(json.dumps(args) + '\n')
+print(json.dumps({'type':'system','subtype':'init','session_id':'automation-session'}), flush=True)
+Path('started').write_text('yes')
+while Path('block').exists():
+    time.sleep(.02)
+if Path('fail').exists():
+    print(json.dumps({'type':'result','is_error':True,'result':'fixture failure'}), flush=True)
+    sys.exit(1)
+Path('normal-chat-write').write_text('written')
+print(json.dumps({'type':'result','result':'follow-up complete' if '--resume' in args else 'task complete','usage':{'input_tokens':10,'output_tokens':5}}), flush=True)
+"#).unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(
+        AgentCommandResolver::new(root, root.join("mcp.json"))
+            .resolve_agent_binary(inferay_core::agent_kind::AgentKind::Claude),
+        binary
+    );
+    let (project, automation) = definition_files(root, "print('{}')");
+    let path = root.join(format!(
+        "projects/{project}/plugins/report/automations/report.json"
+    ));
+    let mut definition: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    definition["trigger"] = json!({"kind":"interval","seconds":60});
+    definition["execution"] = json!({"kind":"agent","provider":"claude","model":"haiku",
+        "instructions":"Complete the task", "skills":[],"resources":[],"repositories":[],
+        "workingDirectory":{"base":"project","path":"."},"timeoutSeconds":10});
+    std::fs::write(path, definition.to_string()).unwrap();
+    (project, automation)
+}
+
+#[tokio::test]
+#[cfg(unix)]
+async fn manual_and_scheduled_agents_are_durable_regular_chats() {
+    for scheduled in [false, true] {
+        let profile = tempfile::tempdir().unwrap();
+        let (project, automation) = chat_fixture(profile.path());
+        let runtime = runtime(profile.path());
+        let chat = chats(&runtime, profile.path());
+        let root = profile.path().join("projects").join(&project);
+        std::fs::write(root.join("block"), "").unwrap();
+        let id = if scheduled {
+            let review = runtime
+                .command(
+                    ProjectFileCommand::ReviewAutomation {
+                        id: automation.clone(),
+                    },
+                    true,
+                )
+                .await
+                .unwrap();
+            runtime
+                .command(
+                    ProjectFileCommand::ApproveAutomation {
+                        id: automation.clone(),
+                        expected_inputs_hash: review["inputsHash"].as_str().unwrap().into(),
+                        enable: true,
+                    },
+                    true,
+                )
+                .await
+                .unwrap();
+            runtime
+                .store()
+                .unwrap()
+                .db
+                .execute(
+                    "UPDATE automation_state SET next_due_at=? WHERE automation_id=?",
+                    params![now() - 1, automation],
+                )
+                .unwrap();
+            runtime.tick().await.unwrap();
+            runtime
+                .store()
+                .unwrap()
+                .db
+                .query_row(
+                    "SELECT id FROM runs WHERE automation_id=?",
+                    [&automation],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap()
+        } else {
+            let id = approved_run(&runtime, &automation, "manual-chat").await;
+            runtime.tick().await.unwrap();
+            id
+        };
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !root.join("started").exists() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let live = runtime.run_for_chat(&id).unwrap();
+        assert_eq!(live.status, "running");
+        assert!(live.conversation_available);
+        let pane = live.result.as_ref().unwrap()["chatPaneId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let store =
+            crate::workspace_store::AgentStateStore::new(profile.path().join("agent-state.json"));
+        assert!(store.pane(&pane).unwrap().is_some());
+        assert_eq!(
+            runtime.capacity.available_permits(),
+            3,
+            "Chat must consume exactly one shared permit"
+        );
+        let persistence = crate::chat_persistence::ChatPersistence::new(profile.path().into());
+        assert!(
+            persistence
+                .read_transcript(&pane)
+                .await
+                .unwrap()
+                .iter()
+                .any(|message| message.role == "user" && message.content == "Complete the task")
+        );
+        chat.send_message(crate::chat_runtime::SendMessageInput {
+            pane_id: pane.clone(),
+            agent_kind: "claude".into(),
+            model: Some("haiku".into()),
+            text: "A follow-up while running".into(),
+            ..Default::default()
+        })
+        .await;
+        std::fs::remove_file(root.join("block")).unwrap();
+        let done = completed(&runtime, &project, &id).await;
+        assert_eq!(done.status, "succeeded", "{:?}", done.error);
+        assert_eq!(done.result.as_ref().unwrap()["chatPaneId"], pane);
+        assert_eq!(runtime.capacity.available_permits(), 4);
+        assert!(root.join("normal-chat-write").is_file());
+        assert_eq!(
+            persistence
+                .read_session_reference(&pane)
+                .await
+                .unwrap()
+                .session_id,
+            "automation-session"
+        );
+        // Closing the grid pane does not destroy the chat; restore its identity.
+        let saved: inferay_core::agent_state::Pane = serde_json::from_slice(
+            &std::fs::read(Path::new(&done.directory).join("inputs/chat-pane.json")).unwrap(),
+        )
+        .unwrap();
+        store
+            .apply_workspace_action(
+                &inferay_core::workspace_action::AgentWorkspaceAction::RemovePane {
+                    pane_id: pane.clone(),
+                },
+                "claude",
+            )
+            .unwrap();
+        store.restore_pane(saved.clone()).unwrap();
+        store.restore_pane(saved).unwrap();
+        assert_eq!(
+            store.read().unwrap().unwrap().selected_pane_id(),
+            Some(pane.as_str())
+        );
+        // A newly constructed chat runtime resumes the persisted provider session.
+        drop(chat);
+        drop(runtime);
+        let reopened = self::runtime(profile.path());
+        let chat = chats(&reopened, profile.path());
+        chat.send_message(crate::chat_runtime::SendMessageInput {
+            pane_id: pane.clone(),
+            agent_kind: "claude".into(),
+            cwd: root.clone(),
+            cwd_provided: true,
+            model: Some("haiku".into()),
+            text: "Continue with my follow-up".into(),
+            ..Default::default()
+        })
+        .await;
+        let transcript = persistence.read_transcript(&pane).await.unwrap();
+        assert!(
+            transcript
+                .iter()
+                .any(|message| message.content == "task complete")
+        );
+        assert!(
+            transcript
+                .iter()
+                .any(|message| message.content == "follow-up complete")
+        );
+        assert!(
+            transcript
+                .iter()
+                .any(|message| message.content == "Continue with my follow-up")
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("invocations.jsonl"))
+                .unwrap()
+                .lines()
+                .count(),
+            3
+        );
+    }
+}
+
+#[tokio::test]
+#[cfg(unix)]
+async fn chat_automation_failure_and_cancellation_keep_the_conversation() {
+    for outcome in ["failure", "cancel", "timeout", "chat-stop"] {
+        let profile = tempfile::tempdir().unwrap();
+        let (project, automation) = chat_fixture(profile.path());
+        let runtime = runtime(profile.path());
+        let chat = chats(&runtime, profile.path());
+        let root = profile.path().join("projects").join(&project);
+        std::fs::write(
+            root.join(if outcome == "failure" {
+                "fail"
+            } else {
+                "block"
+            }),
+            "",
+        )
+        .unwrap();
+        if outcome == "timeout" {
+            let path = root.join("plugins/report/automations/report.json");
+            let mut definition: Value =
+                serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            definition["execution"]["timeoutSeconds"] = json!(1);
+            std::fs::write(path, definition.to_string()).unwrap();
+        }
+        let id = approved_run(&runtime, &automation, "failed-chat").await;
+        runtime.tick().await.unwrap();
+        if matches!(outcome, "cancel" | "chat-stop") {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while !root.join("started").exists() {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .unwrap();
+            if outcome == "chat-stop" {
+                let run = runtime.run_for_chat(&id).unwrap();
+                chat.stop_generation(run.result.as_ref().unwrap()["chatPaneId"].as_str().unwrap())
+                    .await;
+            } else {
+                runtime
+                    .command(ProjectFileCommand::StopRun { id: id.clone() }, true)
+                    .await
+                    .unwrap();
+            }
+        }
+        let done = completed(&runtime, &project, &id).await;
+        assert_eq!(
+            done.status,
+            if matches!(outcome, "cancel" | "chat-stop") {
+                "cancelled"
+            } else {
+                "failed"
+            },
+            "{:?}",
+            done.error
+        );
+        assert!(done.conversation_available);
+        assert!(done.result.as_ref().unwrap()["chatPaneId"].is_string());
+        assert_eq!(runtime.capacity.available_permits(), 4);
+    }
+}
+
+#[tokio::test]
+#[cfg(unix)]
+async fn codex_automation_keeps_normal_tools_and_resumes_the_same_thread() {
+    use std::os::unix::fs::PermissionsExt;
+    let profile = tempfile::tempdir().unwrap();
+    let (project, automation) = chat_fixture(profile.path());
+    let root = profile.path().join("projects").join(&project);
+    let binary = profile.path().join(".local/bin/codex");
+    std::fs::write(&binary, r#"#!/usr/bin/python3
+import json, sys
+from pathlib import Path
+def send(value): print(json.dumps(value), flush=True)
+resumed = False
+for line in sys.stdin:
+    m = json.loads(line)
+    method = m.get('method')
+    if method == 'initialize': send({'id':m['id'],'result':{}})
+    elif method == 'config/read': send({'id':m['id'],'result':{'config':{}}})
+    elif method in ['thread/start','thread/resume']:
+        p = m['params']
+        assert p['sandbox'] == 'danger-full-access', p
+        assert p['config'].get('features', {}).get('shell_tool') != False, p
+        assert '<available-skills>' in p['developerInstructions'], p
+        assert 'Captured skill instructions' in p['developerInstructions'], p
+        assert method == 'thread/resume' or any(t['name'] == 'inferay_projects' for t in p['dynamicTools']), p
+        assert all(t['name'] != 'inferay_exec' for t in p.get('dynamicTools', [])), p
+        resumed = method == 'thread/resume'
+        if resumed: assert p['threadId'] == 'automation-codex'
+        send({'id':m['id'],'result':{'thread':{'id':'automation-codex'}}})
+    elif method == 'mcpServerStatus/list': send({'id':m['id'],'result':{'data':[],'nextCursor':None}})
+    elif method == 'turn/start':
+        assert m['params']['sandboxPolicy']['type'] == 'dangerFullAccess'
+        with Path('codex-turns').open('a') as f: f.write('resume\n' if resumed else 'start\n')
+        send({'id':m['id'],'result':{'turn':{'id':'turn'}}})
+        send({'method':'item/completed','params':{'item':{'type':'agentMessage','text':'continued' if resumed else 'completed'}}})
+        send({'method':'turn/completed','params':{'turn':{'id':'turn','status':'completed'}}})
+"#).unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(
+        AgentCommandResolver::new(profile.path(), profile.path().join("mcp.json"))
+            .resolve_agent_binary(inferay_core::agent_kind::AgentKind::Codex),
+        binary
+    );
+    let path = root.join("plugins/report/automations/report.json");
+    let mut definition: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    definition["execution"]["provider"] = json!("codex");
+    definition["execution"]["model"] = Value::Null;
+    std::fs::write(path, definition.to_string()).unwrap();
+    let runtime = runtime(profile.path());
+    let chat = chats(&runtime, profile.path());
+    let id = approved_run(&runtime, &automation, "codex-chat").await;
+    runtime.tick().await.unwrap();
+    let done = completed(&runtime, &project, &id).await;
+    assert_eq!(done.status, "succeeded", "{:?}", done.error);
+    let pane = done.result.unwrap()["chatPaneId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    chat.send_message(crate::chat_runtime::SendMessageInput {
+        pane_id: pane.clone(),
+        agent_kind: "codex".into(),
+        text: "Continue".into(),
+        ..Default::default()
+    })
+    .await;
+    assert_eq!(
+        std::fs::read_to_string(root.join("codex-turns")).unwrap(),
+        "start\nresume\n"
+    );
+    let persistence = crate::chat_persistence::ChatPersistence::new(profile.path().into());
+    let transcript = persistence.read_transcript(&pane).await.unwrap();
+    assert!(
+        transcript
+            .iter()
+            .any(|message| message.content == "completed")
+    );
+    assert!(
+        transcript
+            .iter()
+            .any(|message| message.content == "continued")
     );
 }

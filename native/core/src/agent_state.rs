@@ -234,6 +234,18 @@ impl Workspace {
         )
     }
 
+    /// Reopen a retained conversation with its original identity and history.
+    pub fn restore_pane(&mut self, pane: Pane) -> Result<(), String> {
+        if self.pane(&pane.id).is_none() {
+            self.group(&self.selected_group_id.clone())?
+                .add(pane.clone());
+        }
+        self.apply_action(
+            &AgentWorkspaceAction::SelectPane { pane_id: pane.id },
+            &pane.agent_kind,
+        )
+    }
+
     fn remove_pane(&mut self, id: &str, default_kind: &str) -> Result<(), String> {
         // Capture the visible tab order before removing its last entry.
         let paths = self.repository_paths();

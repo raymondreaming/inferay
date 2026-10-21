@@ -13,60 +13,6 @@ pub(crate) struct AutomationSandbox {
     git_writes: BTreeSet<std::path::PathBuf>,
 }
 impl AutomationSandbox {
-    #[cfg(target_os = "macos")]
-    pub(crate) fn codex_command(
-        &self,
-        binary: &Path,
-        env: &std::collections::HashMap<std::ffi::OsString, std::ffi::OsString>,
-    ) -> Result<tokio::process::Command, String> {
-        let home = env
-            .get(std::ffi::OsStr::new("CODEX_HOME"))
-            .filter(|value| !value.is_empty())
-            .map(std::path::PathBuf::from)
-            .or_else(|| {
-                env.get(std::ffi::OsStr::new("HOME"))
-                    .map(|home| std::path::PathBuf::from(home).join(".codex"))
-            })
-            .ok_or("Cannot locate Codex home for automation context isolation")?;
-        let home = home
-            .canonicalize()
-            .map_err(|error| format!("Cannot resolve Codex home: {error}"))?;
-        let mut paths = BTreeSet::new();
-        for name in ["AGENTS.md", "AGENTS.override.md"] {
-            let path = home.join(name);
-            match path.canonicalize() {
-                Ok(target) => {
-                    paths.insert(target);
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => {
-                    return Err(format!("Cannot resolve personal instruction path: {error}"));
-                }
-            }
-            paths.insert(path);
-        }
-        let mut profile = String::from("(version 1)\n(allow default)\n");
-        for path in paths {
-            let path = path
-                .to_str()
-                .ok_or("Codex instruction path must be UTF-8")?;
-            profile.push_str(&format!(
-                "(deny file-read-data (literal {}))\n",
-                serde_json::to_string(path).map_err(|error| error.to_string())?
-            ));
-        }
-        let mut command = tokio::process::Command::new("/usr/bin/sandbox-exec");
-        command.args(["-p", &profile, "--"]).arg(binary);
-        Ok(command)
-    }
-    #[cfg(not(target_os = "macos"))]
-    pub(crate) fn codex_command(
-        &self,
-        _binary: &Path,
-        _env: &std::collections::HashMap<std::ffi::OsString, std::ffi::OsString>,
-    ) -> Result<tokio::process::Command, String> {
-        Err("Codex automation context isolation currently requires macOS".into())
-    }
     pub(crate) fn new(may: &BTreeSet<Permission>, repositories: &Value, project: &Path) -> Self {
         let mut roots = BTreeSet::new();
         if may.contains(&Permission::WriteRepositories)
@@ -140,38 +86,6 @@ impl AutomationSandbox {
         }
         self.git_writes = approved;
         Ok(self)
-    }
-    pub(crate) fn claude(&self, arguments: &mut Vec<String>) -> Result<(), String> {
-        let index = arguments
-            .iter()
-            .rposition(|argument| argument == "--settings")
-            .map(|index| index + 1)
-            .ok_or("Missing Claude settings argument")?;
-        let mut settings: Value =
-            serde_json::from_str(arguments.get(index).ok_or("Missing Claude settings")?)
-                .map_err(|error| format!("Invalid Claude settings: {error}"))?;
-        settings["disableAllHooks"] = json!(true);
-        settings["permissions"] = json!({"allow":["mcp__inferay__*"],"deny":["Bash","Edit","Write","Read","Glob","Grep","WebFetch","WebSearch"]});
-        settings["sandbox"] = json!({
-            "enabled":true,"failIfUnavailable":true,"autoAllowBashIfSandboxed":false,
-            "allowUnsandboxedCommands":false,"excludedCommands":[],
-            "filesystem":{"allowWrite":[]},
-            "network":{"allowedDomains":[],"strictAllowlist":true,"allowLocalBinding":false}
-        });
-        arguments[index] = settings.to_string();
-        arguments.retain(|arg| arg != "--dangerously-skip-permissions");
-        arguments.extend([
-            "--restricted".into(),
-            "--permission-mode".into(),
-            "dontAsk".into(),
-            "--permission-prompts".into(),
-            "none".into(),
-            "--setting-sources".into(),
-            "".into(),
-            "--tools".into(),
-            "".into(),
-        ]);
-        Ok(())
     }
     #[cfg(target_os = "macos")]
     pub(crate) fn tool_command(
@@ -393,54 +307,6 @@ impl AutomationSandbox {
             "Local tool sandboxing is not available on this platform; the tool was not started"
                 .into(),
         )
-    }
-
-    pub(crate) fn turn(&self) -> Value {
-        json!({"type":"readOnly","networkAccess":false})
-    }
-    pub(crate) fn thread(&self, params: &mut Value, config: &Value) {
-        params["sandbox"] = json!("read-only");
-        params["experimentalRawEvents"] = json!(true);
-        params["approvalPolicy"] = json!("never");
-        params["config"]["sandbox_mode"] = json!("read-only");
-        if let Some(overrides) = params["config"].as_object_mut() {
-            overrides.retain(|key, _| !key.starts_with("mcp_servers."));
-        }
-        params["config"]["sandbox_workspace_write"] = json!({"writable_roots":[],"network_access":false,"exclude_slash_tmp":true,"exclude_tmpdir_env_var":true});
-        params["config"]["web_search"] = json!("disabled");
-        params["config"]["project_doc_max_bytes"] = json!(0);
-        params["config"]["skills"] =
-            json!({"include_instructions":false,"bundled":{"enabled":false}});
-        params["config"]["cloud"] = json!({"skills":{"enabled":false}});
-        params["config"]["memories"] =
-            json!({"use_memories":false,"generate_memories":false,"dedicated_tools":false});
-        for feature in [
-            "shell_tool",
-            "skill_search",
-            "memory_tool",
-            "memories",
-            "js_repl",
-            "js_repl_tools_only",
-            "apps",
-            "plugins",
-            "hooks",
-            "multi_agent",
-            "multi_agent_v2",
-            "browser_use",
-            "browser_use_external",
-            "computer_use",
-            "image_generation",
-            "request_permissions_tool",
-        ] {
-            params["config"]["features"][feature] = json!(false);
-        }
-        if let Some(servers) = config["mcp_servers"].as_object() {
-            let disabled: serde_json::Map<String, Value> = servers
-                .keys()
-                .map(|name| (name.clone(), json!({"enabled":false})))
-                .collect();
-            params["config"]["mcp_servers"] = json!(disabled);
-        }
     }
 }
 
@@ -1050,86 +916,5 @@ print('verified')
                 assert_eq!(git(&repo, &["rev-parse", "HEAD"]) != head, granted);
             }
         }
-    }
-
-    #[test]
-    fn automation_providers_cannot_bypass_native_execution() {
-        let policy = AutomationSandbox::new(
-            &BTreeSet::from([
-                Permission::WriteRepositories,
-                Permission::WriteProjectFiles,
-                Permission::Commit,
-                Permission::Network,
-            ]),
-            &json!({"repo":"/work/repo"}),
-            Path::new("/project"),
-        );
-        let mut args = vec![
-            "claude".into(),
-            "--dangerously-skip-permissions".into(),
-            "--settings".into(),
-            "{}".into(),
-        ];
-        policy.claude(&mut args).unwrap();
-        assert!(
-            !args
-                .iter()
-                .any(|arg| arg == "--dangerously-skip-permissions")
-        );
-        assert!(args.windows(2).any(|pair| pair == ["--tools", ""]));
-        let settings: Value = serde_json::from_str(
-            &args[args.iter().position(|arg| arg == "--settings").unwrap() + 1],
-        )
-        .unwrap();
-        assert_eq!(
-            settings["permissions"]["deny"],
-            json!([
-                "Bash",
-                "Edit",
-                "Write",
-                "Read",
-                "Glob",
-                "Grep",
-                "WebFetch",
-                "WebSearch"
-            ])
-        );
-        assert_eq!(settings["disableAllHooks"], true);
-        assert_eq!(settings["sandbox"]["allowUnsandboxedCommands"], false);
-        assert_eq!(
-            policy.turn(),
-            json!({"type":"readOnly","networkAccess":false})
-        );
-        let mut thread = json!({"sandbox":"danger-full-access","config":{"mcp_servers.ambient.enabled":true},"approvalPolicy":"on-request"});
-        policy.thread(
-            &mut thread,
-            &json!({"mcp_servers":{"ambient":{"command":"unsafe"}}}),
-        );
-        assert_eq!(thread["sandbox"], "read-only");
-        assert_eq!(thread["approvalPolicy"], "never");
-        assert_eq!(thread["config"]["features"]["shell_tool"], false);
-        for feature in [
-            "js_repl",
-            "apps",
-            "plugins",
-            "hooks",
-            "multi_agent",
-            "multi_agent_v2",
-            "browser_use",
-            "computer_use",
-            "image_generation",
-        ] {
-            assert_eq!(thread["config"]["features"][feature], false);
-        }
-        assert_eq!(thread["config"]["web_search"], "disabled");
-        assert!(
-            thread["config"]
-                .get("mcp_servers.ambient.enabled")
-                .is_none()
-        );
-        assert_eq!(
-            thread["config"]["mcp_servers"]["ambient"],
-            json!({"enabled":false})
-        );
     }
 }
