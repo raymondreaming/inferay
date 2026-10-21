@@ -2,7 +2,7 @@
 
 ## Development
 
-Use **Bun 1.4.1**. The version is pinned in `.bun-version` and `package.json`; dependency installation and development/build entry points check it.
+Use **Bun 1.4.3**. The version is pinned in `.bun-version` and `package.json`; dependency installation and development/build entry points check it.
 
 Install the Rust toolchain, then prepare the renderer bindings:
 

@@ -2,9 +2,9 @@
 	"name": "agent-gui",
 	"type": "module",
 	"private": true,
-	"packageManager": "bun@1.4.1",
+	"packageManager": "bun@1.4.3",
 	"engines": {
-		"bun": "1.4.1"
+		"bun": "1.4.3"
 	},
 	"scripts": {
 		"preinstall": "bun scripts/check-bun-version.mjs",
