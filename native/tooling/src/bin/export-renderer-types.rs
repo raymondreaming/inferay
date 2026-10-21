@@ -90,6 +90,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         inferay_presentation::workbench::WorkspaceView<'static>,
         inferay_presentation::workspace_session::WorkspaceSnapshot,
         inferay_presentation::composer::DecoratedTextSegment,
+        inferay_presentation::composer::LinkMetadata,
         inferay_presentation::composer::CompletionMenuState,
         inferay_presentation::transcript::ChatEventPlan,
         inferay_presentation::chat_view::ChatScrollState,

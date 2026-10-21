@@ -2,6 +2,7 @@ mod agent_tools_mcp;
 use inferay_presentation::appearance::normalize_background_settings;
 mod connections;
 mod files;
+mod link_metadata;
 mod local_video;
 mod mcp_connections;
 mod mcp_icons;
@@ -476,6 +477,13 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
 }
 async fn dispatch_api(state: &ServerState, path: &str, request: Request) -> ApiResult<Response> {
     let result = match (path, request.method().as_str()) {
+        ("/api/link-metadata", "GET") => {
+            let url = query_value(&request, "url").unwrap_or_default();
+            return Ok(json_response(
+                StatusCode::OK,
+                link_metadata::load(&url).await,
+            ));
+        }
         ("/api/projects", "GET") => {
             let project = query_value(&request, "projectId");
             let before = query_value(&request, "before");

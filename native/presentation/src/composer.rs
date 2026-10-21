@@ -213,38 +213,88 @@ fn completion(i: &Value) -> Value {
 pub struct DecoratedTextSegment {
     text: String,
     highlighted: bool,
+    url: Option<String>,
+}
+
+#[derive(Default, serde::Serialize, ts_rs::TS)]
+pub struct LinkMetadata {
+    pub title: Option<String>,
+    pub icon: Option<String>,
 }
 
 pub fn decorated_segments(i: &Value) -> Vec<DecoratedTextSegment> {
     let text = units(&i["text"]);
     let mut segments = Vec::new();
-    let mut push = |start, end, highlighted| {
+    let mut push = |start, end, highlighted, link: bool| {
         if start < end {
             segments.push(DecoratedTextSegment {
                 text: String::from_utf16_lossy(&text[start..end]),
                 highlighted,
+                url: link.then(|| String::from_utf16_lossy(&text[start..end])),
             });
         }
     };
     let mut last_end = 0;
     let mut index = 0;
     while index < text.len() {
-        if index > 0 && !whitespace(text[index - 1]) {
+        if index > 0
+            && !whitespace(text[index - 1])
+            && !"([\"'".encode_utf16().any(|c| c == text[index - 1])
+        {
             index += 1;
             continue;
         }
         let start = index;
-        let highlighted = if text[index] == b'/' as u16
+        let link = text[index..]
+            .iter()
+            .copied()
+            .take(8)
+            .eq("https://".encode_utf16())
+            || text[index..]
+                .iter()
+                .copied()
+                .take(7)
+                .eq("http://".encode_utf16());
+        let highlighted = if link {
+            while index < text.len()
+                && !whitespace(text[index])
+                && !"\"'<>".encode_utf16().any(|c| c == text[index])
+            {
+                index += 1;
+            }
+            while index > start && ".,!?;:".encode_utf16().any(|c| c == text[index - 1]) {
+                index -= 1;
+            }
+            while index > start
+                && text[index - 1] == b')' as u16
+                && text[start..index]
+                    .iter()
+                    .filter(|&&c| c == b')' as u16)
+                    .count()
+                    > text[start..index]
+                        .iter()
+                        .filter(|&&c| c == b'(' as u16)
+                        .count()
+            {
+                index -= 1;
+            }
+            false
+        } else if text[index] == b'/' as u16
             && text.get(index + 1).is_some_and(|c| ascii_letter(*c))
         {
             index += 2;
             while index < text.len() && command_char(text[index]) {
                 index += 1;
             }
-            has_command(
-                &i["commands"],
-                &String::from_utf16_lossy(&text[start + 1..index]),
-            )
+            (index == text.len()
+                || whitespace(text[index])
+                || ",!?;)\"'".encode_utf16().any(|c| c == text[index])
+                || (text[index] == b'.' as u16
+                    && text.get(index + 1).is_none_or(|c| whitespace(*c))))
+                && has_command(
+                    &i["commands"],
+                    &String::from_utf16_lossy(&text[start + 1..index]),
+                )
         } else if text[index] == b'@' as u16 && text.get(index + 1).is_some_and(|c| !whitespace(*c))
         {
             index += 2;
@@ -256,13 +306,13 @@ pub fn decorated_segments(i: &Value) -> Vec<DecoratedTextSegment> {
             index += 1;
             false
         };
-        if highlighted {
-            push(last_end, start, false);
-            push(start, index, true);
+        if highlighted || link {
+            push(last_end, start, false, false);
+            push(start, index, highlighted, link);
             last_end = index;
         }
     }
-    push(last_end, text.len(), false);
+    push(last_end, text.len(), false, false);
     segments
 }
 pub fn ask_answer(i: &Value) -> Value {
@@ -293,16 +343,6 @@ pub fn user_message(i: &Value) -> Value {
     let message = &i["message"];
     if message["role"] != "user" {
         return Value::Null;
-    }
-    let text = string(&message["content"]);
-    if let Some(tail) = text.strip_prefix('/') {
-        let end = tail.bytes().take_while(|c| command_char(*c as u16)).count();
-        if end > 0
-            && (end == tail.len() || tail[end..].chars().next().is_some_and(char::is_whitespace))
-            && has_command(&i["commands"], &tail[..end])
-        {
-            return Value::Null;
-        }
     }
     json!({"content":message["content"],"imagePaths":if message["images"].is_array(){message["images"].clone()}else{json!([])}})
 }
@@ -543,4 +583,58 @@ pub fn menu_step(input: &Value) -> Value {
         );
     }
     state
+}
+
+#[cfg(test)]
+mod decoration_tests {
+    use super::*;
+
+    #[test]
+    fn skills_never_hide_the_message_or_its_trailing_text() {
+        for text in [
+            "/debug",
+            "/debug please inspect this",
+            "Please /debug this issue",
+        ] {
+            let result = user_message(
+                &json!({"message":{"role":"user","content":text},"commands":["debug"]}),
+            );
+            assert_eq!(result["content"], text);
+        }
+    }
+
+    #[test]
+    fn only_complete_known_commands_are_badged() {
+        let text = "/debug check /debug/folder /debug.txt /unknown and /debug, please /debug.";
+        let segments = decorated_segments(&json!({"text":text,"commands":["debug"]}));
+        assert_eq!(
+            segments.iter().map(|s| s.text.as_str()).collect::<String>(),
+            text
+        );
+        assert_eq!(
+            segments
+                .iter()
+                .filter(|s| s.highlighted)
+                .map(|s| s.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["/debug", "/debug", "/debug"]
+        );
+    }
+
+    #[test]
+    fn links_preserve_original_text_and_keep_query_parameters() {
+        let text = "See https://www.figma.com/design/abc?node-id=1-2&t=foo, then /debug it.";
+        let segments = decorated_segments(&json!({"text":text,"commands":["debug"]}));
+        assert_eq!(
+            segments.iter().map(|s| s.text.as_str()).collect::<String>(),
+            text
+        );
+        assert_eq!(
+            segments
+                .iter()
+                .filter_map(|s| s.url.as_deref())
+                .collect::<Vec<_>>(),
+            vec!["https://www.figma.com/design/abc?node-id=1-2&t=foo"]
+        );
+    }
 }

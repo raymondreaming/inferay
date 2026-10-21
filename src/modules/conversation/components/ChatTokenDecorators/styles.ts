@@ -7,6 +7,37 @@ import {
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
+	linkBadge: {
+		display: "inline-flex",
+		alignItems: "center",
+		gap: "6px",
+		maxWidth: "100%",
+		verticalAlign: "middle",
+		paddingBlock: "3px",
+		paddingInline: "8px",
+		borderRadius: radius.pill,
+		backgroundColor: effect.tokenHighlightBackground,
+		color: color.textMain,
+		fontSize: font.size_3,
+		textDecoration: "none",
+		outlineOffset: "2px",
+	},
+	linkTitle: {
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
+		minWidth: 0,
+	},
+	linkHost: {
+		maxWidth: "40%",
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		opacity: 0.6,
+		fontSize: font.size_2,
+		whiteSpace: "nowrap",
+		flexShrink: 0,
+	},
+	linkIcon: { flexShrink: 0, objectFit: "contain", borderRadius: "3px" },
 	transparent: {
 		color: color.transparent,
 	},

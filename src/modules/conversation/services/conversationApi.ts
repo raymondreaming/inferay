@@ -1,4 +1,5 @@
 import type {
+	LinkMetadata,
 	PreparedEditDiff,
 	ProjectFileEntry,
 	ProviderSettings,
@@ -124,4 +125,11 @@ export async function prepareNativeEditDiff(
 		},
 	);
 	return result.prepared;
+}
+
+export function loadLinkMetadata(url: string, signal?: AbortSignal) {
+	return fetchJson<LinkMetadata>(
+		`/api/link-metadata?url=${encodeURIComponent(url)}`,
+		{ signal },
+	);
 }
