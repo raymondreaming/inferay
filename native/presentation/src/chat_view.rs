@@ -138,6 +138,40 @@ impl ChatViewport {
         }
     }
 
+    /// Apply index/height pairs and return the scroll correction above the anchor.
+    /// Tail streaming updates touch only the tail, without rebuilding the history.
+    pub fn update_measurements(&mut self, measurements: &[f64], anchor: usize) -> Option<f64> {
+        let count = self.offsets.len().saturating_sub(1);
+        let mut changes = std::collections::BTreeMap::new();
+        for pair in measurements.chunks_exact(2) {
+            let (index, height) = (pair[0], pair[1]);
+            if index.is_finite()
+                && index >= 0.
+                && index.fract() == 0.
+                && index < count as f64
+                && height.is_finite()
+                && height > 0.
+            {
+                changes.insert(index as usize, height);
+            }
+        }
+        changes.retain(|index, height| {
+            *height -= self.offsets[index + 1] - self.offsets[*index];
+            height.abs() >= 0.5
+        });
+        let start = *changes.first_key_value()?.0 + 1;
+        let adjustment = changes.range(..anchor).map(|(_, delta)| delta).sum();
+        let mut changes = changes.into_iter().peekable();
+        let mut delta = 0.;
+        for (index, offset) in self.offsets.iter_mut().enumerate().skip(start) {
+            if changes.peek().is_some_and(|(row, _)| *row + 1 == index) {
+                delta += changes.next().unwrap().1;
+            }
+            *offset += delta;
+        }
+        Some(adjustment)
+    }
+
     pub fn offset(&self, index: usize) -> f64 {
         self.offsets.get(index).copied().unwrap_or(0.)
     }
@@ -305,6 +339,65 @@ mod tests {
         assert_eq!(state["snapshot"]["atBottom"], false);
         assert_eq!(state["cancelRestore"], true);
         assert_eq!(state["towardBottom"], false);
+    }
+
+    #[test]
+    fn incremental_measurements_preserve_anchor_and_match_full_layout() {
+        let mut heights = vec![160.; 200];
+        let mut viewport = ChatViewport::new();
+        viewport.measure(&heights);
+        // Unordered updates, repeated indices and invalid measurements.
+        assert_eq!(
+            viewport.update_measurements(
+                &[
+                    190.,
+                    500.,
+                    2.,
+                    100.,
+                    2.,
+                    120.,
+                    0.,
+                    200.,
+                    3.,
+                    f64::NAN,
+                    -1.,
+                    300.,
+                    4.5,
+                    200.,
+                    200.,
+                    20.,
+                    8.,
+                    0.,
+                ],
+                10
+            ),
+            Some(0.)
+        );
+        heights[0] = 200.;
+        heights[2] = 120.;
+        heights[190] = 500.;
+        let mut expected = ChatViewport::new();
+        expected.measure(&heights);
+        assert_eq!(viewport.offsets, expected.offsets);
+        assert_eq!(
+            viewport.update_measurements(&[2., 120.4, 199., 160.], 10),
+            None
+        );
+        assert_eq!(
+            viewport.update_measurements(&[2., 90., 199., 200.], 10),
+            Some(-30.)
+        );
+        heights[2] = 90.;
+        heights[199] = 200.;
+        expected.measure(&heights);
+        assert_eq!(viewport.offsets, expected.offsets);
+        for scroll in [None, Some(0.), Some(1000.), Some(25000.)] {
+            assert_eq!(viewport.select(scroll, 700.), expected.select(scroll, 700.));
+        }
+        viewport.measure(&heights[..2]);
+        assert_eq!(viewport.update_measurements(&[190., 300.], 0), None);
+        viewport.measure(&[]);
+        assert_eq!(viewport.update_measurements(&[0., 300.], 0), None);
     }
 
     #[test]

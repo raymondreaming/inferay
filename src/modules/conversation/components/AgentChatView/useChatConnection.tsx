@@ -183,7 +183,7 @@ export function useChatConnection(
 		const current = messages();
 		const direct = current === publishedNative;
 		setMessages(
-			direct ? native : mergeNativeTranscript(current, native),
+			direct ? native : mergeNativeTranscript(current, native, replica!),
 			direct ? { start: changedStart, end: changedEnd } : undefined,
 		);
 		publishedNative = native;
@@ -222,7 +222,7 @@ export function useChatConnection(
 				paneId: JSON.parse(transcriptIdentity)[2] as string,
 				replica: replica,
 				messages: native
-					? mergeNativeTranscript(messages(), native)
+					? mergeNativeTranscript(messages(), native, replica)
 					: messages(),
 				nativeTranscript: native,
 				checkpoints: checkpoints(),
@@ -293,9 +293,13 @@ export function useChatConnection(
 					changedEnd,
 					replacement ? update.start + inserted.length : Infinity,
 				);
-				const pending = nativeTranscriptShared ? before.slice() : before;
-				pending.splice(update.start, update.deleteCount, ...inserted);
-				nativeTranscript = pending;
+				if (update.kind === "sync") {
+					nativeTranscript = inserted;
+				} else {
+					const pending = nativeTranscriptShared ? before.slice() : before;
+					pending.splice(update.start, update.deleteCount, ...inserted);
+					nativeTranscript = pending;
+				}
 				nativeTranscriptShared = false;
 				if (update.kind === "sync") {
 					flushNativeTranscript();
@@ -324,22 +328,14 @@ export function useChatConnection(
 			if (plan.checkpoints) setCheckpoints(msg.checkpoints!);
 			if (plan.finish) {
 				flushNativeTranscript();
-				setMessages((current) => {
-					const updated = current.map((message) =>
-						message.isStreaming
-							? {
-									...message,
-									isStreaming: false,
-								}
-							: message,
-					);
-					const ids = new Set(updated.map((message) => message.id));
+				// The native finalization patch already clears streaming flags.
+				if (expandedTools().size) {
+					const ids = new Set(messages().map((message) => message.id));
 					setExpandedTools((previous) => {
 						const next = new Set([...previous].filter((id) => ids.has(id)));
 						return next.size === previous.size ? previous : next;
 					});
-					return updated;
-				});
+				}
 			}
 			if (plan.stageSteer) _optionsValue2.stageSteeringMessage?.(msg.message!);
 			if (plan.resolveSteer)
@@ -459,34 +455,41 @@ export function appendSystemMessage(
 function mergeNativeTranscript(
 	local: ChatMessage[],
 	server: ChatMessage[],
+	replica: ChatReplica,
 ): ChatMessage[] {
-	// Native order is already authoritative unless browser-only entries must survive.
-	// Avoid serializing the entire history across the WASM boundary on each token batch.
-	if (
-		!local.some(
-			(message) =>
-				(message.optimistic && message.role === "user") ||
-				message.localOnly ||
-				message.role === "btw",
-		)
-	)
-		return server;
-	const describe = (message: ChatMessage) => ({
-		id: message.id,
-		role: message.role,
-		optimistic: message.optimistic,
-		localOnly: message.localOnly,
-		content: message.localOnly ? message.content : undefined,
-	});
+	const browser = (message: ChatMessage) =>
+		(message.optimistic && message.role === "user") ||
+		message.localOnly ||
+		message.role === "btw";
+	if (!local.some(browser)) return server;
 	const noticeRoles = new Set(
 		local.filter((message) => message.localOnly).map((message) => message.role),
 	);
-	const order = rustProject<Array<[boolean, number]>>("mergeTranscriptOrder", {
-		local: local.map(describe),
-		server: server.map((message) => ({
-			...describe(message),
-			content: noticeRoles.has(message.role) ? message.content : undefined,
-		})),
-	});
-	return order.map(([browser, index]) => (browser ? local : server)[index]!);
+	const insertions: Array<[number, number]> = JSON.parse(
+		replica.merge(
+			JSON.stringify(
+				local.map((message) =>
+					browser(message)
+						? {
+								id: message.id,
+								role: message.role,
+								optimistic: message.optimistic,
+								localOnly: message.localOnly,
+								content: message.localOnly ? message.content : undefined,
+							}
+						: message.id,
+				),
+			),
+			JSON.stringify(
+				server
+					.filter((message) => noticeRoles.has(message.role))
+					.map((message) => [message.role, message.content]),
+			),
+		),
+	);
+	if (!insertions.length) return server;
+	const merged = server.slice();
+	for (const [position, index] of insertions)
+		merged.splice(position, 0, local[index]!);
+	return merged;
 }

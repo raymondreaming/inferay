@@ -27,6 +27,7 @@ export function AgentChatMessages(
 	return (
 		<div {...stylex.attrs(styles.messageRegion)}>
 			<div
+				data-chat-scroll-area
 				ref={[
 					(node) => {
 						element = node;

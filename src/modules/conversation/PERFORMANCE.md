@@ -29,9 +29,15 @@ updates only the Solid computations that need it.
   Core grouping carries native row indices instead of searching prior history
   for each edit. Rebuild those indices after trimming. Published row metadata is
   complete; internal indices and redundant group-ID strings stay off the wire.
-- `ChatViewport` owns the prefix offsets and retained row range in Rust. Send
-  measured heights as a numeric buffer only when rows or measurements change;
-  scroll updates pass position and viewport height only. Do not serialize the
+- `ChatReplica` merges browser-only rows against its admitted native IDs. Send
+  IDs for ordinary local rows and content only for notice deduplication; return
+  sparse insertion positions, preserving native message references. Finalization
+  belongs to the native transcript, including clearing streaming flags.
+- `ChatViewport` owns prefix offsets, measurement thresholds, anchor compensation
+  and the retained row range in Rust. Rebuild the numeric height buffer only when
+  row membership or width changes. Resize batches send index/height pairs and
+  update offsets from the first changed row; scroll updates pass position and
+  viewport height only. Do not serialize the
   entire offset table per scroll event. Dispose the model with its chat list.
   The offset buffer releases excess capacity when history shrinks substantially.
 - Virtualize message rendering and preserve rows by message ID. Do not map every stored

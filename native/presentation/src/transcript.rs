@@ -88,6 +88,18 @@ impl ChatReplica {
     pub fn reconnect(&mut self) {
         self.reconnecting = true;
     }
+    /// Resolve browser-only insertions against the already admitted native IDs.
+    /// Ordinary local rows carry only an ID; only notices carry content.
+    pub fn merge(&self, local: &str, notices: &str) -> Result<String, JsValue> {
+        let local: Vec<Value> = serde_json::from_str(local)
+            .map_err(|e| JsValue::from_str(&format!("Invalid local transcript: {e}")))?;
+        let notices: Vec<Value> = serde_json::from_str(notices)
+            .map_err(|e| JsValue::from_str(&format!("Invalid native notices: {e}")))?;
+        Ok(crate::wasm_json::stringify(
+            &self.merge_insertions(&local, &notices),
+            "transcript insertions",
+        ))
+    }
     pub fn receive(&mut self, message: &str, pane: &str, current: &str) -> Result<String, JsValue> {
         let message = serde_json::from_str(message)
             .map_err(|e: serde_json::Error| JsValue::from_str(&e.to_string()))?;
@@ -275,48 +287,59 @@ impl ChatReplica {
     }
 }
 
-/// Return references by index; never round-trip transcript content to merge a
-/// browser interaction notice or unacknowledged send with native messages.
-pub fn merge_order(i: &Value) -> Value {
-    let local = array(&i["local"]);
-    let server = array(&i["server"]);
-    let ids: std::collections::HashSet<_> = server.iter().map(|m| string(&m["id"])).collect();
-    let mut order: Vec<(bool, usize)> = server
-        .iter()
-        .enumerate()
-        .map(|(index, _)| (false, index))
-        .collect();
-    for (index, message) in local.iter().enumerate() {
-        let browser = (message["optimistic"] == true && message["role"] == "user")
-            || message["localOnly"] == true
-            || message["role"] == "btw";
-        if !browser || ids.contains(string(&message["id"])) {
-            continue;
+impl ChatReplica {
+    fn merge_insertions(&self, local: &[Value], notices: &[Value]) -> Vec<(usize, usize)> {
+        let mut positions = std::collections::HashMap::with_capacity(self.messages.len());
+        for (index, id) in self.messages.iter().enumerate() {
+            positions.entry(id.as_str()).or_insert((index, true));
         }
-        if message["localOnly"] == true
-            && server
-                .iter()
-                .any(|m| m["role"] == message["role"] && m["content"] == message["content"])
-        {
-            continue;
-        }
-        let insertion = (0..index)
-            .rev()
-            .find_map(|anchor| {
-                order.iter().position(|(browser, index)| {
-                    let candidate = if *browser {
-                        &local[*index]
-                    } else {
-                        &server[*index]
-                    };
-                    candidate["id"] == local[anchor]["id"]
+        let mut insertions: Vec<(usize, usize)> = Vec::new();
+        for (index, message) in local.iter().enumerate() {
+            let browser = (message["optimistic"] == true && message["role"] == "user")
+                || message["localOnly"] == true
+                || message["role"] == "btw";
+            if !browser
+                || positions
+                    .get(string(&message["id"]))
+                    .is_some_and(|(_, native)| *native)
+            {
+                continue;
+            }
+            if message["localOnly"] == true
+                && notices
+                    .iter()
+                    .any(|m| m[0] == message["role"] && m[1] == message["content"])
+            {
+                continue;
+            }
+            let insertion = (0..index)
+                .rev()
+                .find_map(|anchor| {
+                    let message = &local[anchor];
+                    let id = message.as_str().unwrap_or_else(|| string(&message["id"]));
+                    positions.get(id).map(|(position, _)| position + 1)
                 })
-            })
-            .map(|p| p + 1)
-            .unwrap_or(order.len());
-        order.insert(insertion, (true, index));
+                .unwrap_or(self.messages.len() + insertions.len());
+            for (position, _) in positions.values_mut() {
+                if *position >= insertion {
+                    *position += 1;
+                }
+            }
+            for (position, _) in &mut insertions {
+                if *position >= insertion {
+                    *position += 1;
+                }
+            }
+            positions
+                .entry(string(&message["id"]))
+                .and_modify(|(position, _)| *position = (*position).min(insertion))
+                .or_insert((insertion, false));
+            insertions.push((insertion, index));
+        }
+        // Ascending final positions can be spliced directly into the native array.
+        insertions.sort_unstable_by_key(|(position, _)| *position);
+        insertions
     }
-    json!(order)
 }
 
 /// Local submission starts activity immediately; provider acknowledgement keeps
@@ -352,6 +375,51 @@ pub fn run_status(input: &serde_json::Value) -> serde_json::Value {
 mod reconnect_tests {
     use super::*;
     use TranscriptAdmission::*;
+
+    #[test]
+    fn local_insertions_keep_anchors_and_deduplicate_native_acknowledgements() {
+        let replica = ChatReplica {
+            messages: vec!["a".into(), "b".into(), "ack".into()],
+            ..Default::default()
+        };
+        let local = json!([
+            "a",
+            {"id":"notice","role":"system","content":"local","localOnly":true},
+            "removed",
+            {"id":"pending","role":"user","optimistic":true},
+            "b",
+            {"id":"ack","role":"user","optimistic":true},
+            {"id":"duplicate","role":"system","content":"saved","localOnly":true},
+            {"id":"aside","role":"btw"}
+        ]);
+        assert_eq!(
+            replica.merge_insertions(local.as_array().unwrap(), &[json!(["system", "saved"])]),
+            [(1, 1), (2, 3), (5, 7)]
+        );
+        let reversed = ChatReplica {
+            messages: vec!["b".into(), "a".into()],
+            ..Default::default()
+        };
+        let duplicates = json!(["a", {"id":"same","role":"btw"}, "b", {"id":"same","role":"btw"}, {"id":"last","role":"btw"}]);
+        assert_eq!(
+            reversed.merge_insertions(duplicates.as_array().unwrap(), &[]),
+            [(1, 3), (2, 4), (4, 1)]
+        );
+        // Replaced history has no surviving anchor: keep browser entries at the end.
+        let replacement = ChatReplica {
+            messages: vec!["new".into()],
+            ..Default::default()
+        };
+        assert_eq!(
+            replacement.merge_insertions(local.as_array().unwrap(), &[json!(["system", "saved"])]),
+            [(1, 1), (2, 3), (3, 5), (4, 7)]
+        );
+        assert!(
+            replica
+                .merge_insertions(&[json!({"id":"ack","role":"user","optimistic":true})], &[])
+                .is_empty()
+        );
+    }
 
     #[test]
     fn event_plan_rejects_wrong_panes_and_stale_sync_side_effects() {

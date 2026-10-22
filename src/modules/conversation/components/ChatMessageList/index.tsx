@@ -45,19 +45,28 @@ export const ChatMessageList = function ChatMessageList(_props: {
 	const retainedViewport = untrack(() => chatViewportState(_props.paneId));
 	const measuredHeights = retainedViewport.heights;
 	const [measurementVersion, setMeasurementVersion] = createSignal(0);
+	const [widthVersion, setWidthVersion] = createSignal(0);
 	const [scrollOffset, setScrollOffset] = createSignal<number | null>(null);
 	const virtual = createMemo(() => renderRows().length > 60);
 	const viewport = new ChatViewport();
 	onSettled(() => () => viewport.free());
-	const layout = createMemo(
+	const resetLayout = createMemo(
 		() => {
-			measurementVersion();
+			widthVersion();
 			viewport.measure(
 				Float64Array.from(
 					renderRows(),
 					(row) => measuredHeights.get(row.key) ?? 160,
 				),
 			);
+			return viewport;
+		},
+		{ equals: false },
+	);
+	const layout = createMemo(
+		() => {
+			resetLayout();
+			measurementVersion();
 			return viewport;
 		},
 		{ equals: false },
@@ -120,7 +129,7 @@ export const ChatMessageList = function ChatMessageList(_props: {
 							if (key)
 								measuredHeights.set(key, row.getBoundingClientRect().height);
 						}
-						setMeasurementVersion((version) => version + 1);
+						setWidthVersion((version) => version + 1);
 					}
 					retainedViewport.width = width;
 				}
@@ -169,25 +178,32 @@ export const ChatMessageList = function ChatMessageList(_props: {
 				liveOffset ?? undefined,
 				viewportHeight(),
 			);
-			let changed = false;
-			let adjustment = 0;
+			const measurements: number[] = [];
+			const keys: Array<[string, number]> = [];
 			for (const [row, height] of pendingMeasurements) {
 				const key = row.dataset.chatRowKey;
-				if (!row.isConnected || !key || height <= 0) continue;
-				const previous = measuredHeights.get(key) ?? 160;
-				if (Math.abs(previous - height) < 0.5) continue;
-				measuredHeights.set(key, height);
-				if (Number(row.dataset.chatRowIndex) < firstVisible)
-					adjustment += height - previous;
-				changed = true;
+				if (!row.isConnected || !key) continue;
+				const index = Number(row.dataset.chatRowIndex);
+				measurements.push(index, height);
+				keys.push([key, index]);
 			}
 			pendingMeasurements.clear();
-			if (changed)
+			const adjustment = viewport.update_measurements(
+				Float64Array.from(measurements),
+				firstVisible,
+			);
+			if (adjustment !== undefined) {
+				for (const [key, index] of keys)
+					measuredHeights.set(
+						key,
+						viewport.offset(index + 1) - viewport.offset(index),
+					);
 				flush(() => {
 					if (virtual() && !_props.stickToBottom && liveOffset !== null)
 						setScrollOffset(liveOffset + adjustment);
 					setMeasurementVersion((version) => version + 1);
 				});
+			}
 			if (element) {
 				if (_props.stickToBottom) pinToBottom();
 				else if (virtual() && adjustment)

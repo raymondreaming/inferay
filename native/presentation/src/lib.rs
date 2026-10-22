@@ -92,7 +92,6 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
         "sidebarResize" => json!(appearance::sidebar_resize(input)),
         "backgroundModel" => json!(appearance::background_model(input)),
         "chatList" => json!(chat_view::list(input)?),
-        "mergeTranscriptOrder" => transcript::merge_order(input),
         "emptyPanels" => json!(panels::PanelSession::read(&Value::Null)),
         "panelPresentation" => json!(panels::PanelSession::read(input).presentation()),
         "panelVisibility" => json!({
