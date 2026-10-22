@@ -2014,6 +2014,7 @@ const SYNCED_STORAGE_PREFIXES: &[&str] = &[
 const CHAT_NON_MESSAGE_STORAGE_PREFIXES: &[&str] = &[
     "inferay-chat-session-",
     "inferay-chat-input-",
+    "inferay-chat-scroll-",
     "inferay-checkpoints-",
     "inferay-chat-model-",
     "inferay-chat-reasoning-",
@@ -3614,6 +3615,7 @@ mod client_storage_http_tests {
             "inferay-vscode-appearance-version": "1",
             "inferay-app-font": "vscode",
             "inferay-chat-input-pane": "Unsaved draft ⡀",
+            "inferay-chat-scroll-pane": "{\"following\":false,\"top\":420}",
             "inferay-chat-summary-pane": "Saved title",
             "inferay-chat-model-pane": null,
             "native-workspace-dock:project": "{\"panes\":[]}",
@@ -3665,6 +3667,7 @@ mod client_storage_http_tests {
             let queried: Value = serde_json::from_slice(&queried).unwrap();
             assert_eq!(queried["entries"][key], saved);
         }
+        assert!(should_sync_client_storage_key("inferay-chat-scroll-pane"));
         let bootstrap: Value = serde_json::from_slice(&response).unwrap();
         assert_eq!(bootstrap["entries"], json!(expected));
         assert_eq!(

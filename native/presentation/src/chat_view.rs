@@ -249,8 +249,7 @@ impl ChatViewport {
 #[derive(Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatScrollSnapshot {
-    at_bottom: bool,
-    from_bottom: f64,
+    following: bool,
     top: f64,
 }
 
@@ -258,7 +257,6 @@ pub struct ChatScrollSnapshot {
 #[serde(rename_all = "camelCase")]
 pub struct ChatScrollState {
     snapshot: ChatScrollSnapshot,
-    toward_bottom: bool,
     cancel_restore: bool,
 }
 
@@ -269,7 +267,7 @@ pub fn scroll_state(input: &serde_json::Value) -> serde_json::Value {
     let mut state = input["state"].clone();
     state["cancelRestore"] = json!(false);
     match string(&input["action"]) {
-        "follow" => state["snapshot"]["atBottom"] = json!(input["value"] != false),
+        "follow" => state["snapshot"]["following"] = json!(true),
         "intent" => {
             let delta = match string(&input["key"]) {
                 "ArrowUp" | "PageUp" | "Home" => -1.,
@@ -278,24 +276,16 @@ pub fn scroll_state(input: &serde_json::Value) -> serde_json::Value {
                 _ => number(&input["delta"]),
             };
             if delta < 0. {
-                state["towardBottom"] = json!(false);
-                state["snapshot"]["atBottom"] = json!(false);
-                state["cancelRestore"] = json!(true);
-            } else if delta > 0. {
-                state["towardBottom"] = json!(true);
+                state["snapshot"]["following"] = json!(false);
             }
+            state["cancelRestore"] = json!(delta != 0.);
         }
-        action @ ("scroll" | "capture") if number(&input["viewport"]) > 0. => {
-            let top = number(&input["top"]);
-            let from_bottom = (number(&input["height"]) - top - number(&input["viewport"])).max(0.);
-            if action == "scroll" {
-                if from_bottom <= 1. && flag(&state["towardBottom"]) {
-                    state["snapshot"]["atBottom"] = json!(true);
-                } else if top - number(&state["snapshot"]["top"]) < -1. {
-                    state["snapshot"]["atBottom"] = json!(false);
-                }
+        "scroll" if number(&input["viewport"]) > 0. => {
+            let top = number(&input["top"]).max(0.);
+            if flag(&input["pointer"]) && top < number(&state["snapshot"]["top"]) - 1. {
+                state["snapshot"]["following"] = json!(false);
+                state["cancelRestore"] = json!(true);
             }
-            state["snapshot"]["fromBottom"] = json!(from_bottom);
             state["snapshot"]["top"] = json!(top);
         }
         _ => {}
@@ -306,7 +296,7 @@ pub fn scroll_state(input: &serde_json::Value) -> serde_json::Value {
 pub fn restore_scroll(input: &serde_json::Value) -> f64 {
     use crate::{flag, number};
     let max = (number(&input["height"]) - number(&input["viewport"])).max(0.);
-    if flag(&input["snapshot"]["atBottom"]) {
+    if flag(&input["snapshot"]["following"]) {
         max
     } else {
         number(&input["snapshot"]["top"]).min(max)
@@ -319,26 +309,42 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn scroll_intent_distinguishes_content_growth_from_user_navigation() {
-        let mut state = json!({"snapshot":{"atBottom":true,"fromBottom":0,"top":100},"towardBottom":false,"cancelRestore":false});
-        let apply = |state: &serde_json::Value, action, top, height| {
+    fn following_changes_only_with_explicit_user_intent() {
+        let mut state = json!({"snapshot":{"following":true,"top":100},"cancelRestore":false});
+        let scroll = |state: &serde_json::Value, top, pointer, viewport| {
             scroll_state(
-                &json!({"state":state,"action":action,"top":top,"height":height,"viewport":100}),
+                &json!({"state":state,"action":"scroll","top":top,"pointer":pointer,"viewport":viewport}),
             )
         };
-        state = apply(&state, "scroll", 100, 400);
-        assert_eq!(state["snapshot"]["atBottom"], true);
-        state = apply(&state, "scroll", 50, 400);
-        assert_eq!(state["snapshot"]["atBottom"], false);
-        state = apply(&state, "scroll", 300, 400);
-        assert_eq!(state["snapshot"]["atBottom"], false);
-        state = scroll_state(&json!({"state":state,"action":"intent","key":"End"}));
-        state = apply(&state, "scroll", 300, 400);
-        assert_eq!(state["snapshot"]["atBottom"], true);
-        state = scroll_state(&json!({"state":state,"action":"intent","key":" ","shift":true}));
-        assert_eq!(state["snapshot"]["atBottom"], false);
+        // Layout shrink and delayed programmatic scrolls cannot turn follow off.
+        state = scroll(&state, 0, false, 100);
+        assert_eq!(state["snapshot"]["following"], true);
+        state = scroll_state(&json!({"state":state,"action":"intent","delta":-20}));
+        assert_eq!(state["snapshot"]["following"], false);
         assert_eq!(state["cancelRestore"], true);
-        assert_eq!(state["towardBottom"], false);
+        state = scroll(&state, 40, false, 100);
+        // Hidden elements cannot replace a saved position with zero.
+        state = scroll(&state, 0, false, 0);
+        assert_eq!(state["snapshot"]["top"], 40.);
+        assert_eq!(
+            restore_scroll(&json!({"snapshot":state["snapshot"],"height":1000,"viewport":100})),
+            40.
+        );
+        for key in ["ArrowDown", "PageDown", "End", " "] {
+            state = scroll_state(&json!({"state":state,"action":"intent","key":key}));
+            state = scroll(&state, 900, false, 100);
+            assert_eq!(state["snapshot"]["following"], false);
+        }
+        state = scroll_state(&json!({"state":state,"action":"follow"}));
+        assert_eq!(state["snapshot"]["following"], true);
+        assert_eq!(
+            restore_scroll(&json!({"snapshot":state["snapshot"],"height":2000,"viewport":100})),
+            1900.
+        );
+        // Dragging a scrollbar upward is user intent too.
+        state = scroll(&state, 500, true, 100);
+        assert_eq!(state["snapshot"]["following"], false);
+        assert_eq!(state["cancelRestore"], true);
     }
 
     #[test]

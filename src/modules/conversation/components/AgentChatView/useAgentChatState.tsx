@@ -73,10 +73,24 @@ export function useAgentChatState(props: AgentChatViewProps) {
 		onChange: setInput,
 	};
 	const speech = useSpeechToText(() => speechOptions);
+	const composer = useAgentChatComposerState(() => props.paneId, visible);
+	const connectionOptions = merge(props, {
+		get agentKind() {
+			return agentKind();
+		},
+		get visible() {
+			return visible();
+		},
+		onExit: () => props.onClose?.(props.paneId),
+		replaceQueuedMessages: composer.replaceQueuedMessages,
+		resolveSteeringMessage: composer.resolveSteeringMessage,
+		stageSteeringMessage: composer.stageSteeringMessage,
+	});
+	const connection = useChatConnection(() => connectionOptions);
 	const viewport = useChatViewport(
-		() => props.isSelected,
 		visible,
 		() => props.paneId,
+		() => connection.chatUiState.transcriptReady,
 	);
 	const [highlightActive, setHighlightActive] = createSignal(false);
 	let highlightFrame = 0;
@@ -103,7 +117,6 @@ export function useAgentChatState(props: AgentChatViewProps) {
 	);
 	onSettled(() => cancelHighlight);
 	const highlight = { active: highlightActive, highlight: highlightComposer };
-	const composer = useAgentChatComposerState(() => props.paneId, visible);
 	const menuOptions = merge(props, {
 		get agentKind() {
 			return agentKind();
@@ -118,19 +131,7 @@ export function useAgentChatState(props: AgentChatViewProps) {
 		textareaRef: viewport.textareaRef,
 	});
 	const menus = useAgentChatMenus(() => menuOptions);
-	const connectionOptions = merge(props, {
-		get agentKind() {
-			return agentKind();
-		},
-		get visible() {
-			return visible();
-		},
-		onExit: () => props.onClose?.(props.paneId),
-		replaceQueuedMessages: composer.replaceQueuedMessages,
-		resolveSteeringMessage: composer.resolveSteeringMessage,
-		stageSteeringMessage: composer.stageSteeringMessage,
-	});
-	const connection = useChatConnection(() => connectionOptions);
+
 	const actionOptions = merge(props, composer, menus, {
 		get agentKind() {
 			return agentKind();

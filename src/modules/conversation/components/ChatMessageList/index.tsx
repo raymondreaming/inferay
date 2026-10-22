@@ -46,7 +46,9 @@ export const ChatMessageList = function ChatMessageList(_props: {
 	const measuredHeights = retainedViewport.heights;
 	const [measurementVersion, setMeasurementVersion] = createSignal(0);
 	const [widthVersion, setWidthVersion] = createSignal(0);
-	const [scrollOffset, setScrollOffset] = createSignal<number | null>(null);
+	const [scrollOffset, setScrollOffset] = createSignal<number | null>(
+		retainedViewport.snapshot.following ? null : retainedViewport.snapshot.top,
+	);
 	const virtual = createMemo(() => renderRows().length > 60);
 	const viewport = new ChatViewport();
 	onSettled(() => () => viewport.free());
@@ -278,19 +280,9 @@ export const ChatMessageList = function ChatMessageList(_props: {
 	bindImperativeRef(
 		() => _props.virtualizerControlsRef,
 		() => ({
-			scrollToEnd: (behavior = "smooth") => {
+			scrollToEnd: (behavior = "auto") => {
 				if (renderRows().length === 0) return;
 				pinToBottom(behavior);
-			},
-			isAtEnd: () => {
-				const el = _props.scrollElementRef.current;
-				if (!el) return true;
-				return el.scrollHeight - el.scrollTop - el.clientHeight <= 80;
-			},
-			getDistanceFromEnd: () => {
-				const el = _props.scrollElementRef.current;
-				if (!el) return 0;
-				return Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight);
 			},
 		}),
 	);

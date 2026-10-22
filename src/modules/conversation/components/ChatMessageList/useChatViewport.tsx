@@ -1,6 +1,11 @@
 import type { ChatScrollSnapshot, ChatScrollState } from "@contracts";
-import { listenWindowEvent } from "@shared/lib/dom.tsx";
-import { ChatViewportRetention, project } from "@shared/lib/native.tsx";
+import {
+	CHAT_SCROLL_KEY_PREFIX,
+	ChatViewportRetention,
+	project,
+	readStoredJson,
+	writeStoredJson,
+} from "@shared/lib/native.tsx";
 import {
 	type Accessor,
 	createEffect,
@@ -10,8 +15,6 @@ import {
 } from "solid-js";
 export type ChatVirtualizerControls = {
 	scrollToEnd: (behavior?: ScrollBehavior) => void;
-	isAtEnd: () => boolean;
-	getDistanceFromEnd: () => number;
 };
 type ChatViewportState = {
 	snapshot: ChatScrollSnapshot;
@@ -22,7 +25,13 @@ const viewportRetention = new ChatViewportRetention(16);
 const retainedViewports = new Map<string, ChatViewportState>();
 export const chatViewportState = (paneId: string) => {
 	const state = retainedViewports.get(paneId) ?? {
-		snapshot: { atBottom: true, fromBottom: 0, top: 0 },
+		snapshot: readStoredJson<ChatScrollSnapshot>(
+			CHAT_SCROLL_KEY_PREFIX + paneId,
+			{
+				following: true,
+				top: 0,
+			},
+		),
 		heights: new Map<string, number>(),
 		width: null,
 	};
@@ -33,11 +42,12 @@ export const chatViewportState = (paneId: string) => {
 };
 
 export function useChatViewport(
-	_isSelected: Accessor<boolean | undefined> = () => undefined,
 	_isVisible: Accessor<boolean> = () => true,
 	_paneId: Accessor<string> = () => "",
+	_transcriptReady: Accessor<boolean> = () => true,
 ) {
 	const retainedViewport = untrack(() => chatViewportState(_paneId()));
+	const storageKey = CHAT_SCROLL_KEY_PREFIX + untrack(_paneId);
 	const [scrollElement, setScrollElement] = createSignal<HTMLDivElement | null>(
 		null,
 	);
@@ -65,35 +75,41 @@ export function useChatViewport(
 		current: HTMLDivElement | null;
 	};
 	const restoreFrameRef = { current: 0 };
+	let restoring = false;
+	let pointerScrolling = false;
 	// Event handlers use native intent immediately, before Solid publishes it.
 	let state: ChatScrollState = {
 		snapshot: retainedViewport.snapshot,
-		towardBottom: false,
 		cancelRestore: false,
 	};
-	const [isAtBottom, publishFollowing] = createSignal(state.snapshot.atBottom);
+	const [following, publishFollowing] = createSignal(state.snapshot.following);
 	const update = (action: string, input: Record<string, unknown> = {}) => {
+		const wasFollowing = state.snapshot.following;
 		state = project<ChatScrollState>("chatScrollState", {
 			state,
 			action,
 			...input,
 		});
 		retainedViewport.snapshot = state.snapshot;
-		publishFollowing(state.snapshot.atBottom);
+		publishFollowing(state.snapshot.following);
 		if (state.cancelRestore) cancelScrollRestore();
+		if (state.snapshot.following !== wasFollowing)
+			writeStoredJson(storageKey, state.snapshot);
 	};
-	const capture = (element: HTMLDivElement, action = "capture") =>
-		update(action, {
-			top: element.scrollTop,
-			height: element.scrollHeight,
-			viewport: element.clientHeight,
-		});
 	const handleScroll = () => {
-		if (scrollRef.current) capture(scrollRef.current, "scroll");
+		const element = scrollRef.current;
+		if (!_isVisible() || !_transcriptReady() || restoring || !element) return;
+		update("scroll", {
+			top: element.scrollTop,
+			viewport: element.clientHeight,
+			pointer: pointerScrolling,
+		});
 	};
-	const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
+	const scrollToBottom = (behavior: ScrollBehavior = "auto") => {
+		cancelScrollRestore();
+		update("follow");
 		const el = scrollRef.current;
-		if (!el || el.clientHeight === 0) return;
+		if (!_isVisible() || !el || el.clientHeight === 0) return;
 		if (chatVirtualizerRef.current)
 			chatVirtualizerRef.current.scrollToEnd(behavior);
 		else
@@ -101,7 +117,6 @@ export function useChatViewport(
 				top: el.scrollHeight,
 				behavior,
 			});
-		update("follow");
 	};
 	let bottomFrame = 0;
 	const cancelScheduledBottom = () => {
@@ -114,7 +129,7 @@ export function useChatViewport(
 		bottomFrame = requestAnimationFrame(() => {
 			bottomFrame = requestAnimationFrame(() => {
 				bottomFrame = 0;
-				if (_isVisible()) scrollToBottom(behavior);
+				if (_isVisible() && state.snapshot.following) scrollToBottom(behavior);
 			});
 		});
 	};
@@ -122,17 +137,21 @@ export function useChatViewport(
 		cancelScheduledBottom();
 		cancelAnimationFrame(restoreFrameRef.current);
 		restoreFrameRef.current = 0;
+		restoring = false;
 	};
 	createEffect(
-		() => [_isVisible(), scrollElement()] as const,
-		([visible, element]) => {
-			if (!visible || !element) {
-				cancelScheduledBottom();
+		() => [_isVisible(), scrollElement(), _transcriptReady()] as const,
+		([visible, element, ready]) => {
+			if (!visible || !element || !ready) {
+				cancelScrollRestore();
 				return;
 			}
 			const snapshot = state.snapshot;
+			restoring = true;
 			let passes = 3;
 			const restore = () => {
+				restoreFrameRef.current = 0;
+				if (!restoring || !_isVisible()) return;
 				const el = element;
 				if (el.clientHeight === 0) return;
 				el.scrollTop = project<number>("chatScrollRestore", {
@@ -140,20 +159,43 @@ export function useChatViewport(
 					height: el.scrollHeight,
 					viewport: el.clientHeight,
 				});
-				update("follow", { value: snapshot.atBottom });
 				if (--passes) restoreFrameRef.current = requestAnimationFrame(restore);
+				else {
+					restoring = false;
+					observer.disconnect();
+					handleScroll();
+				}
 			};
+			// A revealed pane may still have zero height until its parent lays out.
+			const observer = new ResizeObserver(() => {
+				if (restoring && !restoreFrameRef.current)
+					restoreFrameRef.current = requestAnimationFrame(restore);
+			});
+			observer.observe(element);
 			restoreFrameRef.current = requestAnimationFrame(restore);
 			return () => {
+				observer.disconnect();
 				cancelScrollRestore();
-				if (untrack(_isVisible)) capture(element);
+				// Hidden DOM can already report zero dimensions here. Save the last
+				// visible position instead of treating layout changes as user scrolls.
+				writeStoredJson(storageKey, state.snapshot);
 			};
 		},
 	);
 	createEffect(
-		() => scrollElement(),
+		() => (_isVisible() ? scrollElement() : null),
 		(element) => {
 			if (!element) return;
+			const keyDown = (event: KeyboardEvent) => {
+				const target = event.target as HTMLElement;
+				if (
+					event.defaultPrevented ||
+					target.closest("input, textarea, select, [contenteditable='true']") ||
+					(event.key === " " && target.closest("button, a"))
+				)
+					return;
+				update("intent", { key: event.key, shift: event.shiftKey });
+			};
 			const wheel = (event: WheelEvent) =>
 				update("intent", { delta: event.deltaY });
 			let touchY = 0;
@@ -165,46 +207,41 @@ export function useChatViewport(
 				update("intent", { delta: touchY - next });
 				touchY = next;
 			};
+			const pointerDown = () => {
+				pointerScrolling = true;
+				cancelScrollRestore();
+			};
+			const pointerUp = () => {
+				pointerScrolling = false;
+			};
+			element.addEventListener("keydown", keyDown);
 			element.addEventListener("wheel", wheel, {
 				passive: true,
 				capture: true,
 			});
 			element.addEventListener("touchstart", touchStart, { passive: true });
 			element.addEventListener("touchmove", touchMove, { passive: true });
+			element.addEventListener("pointerdown", pointerDown, { passive: true });
+			window.addEventListener("pointerup", pointerUp);
+			window.addEventListener("pointercancel", pointerUp);
 			return () => {
+				element.removeEventListener("keydown", keyDown);
 				element.removeEventListener("wheel", wheel, true);
 				element.removeEventListener("touchstart", touchStart);
 				element.removeEventListener("touchmove", touchMove);
+				element.removeEventListener("pointerdown", pointerDown);
+				window.removeEventListener("pointerup", pointerUp);
+				window.removeEventListener("pointercancel", pointerUp);
+				pointerScrolling = false;
 			};
-		},
-	);
-	const handleWindowKeyDown = (e: KeyboardEvent) => {
-		const active = document.activeElement;
-		if (
-			e.defaultPrevented ||
-			!active ||
-			!scrollRef.current?.contains(active) ||
-			active.closest(
-				"input, textarea, select, button, a, [contenteditable='true']",
-			)
-		)
-			return;
-		update("intent", { key: e.key, shift: e.shiftKey });
-	};
-	createEffect(
-		() => !!_isSelected() && _isVisible(),
-		(enabled) => {
-			if (!enabled) return;
-			return listenWindowEvent("keydown", handleWindowKeyDown);
 		},
 	);
 	return {
 		chatVirtualizerRef,
-		cancelScrollRestore,
 		handleScroll,
 		highlightOverlayRef,
-		get isAtBottom() {
-			return isAtBottom();
+		get following() {
+			return following();
 		},
 		scheduleScrollToBottom,
 		scrollRef,

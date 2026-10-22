@@ -33,6 +33,12 @@ updates only the Solid computations that need it.
   IDs for ordinary local rows and content only for notice deduplication; return
   sparse insertion positions, preserving native message references. Finalization
   belongs to the native transcript, including clearing streaming flags.
+- Follow mode belongs to each thread and changes only through upward user input
+  or the explicit scroll-to-latest button. Reaching the bottom, sending, resizing,
+  and hiding a tab must not silently change it. Save the small follow/position
+  snapshot on mode changes and view cleanup, independently of the bounded height
+  cache. Restore paused positions after transcript hydration and visible layout;
+  ignore hidden and restoration-generated scroll events.
 - `ChatViewport` owns prefix offsets, measurement thresholds, anchor compensation
   and the retained row range in Rust. Rebuild the numeric height buffer only when
   row membership or width changes. Resize batches send index/height pairs and

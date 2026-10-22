@@ -1,5 +1,4 @@
 import { iconSize } from "@design-system/styles.stylex.ts";
-import { captureEvent } from "@shared/lib/dom.tsx";
 import { IconArrowDown } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { InlineDirectoryPicker } from "@workspace/components/InlineDirectoryPicker/index.tsx";
@@ -26,20 +25,20 @@ export function AgentChatMessages(
 	});
 	return (
 		<div {...stylex.attrs(styles.messageRegion)}>
+			{/* oxlint-disable jsx-a11y/no-noninteractive-tabindex -- The scroll viewport needs keyboard focus for Page Up/Down. */}
 			<div
 				data-chat-scroll-area
-				ref={[
-					(node) => {
-						element = node;
-						props.state.viewport.scrollRef.current = node;
-					},
-					captureEvent("wheel", (_event) =>
-						props.state.viewport.cancelScrollRestore(),
-					),
-				]}
+				role="region"
+				aria-label="Conversation history"
+				tabindex={0}
+				ref={(node) => {
+					element = node;
+					props.state.viewport.scrollRef.current = node;
+				}}
 				{...stylex.attrs(styles.scrollArea)}
 				onScroll={props.state.viewport.handleScroll}
 			>
+				{/* oxlint-enable jsx-a11y/no-noninteractive-tabindex */}
 				{props.state.connection.messages.length === 0 &&
 					!props.state.connection.chatUiState.isLoading &&
 					!props.cwd &&
@@ -81,12 +80,13 @@ export function AgentChatMessages(
 					handleSendMessage={props.state.sendMessage}
 					onMdFileClick={props.state.composer.handleMdFileClick}
 					slashCommandNames={props.state.menus.slashCommandNames}
-					stickToBottom={props.state.viewport.isAtBottom}
+					stickToBottom={props.state.viewport.following}
 				/>
 			</div>
-			{!props.state.viewport.isAtBottom && (
+			{!props.state.viewport.following && (
 				<button
 					type="button"
+					aria-label="Scroll to latest and follow new messages"
 					onPointerDown={(event) => {
 						if (event.button === 0 && event.isPrimary)
 							props.state.viewport.scrollToBottom();

@@ -366,6 +366,7 @@ function readStoredBoolean(key: string, fallback = false): boolean {
 	return value === null ? fallback : value === "true";
 }
 const INPUT_KEY_PREFIX = "inferay-chat-input-";
+export const CHAT_SCROLL_KEY_PREFIX = "inferay-chat-scroll-";
 export function loadStoredInput(paneId: string): string {
 	return readStoredValue(INPUT_KEY_PREFIX + paneId, "") ?? "";
 }
@@ -375,6 +376,7 @@ export function saveStoredInput(paneId: string, value: string) {
 }
 export function clearAgentChatPaneState(paneId: string) {
 	writeStoredValue(INPUT_KEY_PREFIX + paneId, null);
+	writeStoredValue(CHAT_SCROLL_KEY_PREFIX + paneId, null);
 }
 export const loadSidebarCollapsed = () =>
 	readStoredBoolean("sidebar-collapsed");
