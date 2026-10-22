@@ -1,0 +1,104 @@
+{
+	"version": 1,
+	"project": {
+		"name": "Inferay",
+		"framework": "other",
+		"language": "typescript",
+		"description": "Solid 2 renderer with a Rust core, native server, and generated WASM presentation contracts. Goodbot scans renderer source; repository boundary checks are authoritative."
+	},
+	"architecture": {
+		"layers": [
+			{
+				"name": "design-system",
+				"path": "src/design-system",
+				"level": 0,
+				"hasBarrel": false,
+				"description": "Design tokens and themes"
+			},
+			{
+				"name": "shared",
+				"path": "src/shared",
+				"level": 1,
+				"hasBarrel": false,
+				"description": "Reusable UI and browser/native adapters"
+			},
+			{
+				"name": "modules",
+				"path": "src/modules",
+				"level": 2,
+				"hasBarrel": false,
+				"description": "Feature models, services, hooks, and components"
+			},
+			{
+				"name": "app",
+				"path": "src/app",
+				"level": 3,
+				"hasBarrel": false,
+				"description": "Application composition"
+			}
+		],
+		"dependencyDirection": "downward",
+		"barrelImportRule": "none",
+		"interfaceContracts": false,
+		"systemType": "mixed"
+	},
+	"businessLogic": {
+		"allowedIn": ["native/core", "native/presentation", "native/diff-engine"],
+		"forbiddenIn": [],
+		"redFlags": []
+	},
+	"verification": {
+		"typecheck": "bunx tsc --noEmit",
+		"lint": "bun run lint",
+		"test": "bun test scripts/tests",
+		"format": "bun run format",
+		"build": "bun run build:renderer"
+	},
+	"agentFiles": {
+		"claudeMd": false,
+		"cursorrules": false,
+		"windsurfrules": false,
+		"agentsMd": false,
+		"cursorignore": false,
+		"codingGuidelines": false,
+		"existingFileStrategy": "skip"
+	},
+	"conventions": {
+		"mainBranch": "main",
+		"importStyle": "direct",
+		"customRules": []
+	},
+	"analysis": {
+		"solid": true,
+		"thresholds": {
+			"maxFileLines": 300,
+			"maxBarrelExports": 15,
+			"maxModuleCoupling": 8
+		},
+		"budget": {},
+		"exclude": {},
+		"suppressions": [
+			{
+				"rule": "circularDep",
+				"cycle": "shared -> modules -> _root",
+				"reason": "Goodbot groups imports of generated build/presentation files outside src with src/client.tsx as _root, creating a module aggregation cycle. bun run check:boundaries resolves aliases and checks all source file cycles without exceptions."
+			}
+		]
+	},
+	"customRulesConfig": [],
+	"team": {},
+	"output": {
+		"cursorignore": {
+			"paths": [
+				"node_modules",
+				"dist",
+				"build",
+				"coverage",
+				"*.lock",
+				".env",
+				".env.*"
+			],
+			"sensitiveFiles": [".env", ".env.*", "credentials.json", "*.pem", "*.key"]
+		}
+	}
+}
