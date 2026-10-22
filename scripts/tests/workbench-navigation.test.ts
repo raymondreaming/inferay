@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import type { PanelAction, PanelSession } from "@contracts";
+import * as signals from "@solidjs/signals";
 import { QueryClient } from "@tanstack/query-core";
 import { createWorkspacePanelModel } from "@workspace/hooks/useWorkspacePanelSession.tsx";
 import { project } from "../../src/shared/lib/native.tsx";
@@ -98,4 +100,179 @@ describe("navigation while native persistence is pending", () => {
 		await mutation.mutationFn(request);
 		expect(sent).toEqual([{ workspaceId: "repo", action: request.action }]);
 	});
+});
+
+test("file navigation retains prepared changes, while selection and file updates refresh them", async () => {
+	const source = readFileSync(
+		new URL(
+			"../../src/modules/repository/hooks/useRepositoryWorkbench.tsx",
+			import.meta.url,
+		),
+		"utf8",
+	);
+	const code = new Bun.Transpiler({ loader: "ts" }).transformSync(
+		source.slice(
+			source.indexOf("const changesSelection ="),
+			source.indexOf("\n\tconst changeActions ="),
+		),
+	);
+	const files = [
+		{ path: "a.rs", staged: false, status: "M", additions: 3, deletions: 1 },
+	];
+	const initial = {
+		sidebarContent: "workingTree",
+		selectedCommitHash: null as string | null,
+		selectedCommitIds: [] as string[],
+		selectedFile: null as { path: string } | null,
+	};
+	const fixture = signals.createRoot((dispose) => {
+		const [panelSession, setSession] = signals.createSignal(initial);
+		const [workingTreeFiles, setFiles] = signals.createSignal(files);
+		const dependencies = {
+			createMemo: signals.createMemo,
+			panelSession,
+			workingTreeFiles,
+			workingTreePresentation: () => undefined,
+			fileViewMode: () => "path",
+			historyDetails: {
+				data: { commit: null, comparison: null },
+				loading: false,
+				error: null,
+			},
+			rustProject: project,
+		};
+		const model = new Function(
+			...Object.keys(dependencies),
+			`${code}; return changesModel;`,
+		)(...Object.values(dependencies));
+		return { dispose, setSession, setFiles, model };
+	});
+	try {
+		const before = fixture.model();
+		expect(before.additions).toBe(3);
+		fixture.setSession({ ...initial, selectedFile: { path: "a.rs" } });
+		signals.flush();
+		expect(fixture.model()).toBe(before);
+		fixture.setFiles([{ ...files[0], additions: 7 }]);
+		signals.flush();
+		expect(fixture.model().additions).toBe(7);
+		fixture.setSession({
+			...initial,
+			sidebarContent: "commit",
+			selectedCommitHash: "a",
+			selectedCommitIds: ["a"],
+		});
+		signals.flush();
+		expect(fixture.model().showingWorkingTree).toBe(false);
+		expect(fixture.model().historyMessage).toBe(
+			"No details available for this commit",
+		);
+	} finally {
+		fixture.dispose();
+	}
+});
+
+test("graph selections survive filtering, update from fresh results, and ignore unrelated panel navigation", () => {
+	const source = readFileSync(
+		new URL(
+			"../../src/modules/repository/hooks/useRepositoryWorkbench.tsx",
+			import.meta.url,
+		),
+		"utf8",
+	);
+	const code = new Bun.Transpiler({ loader: "ts" }).transformSync(
+		source.slice(
+			source.indexOf("const graphSelection ="),
+			source.indexOf("\n\tconst selectedGraphWorktree ="),
+		) +
+			source.slice(
+				source.indexOf("const historicalInput ="),
+				source.indexOf("\n\tconst historyDetails ="),
+			),
+	);
+	const first = { id: "a", hash: "a", itemKind: "commit", message: "before" };
+	const second = { ...first, id: "b", hash: "b" };
+	const initial = {
+		mainViewMode: "graph",
+		selectedCommitHash: "a",
+		selectedCommitIds: ["a", "b"],
+		selectedFile: "",
+	};
+	const fixture = signals.createRoot((dispose) => {
+		const [panelSession, setSession] = signals.createSignal(initial);
+		const [commits, setCommits] = signals.createSignal([first, second]);
+		const [graphCwd, setCwd] = signals.createSignal("/one");
+		let projections = 0;
+		const deps = {
+			createMemo: signals.createMemo,
+			panelSession,
+			graphCwd,
+			diffViewerProject: () => undefined,
+			fileSource: () => undefined,
+			rustProject: (operation: "historicalQuery", input: unknown) => {
+				projections++;
+				return project(operation, input);
+			},
+			graph: {
+				get commits() {
+					return commits();
+				},
+			},
+		};
+		const selected = new Function(
+			...Object.keys(deps),
+			`${code}; return { selectedGraph, historical };`,
+		)(...Object.values(deps)) as {
+			selectedGraph: () => {
+				items: (typeof first)[];
+				item: typeof first | null;
+			};
+			historical: () => { commit: { hash?: string } };
+		};
+		return {
+			dispose,
+			setSession,
+			setCommits,
+			setCwd,
+			selected: selected.selectedGraph,
+			historical: selected.historical,
+			projections: () => projections,
+		};
+	});
+	try {
+		const before = fixture.selected();
+		const query = fixture.historical();
+		fixture.setSession({
+			...initial,
+			selectedCommitIds: ["a", "b"],
+			selectedFile: "README.md",
+		});
+		signals.flush();
+		expect(fixture.selected()).toBe(before);
+		expect(fixture.historical()).toBe(query);
+		expect(fixture.projections()).toBe(1);
+		fixture.setCommits([second]);
+		signals.flush();
+		expect(fixture.selected().item).toBe(first);
+		expect(fixture.selected().items).toEqual([first, second]);
+		const refreshed = { ...first, message: "after" };
+		fixture.setCommits([refreshed, second]);
+		signals.flush();
+		expect(fixture.selected().item).toBe(refreshed);
+		fixture.setSession({
+			...initial,
+			selectedCommitHash: "b",
+			selectedCommitIds: ["b"],
+		});
+		signals.flush();
+		expect(fixture.selected().items).toEqual([second]);
+		expect(fixture.historical().commit.hash).toBe("b");
+		fixture.setCwd("/two");
+		fixture.setCommits([]);
+		signals.flush();
+		expect(fixture.selected().items).toEqual([]);
+		expect(fixture.selected().item).toBeNull();
+	} finally {
+		fixture.dispose();
+	}
 });

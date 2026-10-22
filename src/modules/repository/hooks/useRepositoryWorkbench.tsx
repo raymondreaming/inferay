@@ -83,19 +83,13 @@ const DIFF_VIEW_MODE_KEY = "agent-workspace-diff-view-mode";
 
 const EMPTY_FILES: GitFileEntry[] = [];
 
-export function useRepositoryWorkbench(
-	_options: Accessor<{
-		readonly active: boolean;
-		readonly cwd?: string;
-		readonly workspaceId: string;
-	}>,
-) {
+export function useRepositoryWorkbench(repositoryPath: Accessor<string>) {
 	const [
 		panelSession,
 		updatePanelSession,
 		panelSessionError,
 		panelAnnouncement,
-	] = useWorkspacePanelSession(() => _options().workspaceId);
+	] = useWorkspacePanelSession(repositoryPath);
 	const fileSource = createMemo(() => panelSession().selectedFile?.source);
 	const saveDocumentSession = (
 		sessionId: string,
@@ -116,8 +110,7 @@ export function useRepositoryWorkbench(
 		() => readPreferences().fileViewMode,
 	);
 	const [sidebarWidth, setSidebarWidth] = createSignal(() => {
-		void _options().active;
-		void _options().workspaceId;
+		void repositoryPath();
 		return readPreferences().sidebarWidth;
 	});
 	onSettled(() =>
@@ -159,17 +152,14 @@ export function useRepositoryWorkbench(
 	};
 	const trackResize = createPointerResize();
 	const toggleZenMode = () => setZenMode((current) => !current);
-	createEffect(
-		() => _options().active && zenMode(),
-		(enabled) => {
-			if (!enabled) return;
-			return listenWindowEvent("keydown", (event) => {
-				if ((event as KeyboardEvent).key !== "Escape") return;
-				(event as KeyboardEvent).preventDefault();
-				setZenMode(false);
-			});
-		},
-	);
+	createEffect(zenMode, (enabled) => {
+		if (!enabled) return;
+		return listenWindowEvent("keydown", (event) => {
+			if ((event as KeyboardEvent).key !== "Escape") return;
+			(event as KeyboardEvent).preventDefault();
+			setZenMode(false);
+		});
+	});
 	const [panelsUnlocked, setPanelsUnlocked] = createSignal(false);
 	const context = createMemo(() =>
 		rustProject<{
@@ -179,7 +169,7 @@ export function useRepositoryWorkbench(
 			diffVisible: boolean;
 			selectedFileVisible: boolean;
 		}>("repositoryWorkbenchContext", {
-			cwd: _options().cwd,
+			cwd: repositoryPath(),
 			focusedCwd: panelSession().focusedAuxiliaryPanel?.cwd,
 			fileViewerCwd: panelSession().fileViewerCwd,
 			diffViewerCwd: panelSession().diffViewerCwd,
@@ -197,8 +187,12 @@ export function useRepositoryWorkbench(
 			panelSession().sidebarVisible &&
 			(panelsUnlocked() || onboardingChrome().changes !== false),
 	);
-	const activeCwd = () => context().activeCwd ?? undefined;
-	const trackedCwds = () => context().trackedCwds;
+	const activeCwd = createMemo(() => context().activeCwd ?? undefined);
+	const trackedCwds = createMemo(() => context().trackedCwds, {
+		equals: (before, after) =>
+			before.length === after.length &&
+			before.every((cwd, index) => cwd === after[index]),
+	});
 	// Start the requested graph immediately, while its panel transition settles.
 	const [openingGraph, setOpeningGraph] = createSignal(true);
 	onSettled(() => {
@@ -206,10 +200,11 @@ export function useRepositoryWorkbench(
 		if (cwd) updatePanelSession({ type: "openGraph", cwd });
 		setOpeningGraph(false);
 	});
-	const graphCwd = () =>
+	const graphCwd = createMemo(() =>
 		openingGraph() && onboardingChrome().graph !== false
 			? activeCwd()
-			: (context().graphCwd ?? undefined);
+			: (context().graphCwd ?? undefined),
+	);
 	const [graphLimit, setGraphLimit] = createSignal(() => {
 		graphCwd();
 		return DEFAULT_GIT_GRAPH_HISTORY_LIMIT;
@@ -217,16 +212,11 @@ export function useRepositoryWorkbench(
 	const [graphPreferences, setGraphPreferences] = useGraphPreferences(
 		untrack(graphCwd),
 	);
-	const graph = useGitGraph(
-		() => graphCwd(),
-		() => graphLimit(),
-		() => graphPreferences(),
-		() => _options().active,
-	);
+	const graph = useGitGraph(graphCwd, graphLimit, graphPreferences);
 	const gitStatus = useGitStatus(
 		() => trackedCwds(),
 		() => ({
-			enabled: _options().active && trackedCwds().length > 0,
+			enabled: trackedCwds().length > 0,
 			graph: graphCwd() ? graph : undefined,
 		}),
 	);
@@ -242,6 +232,22 @@ export function useRepositoryWorkbench(
 			? (gitStatus.projectMap.get(_sourceValue3.diffViewerCwd) ?? null)
 			: null;
 	});
+	const graphSelection = createMemo(
+		() => {
+			const { mainViewMode, selectedCommitHash, selectedCommitIds } =
+				panelSession();
+			return { mainViewMode, selectedCommitHash, selectedCommitIds };
+		},
+		{
+			equals: (before, after) =>
+				before.mainViewMode === after.mainViewMode &&
+				before.selectedCommitHash === after.selectedCommitHash &&
+				before.selectedCommitIds.length === after.selectedCommitIds.length &&
+				before.selectedCommitIds.every(
+					(id, index) => id === after.selectedCommitIds[index],
+				),
+		},
+	);
 	const graphItems = createMemo(
 		() => new Map(graph.commits.map((item) => [item.id, item])),
 	);
@@ -251,7 +257,7 @@ export function useRepositoryWorkbench(
 		item: GraphCommit | null;
 	}>((previous) => {
 		const cwd = graphCwd(),
-			session = panelSession();
+			session = graphSelection();
 		const retained = new Map(
 			previous && previous.cwd === cwd
 				? previous.items.map((item) => [item.id, item])
@@ -316,22 +322,42 @@ export function useRepositoryWorkbench(
 			reset: true,
 		});
 	};
-	const historical = createMemo(() => {
-		const _sourceValue5 = panelSession();
-		return rustProject<HistoricalQuery>("historicalQuery", {
-			mainViewMode: _sourceValue5.mainViewMode,
-			diffViewerCwd: _sourceValue5.diffViewerCwd,
-			graphCwd: graphCwd(),
-			graphRevision: graph.revision,
-			diffRevision: diffViewerProject()?.revision,
-			selectedCommitIds: _sourceValue5.selectedCommitIds,
-			selectedCommitParent: _sourceValue5.selectedCommitParent,
-			selectedGraphItem: selectedGraphItem(),
-			fileSource: fileSource(),
-		});
-	});
+	const historicalInput = createMemo(
+		() => {
+			const session = panelSession();
+			const item = selectedGraphItem();
+			return {
+				mainViewMode: session.mainViewMode,
+				diffViewerCwd: session.diffViewerCwd,
+				graphCwd: graphCwd(),
+				graphRevision: graph.revision,
+				diffRevision: diffViewerProject()?.revision,
+				selectedCommitCount: session.selectedCommitIds.length,
+				selectedCommitParent: session.selectedCommitParent,
+				selectedCommitHash: item?.hash,
+				selectedCommitKind: item?.itemKind,
+				fileSource: fileSource(),
+			};
+		},
+		{
+			equals: (before, after) =>
+				before.mainViewMode === after.mainViewMode &&
+				before.diffViewerCwd === after.diffViewerCwd &&
+				before.graphCwd === after.graphCwd &&
+				before.graphRevision === after.graphRevision &&
+				before.diffRevision === after.diffRevision &&
+				before.selectedCommitCount === after.selectedCommitCount &&
+				before.selectedCommitParent === after.selectedCommitParent &&
+				before.selectedCommitHash === after.selectedCommitHash &&
+				before.selectedCommitKind === after.selectedCommitKind &&
+				before.fileSource === after.fileSource,
+		},
+	);
+	const historical = createMemo(() =>
+		rustProject<HistoricalQuery>("historicalQuery", historicalInput()),
+	);
 	const historyDetails = useHistoryDetails(historical, () => {
-		const session = panelSession();
+		const session = graphSelection();
 		return session.mainViewMode === "graph" &&
 			session.selectedCommitIds.length > 1
 			? comparisonSelection()
@@ -400,7 +426,7 @@ export function useRepositoryWorkbench(
 		() => ({
 			commits: graph.commits,
 			loading: graph.loading,
-			session: panelSession(),
+			session: graphSelection(),
 		}),
 		({ commits, loading, session }) => {
 			if (session.mainViewMode !== "graph" || loading || !commits.length)
@@ -419,6 +445,21 @@ export function useRepositoryWorkbench(
 			});
 		},
 	);
+	// Panel snapshots also change on file selection, focus, and persistence.
+	// Only these fields can change file ordering or the history summary.
+	const changesSelection = createMemo(
+		() => ({
+			content: panelSession().sidebarContent,
+			selectedCommitHash: panelSession().selectedCommitHash,
+			selectedCommitCount: panelSession().selectedCommitIds.length,
+		}),
+		{
+			equals: (before, after) =>
+				before.content === after.content &&
+				before.selectedCommitHash === after.selectedCommitHash &&
+				before.selectedCommitCount === after.selectedCommitCount,
+		},
+	);
 	const changesModel = createMemo<ChangesPanelModel>(() => {
 		const files = workingTreeFiles();
 		const { commit, comparison } = historyDetails.data;
@@ -427,9 +468,7 @@ export function useRepositoryWorkbench(
 			files,
 			filePresentation: workingTreePresentation(),
 			fileViewMode: fileViewMode(),
-			content: panelSession().sidebarContent,
-			selectedCommitHash: panelSession().selectedCommitHash,
-			selectedCommitCount: panelSession().selectedCommitIds.length,
+			...changesSelection(),
 			historyLoading: historyDetails.loading,
 			historyFiles: history?.files,
 			historyFilePresentation: history?.filePresentation,
@@ -458,7 +497,7 @@ export function useRepositoryWorkbench(
 	const diffRequest = createMemo(() => {
 		const _sourceValue7 = panelSession();
 		return rustProject<DiffRequest | null>("diffRequest", {
-			active: _options().active,
+			active: true,
 			cwd: _sourceValue7.diffViewerCwd,
 			selectedFile: _sourceValue7.selectedFile,
 			revision: diffViewerProject()?.revision,
@@ -468,7 +507,7 @@ export function useRepositoryWorkbench(
 	});
 	const prefetchDiffs = useDiffPrefetch();
 	const prefetchContext = createMemo(() => ({
-		active: _options().active && sidebarVisible(),
+		active: sidebarVisible(),
 		cwd: selectedWorkingTreeCwd(),
 		revision: gitStatus.projectMap.get(selectedWorkingTreeCwd() ?? "")
 			?.revision,
@@ -519,9 +558,8 @@ export function useRepositoryWorkbench(
 	);
 	createEffect(
 		() => {
-			const { active, cwd } = _options();
-			return active &&
-				cwd &&
+			const cwd = repositoryPath();
+			return cwd &&
 				gitStatus.loaded &&
 				gitStatus.projectMap.has(cwd) &&
 				(!panelSession().repositoryInitialized || !panelSession().diffViewerCwd)
@@ -551,7 +589,7 @@ export function useRepositoryWorkbench(
 	let diffRailElement: HTMLElement | undefined;
 	const focusCommitGraph = () =>
 		requestAnimationFrame(() => {
-			if (!_options().active || panelSession().mainViewMode !== "graph") return;
+			if (panelSession().mainViewMode !== "graph") return;
 			diffRailElement
 				?.querySelector<HTMLElement>('[aria-label="Repository commit history"]')
 				?.focus({ preventScroll: true });
@@ -752,50 +790,46 @@ export function useRepositoryWorkbench(
 			if (nextSelection) selectChangedFile(nextSelection);
 		}
 	};
-	createEffect(
-		() => _options().active,
-		(active) => {
-			if (!active) return;
-			const cleanup = [
-				listenWindowEvent("keydown", handleDiffKeyboardNavigation),
-				listenWindowEvent(DOCUMENT_OPEN_EVENT, (event) => {
-					const detail = (event as CustomEvent<DocumentOpenDetail>).detail;
-					if (detail?.cwd && detail.path)
-						updatePanelSession({
-							type: "document",
-							cwd: detail.cwd,
-							path: detail.path,
-						});
-				}),
-				listenWindowEvent(TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT, (event) => {
-					const requested = (event as CustomEvent<ToggleGitSidebarDetail>)
-						.detail?.visible;
-					if (requested === undefined) setPanelsUnlocked(true);
-					if (requested === panelSession().sidebarVisible) return;
-					updatePanelSession({ type: "toggleSidebar" });
-				}),
-				listenWindowEvent(TOGGLE_ACTIVE_GIT_GRAPH_EVENT, (event) => {
-					const cwd = activeCwd();
-					if (!cwd) return;
-					const session = panelSession();
-					const requested = (event as CustomEvent<ToggleGitGraphDetail>).detail
-						?.visible;
-					if (requested === undefined) setPanelsUnlocked(true);
-					if (
-						requested ===
-						(session.mainViewMode === "graph" && session.graphVisible)
-					)
-						return;
-					setZenMode(false);
-					updatePanelSession({ type: "toggleGraph", cwd });
-				}),
-				listenWindowEvent(OPEN_ACTIVE_GIT_GRAPH_EVENT, () =>
-					changeMainViewMode("graph"),
-				),
-			];
-			return () => cleanup.forEach((remove) => remove());
-		},
-	);
+	onSettled(() => {
+		const cleanup = [
+			listenWindowEvent("keydown", handleDiffKeyboardNavigation),
+			listenWindowEvent(DOCUMENT_OPEN_EVENT, (event) => {
+				const detail = (event as CustomEvent<DocumentOpenDetail>).detail;
+				if (detail?.cwd && detail.path)
+					updatePanelSession({
+						type: "document",
+						cwd: detail.cwd,
+						path: detail.path,
+					});
+			}),
+			listenWindowEvent(TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT, (event) => {
+				const requested = (event as CustomEvent<ToggleGitSidebarDetail>).detail
+					?.visible;
+				if (requested === undefined) setPanelsUnlocked(true);
+				if (requested === panelSession().sidebarVisible) return;
+				updatePanelSession({ type: "toggleSidebar" });
+			}),
+			listenWindowEvent(TOGGLE_ACTIVE_GIT_GRAPH_EVENT, (event) => {
+				const cwd = activeCwd();
+				if (!cwd) return;
+				const session = panelSession();
+				const requested = (event as CustomEvent<ToggleGitGraphDetail>).detail
+					?.visible;
+				if (requested === undefined) setPanelsUnlocked(true);
+				if (
+					requested ===
+					(session.mainViewMode === "graph" && session.graphVisible)
+				)
+					return;
+				setZenMode(false);
+				updatePanelSession({ type: "toggleGraph", cwd });
+			}),
+			listenWindowEvent(OPEN_ACTIVE_GIT_GRAPH_EVENT, () =>
+				changeMainViewMode("graph"),
+			),
+		];
+		return () => cleanup.forEach((remove) => remove());
+	});
 	const handleResizeStart = (
 		event: PointerEvent & {
 			currentTarget: HTMLButtonElement;
@@ -830,8 +864,8 @@ export function useRepositoryWorkbench(
 			return (
 				<DocumentViewer
 					cwd={panelSession().fileViewerCwd!}
-					sessionId={`workspace-file-viewer:${_options().workspaceId}:${panelSession().fileViewerCwd}`}
-					workspaceId={_options().workspaceId}
+					sessionId={`workspace-file-viewer:${repositoryPath()}:${panelSession().fileViewerCwd}`}
+					workspaceId={repositoryPath()}
 					onSessionChange={saveDocumentSession}
 					openRequest={panelSession().fileRequest}
 					onClose={closeFileViewer}
@@ -853,7 +887,7 @@ export function useRepositoryWorkbench(
 					<DocumentViewer
 						cwd={retained()?.cwd ?? ""}
 						sessionId={id}
-						workspaceId={_options().workspaceId}
+						workspaceId={repositoryPath()}
 						onSessionChange={saveDocumentSession}
 						openRequest={openRequest()}
 						onClose={() => updatePanelSession({ type: "closeFile", id })}

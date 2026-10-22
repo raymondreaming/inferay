@@ -84,7 +84,7 @@ test("Space from the commit sidebar scrolls the current diff without changing fo
 	);
 	const start = source.indexOf("const handleDiffKeyboardNavigation =");
 	const code = new Bun.Transpiler({ loader: "tsx" }).transformSync(
-		source.slice(start, source.indexOf("\n\tcreateEffect(", start)),
+		source.slice(start, source.indexOf("\n\tonSettled(", start)),
 	);
 	const pages: number[] = [];
 	const target = { closest: () => null };
@@ -145,7 +145,6 @@ test("returning from a diff restores graph focus after the graph mounts", () => 
 	);
 	let mode = "diff";
 	let mounted = false;
-	let active = true;
 	let focused = "sidebar";
 	let frame = () => {};
 	const dependencies = {
@@ -154,7 +153,6 @@ test("returning from a diff restores graph focus after the graph mounts", () => 
 			mode = "graph";
 		},
 		panelSession: () => ({ graphVisible: true, mainViewMode: mode }),
-		_options: () => ({ active }),
 		requestAnimationFrame: (callback: () => void) => {
 			frame = callback;
 		},
@@ -179,7 +177,7 @@ test("returning from a diff restores graph focus after the graph mounts", () => 
 	frame();
 	expect(focused).toBe("graph");
 	close();
-	active = false;
+	mounted = false;
 	focused = "other repository";
 	frame();
 	expect(focused).toBe("other repository");
@@ -205,7 +203,7 @@ test("Right reaches selected WIP through window routing without clicking the gra
 	const windowCode = transpiler.transformSync(
 		workbenchSource.slice(
 			start,
-			workbenchSource.indexOf("\n\tcreateEffect(", start),
+			workbenchSource.indexOf("\n\tonSettled(", start),
 		),
 	);
 	const body: { closest: (selector: string) => object | null } = {

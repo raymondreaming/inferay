@@ -4,11 +4,7 @@ import { For } from "solid-js";
 import { styles } from "./styles.ts";
 
 export function ProjectRepositoryWorkbench(props: { path: string }) {
-	const workbench = useRepositoryWorkbench(() => ({
-		active: true,
-		cwd: props.path,
-		workspaceId: props.path,
-	}));
+	const workbench = useRepositoryWorkbench(() => props.path);
 	return (
 		<section
 			aria-label="Repository workspace"

@@ -465,7 +465,7 @@ pub fn historical_query(i: &Value) -> Value {
     let diff = i["mainViewMode"] == "diff";
     let mut commit_query = json!({
         "cwd": if diff && !string(&commit["commitHash"]).is_empty() { &i["diffViewerCwd"] } else { &i["graphCwd"] },
-        "hash": if diff { &commit["commitHash"] } else if array(&i["selectedCommitIds"]).len() <= 1 && i["selectedGraphItem"]["itemKind"] != "worktreeWip" { &i["selectedGraphItem"]["hash"] } else { &Value::Null },
+        "hash": if diff { &commit["commitHash"] } else if number(&i["selectedCommitCount"]) <= 1. && i["selectedCommitKind"] != "worktreeWip" { &i["selectedCommitHash"] } else { &Value::Null },
         "parent": if diff { &commit["commitParent"] } else { &i["selectedCommitParent"] },
     });
     let mut comparison_query = json!({
@@ -681,6 +681,37 @@ pub fn retained_workspaces(input: &Value) -> Value {
 #[cfg(test)]
 mod ref_dialog_tests {
     use super::*;
+    #[test]
+    fn historical_queries_use_selection_scalars_and_preserve_diff_sources() {
+        let mut input = json!({"mainViewMode":"graph", "graphCwd":"/repo", "graphRevision":"r1",
+            "selectedCommitCount":1, "selectedCommitHash":"abc", "selectedCommitKind":"commit"});
+        assert_eq!(
+            historical_query(&input)["commit"],
+            json!({"cwd":"/repo", "hash":"abc"})
+        );
+        input["selectedCommitCount"] = json!(2);
+        assert_eq!(historical_query(&input)["commit"], json!({"cwd":"/repo"}));
+        input["selectedCommitCount"] = json!(1);
+        input["selectedCommitKind"] = json!("worktreeWip");
+        assert_eq!(historical_query(&input)["commit"], json!({"cwd":"/repo"}));
+        input["mainViewMode"] = json!("diff");
+        input["diffViewerCwd"] = json!("/other");
+        input["diffRevision"] = json!("r2");
+        input["fileSource"] =
+            json!({"kind":"commit", "commitHash":"older", "commitParent":"parent"});
+        let query = historical_query(&input);
+        assert_eq!(
+            query["commit"],
+            json!({"cwd":"/other", "hash":"older", "parent":"parent"})
+        );
+        assert_eq!(query["revision"], "r2");
+        input["fileSource"] =
+            json!({"kind":"comparison", "comparisonFrom":"a", "comparisonTo":"b"});
+        assert_eq!(
+            historical_query(&input)["comparison"],
+            json!({"cwd":"/other", "from":"a", "to":"b"})
+        );
+    }
     #[test]
     fn activity_precedence_and_recovery_use_repository_state() {
         let mut input = json!({"repository":{"kind":"rebase","phase":"conflicted","conflicts":["a","b"]},

@@ -164,17 +164,24 @@ fn get_raw_git_patch(cwd: &str, file_path: &str, staged: bool) -> (String, Optio
 }
 
 fn create_untracked_patch(file_path: &str, content: &str) -> String {
-    let lines: Vec<&str> = content.split('\n').collect();
-    let mut output = vec![
-        format!("diff --git a/{file_path} b/{file_path}"),
-        "new file mode 100644".to_string(),
-        "index 0000000..0000000".to_string(),
-        "--- /dev/null".to_string(),
-        format!("+++ b/{file_path}"),
-        format!("@@ -0,0 +1,{} @@", lines.len()),
-    ];
-    output.extend(lines.into_iter().map(|line| format!("+{line}")));
-    output.join("\n")
+    let lines = content_lines(content);
+    let count = lines.clone().count();
+    let mut output = format!(
+        "diff --git a/{file_path} b/{file_path}\nnew file mode 100644\n--- /dev/null\n+++ b/{file_path}\n"
+    );
+    if count > 0 {
+        output.reserve(content.len() + count + 64);
+        output.push_str(&format!("@@ -0,0 +1,{count} @@\n"));
+        for line in lines {
+            output.push('+');
+            output.push_str(line);
+            output.push('\n');
+        }
+        if !content.ends_with('\n') {
+            output.push_str("\\ No newline at end of file\n");
+        }
+    }
+    output
 }
 
 fn has_merge_conflict_markers(content: &str) -> bool {
@@ -218,8 +225,9 @@ fn too_large_diff(message: &str, is_new: bool) -> GitHunkDiff {
     }
 }
 
-fn content_lines(content: &str) -> Vec<&str> {
-    content.split('\n').collect()
+fn content_lines(content: &str) -> std::str::SplitTerminator<'_, char> {
+    // A final newline terminates the last Git line; it does not add an empty row.
+    content.split_terminator('\n')
 }
 
 #[derive(Clone, Copy)]
@@ -328,12 +336,10 @@ fn build_hunk_diff_from_versions(
         result.raw_patch = Some(raw_patch);
         return result;
     }
-    if old_content
-        .split('\n')
+    if content_lines(old_content)
         .take(MAX_RENDERED_DIFF_LINES + 1)
         .count()
-        + new_content
-            .split('\n')
+        + content_lines(new_content)
             .take(MAX_RENDERED_DIFF_LINES + 1)
             .count()
         > MAX_RENDERED_DIFF_LINES
@@ -346,8 +352,8 @@ fn build_hunk_diff_from_versions(
         return result;
     }
 
-    let old_file_lines = content_lines(old_content);
-    let new_file_lines = content_lines(new_content);
+    let old_file_lines: Vec<_> = content_lines(old_content).collect();
+    let new_file_lines: Vec<_> = content_lines(new_content).collect();
     if old_file_lines
         .iter()
         .chain(new_file_lines.iter())
@@ -1963,7 +1969,7 @@ pub fn get_git_worktree_comparison_details(
             let additions = if binary {
                 0
             } else {
-                content_lines(&String::from_utf8_lossy(&bytes)).len()
+                content_lines(&String::from_utf8_lossy(&bytes)).count()
             };
             files.push(GitCommitFile {
                 path: entry.path,
@@ -3777,12 +3783,58 @@ mod checkout_tests {
 mod file_mode_tests {
     use super::*;
     #[test]
+    fn untracked_patches_preserve_exact_file_contents() {
+        use std::io::Write;
+        use std::process::Stdio;
+
+        let root = tempfile::tempdir().unwrap();
+        for (index, content) in ["", "\n", "one", "one\n", "one\n\n", "one\r\ntwo\r\n"]
+            .into_iter()
+            .enumerate()
+        {
+            let path = format!("{index}.txt");
+            let patch = create_untracked_patch(&path, content);
+            let mut child = Command::new("git")
+                .args(["apply", "-"])
+                .current_dir(root.path())
+                .stdin(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(patch.as_bytes())
+                .unwrap();
+            let result = child.wait_with_output().unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            assert_eq!(
+                std::fs::read_to_string(root.path().join(path)).unwrap(),
+                content
+            );
+        }
+    }
+
+    #[test]
     fn additions_and_deletions_use_the_shared_alignment_without_extra_rows() {
-        for content in ["", "one", "one\ntwo\n"] {
+        for (content, count) in [
+            ("", 0),
+            ("\n", 1),
+            ("one", 1),
+            ("one\n", 1),
+            ("one\ntwo\n", 2),
+            ("one\n\n", 2),
+            ("one\r\ntwo\r\n", 2),
+        ] {
             let added =
                 build_hunk_diff_from_versions(String::new(), "", content, true, false, None);
             assert!(added.is_new && added.old_lines.is_empty());
-            assert_eq!(added.new_lines.len(), content_lines(content).len());
+            assert_eq!(added.new_lines.len(), count, "{content:?}");
             assert!(added
                 .new_lines
                 .iter()
