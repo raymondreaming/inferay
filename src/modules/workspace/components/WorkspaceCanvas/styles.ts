@@ -6,11 +6,19 @@ import {
 	motion,
 } from "../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
+	root: {
+		display: "flex",
+		flexDirection: "column",
+		width: "100%",
+		height: "100%",
+		minWidth: 0,
+		minHeight: 0,
+	},
 	dockRoot: {
 		position: "relative",
 		display: "flex",
 		width: "100%",
-		height: "100%",
+		flex: 1,
 		minWidth: controlSize._0,
 		minHeight: controlSize._0,
 		overflowX: "hidden",

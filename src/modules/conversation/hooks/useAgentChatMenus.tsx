@@ -169,6 +169,7 @@ export function useAgentChatSettings(
 	let requestRevision = 0;
 	let requests = Promise.resolve();
 	let scopeVersion = 0;
+	let failedSelection: Partial<ProviderConfigSelection> = {};
 	const resolveSelection = (
 		patch: Partial<ReturnType<typeof selection>> = {},
 		identity = { paneId: _paneId(), agentKind: _agentKind() },
@@ -176,6 +177,7 @@ export function useAgentChatSettings(
 		const revision = ++requestRevision;
 		const version = scopeVersion;
 		const target = { ...identity, ...patch };
+		setConfigurationError(null);
 		requests = requests.then(async () => {
 			if (version !== scopeVersion) return;
 			try {
@@ -183,19 +185,27 @@ export function useAgentChatSettings(
 				if (revision !== requestRevision || version !== scopeVersion) return;
 				setSelection(resolved);
 				setConfigurationError(null);
-			} catch (error) {
-				if (revision === requestRevision && version === scopeVersion)
+				failedSelection = {};
+			} catch {
+				if (revision === requestRevision && version === scopeVersion) {
+					failedSelection = patch;
 					setConfigurationError(
-						`Could not update chat settings: ${String(error)}`,
+						Object.keys(patch).length
+							? "Chat settings could not be saved."
+							: "Chat settings could not be loaded.",
 					);
+				}
 			}
 		});
+		return requests;
 	};
 	const settingsIdentity = createMemo(() =>
 		JSON.stringify([_paneId(), _agentKind()]),
 	);
 	createEffect(settingsIdentity, (key) => {
 		scopeVersion++;
+		failedSelection = {};
+		setConfigurationError(null);
 		const [paneId, agentKind] = JSON.parse(key);
 		resolveSelection({}, { paneId, agentKind });
 		return () => {
@@ -210,6 +220,7 @@ export function useAgentChatSettings(
 		})),
 	);
 	return {
+		retryConfiguration: () => resolveSelection(failedSelection),
 		get configurationError() {
 			return configurationError();
 		},

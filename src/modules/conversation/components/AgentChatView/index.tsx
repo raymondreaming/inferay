@@ -1,6 +1,7 @@
-import { iconSize } from "@design-system/styles.stylex.ts";
+import { iconSize, surfaceStyles } from "@design-system/styles.stylex.ts";
 import { APP_REGION_NO_DRAG_CLASS } from "@shared/lib/dom.tsx";
 import { traceUi } from "@shared/lib/native.tsx";
+import { Button } from "@shared/ui/Button/index.tsx";
 import { ThinkingIndicator } from "@shared/ui/DotMatrixLoader/index.tsx";
 import { IconFolder, IconStop } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
@@ -146,10 +147,21 @@ export function AgentChatView(props: AgentChatViewProps) {
 							</div>
 						)}
 						{state.settings.configurationError && (
-							<div role="alert">{state.settings.configurationError}</div>
+							<div role="alert" {...stylex.attrs(surfaceStyles.errorNotice)}>
+								<span {...stylex.attrs(surfaceStyles.errorMessage)}>
+									{state.settings.configurationError}
+								</span>
+								<Button size="sm" onClick={state.settings.retryConfiguration}>
+									Retry
+								</Button>
+							</div>
 						)}
 						{state.composer.queueError && (
-							<div role="alert">{state.composer.queueError}</div>
+							<div role="alert" {...stylex.attrs(surfaceStyles.errorNotice)}>
+								<span {...stylex.attrs(surfaceStyles.errorMessage)}>
+									{state.composer.queueError}
+								</span>
+							</div>
 						)}
 						<ChatComposer
 							active={state.visible()}

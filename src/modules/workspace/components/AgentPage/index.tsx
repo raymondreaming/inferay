@@ -5,6 +5,7 @@ import type {
 } from "@contracts";
 import type { AgentChatHandle } from "@conversation/components/AgentChatView/index.tsx";
 import { chatSessionCache } from "@conversation/components/AgentChatView/useChatConnection.tsx";
+import { surfaceStyles } from "@design-system/styles.stylex.ts";
 import {
 	FOCUS_AGENT_CHAT_COMPOSER_EVENT,
 	type FocusAgentChatComposerDetail,
@@ -17,13 +18,17 @@ import {
 	project,
 	wsClient,
 } from "@shared/lib/native.tsx";
+import { Button } from "@shared/ui/Button/index.tsx";
+import * as stylex from "@stylexjs/stylex";
 import {
+	loadCanonicalAgentState,
 	mutateAgentWorkspaceState,
 	useWorkspaceState,
 } from "@workspace/hooks/useWorkspaceState.tsx";
 import { createEffect, createMemo, For, onSettled } from "solid-js";
 import { projects } from "../../hooks/useProjects.tsx";
 import { ConversationSurface } from "./ConversationSurface.tsx";
+import { styles } from "./styles.ts";
 
 export function AgentPage() {
 	const [workspace, workspaceError] = useWorkspaceState(
@@ -141,8 +146,17 @@ export function AgentPage() {
 	);
 
 	return (
-		<>
-			{workspaceError() ? <div role="alert">{workspaceError()}</div> : null}
+		<div {...stylex.attrs(styles.root)}>
+			{workspaceError() && (
+				<div role="alert" {...stylex.attrs(surfaceStyles.errorNotice)}>
+					<span {...stylex.attrs(surfaceStyles.errorMessage)}>
+						{workspaceError()}
+					</span>
+					<Button size="sm" onClick={() => void loadCanonicalAgentState()}>
+						Retry
+					</Button>
+				</div>
+			)}
 			<For each={retainedViews()} keyed={(view) => view.key}>
 				{(view) => (
 					<ConversationSurface
@@ -155,6 +169,6 @@ export function AgentPage() {
 					/>
 				)}
 			</For>
-		</>
+		</div>
 	);
 }

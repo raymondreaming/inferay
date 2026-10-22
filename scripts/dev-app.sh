@@ -5,12 +5,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT}"
 bun scripts/check-bun-version.mjs
 
-DEV_BACKEND_ADDR="127.0.0.1:4317"
+DEV_BACKEND_ADDR="${INFERAY_DEV_BACKEND_ADDR:-127.0.0.1:4317}"
 
 export INFERAY_DEV_BACKEND_ADDR="${DEV_BACKEND_ADDR}"
+export INFERAY_USER_DATA_DIR="${INFERAY_USER_DATA_DIR:-${ROOT}/build/dev-profile}"
 
 bun run build:renderer
-cargo build -p inferay-server --bin inferay-dev-server
+cargo build -p inferay-server --bin inferay-dev-server -p inferay-desktop --bin inferay-desktop
 
 node scripts/watch-renderer.mjs &
 RENDERER_PID=$!
@@ -29,7 +30,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "[inferay-dev] live app: http://${DEV_BACKEND_ADDR}"
-cargo run -p inferay-server --bin inferay-dev-server &
+target/debug/inferay-dev-server &
 SERVER_PID=$!
 
 for _ in {1..300}; do
@@ -48,7 +49,7 @@ if ! curl --silent --fail --output /dev/null "http://${DEV_BACKEND_ADDR}/"; then
 	exit 1
 fi
 
-INFERAY_EXTERNAL_BACKEND_ADDR="${DEV_BACKEND_ADDR}" cargo run -p inferay-desktop &
+INFERAY_EXTERNAL_BACKEND_ADDR="${DEV_BACKEND_ADDR}" target/debug/inferay-desktop &
 DESKTOP_PID=$!
 
 # The browser preview is the durable development surface. Keep serving and

@@ -14,7 +14,7 @@ test("selected chat contents scroll independently until their boundary", () => {
 		source.slice(
 			source.indexOf("const handleWheelCapture ="),
 			source.indexOf(
-				"\n\tcreateEffect(",
+				"\n\treturn (",
 				source.indexOf("const handleWheelCapture ="),
 			),
 		),
@@ -28,8 +28,8 @@ test("selected chat contents scroll independently until their boundary", () => {
 		closest() {
 			return pane;
 		}
-		querySelectorAll() {
-			return [content];
+		querySelector() {
+			return content;
 		}
 	}
 	const pane = new Element();
@@ -76,4 +76,14 @@ test("selected chat contents scroll independently until their boundary", () => {
 	wheel(event);
 	expect(prevented).toBe(true);
 	expect(canvas.scrollTop).toBe(100);
+	// Header/empty-space events use the chat's scroll area, including its bounds.
+	event.target = pane;
+	content.scrollTop = 200;
+	prevented = false;
+	wheel(event);
+	expect(prevented).toBe(false);
+	content.scrollHeight = 300;
+	wheel(event);
+	expect(prevented).toBe(true);
+	expect(canvas.scrollTop).toBe(150);
 });

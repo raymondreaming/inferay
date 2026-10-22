@@ -2,7 +2,7 @@ import type { Group, WorkspaceAgentKind, WorkspaceView } from "@contracts";
 import type { AgentChatHandle } from "@conversation/components/AgentChatView/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo } from "solid-js";
-import { DEFAULT_ROWS, WorkspaceCanvas } from "../WorkspaceCanvas/index.tsx";
+import { WorkspaceCanvas } from "../WorkspaceCanvas/index.tsx";
 import { styles } from "./styles.ts";
 
 type AgentPaneActions = {
@@ -48,7 +48,7 @@ export function ConversationSurface(props: {
 			panes={panes()}
 			selectedPaneId={selectedPaneId()}
 			columns={props.group?.columns ?? 2}
-			rows={props.group?.rows ?? DEFAULT_ROWS}
+			rows={props.group?.rows ?? 1}
 			onSelectPane={props.actions.selectPane}
 			onFocusPane={props.onFocusPane}
 			onClosePane={props.actions.removePane}

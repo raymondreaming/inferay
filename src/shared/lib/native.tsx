@@ -302,7 +302,7 @@ export async function hydrateStoredValues(): Promise<void> {
 	values = payload.entries;
 	storageKeyPattern = new RegExp(payload.storageKeyPattern);
 }
-function setStoredValue(key: string, value: StoredValue) {
+export function writeStoredValue(key: string, value: StoredValue) {
 	if (values[key] === value || !storageKeyPattern?.test(key)) return;
 	values[key] = value;
 	pending.set(key, value);
@@ -351,18 +351,12 @@ export function readStoredJson<T>(key: string, fallback: T): T {
 		return fallback;
 	}
 }
-export function writeStoredValue(key: string, value: string): void {
-	setStoredValue(key, value);
-}
 export function setWorkspaceSidebarCollapsed(collapsed: boolean) {
 	writeStoredValue("sidebar-collapsed", String(collapsed));
 	dispatchWindowEvent<WorkspaceSidebarCollapsedDetail>(
 		WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
 		{ collapsed },
 	);
-}
-function removeStoredValue(key: string): void {
-	setStoredValue(key, null);
 }
 export function writeStoredJson<T>(key: string, value: T) {
 	writeStoredValue(key, JSON.stringify(value));
@@ -377,10 +371,10 @@ export function loadStoredInput(paneId: string): string {
 }
 export function saveStoredInput(paneId: string, value: string) {
 	if (value) writeStoredValue(INPUT_KEY_PREFIX + paneId, value);
-	else removeStoredValue(INPUT_KEY_PREFIX + paneId);
+	else writeStoredValue(INPUT_KEY_PREFIX + paneId, null);
 }
 export function clearAgentChatPaneState(paneId: string) {
-	removeStoredValue(INPUT_KEY_PREFIX + paneId);
+	writeStoredValue(INPUT_KEY_PREFIX + paneId, null);
 }
 export const loadSidebarCollapsed = () =>
 	readStoredBoolean("sidebar-collapsed");

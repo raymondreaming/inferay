@@ -212,6 +212,22 @@ export const runtimeGitGraphLaneColors = [
 	"#36c894",
 ] as const;
 export const surfaceStyles = stylex.create({
+	errorNotice: {
+		alignItems: "center",
+		backgroundColor: color.dangerWash,
+		color: color.textMain,
+		display: "flex",
+		flexShrink: 0,
+		flexWrap: "wrap",
+		fontSize: font.size_2,
+		gap: 8,
+		padding: 12,
+	},
+	errorMessage: {
+		flex: "1 1 180px",
+		minWidth: 0,
+		overflowWrap: "anywhere",
+	},
 	/** The one treatment for every floating layer: modals, dialogs, menus, popovers. */
 	overlay: {
 		backdropFilter: effect.floatingSurfaceBlur,
