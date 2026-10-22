@@ -31,12 +31,12 @@ export function repositoryKeyboardInput(event: KeyboardEvent) {
 		blocked: event.defaultPrevented,
 		editable: Boolean(
 			target?.isContentEditable ||
-				target?.closest('input, textarea, select, [role="textbox"]'),
+			target?.closest('input, textarea, select, [role="textbox"]'),
 		),
 		overlay: Boolean(target?.closest('dialog, [role="dialog"], [role="menu"]')),
 		button: Boolean(
 			target?.closest('button, a, [role="button"]') &&
-				!target?.closest("[data-git-file-select]"),
+			!target?.closest("[data-git-file-select]"),
 		),
 	};
 }
@@ -257,11 +257,7 @@ export function setActiveGitSidebarVisible(visible: boolean): void {
 }
 export const OPEN_SETTINGS_MODAL_EVENT = "inferay-open-settings-modal";
 export type SettingsModalTarget =
-	| "agents"
-	| "mcp"
-	| "appearance"
-	| "workspace"
-	| "github";
+	"agents" | "mcp" | "appearance" | "workspace" | "github";
 export interface OpenSettingsModalDetail {
 	readonly section: SettingsModalTarget;
 }

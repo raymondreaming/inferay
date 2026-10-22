@@ -2,7 +2,7 @@ import * as stylex from "@stylexjs/stylex";
 import { createEffect, createSignal } from "solid-js";
 import { styles } from "./styles.ts";
 
-let renderer: Promise<typeof import("mermaid")["default"]> | undefined;
+let renderer: Promise<(typeof import("mermaid"))["default"]> | undefined;
 function loadMermaid() {
 	return (renderer ??= import("mermaid")
 		.then(({ default: mermaid }) => {

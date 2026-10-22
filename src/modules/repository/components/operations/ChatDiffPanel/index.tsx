@@ -84,8 +84,8 @@ export function ChatDiffPanel(
 					!props.graph.searchQuery ? (
 						<div {...stylex.attrs(styles.viewerEmpty)}>Loading history…</div>
 					) : props.graphError &&
-						props.graph.commits.length === 0 &&
-						!props.graph.searchQuery ? (
+					  props.graph.commits.length === 0 &&
+					  !props.graph.searchQuery ? (
 						<div {...stylex.attrs(styles.viewerEmpty)}>{props.graphError}</div>
 					) : props.graph.commits.length === 0 && !props.graph.searchQuery ? (
 						<div {...stylex.attrs(styles.viewerEmpty)}>

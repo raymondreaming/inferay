@@ -248,11 +248,7 @@ export const surfaceStyles = stylex.create({
 	/** The one hover treatment for rows: explorer entries, menu items, pick lists. */
 });
 type SelectionVariant =
-	| "sidebar"
-	| "repository"
-	| "view"
-	| "list"
-	| "navigation";
+	"sidebar" | "repository" | "view" | "list" | "navigation";
 
 /** Owns selection appearance. Callers supply layout, labels, and behavior only. */
 export function selectionAppearance(

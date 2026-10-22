@@ -318,12 +318,7 @@ export interface GraphSelectionIntent {
 }
 export type ColumnVisibility = Record<ColumnKey, boolean>;
 export type ColumnKey =
-	| "date"
-	| "refs"
-	| "graph"
-	| "message"
-	| "author"
-	| "sha";
+	"date" | "refs" | "graph" | "message" | "author" | "sha";
 export interface ColumnWidths {
 	date: number;
 	refs: number;
@@ -352,8 +347,7 @@ interface CommitGraphProps {
 	preferences: GraphPreferences;
 	onPreferencesChange: (
 		update:
-			| GraphPreferences
-			| ((current: GraphPreferences) => GraphPreferences),
+			GraphPreferences | ((current: GraphPreferences) => GraphPreferences),
 	) => void;
 	selectedHash?: string;
 	selectedIds: readonly string[];
@@ -388,8 +382,7 @@ interface GraphPreferences {
 export const TOP_PADDING = ROW_HEIGHT;
 const GRAPH_PREFERENCES_KEY = "commit-graph-columns-v13:global";
 let sharedPreferences:
-	| [Accessor<GraphPreferences>, Setter<GraphPreferences>]
-	| undefined;
+	[Accessor<GraphPreferences>, Setter<GraphPreferences>] | undefined;
 export function useGraphPreferences(repositoryKey?: string) {
 	const [read, set] = (sharedPreferences ??= createSignal(
 		rustProject<GraphPreferences>(

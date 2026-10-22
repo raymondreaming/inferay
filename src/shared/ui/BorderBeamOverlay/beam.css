@@ -140,10 +140,8 @@
 	pointer-events: none;
 	z-index: 2;
 	opacity: calc(
-		var(--beam-opacity-inferay) *
-		0.26 *
-		var(--beam-stroke-opacity, 1) *
-		var(--beam-strength, 1)
+		var(--beam-opacity-inferay) * 0.26 * var(--beam-stroke-opacity, 1) *
+			var(--beam-strength, 1)
 	);
 	animation: beam-hue-shift-inferay 12s ease-in-out infinite;
 }
@@ -268,10 +266,8 @@
 	pointer-events: none;
 	z-index: 1;
 	opacity: calc(
-		var(--beam-opacity-inferay) *
-		0.42 *
-		var(--beam-inner-opacity, 1) *
-		var(--beam-strength, 1)
+		var(--beam-opacity-inferay) * 0.42 * var(--beam-inner-opacity, 1) *
+			var(--beam-strength, 1)
 	);
 	clip-path: inset(0 round var(--beam-radius, 12px));
 	animation: beam-hue-shift-inferay 12s ease-in-out infinite;
@@ -317,10 +313,8 @@
 [data-beam="inferay"][data-running="true"] [data-beam-bloom] {
 	display: block;
 	opacity: calc(
-		var(--beam-opacity-inferay) *
-		0.24 *
-		var(--beam-bloom-opacity, 1) *
-		var(--beam-strength, 1)
+		var(--beam-opacity-inferay) * 0.24 * var(--beam-bloom-opacity, 1) *
+			var(--beam-strength, 1)
 	);
 }
 

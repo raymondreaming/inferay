@@ -3,9 +3,9 @@
 There are two styling files. Import the implementing file directly; no barrels,
 compatibility exports, or parallel palettes.
 
-| Change | Owner |
-| --- | --- |
-| Theme colors, surface formulas, scene tints, depth effects, global CSS | [styles.css](styles.css) |
+| Change                                                                                                 | Owner                                |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------ |
+| Theme colors, surface formulas, scene tints, depth effects, global CSS                                 | [styles.css](styles.css)             |
 | Typed tokens, shared panel/selection styles, spacing, typography, radius, motion, runtime color values | [styles.stylex.ts](styles.stylex.ts) |
 
 [Appearance settings](../modules/settings/hooks/useAppAppearance.tsx) owns selection and persistence,
@@ -26,12 +26,12 @@ Runtime color strings reference those same CSS properties.
 
 ## Selection contract
 
-| Variant | Used by | Inactive | Selected |
-| --- | --- | --- | --- |
-| `sidebar` | Chats / Explorer | Transparent; no visible border | Panel fill + subtle border |
-| `repository` | Repository tabs | Transparent; no border | Panel fill; no border or underline |
-| `view` | Path / Tree | Transparent; no border | Panel fill; no border or underline |
-| `list` | Chat entries | Transparent; panel + border on hover | Panel fill + subtle border |
+| Variant      | Used by          | Inactive                             | Selected                           |
+| ------------ | ---------------- | ------------------------------------ | ---------------------------------- |
+| `sidebar`    | Chats / Explorer | Transparent; no visible border       | Panel fill + subtle border         |
+| `repository` | Repository tabs  | Transparent; no border               | Panel fill; no border or underline |
+| `view`       | Path / Tree      | Transparent; no border               | Panel fill; no border or underline |
+| `list`       | Chat entries     | Transparent; panel + border on hover | Panel fill + subtle border         |
 
 Inactive tabs only brighten text on hover. The surrounding bar stays unfilled.
 Bordered variants reserve border space to avoid movement during selection.
@@ -40,9 +40,9 @@ Bordered variants reserve border space to avoid movement during selection.
 import { selectionAppearance } from "../../../design-system/styles.stylex.ts";
 
 <button
-  aria-pressed={selected}
-  {...stylex.attrs(styles.layout, ...selectionAppearance("sidebar", selected))}
-/>
+	aria-pressed={selected}
+	{...stylex.attrs(styles.layout, ...selectionAppearance("sidebar", selected))}
+/>;
 ```
 
 Callers own layout and behavior. Recipes own colors, borders, shadows, and

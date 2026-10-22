@@ -32,7 +32,7 @@ fi
 
 echo
 echo "==> TypeScript"
-bunx tsc --noEmit
+bun run typecheck
 
 echo "==> Solid principles audit"
 bun scripts/check-solid-principles.ts

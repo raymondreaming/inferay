@@ -2,9 +2,9 @@
 	"name": "agent-gui",
 	"type": "module",
 	"private": true,
-	"packageManager": "bun@1.4.3",
+	"packageManager": "bun@1.4.4",
 	"engines": {
-		"bun": "1.4.3"
+		"bun": "1.4.4"
 	},
 	"scripts": {
 		"preinstall": "bun scripts/check-bun-version.mjs",
@@ -17,10 +17,12 @@
 		"start": "bun run build:renderer && cargo run --release -p inferay-desktop",
 		"release": "cargo run -p inferay-tooling -- release",
 		"release:resume": "cargo run -p inferay-tooling -- release --resume",
-		"format": "bunx biome format --write ./src",
+		"format": "bun fmt ./src",
+		"format:check": "bun fmt --check ./src",
+		"typecheck": "bun check --no-script",
 		"lint": "oxlint --deny-warnings .",
 		"lint:fix": "oxlint --fix --deny-warnings .",
-		"check": "bun run lint && bunx biome check ./src",
+		"check": "bun run lint && bun run typecheck && bun run format:check && biome check ./src",
 		"code": "bun scripts/count-code.ts",
 		"check:components": "bun scripts/check-component-structure.ts",
 		"check:architecture": "bash scripts/check-architecture.sh",
@@ -34,9 +36,13 @@
 	"lint-staged": {
 		"*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}": [
 			"oxlint --deny-warnings --no-error-on-unmatched-pattern",
-			"biome check --write --no-errors-on-unmatched"
+			"biome check --write --no-errors-on-unmatched",
+			"bun fmt --no-error-on-unmatched-pattern"
 		],
-		"*.{json,css}": "biome check --write --no-errors-on-unmatched"
+		"*.{json,css}": [
+			"biome check --write --no-errors-on-unmatched",
+			"bun fmt --no-error-on-unmatched-pattern"
+		]
 	},
 	"devDependencies": {
 		"@babel/core": "^7",
@@ -55,7 +61,7 @@
 		"lint-staged": "^16.4.0",
 		"oxlint": "1.82.0",
 		"playwright": "1.63.0",
-		"typescript": "^7.0.2"
+		"typescript": "7.0.2"
 	},
 	"dependencies": {
 		"@solidjs/web": "2.0.0-rc.6",

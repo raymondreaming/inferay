@@ -35,12 +35,10 @@ export function projectWorkspaceView(workspace: ProjectWorkspace) {
 		conversationProjects,
 		repositoryBindings: catalog.repositoryPaths,
 		repositoryPaths: Object.values(catalog.repositoryPaths),
-		projects: catalog.projects.filter(defined).map(
-			(file): Project => ({
-				...file,
-				directory: `${root}/projects/${file.definition.id}`,
-			}),
-		),
+		projects: catalog.projects.filter(defined).map((file): Project => ({
+			...file,
+			directory: `${root}/projects/${file.definition.id}`,
+		})),
 		resources: catalog.resources.filter(defined),
 		tools: catalog.tools.filter(defined),
 		skills: catalog.skills.filter(defined),
@@ -48,12 +46,10 @@ export function projectWorkspaceView(workspace: ProjectWorkspace) {
 			(automation): automation is ProjectAutomation =>
 				!!automation.file.definition,
 		),
-		plugins: catalog.plugins.map(
-			(plugin): ProjectPlugin => ({
-				...plugin,
-				directory: `${root}/projects/${plugin.file.projectId}/${plugin.file.sourcePath.replace(/\/plugin\.json$/, "")}`,
-			}),
-		),
+		plugins: catalog.plugins.map((plugin): ProjectPlugin => ({
+			...plugin,
+			directory: `${root}/projects/${plugin.file.projectId}/${plugin.file.sourcePath.replace(/\/plugin\.json$/, "")}`,
+		})),
 	};
 }
 export type ProjectWorkspaceView = ReturnType<typeof projectWorkspaceView>;

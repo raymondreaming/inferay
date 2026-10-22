@@ -682,7 +682,7 @@ export function useRepositoryWorkbench(repositoryPath: Accessor<string>) {
 						graph
 							? session.selectedCommitIds.length > 1
 							: historical().comparisonSource !== null
-					)
+				  )
 				? "comparison"
 				: "commit";
 		return {

@@ -43,5 +43,5 @@
 		"noImplicitReturns": true,
 		"noImplicitOverride": true
 	},
-	"exclude": ["dist", "build", "node_modules", "site", "docs"]
+	"exclude": ["dist", "build", "artifacts", "node_modules", "site", "docs"]
 }

@@ -18,6 +18,55 @@ heap and WASM linear-memory capacity. Include Git children when measuring native
 CPU and WebKit processes when measuring application CPU. Endpoint or model
 latency excludes DOM layout and paint unless explicitly measured.
 
+## Bun toolchain comparison
+
+The October 22, 2026 comparison measures Bun `1.4.3+c6da4a4d3` against the
+pinned `1.4.4+38afee6c8` on the same working tree and generated presentation
+module. The host is macOS arm64, Mac17,8, with 18 logical CPUs and 48 GiB RAM.
+Each workload uses fresh processes, warm filesystem caches, two excluded
+warmups per version and ten ABBA rounds (20 measured samples per version).
+Times include process launch and exit; p95 uses nearest rank.
+
+| Tooling workload | p50, 1.4.3 → 1.4.4 | p95, 1.4.3 → 1.4.4 | Interpretation |
+|---|---|---|---|
+| `bun test scripts/tests` | 1,263.8 → 1,232.4 ms | 1,303.7 → 1,270.1 ms | Median latency falls 2.5%; all runs pass the same 57 tests, including child-process checks. |
+| Architecture boundary scan | 126.7 → 127.4 ms | 133.0 → 132.4 ms | Effectively unchanged. |
+| Process plus actual renderer/WASM adapter import | 31.25 → 29.50 ms | 32.04 → 32.66 ms | Small, mixed change; excludes WebKit and desktop startup. |
+| Warm offline dependency check | 15.51 → 11.77 ms | 17.20 → 12.48 ms | Median latency falls 24.1%, saving 3.74 ms. Uses a disposable dependency-tree clone, frozen lockfile and disabled lifecycle scripts; every run reports no changes. |
+
+The separate production Vite bundle reference runs under Node `v22.23.1`:
+p50 5.10 s, p95 5.99 s over ten measured builds after two warmups. This excludes
+the already-built Rust/WASM presentation step; it is not a Bun A/B comparison.
+All twelve bundles are byte-identical, and source/generated-input hashes and
+lockfile remain unchanged throughout measurement.
+
+The installed app and normal desktop session remain running; host load and
+thermal conditions are not controlled. Small differences need independent
+confirmation. These are tooling results, not evidence of faster scrolling,
+tab switching, lower app memory or a 300–500% application-wide gain. The
+desktop runtime remains Rust and WebKit, independent of the pinned Bun binary.
+
+Replacing separate tooling with Bun's built-ins produces larger development-time
+gains on the same host. This comparison uses Bun 1.4.4 and TypeScript 7.0.2,
+two excluded warmups per arm, ten ABBA rounds and 20 measured samples per tool.
+Both arms use the same source/configuration and exclude generated benchmark
+artifacts from type checking. Times include process launch and exit.
+
+| Tool replacement | p50, previous → Bun | p95, previous → Bun | Scope |
+|---|---|---|---|
+| `tsc --noEmit` → `bun check --no-script` | 2,368.2 → 584.9 ms | 2,556.0 → 616.0 ms | 75.3% less median time. Both enumerate the same 774 project files outside dependency libraries, accept the same valid native-contract/Solid fixture and reject eight deliberately invalid cases at matching locations. |
+| Biome formatting check → `bun fmt --check` | 81.44 → 13.43 ms | 103.56 → 15.39 ms | 83.5% less median time on 258 identical files already accepted by both formatters. Excludes import organization, linting and the nine files whose formatting changes during migration. |
+
+The migration preserves tabs, double quotes and trailing commas, and disables
+Biome's formatter while retaining its import organization and CSS/JSON linting.
+An isolated Git fixture verifies that the actual hook formats staged content,
+preserves unstaged edits and still rejects CSS/JSON errors. The TypeScript editor
+dependency matches Bun's built-in checker. These figures describe the individual
+tool commands; the aggregate `check` now also runs type checking and is not an
+equivalent before/after workload. The renderer rebuild produces 1,695 files
+byte-identical to the pre-migration bundle. The production desktop stays running during
+measurement, so these results do not establish application runtime gains.
+
 ## Native application comparison
 
 A matched Tao/Wry/WebKit release comparison uses `66ecf730` (v0.1.112) and

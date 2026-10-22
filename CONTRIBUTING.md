@@ -2,7 +2,7 @@
 
 ## Development
 
-Use **Bun 1.4.3**. The version is pinned in `.bun-version` and `package.json`; dependency installation and development/build entry points check it.
+Use **Bun 1.4.4**. The version is pinned in `.bun-version` and `package.json`; dependency installation and development/build entry points check it.
 
 Install the Rust toolchain, then prepare the renderer bindings:
 
@@ -28,6 +28,15 @@ bun run code
 ```
 
 The architecture check covers ownership boundaries, TypeScript, Rust linting, and the renderer build. The test suite includes navigation and streaming regressions. The code report separates Rust from renderer code.
+
+`bun run format` formats renderer source with Bun's built-in formatter;
+`bun run format:check` checks without writing. Bun reads the existing
+`.prettierrc.json` and `.prettierignore`. `bun run typecheck` uses Bun's built-in
+TypeScript checker; the pinned TypeScript editor dependency matches it.
+`bun run check` runs lint, types, formatting, import organization and CSS/JSON
+checks. Oxlint owns JavaScript/TypeScript linting; Biome retains import
+organization and CSS/JSON linting with its formatter disabled. The staged-file
+hook runs those checks before Bun formats the files.
 
 ## Releases
 
