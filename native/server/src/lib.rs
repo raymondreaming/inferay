@@ -137,6 +137,7 @@ pub struct ServerConfig {
     pub auth_token: String,
     pub release_api_url: Option<String>,
     pub live_reload: bool,
+    pub run_automations: bool,
 }
 
 impl ServerConfig {
@@ -152,6 +153,7 @@ impl ServerConfig {
             auth_token: Uuid::new_v4().to_string(),
             release_api_url: None,
             live_reload: false,
+            run_automations: std::env::var("INFERAY_DISABLE_AUTOMATIONS").as_deref() != Ok("1"),
         }
     }
 }
@@ -403,7 +405,9 @@ fn build_router_with_connection_reset(
         client_storage.clone(),
     ));
     let _ = projects.chat.set(Arc::downgrade(&chat_runtime));
-    projects.start();
+    if config.run_automations {
+        projects.start();
+    }
     let state = ServerState {
         dist_dir,
         public_dir: config.app_root.join("public"),
