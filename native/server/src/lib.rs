@@ -61,12 +61,14 @@ mod agent_command;
 mod agent_mcp;
 mod agent_protocol;
 mod agent_runner;
+pub mod api_reference;
 mod atomic_write;
 mod automation_sandbox;
 pub mod chat_persistence;
 mod chat_runtime;
 pub mod checkpoint;
 mod client_storage;
+mod database_explorer;
 mod forge;
 mod highlight;
 mod json_file;
@@ -98,6 +100,11 @@ mod render_jobs;
 /// beside the server makes renderer contracts follow backend schema changes.
 pub fn export_renderer_types(config: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
     use ts_rs::TS;
+    database_explorer::DatabaseInfo::export_all(config)?;
+    database_explorer::DatabaseSchema::export_all(config)?;
+    database_explorer::DatabaseRows::export_all(config)?;
+    database_explorer::DatabaseRowsQuery::export_all(config)?;
+    database_explorer::DatabaseCellQuery::export_all(config)?;
     memory_store::MemoryGraphData::export_all(config)?;
     memory_store::MemorySearchResponse::export_all(config)?;
     memory_store::MemoryNoteView::export_all(config)?;
@@ -160,6 +167,7 @@ impl ServerConfig {
 
 #[derive(Clone)]
 struct ServerState {
+    user_data_dir: PathBuf,
     dist_dir: PathBuf,
     public_dir: PathBuf,
     allowed_paths: AllowedPaths,
@@ -409,6 +417,7 @@ fn build_router_with_connection_reset(
         projects.start();
     }
     let state = ServerState {
+        user_data_dir: config.user_data_dir.clone(),
         dist_dir,
         public_dir: config.app_root.join("public"),
         allowed_paths,
@@ -481,6 +490,15 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
 }
 async fn dispatch_api(state: &ServerState, path: &str, request: Request) -> ApiResult<Response> {
     let result = match (path, request.method().as_str()) {
+        ("/api/openapi.json", "GET") => {
+            return Ok(json_response(
+                StatusCode::OK,
+                database_explorer::http::openapi(),
+            ));
+        }
+        (path, "GET") if database_explorer::http::handles(path) => {
+            return database_explorer::http::read(state, request).await;
+        }
         ("/api/link-metadata", "GET") => {
             let url = query_value(&request, "url").unwrap_or_default();
             return Ok(json_response(

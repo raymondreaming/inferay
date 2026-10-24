@@ -1,0 +1,353 @@
+{
+	"openapi": "3.1.0",
+	"info": {
+		"title": "Inferay per-turn MCP bridge",
+		"version": "1.0.0",
+		"description": "The Claude native-tool bridge, not the main application server. Its loopback port and bearer token are ephemeral and emitted only to the running agent. Do not expose or persist credentials. Codex receives the same native tool definitions through its app-server protocol."
+	},
+	"servers": [
+		{
+			"url": "http://127.0.0.1:{port}",
+			"variables": {
+				"port": {
+					"default": "1",
+					"description": "Replace with this turn's assigned port; there is no fixed port."
+				}
+			}
+		}
+	],
+	"security": [
+		{
+			"turnToken": []
+		}
+	],
+	"components": {
+		"securitySchemes": {
+			"turnToken": {
+				"type": "http",
+				"scheme": "bearer"
+			}
+		}
+	},
+	"paths": {
+		"/mcp": {
+			"post": {
+				"operationId": "callNativeMcpBridge",
+				"description": "Rejects any Origin header. Protocol version 2025-11-25. A missing id is accepted only for notifications/initialized. tools/call errors appear as result.isError=true; unsupported methods use JSON-RPC -32601. Tool calls are checked against live scope and permissions.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["jsonrpc", "method"],
+								"properties": {
+									"jsonrpc": {
+										"const": "2.0"
+									},
+									"id": {
+										"type": ["string", "number", "null"]
+									},
+									"method": {
+										"enum": [
+											"initialize",
+											"ping",
+											"tools/list",
+											"tools/call",
+											"notifications/initialized"
+										]
+									},
+									"params": {
+										"type": "object"
+									}
+								},
+								"allOf": [
+									{
+										"if": {
+											"properties": {
+												"method": {
+													"const": "tools/call"
+												}
+											}
+										},
+										"then": {
+											"required": ["id", "params"],
+											"properties": {
+												"params": {
+													"oneOf": [
+														{
+															"type": "object",
+															"required": ["name", "arguments"],
+															"properties": {
+																"name": {
+																	"const": "inferay_list_skills"
+																},
+																"arguments": {
+																	"type": "object",
+																	"properties": {
+																		"query": {
+																			"type": "string",
+																			"description": "Optional name, command, or description filter"
+																		}
+																	},
+																	"additionalProperties": false
+																}
+															}
+														},
+														{
+															"type": "object",
+															"required": ["name", "arguments"],
+															"properties": {
+																"name": {
+																	"const": "inferay_read_skill"
+																},
+																"arguments": {
+																	"type": "object",
+																	"properties": {
+																		"skill": {
+																			"type": "string"
+																		}
+																	},
+																	"required": ["skill"],
+																	"additionalProperties": false
+																}
+															}
+														},
+														{
+															"type": "object",
+															"required": ["name", "arguments"],
+															"properties": {
+																"name": {
+																	"const": "inferay_propose_skill"
+																},
+																"arguments": {
+																	"type": "object",
+																	"properties": {
+																		"action": {
+																			"type": "string",
+																			"enum": ["create", "update"]
+																		},
+																		"skillId": {
+																			"type": "string"
+																		},
+																		"expectedUpdatedAt": {
+																			"type": "integer"
+																		},
+																		"name": {
+																			"type": "string"
+																		},
+																		"command": {
+																			"type": "string"
+																		},
+																		"description": {
+																			"type": "string"
+																		},
+																		"promptTemplate": {
+																			"type": "string"
+																		},
+																		"reason": {
+																			"type": "string"
+																		}
+																	},
+																	"required": [
+																		"action",
+																		"name",
+																		"command",
+																		"description",
+																		"promptTemplate",
+																		"reason"
+																	],
+																	"additionalProperties": false
+																}
+															}
+														},
+														{
+															"type": "object",
+															"required": ["name", "arguments"],
+															"properties": {
+																"name": {
+																	"const": "inferay_projects"
+																},
+																"arguments": {
+																	"type": "object",
+																	"properties": {
+																		"action": {
+																			"type": "string",
+																			"enum": ["list", "help", "command"]
+																		},
+																		"projectId": {
+																			"type": "string"
+																		},
+																		"command": {
+																			"type": "object"
+																		}
+																	},
+																	"required": ["action"]
+																}
+															}
+														},
+														{
+															"type": "object",
+															"required": ["name", "arguments"],
+															"properties": {
+																"name": {
+																	"const": "inferay_memory"
+																},
+																"arguments": {
+																	"type": "object",
+																	"properties": {
+																		"action": {
+																			"type": "string",
+																			"enum": ["search", "read", "save"]
+																		},
+																		"query": {
+																			"type": "string"
+																		},
+																		"tag": {
+																			"type": "string"
+																		},
+																		"limit": {
+																			"type": "integer"
+																		},
+																		"id": {
+																			"type": "string"
+																		},
+																		"note": {
+																			"type": "object",
+																			"properties": {
+																				"title": {
+																					"type": "string"
+																				},
+																				"body": {
+																					"type": "string"
+																				},
+																				"tags": {
+																					"type": "array",
+																					"items": {
+																						"type": "string"
+																					}
+																				},
+																				"supersedes": {
+																					"type": "string"
+																				}
+																			}
+																		}
+																	},
+																	"required": ["action"]
+																}
+															}
+														},
+														{
+															"type": "object",
+															"required": ["name", "arguments"],
+															"properties": {
+																"name": {
+																	"const": "inferay_tools"
+																},
+																"arguments": {
+																	"type": "object",
+																	"properties": {
+																		"action": {
+																			"type": "string",
+																			"enum": ["list", "call"]
+																		},
+																		"pluginId": {
+																			"type": "string"
+																		},
+																		"toolId": {
+																			"type": "string"
+																		},
+																		"input": {}
+																	},
+																	"required": ["action"],
+																	"additionalProperties": false
+																}
+															}
+														}
+													]
+												}
+											}
+										}
+									},
+									{
+										"if": {
+											"properties": {
+												"method": {
+													"enum": ["initialize", "ping", "tools/list"]
+												}
+											}
+										},
+										"then": {
+											"required": ["id"]
+										}
+									}
+								]
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "JSON-RPC result or method error. Tool content is a text block containing serialized JSON, with isError indicating execution failure.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"required": ["jsonrpc", "id"],
+									"properties": {
+										"jsonrpc": {
+											"const": "2.0"
+										},
+										"id": {},
+										"result": {},
+										"error": {
+											"type": "object",
+											"properties": {
+												"code": {
+													"type": "integer"
+												},
+												"message": {
+													"type": "string"
+												}
+											},
+											"required": ["code", "message"]
+										}
+									},
+									"oneOf": [
+										{
+											"required": ["result"]
+										},
+										{
+											"required": ["error"]
+										}
+									]
+								}
+							}
+						}
+					},
+					"202": {
+						"description": "Initialization notification accepted"
+					},
+					"400": {
+						"description": "Invalid JSON-RPC version or notification"
+					},
+					"403": {
+						"description": "Missing/incorrect turn token or any Origin header"
+					},
+					"410": {
+						"description": "Turn ended or cancelled"
+					},
+					"413": {
+						"description": "Request exceeds 52000000-byte body limit"
+					},
+					"415": {
+						"description": "Unsupported content type"
+					},
+					"422": {
+						"description": "JSON body could not be deserialized"
+					}
+				}
+			}
+		}
+	}
+}

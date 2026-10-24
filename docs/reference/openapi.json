@@ -1,0 +1,692 @@
+{
+	"openapi": "3.1.0",
+	"info": {
+		"title": "Inferay database inspection API",
+		"version": "1.0.0",
+		"description": "Authenticated, read-only internal SQLite inspection. Requests require a valid local token plus trusted loopback Origin or same-origin/none Sec-Fetch-Site context; see docs/api.md. This spec covers every database explorer operation; it is not a claim of coverage for all legacy application routes. MCP uses its separate per-turn JSON-RPC transport; see mcp-tools.json and docs/mcp.md."
+	},
+	"servers": [
+		{
+			"url": "/"
+		}
+	],
+	"security": [
+		{
+			"localHeader": []
+		},
+		{
+			"localCookie": []
+		}
+	],
+	"components": {
+		"securitySchemes": {
+			"localHeader": {
+				"type": "apiKey",
+				"in": "header",
+				"name": "X-Inferay-Auth"
+			},
+			"localCookie": {
+				"type": "apiKey",
+				"in": "cookie",
+				"name": "inferay_local_auth"
+			}
+		}
+	},
+	"paths": {
+		"/api/databases": {
+			"get": {
+				"operationId": "listDatabases",
+				"tags": ["Database explorer"],
+				"description": "List allowlisted stores in the active profile, including stores not created yet. Does not initialize or migrate databases.",
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "Successful inspection",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$schema": "https://json-schema.org/draft/2020-12/schema",
+									"title": "Array_of_DatabaseInfo",
+									"type": "array",
+									"items": {
+										"type": "object",
+										"properties": {
+											"id": {
+												"type": "string",
+												"enum": [
+													"projects",
+													"memory",
+													"chat",
+													"skills",
+													"client-storage"
+												]
+											},
+											"filename": {
+												"type": "string"
+											},
+											"purpose": {
+												"type": "string"
+											},
+											"owner": {
+												"type": "string"
+											},
+											"sourceOfTruth": {
+												"type": "string"
+											},
+											"exists": {
+												"type": "boolean"
+											}
+										},
+										"required": [
+											"id",
+											"filename",
+											"purpose",
+											"owner",
+											"sourceOfTruth",
+											"exists"
+										]
+									}
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Invalid query, unavailable store/table/row, query budget exhausted, or SQLite error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$schema": "https://json-schema.org/draft/2020-12/schema",
+									"title": "ErrorResponse",
+									"type": "object",
+									"properties": {
+										"error": {
+											"type": "string"
+										}
+									},
+									"required": ["error"]
+								}
+							}
+						}
+					},
+					"403": {
+						"description": "Local authentication or origin rejected"
+					}
+				}
+			}
+		},
+		"/api/databases/schema": {
+			"get": {
+				"operationId": "getDatabaseSchema",
+				"tags": ["Database explorer"],
+				"description": "Live SQLite schema: tables, views, shadow tables, hidden/generated columns, foreign keys, index expressions and triggers. PRAGMAs describe this read-only connection, not another connection's settings.",
+				"parameters": [
+					{
+						"name": "database",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"enum": ["projects", "memory", "chat", "skills", "client-storage"]
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Successful inspection",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$schema": "https://json-schema.org/draft/2020-12/schema",
+									"title": "DatabaseSchema",
+									"type": "object",
+									"properties": {
+										"database": {
+											"type": "string",
+											"enum": [
+												"projects",
+												"memory",
+												"chat",
+												"skills",
+												"client-storage"
+											]
+										},
+										"sqliteVersion": {
+											"type": "string"
+										},
+										"userVersion": {
+											"type": "integer",
+											"format": "int64"
+										},
+										"journalMode": {
+											"type": "string"
+										},
+										"objects": {
+											"type": "array",
+											"items": {
+												"type": "object",
+												"properties": {
+													"name": {
+														"type": "string"
+													},
+													"kind": {
+														"type": "string"
+													},
+													"sql": {
+														"type": ["string", "null"]
+													},
+													"withoutRowid": {
+														"type": "boolean"
+													},
+													"strict": {
+														"type": "boolean"
+													},
+													"columns": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"properties": {
+																"name": {
+																	"type": "string"
+																},
+																"declaredType": {
+																	"type": "string"
+																},
+																"notNull": {
+																	"type": "boolean"
+																},
+																"defaultValue": {
+																	"type": ["string", "null"]
+																},
+																"primaryKeyPosition": {
+																	"type": "integer",
+																	"format": "int64"
+																},
+																"hidden": {
+																	"type": "integer",
+																	"format": "int64"
+																}
+															},
+															"required": [
+																"name",
+																"declaredType",
+																"notNull",
+																"primaryKeyPosition",
+																"hidden"
+															]
+														}
+													},
+													"foreignKeys": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"properties": {
+																"id": {
+																	"type": "integer",
+																	"format": "int64"
+																},
+																"sequence": {
+																	"type": "integer",
+																	"format": "int64"
+																},
+																"table": {
+																	"type": "string"
+																},
+																"from": {
+																	"type": "string"
+																},
+																"to": {
+																	"type": ["string", "null"]
+																},
+																"onUpdate": {
+																	"type": "string"
+																},
+																"onDelete": {
+																	"type": "string"
+																},
+																"matchRule": {
+																	"type": "string"
+																}
+															},
+															"required": [
+																"id",
+																"sequence",
+																"table",
+																"from",
+																"onUpdate",
+																"onDelete",
+																"matchRule"
+															]
+														}
+													},
+													"indexes": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"properties": {
+																"name": {
+																	"type": "string"
+																},
+																"unique": {
+																	"type": "boolean"
+																},
+																"origin": {
+																	"type": "string"
+																},
+																"partial": {
+																	"type": "boolean"
+																},
+																"sql": {
+																	"type": ["string", "null"]
+																},
+																"columns": {
+																	"type": "array",
+																	"items": {
+																		"type": "object",
+																		"properties": {
+																			"sequence": {
+																				"type": "integer",
+																				"format": "int64"
+																			},
+																			"columnId": {
+																				"type": "integer",
+																				"format": "int64"
+																			},
+																			"name": {
+																				"type": ["string", "null"]
+																			},
+																			"descending": {
+																				"type": "boolean"
+																			},
+																			"collation": {
+																				"type": "string"
+																			},
+																			"key": {
+																				"type": "boolean"
+																			}
+																		},
+																		"required": [
+																			"sequence",
+																			"columnId",
+																			"descending",
+																			"collation",
+																			"key"
+																		]
+																	}
+																}
+															},
+															"required": [
+																"name",
+																"unique",
+																"origin",
+																"partial",
+																"columns"
+															]
+														}
+													}
+												},
+												"required": [
+													"name",
+													"kind",
+													"withoutRowid",
+													"strict",
+													"columns",
+													"foreignKeys",
+													"indexes"
+												]
+											}
+										},
+										"triggers": {
+											"type": "array",
+											"items": {
+												"type": "object",
+												"properties": {
+													"name": {
+														"type": "string"
+													},
+													"table": {
+														"type": "string"
+													},
+													"sql": {
+														"type": ["string", "null"]
+													}
+												},
+												"required": ["name", "table"]
+											}
+										}
+									},
+									"required": [
+										"database",
+										"sqliteVersion",
+										"userVersion",
+										"journalMode",
+										"objects",
+										"triggers"
+									]
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Invalid query, unavailable store/table/row, query budget exhausted, or SQLite error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$schema": "https://json-schema.org/draft/2020-12/schema",
+									"title": "ErrorResponse",
+									"type": "object",
+									"properties": {
+										"error": {
+											"type": "string"
+										}
+									},
+									"required": ["error"]
+								}
+							}
+						}
+					},
+					"403": {
+						"description": "Local authentication or origin rejected"
+					}
+				}
+			}
+		},
+		"/api/databases/rows": {
+			"get": {
+				"operationId": "getDatabaseRows",
+				"tags": ["Database explorer"],
+				"description": "Read 1–100 rows, offset up to 1000000. Optional case-sensitive literal substring filter (maximum 1000 bytes) on one column; sort column validated against schema. Cells preview 512 characters or blob bytes. Integers are decimal strings, blobs hex, NULL is null. Each request has its own SQLite snapshot; live writes can shift pages. Query execution budget: 2 seconds; busy timeout: 500ms. At most 200 visible columns.",
+				"parameters": [
+					{
+						"name": "database",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"enum": ["projects", "memory", "chat", "skills", "client-storage"]
+						}
+					},
+					{
+						"name": "table",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "offset",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "integer",
+							"format": "uint32",
+							"minimum": 0,
+							"maximum": 1000000,
+							"default": 0
+						}
+					},
+					{
+						"name": "limit",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "integer",
+							"format": "uint32",
+							"minimum": 1,
+							"maximum": 100,
+							"default": 50
+						}
+					},
+					{
+						"name": "sort",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": ["string", "null"]
+						}
+					},
+					{
+						"name": "direction",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string",
+							"enum": ["asc", "desc"],
+							"default": "asc"
+						}
+					},
+					{
+						"name": "column",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": ["string", "null"]
+						}
+					},
+					{
+						"name": "filter",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": ["string", "null"]
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Successful inspection",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$schema": "https://json-schema.org/draft/2020-12/schema",
+									"title": "DatabaseRows",
+									"type": "object",
+									"properties": {
+										"columns": {
+											"type": "array",
+											"items": {
+												"type": "string"
+											}
+										},
+										"rows": {
+											"type": "array",
+											"items": {
+												"type": "object",
+												"properties": {
+													"key": {
+														"type": ["string", "null"]
+													},
+													"cells": {
+														"type": "array",
+														"items": {
+															"type": "object",
+															"properties": {
+																"kind": {
+																	"description": "SQLite storage class: null, integer, real, text, blob. Integers are decimal strings; blobs are hex.",
+																	"type": "string",
+																	"enum": [
+																		"null",
+																		"integer",
+																		"real",
+																		"text",
+																		"blob"
+																	]
+																},
+																"value": {
+																	"type": ["string", "null"]
+																},
+																"truncated": {
+																	"type": "boolean"
+																}
+															},
+															"required": ["kind", "truncated"]
+														}
+													}
+												},
+												"required": ["cells"]
+											}
+										},
+										"offset": {
+											"type": "integer",
+											"format": "uint32",
+											"minimum": 0
+										},
+										"hasMore": {
+											"type": "boolean"
+										}
+									},
+									"required": ["columns", "rows", "offset", "hasMore"]
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Invalid query, unavailable store/table/row, query budget exhausted, or SQLite error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$schema": "https://json-schema.org/draft/2020-12/schema",
+									"title": "ErrorResponse",
+									"type": "object",
+									"properties": {
+										"error": {
+											"type": "string"
+										}
+									},
+									"required": ["error"]
+								}
+							}
+						}
+					},
+					"403": {
+						"description": "Local authentication or origin rejected"
+					}
+				}
+			}
+		},
+		"/api/databases/cell": {
+			"get": {
+				"operationId": "getDatabaseCell",
+				"tags": ["Database explorer"],
+				"description": "Read one cell by its opaque row key, in 65536-character text or 65536-byte blob chunks. Increment offset by 65536 while truncated is true. Keys use rowid or the ordered primary key for WITHOUT ROWID tables. Views without a key support previews only. Keys larger than 65536 bytes are not returned. A later read can observe updates or deletion; row keys are not durable business identifiers.",
+				"parameters": [
+					{
+						"name": "database",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"enum": ["projects", "memory", "chat", "skills", "client-storage"]
+						}
+					},
+					{
+						"name": "table",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "column",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					},
+					{
+						"name": "key",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"description": "Opaque row key returned by the rows endpoint. Do not parse or modify it.",
+							"type": "string"
+						}
+					},
+					{
+						"name": "offset",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"description": "Character offset for text, byte offset for blobs. Fixed 65536-unit chunks.",
+							"type": "integer",
+							"format": "uint32",
+							"minimum": 0,
+							"default": 0
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Successful inspection",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$schema": "https://json-schema.org/draft/2020-12/schema",
+									"title": "DatabaseCell",
+									"type": "object",
+									"properties": {
+										"kind": {
+											"description": "SQLite storage class: null, integer, real, text, blob. Integers are decimal strings; blobs are hex.",
+											"type": "string",
+											"enum": ["null", "integer", "real", "text", "blob"]
+										},
+										"value": {
+											"type": ["string", "null"]
+										},
+										"truncated": {
+											"type": "boolean"
+										}
+									},
+									"required": ["kind", "truncated"]
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Invalid query, unavailable store/table/row, query budget exhausted, or SQLite error",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$schema": "https://json-schema.org/draft/2020-12/schema",
+									"title": "ErrorResponse",
+									"type": "object",
+									"properties": {
+										"error": {
+											"type": "string"
+										}
+									},
+									"required": ["error"]
+								}
+							}
+						}
+					},
+					"403": {
+						"description": "Local authentication or origin rejected"
+					}
+				}
+			}
+		},
+		"/api/openapi.json": {
+			"get": {
+				"operationId": "getOpenApi",
+				"responses": {
+					"200": {
+						"description": "This OpenAPI document",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object"
+								}
+							}
+						}
+					},
+					"403": {
+						"description": "Local authentication or origin rejected"
+					}
+				}
+			}
+		}
+	}
+}

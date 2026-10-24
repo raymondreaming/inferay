@@ -1,0 +1,4222 @@
+{
+	"description": "Generated from an empty temporary profile using production initializers. The explorer inspects the actual running profile instead.",
+	"databases": [
+		{
+			"id": "projects",
+			"filename": "projects.sqlite3",
+			"purpose": "Projects, approvals and run history",
+			"owner": "project_store / project_index / project_file_store",
+			"sourceOfTruth": "Definition files own the index; approvals, runs and local bindings exist only in this database.",
+			"exists": true
+		},
+		{
+			"id": "memory",
+			"filename": "memory.sqlite3",
+			"purpose": "Memory search and links",
+			"owner": "memory_store",
+			"sourceOfTruth": "Notes and documents under each project's memory folder. The database is a rebuildable index.",
+			"exists": true
+		},
+		{
+			"id": "chat",
+			"filename": "chat.sqlite3",
+			"purpose": "Conversations and transcripts",
+			"owner": "chat_persistence",
+			"sourceOfTruth": "Authoritative conversation state. Do not delete or rebuild from an index.",
+			"exists": true
+		},
+		{
+			"id": "skills",
+			"filename": "skills.sqlite3",
+			"purpose": "Global custom skills",
+			"owner": "prompt_store",
+			"sourceOfTruth": "Authoritative custom skill library. Bundled skills are supplied separately.",
+			"exists": true
+		},
+		{
+			"id": "client-storage",
+			"filename": "client-storage.sqlite3",
+			"purpose": "Appearance, drafts and panel state",
+			"owner": "client_storage",
+			"sourceOfTruth": "Authoritative interface state after the one-time JSON import.",
+			"exists": true
+		}
+	],
+	"schemas": [
+		{
+			"database": "projects",
+			"sqliteVersion": "3.53.2",
+			"userVersion": 3,
+			"journalMode": "wal",
+			"objects": [
+				{
+					"name": "artifacts",
+					"kind": "table",
+					"sql": "CREATE TABLE artifacts(id TEXT PRIMARY KEY,project_id TEXT NOT NULL,run_id TEXT NOT NULL REFERENCES runs(id),name TEXT NOT NULL,path TEXT NOT NULL,byte_size INTEGER NOT NULL,content_hash TEXT NOT NULL,created_at INTEGER NOT NULL)",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "project_id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "run_id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "name",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "path",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "byte_size",
+							"declaredType": "INTEGER",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "content_hash",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "created_at",
+							"declaredType": "INTEGER",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [
+						{
+							"id": 0,
+							"sequence": 0,
+							"table": "runs",
+							"from": "run_id",
+							"to": "id",
+							"onUpdate": "NO ACTION",
+							"onDelete": "NO ACTION",
+							"matchRule": "NONE"
+						}
+					],
+					"indexes": [
+						{
+							"name": "sqlite_autoindex_artifacts_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "automation_state",
+					"kind": "table",
+					"sql": "CREATE TABLE automation_state(\n        automation_id TEXT PRIMARY KEY,enabled INTEGER NOT NULL DEFAULT 0,\n        next_due_at INTEGER,approved_hash TEXT,approved_at INTEGER,\n        inputs_changed INTEGER NOT NULL DEFAULT 0,error TEXT)",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "automation_id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "enabled",
+							"declaredType": "INTEGER",
+							"notNull": true,
+							"defaultValue": "0",
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "next_due_at",
+							"declaredType": "INTEGER",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "approved_hash",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "approved_at",
+							"declaredType": "INTEGER",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "inputs_changed",
+							"declaredType": "INTEGER",
+							"notNull": true,
+							"defaultValue": "0",
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "error",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "sqlite_autoindex_automation_state_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "automation_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "automations",
+					"kind": "table",
+					"sql": "CREATE TABLE automations(\n            id TEXT PRIMARY KEY,project_id TEXT NOT NULL,plugin_id TEXT,\n            source_path TEXT NOT NULL,source_hash TEXT,valid INTEGER NOT NULL,error TEXT,\n            body TEXT CHECK(body IS NULL OR json_valid(body)),\n            UNIQUE(project_id,source_path))",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "project_id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "plugin_id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "source_path",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "source_hash",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "valid",
+							"declaredType": "INTEGER",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "error",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "body",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "automations_project",
+							"unique": false,
+							"origin": "c",
+							"partial": false,
+							"sql": "CREATE INDEX automations_project ON automations(project_id,valid)",
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 1,
+									"name": "project_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 5,
+									"name": "valid",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						},
+						{
+							"name": "sqlite_autoindex_automations_2",
+							"unique": true,
+							"origin": "u",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 1,
+									"name": "project_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 3,
+									"name": "source_path",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						},
+						{
+							"name": "sqlite_autoindex_automations_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "definition_errors",
+					"kind": "table",
+					"sql": "CREATE TABLE definition_errors(project_id TEXT NOT NULL,source_path TEXT NOT NULL,error TEXT NOT NULL,PRIMARY KEY(project_id,source_path))",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "project_id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "source_path",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 2,
+							"hidden": 0
+						},
+						{
+							"name": "error",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "sqlite_autoindex_definition_errors_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "project_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 1,
+									"name": "source_path",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "effect_cancellations",
+					"kind": "table",
+					"sql": "CREATE TABLE effect_cancellations(\n        delivery_id TEXT PRIMARY KEY REFERENCES effect_outbox(id), requested_at INTEGER NOT NULL)",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "delivery_id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "requested_at",
+							"declaredType": "INTEGER",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [
+						{
+							"id": 0,
+							"sequence": 0,
+							"table": "effect_outbox",
+							"from": "delivery_id",
+							"to": "id",
+							"onUpdate": "NO ACTION",
+							"onDelete": "NO ACTION",
+							"matchRule": "NONE"
+						}
+					],
+					"indexes": [
+						{
+							"name": "sqlite_autoindex_effect_cancellations_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "delivery_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "effect_dismissals",
+					"kind": "table",
+					"sql": "CREATE TABLE effect_dismissals(\n            effect_id TEXT PRIMARY KEY REFERENCES effect_intents(id),\n            intent_hash TEXT NOT NULL, dismissed_at INTEGER NOT NULL)",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "effect_id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "intent_hash",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "dismissed_at",
+							"declaredType": "INTEGER",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [
+						{
+							"id": 0,
+							"sequence": 0,
+							"table": "effect_intents",
+							"from": "effect_id",
+							"to": "id",
+							"onUpdate": "NO ACTION",
+							"onDelete": "NO ACTION",
+							"matchRule": "NONE"
+						}
+					],
+					"indexes": [
+						{
+							"name": "sqlite_autoindex_effect_dismissals_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "effect_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "effect_intents",
+					"kind": "table",
+					"sql": "CREATE TABLE effect_intents(\n        id TEXT PRIMARY KEY, project_id TEXT NOT NULL, run_id TEXT NOT NULL,\n        artifact TEXT NOT NULL, intent_key TEXT NOT NULL, intent TEXT NOT NULL,\n        intent_hash TEXT NOT NULL, created_at INTEGER NOT NULL,\n        UNIQUE(project_id,intent_key))",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "project_id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "run_id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "artifact",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "intent_key",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "intent",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "intent_hash",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "created_at",
+							"declaredType": "INTEGER",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "effect_intents_run",
+							"unique": false,
+							"origin": "c",
+							"partial": false,
+							"sql": "CREATE INDEX effect_intents_run ON effect_intents(project_id,run_id)",
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 1,
+									"name": "project_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 2,
+									"name": "run_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						},
+						{
+							"name": "sqlite_autoindex_effect_intents_2",
+							"unique": true,
+							"origin": "u",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 1,
+									"name": "project_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 4,
+									"name": "intent_key",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						},
+						{
+							"name": "sqlite_autoindex_effect_intents_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "effect_limits",
+					"kind": "table",
+					"sql": "CREATE TABLE effect_limits(\n        project_id TEXT NOT NULL, kind TEXT NOT NULL, target TEXT NOT NULL,\n        revision TEXT NOT NULL, body TEXT NOT NULL,\n        PRIMARY KEY(project_id,kind,target))",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "project_id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "kind",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 2,
+							"hidden": 0
+						},
+						{
+							"name": "target",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 3,
+							"hidden": 0
+						},
+						{
+							"name": "revision",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "body",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "sqlite_autoindex_effect_limits_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "project_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 1,
+									"name": "kind",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": 2,
+									"name": "target",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 3,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "effect_outbox",
+					"kind": "table",
+					"sql": "CREATE TABLE effect_outbox(\n        id TEXT PRIMARY KEY, effect_id TEXT NOT NULL UNIQUE REFERENCES effect_intents(id),\n        project_id TEXT NOT NULL, kind TEXT NOT NULL, target TEXT NOT NULL,\n        intent_hash TEXT NOT NULL, limit_revision TEXT NOT NULL, handler_hash TEXT NOT NULL,\n        state TEXT NOT NULL CHECK(state IN ('queued','in_flight','uncertain','delivered','cancelled')),\n        queued_at INTEGER NOT NULL, not_before INTEGER NOT NULL,\n        reserved_at INTEGER, receipt TEXT)",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "effect_id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "project_id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "kind",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "target",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "intent_hash",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "limit_revision",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "handler_hash",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "state",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "queued_at",
+							"declaredType": "INTEGER",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "not_before",
+							"declaredType": "INTEGER",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "reserved_at",
+							"declaredType": "INTEGER",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "receipt",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [
+						{
+							"id": 0,
+							"sequence": 0,
+							"table": "effect_intents",
+							"from": "effect_id",
+							"to": "id",
+							"onUpdate": "NO ACTION",
+							"onDelete": "NO ACTION",
+							"matchRule": "NONE"
+						}
+					],
+					"indexes": [
+						{
+							"name": "effect_outbox_scope",
+							"unique": false,
+							"origin": "c",
+							"partial": false,
+							"sql": "CREATE INDEX effect_outbox_scope ON effect_outbox(project_id,kind,target,state,reserved_at)",
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 2,
+									"name": "project_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 3,
+									"name": "kind",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": 4,
+									"name": "target",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 3,
+									"columnId": 8,
+									"name": "state",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 4,
+									"columnId": 11,
+									"name": "reserved_at",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 5,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						},
+						{
+							"name": "sqlite_autoindex_effect_outbox_2",
+							"unique": true,
+							"origin": "u",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 1,
+									"name": "effect_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						},
+						{
+							"name": "sqlite_autoindex_effect_outbox_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "plugin_state",
+					"kind": "table",
+					"sql": "CREATE TABLE plugin_state(plugin_id TEXT PRIMARY KEY,approved_hash TEXT,approved_at INTEGER, approved_inputs TEXT CHECK(approved_inputs IS NULL OR json_valid(approved_inputs)))",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "plugin_id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "approved_hash",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "approved_at",
+							"declaredType": "INTEGER",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "approved_inputs",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "sqlite_autoindex_plugin_state_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "plugin_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "plugins",
+					"kind": "table",
+					"sql": "CREATE TABLE plugins(\n            id TEXT PRIMARY KEY,project_id TEXT NOT NULL,plugin_id TEXT,\n            source_path TEXT NOT NULL,source_hash TEXT,valid INTEGER NOT NULL,error TEXT,\n            body TEXT CHECK(body IS NULL OR json_valid(body)),\n            UNIQUE(project_id,source_path))",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "project_id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "plugin_id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "source_path",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "source_hash",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "valid",
+							"declaredType": "INTEGER",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "error",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "body",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "plugins_project",
+							"unique": false,
+							"origin": "c",
+							"partial": false,
+							"sql": "CREATE INDEX plugins_project ON plugins(project_id,valid)",
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 1,
+									"name": "project_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 5,
+									"name": "valid",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						},
+						{
+							"name": "sqlite_autoindex_plugins_2",
+							"unique": true,
+							"origin": "u",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 1,
+									"name": "project_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 3,
+									"name": "source_path",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						},
+						{
+							"name": "sqlite_autoindex_plugins_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "project_conversations",
+					"kind": "table",
+					"sql": "CREATE TABLE project_conversations(pane_id TEXT PRIMARY KEY,project_id TEXT NOT NULL)",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "pane_id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "project_id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "sqlite_autoindex_project_conversations_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "pane_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "project_proposals",
+					"kind": "table",
+					"sql": "CREATE TABLE project_proposals(\n            message_id TEXT PRIMARY KEY,command_hash TEXT NOT NULL,project_id TEXT NOT NULL,\n            state TEXT NOT NULL CHECK(state IN ('applying','saved','declined')),\n            output_hash TEXT,entity_id TEXT, accepted_command TEXT CHECK(accepted_command IS NULL OR json_valid(accepted_command)))",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "message_id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "command_hash",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "project_id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "state",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "output_hash",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "entity_id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "accepted_command",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "sqlite_autoindex_project_proposals_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "message_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "project_skills",
+					"kind": "table",
+					"sql": "CREATE TABLE project_skills(\n            id TEXT PRIMARY KEY,project_id TEXT NOT NULL,plugin_id TEXT,\n            source_path TEXT NOT NULL,source_hash TEXT,valid INTEGER NOT NULL,error TEXT,\n            body TEXT CHECK(body IS NULL OR json_valid(body)),\n            UNIQUE(project_id,source_path))",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "project_id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "plugin_id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "source_path",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "source_hash",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "valid",
+							"declaredType": "INTEGER",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "error",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "body",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "project_skills_project",
+							"unique": false,
+							"origin": "c",
+							"partial": false,
+							"sql": "CREATE INDEX project_skills_project ON project_skills(project_id,valid)",
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 1,
+									"name": "project_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 5,
+									"name": "valid",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						},
+						{
+							"name": "sqlite_autoindex_project_skills_2",
+							"unique": true,
+							"origin": "u",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 1,
+									"name": "project_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 3,
+									"name": "source_path",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						},
+						{
+							"name": "sqlite_autoindex_project_skills_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "projects",
+					"kind": "table",
+					"sql": "CREATE TABLE projects(\n            id TEXT PRIMARY KEY,project_id TEXT NOT NULL,plugin_id TEXT,\n            source_path TEXT NOT NULL,source_hash TEXT,valid INTEGER NOT NULL,error TEXT,\n            body TEXT CHECK(body IS NULL OR json_valid(body)),\n            UNIQUE(project_id,source_path))",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "project_id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "plugin_id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "source_path",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "source_hash",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "valid",
+							"declaredType": "INTEGER",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "error",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "body",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "projects_project",
+							"unique": false,
+							"origin": "c",
+							"partial": false,
+							"sql": "CREATE INDEX projects_project ON projects(project_id,valid)",
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 1,
+									"name": "project_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 5,
+									"name": "valid",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						},
+						{
+							"name": "sqlite_autoindex_projects_2",
+							"unique": true,
+							"origin": "u",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 1,
+									"name": "project_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 3,
+									"name": "source_path",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						},
+						{
+							"name": "sqlite_autoindex_projects_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "repository_paths",
+					"kind": "table",
+					"sql": "CREATE TABLE repository_paths(project_id TEXT NOT NULL,repository_id TEXT NOT NULL,path TEXT NOT NULL,PRIMARY KEY(project_id,repository_id))",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "project_id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "repository_id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 2,
+							"hidden": 0
+						},
+						{
+							"name": "path",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "sqlite_autoindex_repository_paths_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "project_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 1,
+									"name": "repository_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "resource_types",
+					"kind": "table",
+					"sql": "CREATE TABLE resource_types(\n            id TEXT PRIMARY KEY,project_id TEXT NOT NULL,plugin_id TEXT,\n            source_path TEXT NOT NULL,source_hash TEXT,valid INTEGER NOT NULL,error TEXT,\n            body TEXT CHECK(body IS NULL OR json_valid(body)),\n            UNIQUE(project_id,source_path))",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "project_id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "plugin_id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "source_path",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "source_hash",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "valid",
+							"declaredType": "INTEGER",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "error",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "body",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "resource_types_project",
+							"unique": false,
+							"origin": "c",
+							"partial": false,
+							"sql": "CREATE INDEX resource_types_project ON resource_types(project_id,valid)",
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 1,
+									"name": "project_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 5,
+									"name": "valid",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						},
+						{
+							"name": "sqlite_autoindex_resource_types_2",
+							"unique": true,
+							"origin": "u",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 1,
+									"name": "project_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 3,
+									"name": "source_path",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						},
+						{
+							"name": "sqlite_autoindex_resource_types_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "resources",
+					"kind": "table",
+					"sql": "CREATE TABLE resources(\n            id TEXT PRIMARY KEY,project_id TEXT NOT NULL,plugin_id TEXT,\n            source_path TEXT NOT NULL,source_hash TEXT,valid INTEGER NOT NULL,error TEXT,\n            body TEXT CHECK(body IS NULL OR json_valid(body)),\n            UNIQUE(project_id,source_path))",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "project_id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "plugin_id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "source_path",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "source_hash",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "valid",
+							"declaredType": "INTEGER",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "error",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "body",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "resources_project",
+							"unique": false,
+							"origin": "c",
+							"partial": false,
+							"sql": "CREATE INDEX resources_project ON resources(project_id,valid)",
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 1,
+									"name": "project_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 5,
+									"name": "valid",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						},
+						{
+							"name": "sqlite_autoindex_resources_2",
+							"unique": true,
+							"origin": "u",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 1,
+									"name": "project_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 3,
+									"name": "source_path",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						},
+						{
+							"name": "sqlite_autoindex_resources_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "run_events",
+					"kind": "table",
+					"sql": "CREATE TABLE run_events(run_id TEXT NOT NULL REFERENCES runs(id),sequence INTEGER NOT NULL,kind TEXT NOT NULL,payload TEXT NOT NULL,created_at INTEGER NOT NULL,PRIMARY KEY(run_id,sequence))",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "run_id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "sequence",
+							"declaredType": "INTEGER",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 2,
+							"hidden": 0
+						},
+						{
+							"name": "kind",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "payload",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "created_at",
+							"declaredType": "INTEGER",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [
+						{
+							"id": 0,
+							"sequence": 0,
+							"table": "runs",
+							"from": "run_id",
+							"to": "id",
+							"onUpdate": "NO ACTION",
+							"onDelete": "NO ACTION",
+							"matchRule": "NONE"
+						}
+					],
+					"indexes": [
+						{
+							"name": "sqlite_autoindex_run_events_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "run_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 1,
+									"name": "sequence",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "runs",
+					"kind": "table",
+					"sql": "CREATE TABLE runs(id TEXT PRIMARY KEY,project_id TEXT NOT NULL,automation_id TEXT NOT NULL,name TEXT NOT NULL,request_key TEXT NOT NULL UNIQUE,occurrence_at INTEGER,retry_of TEXT REFERENCES runs(id),status TEXT NOT NULL CHECK(status IN ('queued','running','succeeded','failed','waiting_input','cancelled','interrupted','skipped')),snapshot TEXT NOT NULL CHECK(json_valid(snapshot)),input_hash TEXT NOT NULL,requested_at INTEGER NOT NULL,started_at INTEGER,finished_at INTEGER,stop_requested_at INTEGER,result TEXT,error TEXT)",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "project_id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "automation_id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "name",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "request_key",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "occurrence_at",
+							"declaredType": "INTEGER",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "retry_of",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "status",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "snapshot",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "input_hash",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "requested_at",
+							"declaredType": "INTEGER",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "started_at",
+							"declaredType": "INTEGER",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "finished_at",
+							"declaredType": "INTEGER",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "stop_requested_at",
+							"declaredType": "INTEGER",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "result",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "error",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [
+						{
+							"id": 0,
+							"sequence": 0,
+							"table": "runs",
+							"from": "retry_of",
+							"to": "id",
+							"onUpdate": "NO ACTION",
+							"onDelete": "NO ACTION",
+							"matchRule": "NONE"
+						}
+					],
+					"indexes": [
+						{
+							"name": "pending_runs",
+							"unique": false,
+							"origin": "c",
+							"partial": false,
+							"sql": "CREATE INDEX pending_runs ON runs(status,requested_at)",
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 7,
+									"name": "status",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 10,
+									"name": "requested_at",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						},
+						{
+							"name": "project_runs",
+							"unique": false,
+							"origin": "c",
+							"partial": false,
+							"sql": "CREATE INDEX project_runs ON runs(project_id,requested_at DESC,id)",
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 1,
+									"name": "project_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 10,
+									"name": "requested_at",
+									"descending": true,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": 0,
+									"name": "id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 3,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						},
+						{
+							"name": "sqlite_autoindex_runs_2",
+							"unique": true,
+							"origin": "u",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 4,
+									"name": "request_key",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						},
+						{
+							"name": "sqlite_autoindex_runs_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "sqlite_schema",
+					"kind": "table",
+					"sql": null,
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "type",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "name",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "tbl_name",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "rootpage",
+							"declaredType": "INT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "sql",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": []
+				},
+				{
+					"name": "tools",
+					"kind": "table",
+					"sql": "CREATE TABLE tools(\n            id TEXT PRIMARY KEY,project_id TEXT NOT NULL,plugin_id TEXT,\n            source_path TEXT NOT NULL,source_hash TEXT,valid INTEGER NOT NULL,error TEXT,\n            body TEXT CHECK(body IS NULL OR json_valid(body)),\n            UNIQUE(project_id,source_path))",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "project_id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "plugin_id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "source_path",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "source_hash",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "valid",
+							"declaredType": "INTEGER",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "error",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "body",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "tools_project",
+							"unique": false,
+							"origin": "c",
+							"partial": false,
+							"sql": "CREATE INDEX tools_project ON tools(project_id,valid)",
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 1,
+									"name": "project_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 5,
+									"name": "valid",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						},
+						{
+							"name": "sqlite_autoindex_tools_2",
+							"unique": true,
+							"origin": "u",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 1,
+									"name": "project_id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 3,
+									"name": "source_path",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						},
+						{
+							"name": "sqlite_autoindex_tools_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				}
+			],
+			"triggers": []
+		},
+		{
+			"database": "memory",
+			"sqliteVersion": "3.53.2",
+			"userVersion": 0,
+			"journalMode": "wal",
+			"objects": [
+				{
+					"name": "errors",
+					"kind": "table",
+					"sql": "CREATE TABLE errors(project TEXT NOT NULL,path TEXT NOT NULL,message TEXT NOT NULL,PRIMARY KEY(project,path))",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "project",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "path",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 2,
+							"hidden": 0
+						},
+						{
+							"name": "message",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "sqlite_autoindex_errors_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "project",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 1,
+									"name": "path",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "links",
+					"kind": "table",
+					"sql": "CREATE TABLE links(project TEXT NOT NULL,id TEXT NOT NULL,target TEXT NOT NULL)",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "project",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "target",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "links_by_target",
+							"unique": false,
+							"origin": "c",
+							"partial": false,
+							"sql": "CREATE INDEX links_by_target ON links(project,target)",
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "project",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 2,
+									"name": "target",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						},
+						{
+							"name": "links_by_note",
+							"unique": false,
+							"origin": "c",
+							"partial": false,
+							"sql": "CREATE INDEX links_by_note ON links(project,id)",
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "project",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 1,
+									"name": "id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "notes",
+					"kind": "table",
+					"sql": "CREATE TABLE notes(project TEXT NOT NULL,id TEXT NOT NULL,path TEXT NOT NULL,title TEXT NOT NULL,\n              tags TEXT NOT NULL,source TEXT NOT NULL,created TEXT NOT NULL,supersedes TEXT,expires TEXT,\n              stamp TEXT NOT NULL,body TEXT NOT NULL,PRIMARY KEY(project,id)) WITHOUT ROWID",
+					"withoutRowid": true,
+					"strict": false,
+					"columns": [
+						{
+							"name": "project",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 2,
+							"hidden": 0
+						},
+						{
+							"name": "path",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "title",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "tags",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "source",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "created",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "supersedes",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "expires",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "stamp",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "body",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "notes_supersedes",
+							"unique": false,
+							"origin": "c",
+							"partial": false,
+							"sql": "CREATE INDEX notes_supersedes ON notes(project,supersedes)",
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "project",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 7,
+									"name": "supersedes",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": 1,
+									"name": "id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						},
+						{
+							"name": "notes_recent",
+							"unique": false,
+							"origin": "c",
+							"partial": false,
+							"sql": "CREATE INDEX notes_recent ON notes(project,created DESC)",
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "project",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 6,
+									"name": "created",
+									"descending": true,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": 1,
+									"name": "id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						},
+						{
+							"name": "sqlite_autoindex_notes_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "project",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 1,
+									"name": "id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": 2,
+									"name": "path",
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								},
+								{
+									"sequence": 3,
+									"columnId": 3,
+									"name": "title",
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								},
+								{
+									"sequence": 4,
+									"columnId": 4,
+									"name": "tags",
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								},
+								{
+									"sequence": 5,
+									"columnId": 5,
+									"name": "source",
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								},
+								{
+									"sequence": 6,
+									"columnId": 6,
+									"name": "created",
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								},
+								{
+									"sequence": 7,
+									"columnId": 7,
+									"name": "supersedes",
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								},
+								{
+									"sequence": 8,
+									"columnId": 8,
+									"name": "expires",
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								},
+								{
+									"sequence": 9,
+									"columnId": 9,
+									"name": "stamp",
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								},
+								{
+									"sequence": 10,
+									"columnId": 10,
+									"name": "body",
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "notes_fts",
+					"kind": "virtual",
+					"sql": "CREATE VIRTUAL TABLE notes_fts USING fts5(title,tags,body,project UNINDEXED,id UNINDEXED,tokenize='porter unicode61')",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "title",
+							"declaredType": "",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "tags",
+							"declaredType": "",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "body",
+							"declaredType": "",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "project",
+							"declaredType": "",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "id",
+							"declaredType": "",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "notes_fts",
+							"declaredType": "",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 1
+						},
+						{
+							"name": "rank",
+							"declaredType": "",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 1
+						}
+					],
+					"foreignKeys": [],
+					"indexes": []
+				},
+				{
+					"name": "notes_fts_config",
+					"kind": "shadow",
+					"sql": "CREATE TABLE 'notes_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID",
+					"withoutRowid": true,
+					"strict": false,
+					"columns": [
+						{
+							"name": "k",
+							"declaredType": "",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "v",
+							"declaredType": "",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "sqlite_autoindex_notes_fts_config_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "k",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 1,
+									"name": "v",
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "notes_fts_content",
+					"kind": "shadow",
+					"sql": "CREATE TABLE 'notes_fts_content'(id INTEGER PRIMARY KEY, c0, c1, c2, c3, c4)",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "id",
+							"declaredType": "INTEGER",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "c0",
+							"declaredType": "",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "c1",
+							"declaredType": "",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "c2",
+							"declaredType": "",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "c3",
+							"declaredType": "",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "c4",
+							"declaredType": "",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": []
+				},
+				{
+					"name": "notes_fts_data",
+					"kind": "shadow",
+					"sql": "CREATE TABLE 'notes_fts_data'(id INTEGER PRIMARY KEY, block BLOB)",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "id",
+							"declaredType": "INTEGER",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "block",
+							"declaredType": "BLOB",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": []
+				},
+				{
+					"name": "notes_fts_docsize",
+					"kind": "shadow",
+					"sql": "CREATE TABLE 'notes_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "id",
+							"declaredType": "INTEGER",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "sz",
+							"declaredType": "BLOB",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": []
+				},
+				{
+					"name": "notes_fts_idx",
+					"kind": "shadow",
+					"sql": "CREATE TABLE 'notes_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID",
+					"withoutRowid": true,
+					"strict": false,
+					"columns": [
+						{
+							"name": "segid",
+							"declaredType": "",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "term",
+							"declaredType": "",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 2,
+							"hidden": 0
+						},
+						{
+							"name": "pgno",
+							"declaredType": "",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "sqlite_autoindex_notes_fts_idx_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "segid",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 1,
+									"name": "term",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": 2,
+									"name": "pgno",
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "sqlite_schema",
+					"kind": "table",
+					"sql": null,
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "type",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "name",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "tbl_name",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "rootpage",
+							"declaredType": "INT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "sql",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": []
+				}
+			],
+			"triggers": []
+		},
+		{
+			"database": "chat",
+			"sqliteVersion": "3.53.2",
+			"userVersion": 0,
+			"journalMode": "wal",
+			"objects": [
+				{
+					"name": "documents",
+					"kind": "table",
+					"sql": "CREATE TABLE documents (\n                         pane TEXT NOT NULL, kind TEXT NOT NULL, body TEXT NOT NULL CHECK(json_valid(body)),\n                         PRIMARY KEY(pane, kind))",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "pane",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "kind",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 2,
+							"hidden": 0
+						},
+						{
+							"name": "body",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "sqlite_autoindex_documents_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "pane",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 1,
+									"name": "kind",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "retired_epochs",
+					"kind": "table",
+					"sql": "CREATE TABLE retired_epochs (\n                         pane TEXT NOT NULL, epoch TEXT NOT NULL, PRIMARY KEY(pane, epoch))",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "pane",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "epoch",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 2,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "sqlite_autoindex_retired_epochs_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "pane",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 1,
+									"name": "epoch",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "sqlite_schema",
+					"kind": "table",
+					"sql": null,
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "type",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "name",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "tbl_name",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "rootpage",
+							"declaredType": "INT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "sql",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": []
+				},
+				{
+					"name": "transcript_messages",
+					"kind": "table",
+					"sql": "CREATE TABLE transcript_messages (\n                         pane TEXT NOT NULL, position INTEGER NOT NULL, body TEXT NOT NULL CHECK(json_valid(body)),\n                         PRIMARY KEY(pane, position))",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "pane",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "position",
+							"declaredType": "INTEGER",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 2,
+							"hidden": 0
+						},
+						{
+							"name": "body",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "sqlite_autoindex_transcript_messages_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "pane",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 1,
+									"name": "position",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "transcripts",
+					"kind": "table",
+					"sql": "CREATE TABLE transcripts (\n                         pane TEXT PRIMARY KEY NOT NULL, epoch TEXT NOT NULL, revision TEXT NOT NULL)",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "pane",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "epoch",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "revision",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "sqlite_autoindex_transcripts_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "pane",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				}
+			],
+			"triggers": []
+		},
+		{
+			"database": "skills",
+			"sqliteVersion": "3.53.2",
+			"userVersion": 0,
+			"journalMode": "wal",
+			"objects": [
+				{
+					"name": "migrations",
+					"kind": "table",
+					"sql": "CREATE TABLE migrations(name TEXT PRIMARY KEY)",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "name",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "sqlite_autoindex_migrations_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "name",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "skills",
+					"kind": "table",
+					"sql": "CREATE TABLE skills(id TEXT PRIMARY KEY, body TEXT NOT NULL CHECK(json_valid(body)))",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "id",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "body",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "sqlite_autoindex_skills_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "sqlite_schema",
+					"kind": "table",
+					"sql": null,
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "type",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "name",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "tbl_name",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "rootpage",
+							"declaredType": "INT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "sql",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": []
+				}
+			],
+			"triggers": []
+		},
+		{
+			"database": "client-storage",
+			"sqliteVersion": "3.53.2",
+			"userVersion": 1,
+			"journalMode": "wal",
+			"objects": [
+				{
+					"name": "entries",
+					"kind": "table",
+					"sql": "CREATE TABLE entries (key TEXT PRIMARY KEY, value TEXT NOT NULL CHECK(json_valid(value)))",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "key",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "value",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "sqlite_autoindex_entries_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "key",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "sqlite_schema",
+					"kind": "table",
+					"sql": null,
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "type",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "name",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "tbl_name",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "rootpage",
+							"declaredType": "INT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "sql",
+							"declaredType": "TEXT",
+							"notNull": false,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": []
+				}
+			],
+			"triggers": []
+		}
+	]
+}

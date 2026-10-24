@@ -24,6 +24,7 @@
 		"lint:fix": "oxlint --fix --deny-warnings .",
 		"check": "bun run lint && bun run typecheck && bun run format:check && biome check ./src",
 		"code": "bun scripts/count-code.ts",
+		"generate:api": "cargo run -p inferay-tooling --bin export-api-reference && cargo run -p inferay-tooling --bin export-renderer-types",
 		"check:components": "bun scripts/check-component-structure.ts",
 		"check:architecture": "bash scripts/check-architecture.sh",
 		"check:boundaries": "bun scripts/check-architecture-boundaries.ts",
@@ -31,6 +32,7 @@
 		"check:rust-host": "cargo check -p inferay-desktop",
 		"build:presentation": "bash scripts/build-presentation.sh",
 		"sync:file-icons": "bash scripts/sync-file-icons.sh",
+		"verify:database": "cargo build -p inferay-server --bin inferay-dev-server && bun scripts/verify-database.ts",
 		"verify:projects": "cargo build -p inferay-server --bin inferay-dev-server && bun scripts/verify-projects.mjs"
 	},
 	"lint-staged": {

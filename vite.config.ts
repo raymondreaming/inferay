@@ -7,6 +7,9 @@ import { defineConfig } from "vite";
 export default defineConfig(({ mode }) => ({
 	resolve: {
 		alias: {
+			"@database": fileURLToPath(
+				new URL("./src/modules/database", import.meta.url),
+			),
 			"@app": fileURLToPath(new URL("./src/app", import.meta.url)),
 			"@agents": fileURLToPath(
 				new URL("./src/modules/agents", import.meta.url),

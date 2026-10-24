@@ -9,6 +9,8 @@ Start high and go lower only as far as the task needs.
 | Architecture | [architecture.md](architecture.md) | How the app is built: processes, crates, renderer, provider runner, chat, storage, environment variables |
 | Decisions | [adr/](adr/) | Why things are shaped this way: [0001](adr/0001-rust-models-solid-views.md) Rust models with Solid views; [0002](adr/0002-automation-kernel.md) the automation kernel |
 | Storage | [storage.md](storage.md) | Where everything lives, the databases and their tables, how data is written and how chats, automations and the interface read it |
+| API | [api.md](api.md), [OpenAPI](reference/openapi.json) | Database API contracts, generated schemas/types and HTTP route coverage |
+| MCP | [mcp.md](mcp.md), [tool catalogue](reference/mcp-tools.json) | Native tool scopes, provider transports and external connections |
 | Memory | [memory.md](memory.md) | Project memory: notes, files and records, the memory tool, and how it makes skills and automations better over time |
 | Connections | [connections.md](connections.md) | Project key management, Keychain storage and the remaining execution boundary |
 | Effects | [effects.md](effects.md) | Captured proposals, review, and the planned generic delivery and recovery contract |

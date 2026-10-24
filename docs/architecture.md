@@ -140,13 +140,15 @@ Inferay drives the installed CLIs; accounts and credentials stay with them (`age
 
 ## MCP
 
-Inferay owns no MCP server configuration. It reads each provider's own: Codex through the app-server (`config/read`, `mcpServerStatus/list`), Claude through `claude mcp list` and `~/.claude.json`. Inferay stores only per-provider enable/disable overrides (`mcp-preferences.json`), passed to the child as `INFERAY_MCP_OVERRIDES` and applied as Claude `deniedMcpServers` or Codex per-server `enabled` overrides. Sign-in runs the CLI's `mcp login`.
+External MCP configuration belongs to each provider. Inferay reads it: Codex through the app-server (`config/read`, `mcpServerStatus/list`), Claude through `claude mcp list` and `~/.claude.json`. Inferay stores only per-provider enable/disable overrides (`mcp-preferences.json`), passed to the child as `INFERAY_MCP_OVERRIDES` and applied as Claude `deniedMcpServers` or Codex per-server `enabled` overrides. Sign-in runs the CLI's `mcp login`.
 
 An explicit per-turn server list is strict: an empty list excludes external MCP servers, and a missing or disabled requested server fails selection instead of reverting to ambient configuration. `agent_mcp.rs` owns this selection and the shared override policy. Codex applies the selection on both new and resumed threads; an installed-provider fixture verifies that only the selected local server starts and reports tools. Claude creates a private temporary config from the selected **user-scope** entries; local/project/plugin-only entries require separate scoped-resolution support and produce an error today. Configuration comes from the child environment, including [`CLAUDE_CONFIG_DIR/.claude.json`](https://code.claude.com/docs/en/mcp-quickstart#find-your-configuration-on-disk) when set. Missing or malformed config never falls back to the app process's home, and diagnostics omit config contents. Omitting the server list retains normal provider discovery. Automation providers still select no ambient external servers. Local plugin MCP tools execute through the approved native tool runner and per-run grants; authenticated remote connections remain planned.
 
+Native Inferay tools use the shared agent dispatcher. Codex receives dynamic tool definitions through its app server; Claude uses a temporary, turn-scoped loopback MCP bridge with bearer authentication. See [MCP contracts and scope](mcp.md) for the complete native tool catalogue, lifecycle and generated transport spec.
+
 ## Chat runtime and storage
 
-The full storage model (files versus databases, every table, how writes and reads flow) is in [storage.md](storage.md).
+The full storage model (files versus databases, every table, how writes and reads flow) is in [storage.md](storage.md). Settings → Database hosts the isolated `modules/database` reader backed by `server/database_explorer`; it introspects stores without initializing, migrating or mutating them. [API documentation](api.md) links generated schema and OpenAPI references.
 
 Everything lives in the profile directory, `~/Library/Application Support/Inferay` (`INFERAY_USER_DATA_DIR` overrides it).
 
@@ -163,7 +165,7 @@ Everything lives in the profile directory, `~/Library/Application Support/Infera
 
 Workspace persistence returns the core `Workspace` model to internal callers. Title and session mutations save directly without building a JSON snapshot; HTTP workspace reads serialize the model directly, without an intermediate JSON tree; migrations serialize when needed. Every read still validates current file contents, and mutations retain atomic replacement. The HTTP dispatcher owns API authentication and final CORS headers; route errors share the `ApiError` response conversion.
 
-Bundled skills ship in the app (`data/prompts.json`). Global custom skills live in `skills.sqlite3`, independently of the project index. On first use, the Skills library imports existing global skill records from `projects.sqlite3`, or the older `prompts.json` when that migration has not happened. The import is transactional and marked once; old sources stay untouched and are never reread after import. The skill store owns one SQLite connection, initialized when the store opens. Reads query current rows without reopening the database or taking a migration write lock. Slash commands expand skill chains (`/name`), and `/clear` and `/exit` are handled by the chat connection.
+Bundled skills ship in the app (`data/prompts.json`). Global custom skills live in `skills.sqlite3`, independently of the project index. On first open, the Skills library transactionally imports custom records from `prompts.json` and records `global-skills-v1` in its migration table. Incompatible pre-version-3 project profiles are refused before creating an import receipt. The import is transactional and marked once; old sources stay untouched and are never reread after import. The skill store owns one SQLite connection, initialized when the store opens. Reads query current rows without reopening the database or taking a migration write lock. Slash commands expand skill chains (`/name`), and `/clear` and `/exit` are handled by the chat connection.
 
 ## Projects and automations
 

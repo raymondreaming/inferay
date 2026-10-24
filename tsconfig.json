@@ -13,6 +13,7 @@
 		// Bundler mode
 		"moduleResolution": "bundler",
 		"paths": {
+			"@database/*": ["./src/modules/database/*"],
 			"@contracts": ["./build/presentation/contracts/index.ts"],
 			"@app/*": ["./src/app/*"],
 			"@agents/*": ["./src/modules/agents/*"],

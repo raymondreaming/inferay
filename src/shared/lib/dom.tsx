@@ -256,7 +256,13 @@ export function setActiveGitSidebarVisible(visible: boolean): void {
 }
 export const OPEN_SETTINGS_EVENT = "inferay-open-settings";
 export type SettingsTarget =
-	"agents" | "mcp" | "appearance" | "workspace" | "github" | "skills";
+	| "agents"
+	| "mcp"
+	| "appearance"
+	| "workspace"
+	| "github"
+	| "skills"
+	| "database";
 export interface OpenSettingsDetail {
 	readonly section: SettingsTarget;
 	readonly skills?: SkillsTarget;

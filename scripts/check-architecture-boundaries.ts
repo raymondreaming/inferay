@@ -10,6 +10,7 @@ const nativeClient = "src/shared/lib/native.tsx";
 const sourceExtensions = new Set([".ts", ".tsx"]);
 const importAliases: Record<string, string> = {
 	"@app": "src/app",
+	"@database": "src/modules/database",
 	"@agents": "src/modules/agents",
 	"@context": "src/modules/context",
 	"@conversation": "src/modules/conversation",

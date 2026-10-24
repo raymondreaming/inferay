@@ -239,3 +239,8 @@ pub(super) async fn open(state: &ServerState, request: Request) -> ApiResult {
         .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
     Ok(json!({"paneId":pane_id}))
 }
+
+// Shared by live tool discovery and the generated MCP reference.
+pub(crate) fn tool_definition() -> Value {
+    json!({"type":"function","name":"inferay_projects","description":"Inspect file-backed Inferay projects, resources, plugins and automations. Use help for the current file formats and commands. createPlugin and updatePlugin prepare one complete library proposal card without saving or enabling it. Read the current library hash before proposing updates. Standalone automation saveDefinition prepares an automation card. Definitions are files; never edit SQLite. Approval, writes and execution require a user action. Skills are reusable instructions; automations are scheduled or manually triggered executions. Do not create a skill for an automation request unless explicitly asked.","inputSchema":{"type":"object","properties":{"action":{"type":"string","enum":["list","help","command"]},"projectId":{"type":"string"},"command":{"type":"object"}},"required":["action"]}})
+}

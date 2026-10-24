@@ -1,3 +1,4 @@
+import { DatabaseExplorer } from "@database/components/DatabaseExplorer/index.tsx";
 import { iconSize } from "@design-system/styles.stylex.ts";
 import {
 	APP_REGION_DRAG_CLASS,
@@ -36,6 +37,15 @@ import { SettingsContent } from "../SettingsContent/index.tsx";
 import { styles } from "./styles.ts";
 
 const SECTIONS = [
+	{
+		id: "database",
+		group: "App",
+		label: "Database",
+		icon: IconLayoutGrid,
+		description:
+			"Explore local tables, records, and the schema that connects them.",
+		keywords: "data sqlite storage schema rows indexes",
+	},
 	{
 		id: "appearance",
 		group: "App",
@@ -330,7 +340,13 @@ export function SettingsPageHost(props: { children?: Element }) {
 						}}
 						{...stylex.attrs(styles.content)}
 					>
-						<div {...stylex.attrs(styles.page)}>
+						<div
+							{...stylex.attrs(styles.page)}
+							style={{
+								"max-width":
+									activeSection() === "database" ? "1600px" : undefined,
+							}}
+						>
 							<div {...stylex.attrs(styles.pageHeading)}>
 								<h1 {...stylex.attrs(styles.pageTitle)}>
 									{activePage().label}
@@ -350,6 +366,8 @@ export function SettingsPageHost(props: { children?: Element }) {
 														leaveGuard = guard;
 													}}
 												/>
+											) : page.section === "database" ? (
+												<DatabaseExplorer />
 											) : (
 												<SettingsContent section={page.section} />
 											)}
