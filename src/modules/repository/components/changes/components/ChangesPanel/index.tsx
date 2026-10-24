@@ -266,6 +266,15 @@ export const ChangesPanel = function ChangesPanel(props: {
 												</>
 											) : (
 												<>
+													<div {...stylex.attrs(styles.detailIdentityGrid)}>
+														<DetailIdentity
+															cwd={props.cwd}
+															hash={_details.hash}
+															name={_details.author}
+															email={_details.authorEmail}
+															date={_details.authoredAt}
+														/>
+													</div>
 													<p
 														title={_details.message}
 														{...stylex.attrs(styles.commitMessage)}
@@ -290,15 +299,6 @@ export const ChangesPanel = function ChangesPanel(props: {
 															</p>
 														</div>
 													) : null}
-													<div {...stylex.attrs(styles.detailIdentityGrid)}>
-														<DetailIdentity
-															cwd={props.cwd}
-															hash={_details.hash}
-															name={_details.author}
-															email={_details.authorEmail}
-															date={_details.authoredAt}
-														/>
-													</div>
 												</>
 											);
 										})()}
