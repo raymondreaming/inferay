@@ -62,6 +62,10 @@ export const ChangesPanel = function ChangesPanel(props: {
 	showFileActions?: boolean;
 	showCommitSection?: boolean;
 }) {
+	const showCommitSection = () =>
+		props.hasProject &&
+		props.model.showingWorkingTree &&
+		props.showCommitSection !== false;
 	const prefetchFiles = createMemo(() => {
 		if (!props.model.showingWorkingTree) return [];
 		const files = props.model.navigableFiles;
@@ -81,7 +85,13 @@ export const ChangesPanel = function ChangesPanel(props: {
 	);
 
 	return (
-		<div {...stylex.attrs(styles.root)}>
+		<div
+			{...stylex.attrs(
+				styles.root,
+				props.model.showingWorkingTree && styles.workingTree,
+				showCommitSection() && styles.withCommit,
+			)}
+		>
 			<div {...stylex.attrs(styles.sidebarHeader)}>
 				{props.hasProject && (
 					<div {...stylex.attrs(styles.segmented)}>
@@ -128,7 +138,7 @@ export const ChangesPanel = function ChangesPanel(props: {
 			</div>
 
 			{props.model.showingWorkingTree && (
-				<div {...stylex.attrs(styles.splitArea)}>
+				<div {...stylex.attrs(styles.splitArea, styles.workingFiles)}>
 					{!props.hasProject ? (
 						<div {...stylex.attrs(styles.emptyState)}>
 							{props.projectLoading ? (
@@ -185,17 +195,13 @@ export const ChangesPanel = function ChangesPanel(props: {
 				</div>
 			)}
 
-			{props.hasProject &&
-				props.model.showingWorkingTree &&
-				(props.showCommitSection === undefined
-					? true
-					: props.showCommitSection) && (
-					<CommitSection
-						cwd={props.cwd}
-						actions={props.actions}
-						stagedCount={props.model.stagedFiles.length}
-					/>
-				)}
+			{showCommitSection() && (
+				<CommitSection
+					cwd={props.cwd}
+					actions={props.actions}
+					stagedCount={props.model.stagedFiles.length}
+				/>
+			)}
 
 			{!props.model.showingWorkingTree && (
 				<div {...stylex.attrs(styles.splitArea)}>

@@ -2,7 +2,7 @@ import type {
 	DockLayout,
 	DockPointerTarget,
 	DockRequest,
-	DockTree,
+	DockResizePreview,
 	Pane,
 } from "@contracts";
 import {
@@ -126,7 +126,6 @@ export function useWorkspaceDock(
 		active?: boolean;
 		panes: readonly Pick<Pane, "id">[];
 		columns: number;
-		rows: number;
 		workspaceId?: string;
 		legacyWorkspaceId?: string;
 		onSelectPane: (id: string) => void;
@@ -150,7 +149,6 @@ export function useWorkspaceDock(
 		ids: JSON.parse(panelKey()) as string[],
 		columns: props.columns,
 		visibleColumns: availableGridColumns(),
-		rows: props.rows,
 	}));
 	const dock = createDockLayout(dockInput, () => props.active !== false);
 	const clearDragState = () => {
@@ -281,15 +279,16 @@ export function useWorkspaceDock(
 			finalRatio = ratio;
 			dock.setLayout((current) => {
 				const rendered = current.tree;
+				if (!rendered) return current;
+				const preview = project<DockResizePreview>("resizeDockSplit", {
+					tree: rendered,
+					path,
+					ratio,
+				});
 				return {
 					...current,
-					tree: rendered
-						? project<DockTree>("resizeDockSplit", {
-								tree: rendered,
-								path,
-								ratio,
-							})
-						: rendered,
+					canvas: { ...current.canvas, minHeight: preview.minHeight },
+					tree: preview.tree,
 				};
 			});
 		};

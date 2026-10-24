@@ -37,12 +37,13 @@ export function reorderProject(id: string, before: string | null) {
 }
 const [selectedId, setSelectedId] = createSignal("");
 const [repositoryPath, setRepositoryPath] = createSignal<string | null>(null);
+const [repositoryOpen, setRepositoryOpen] = createSignal(false);
 const [view, setView] = createSignal("chat");
 const [error, setError] = createSignal("");
 const [busy, setBusy] = createSignal(false);
 const locations = new Map<
 	string,
-	{ view: string; repositoryPath: string | null }
+	{ view: string; repositoryPath: string | null; repositoryOpen: boolean }
 >();
 let sequence = 0;
 export const projects = {
@@ -53,10 +54,14 @@ export const projects = {
 	error,
 	busy,
 	repositoryPath,
+	repositoryOpen,
 };
 export function openProjectRepository(path: string) {
 	setRepositoryPath(path);
-	setView("code");
+	setRepositoryOpen(true);
+}
+export function toggleProjectRepository() {
+	setRepositoryOpen((open) => !open);
 }
 export function showProjectView(value: string) {
 	setView(value);
@@ -67,6 +72,11 @@ export async function refreshProjects(id = selectedId()) {
 		const value = await loadProjects(id);
 		if (ticket === sequence) {
 			setLoaded({ projectId: id, catalog: value });
+			if (
+				selectedId() === id &&
+				!value.repositoryPaths.includes(repositoryPath() ?? "")
+			)
+				setRepositoryPath(value.repositoryPaths[0] ?? null);
 		}
 	} catch (e) {
 		if (ticket === sequence) setError(String(e));
@@ -78,21 +88,16 @@ export async function selectProject(id: string) {
 		locations.set(selectedId(), {
 			view: view(),
 			repositoryPath: repositoryPath(),
+			repositoryOpen: repositoryOpen(),
 		});
 		const previous = locations.get(id);
 		setSelectedId(id);
 		setView(previous?.view ?? "chat");
 		setRepositoryPath(previous?.repositoryPath ?? null);
+		setRepositoryOpen(previous?.repositoryOpen ?? false);
 	}
 	writeStoredValue("inferay-selected-project-id", id);
 	await refreshProjects(id);
-	if (
-		selectedId() === id &&
-		view() === "code" &&
-		catalog() &&
-		!catalog()!.repositoryPaths.includes(repositoryPath() ?? "")
-	)
-		setRepositoryPath(catalog()?.repositoryPaths[0] ?? null);
 	if (!id && selectedId() === id) {
 		const first = list().find((p) => !p.definition.archived);
 		if (first) await selectProject(first.id);

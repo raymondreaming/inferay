@@ -29,6 +29,11 @@ export const styles = stylex.create({
 			pointerEvents: "none",
 		},
 	},
+	xs: {
+		fontSize: font.size_2,
+		height: controlSize._6,
+		paddingInline: controlSize._2,
+	},
 	sm: {
 		fontSize: font.size_3,
 		height: controlSize._7,
@@ -88,6 +93,17 @@ export const styles = stylex.create({
 		color: {
 			default: color.textMuted,
 			":hover": color.textMain,
+		},
+	},
+	text: {
+		backgroundColor: color.transparent,
+		backgroundImage: "none",
+		borderWidth: 0,
+		boxShadow: shadow.none,
+		color: {
+			default: color.textMuted,
+			":hover": color.textMain,
+			':is([aria-pressed="true"])': color.textMain,
 		},
 	},
 	danger: {

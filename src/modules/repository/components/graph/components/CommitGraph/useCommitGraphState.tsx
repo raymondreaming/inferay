@@ -69,6 +69,7 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 		setHoveredRow(row?.getAttribute("data-graph-item") ?? null);
 	};
 	const {
+		headerRef,
 		scrollerRef,
 		scrollTop,
 		viewportHeight,
@@ -113,8 +114,14 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 	const worktreesByPath = createMemo(
 		() => new Map(_props().worktrees?.map((tree) => [tree.path, tree]) ?? []),
 	);
+	const [resizing, setResizing] = createSignal<{
+		column: ColumnKey;
+		width: number;
+		compact: boolean;
+	} | null>(null);
 	const graphModel = createMemo(() =>
 		rustProject<{
+			compact: boolean;
 			columnWidths: ColumnWidths;
 			displayColumns: number[];
 			visibleOrder: ColumnKey[];
@@ -122,10 +129,20 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 			graphLeft: number;
 			graphHeight: number;
 			tableWidth: number;
-			totalHeight: number;
 		}>("graphLayout", {
 			columns: preferences().columns,
-			widths: preferences().widths,
+			widths: {
+				...preferences().widths,
+				...(resizing() && !resizing()!.compact
+					? { [resizing()!.column]: resizing()!.width }
+					: {}),
+			},
+			compactWidths: {
+				...preferences().compactWidths,
+				...(resizing()?.compact
+					? { [resizing()!.column]: resizing()!.width }
+					: {}),
+			},
 			order: preferences().order,
 			availableWidth: viewportWidth(),
 			count: _props().commits.length,
@@ -160,7 +177,6 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 	const lineLayerStyle = createMemo(() => ({
 		"z-index": 0,
 		left: px(graphModel().graphLeft),
-		top: px(TOP_PADDING),
 	}));
 	const normalizedQuery = createMemo(() => (query() ?? "").trim());
 	createEffect(
@@ -248,18 +264,28 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 	) => {
 		if (event.button !== 0) return;
 		event.preventDefault();
+		event.stopPropagation();
 		const startX = event.clientX;
 		const startWidth = graphModel().columnWidths[column];
-		const move = (moveEvent: PointerEvent) => {
-			setPreference("widths", (current) => ({
-				...current,
-				[column]: rustProject<number>("resizeGraphColumn", {
+		const compact = graphModel().compact;
+		let next = startWidth;
+		trackResize(
+			event.pointerId,
+			(move) => {
+				next = rustProject<number>("resizeGraphColumn", {
 					column,
-					width: startWidth + moveEvent.clientX - startX,
-				}),
-			}));
-		};
-		trackResize(event.pointerId, move);
+					width: startWidth + move.clientX - startX,
+				});
+				setResizing({ column, width: next, compact });
+			},
+			() => {
+				setPreference(compact ? "compactWidths" : "widths", (current) => ({
+					...current,
+					[column]: next,
+				}));
+				setResizing(null);
+			},
+		);
 	};
 	return merge(_props, history, graphModel, viewportModel, preferences, {
 		get worktreesByPath() {
@@ -287,6 +313,7 @@ export function useCommitGraphState(_props: Accessor<CommitGraphProps>) {
 		setHoveredRow,
 		handleMouseMove,
 		handleRowHover,
+		headerRef,
 		scrollerRef,
 		get query() {
 			return query();
@@ -374,12 +401,12 @@ export type GitGraphActionRequest = Pick<
 interface GraphPreferences {
 	columns: ColumnVisibility;
 	widths: ColumnWidths;
+	compactWidths: Partial<ColumnWidths>;
 	order: ColumnKey[];
 	hiddenRefs: string[];
 	soloRefs: string[];
 	pinnedRefs: string[];
 }
-export const TOP_PADDING = ROW_HEIGHT;
 const GRAPH_PREFERENCES_KEY = "commit-graph-columns-v13:global";
 let sharedPreferences:
 	[Accessor<GraphPreferences>, Setter<GraphPreferences>] | undefined;

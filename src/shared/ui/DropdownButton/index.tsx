@@ -4,6 +4,7 @@ import { px } from "@shared/lib/dom.tsx";
 import { Dynamic, Portal } from "@solidjs/web";
 import * as stylex from "@stylexjs/stylex";
 import {
+	createEffect,
 	createMemo,
 	createSignal,
 	type Element,
@@ -122,7 +123,10 @@ function DropdownMenu(props: {
 	const config = props.config;
 	const [search, setSearch] = createSignal("");
 	const [resize, setResize] = createSignal(0);
+	const [contentHeight, setContentHeight] = createSignal<number>();
+	const [searchHeight, setSearchHeight] = createSignal(38);
 	let menu!: HTMLDivElement;
+	let optionsBox!: HTMLDivElement;
 	let searchInput: HTMLInputElement | undefined;
 	const showSearch = createMemo(() => config.options.length > 5);
 	const position = createMemo(() => {
@@ -132,16 +136,32 @@ function DropdownMenu(props: {
 			rowHeight: 30,
 			count: config.options.length,
 			maxVisible: config.maxVisibleOptions,
+			contentHeight: contentHeight(),
 			minWidth: config.minWidth ?? 220,
 			rect: props.trigger.getBoundingClientRect(),
 			width: window.innerWidth,
 			height: window.innerHeight,
 		});
 	});
+	const measure = () => {
+		const searchSize =
+			searchInput?.parentElement?.getBoundingClientRect().height ?? 0;
+		const options = Array.from(optionsBox.children);
+		setSearchHeight(searchSize);
+		setContentHeight(
+			options
+				.slice(0, config.maxVisibleOptions ?? options.length)
+				.reduce(
+					(height, option) => height + option.getBoundingClientRect().height,
+					searchSize + 2,
+				),
+		);
+		setResize((value) => value + 1);
+	};
 	onSettled(() => {
-		const measure = () => setResize((value) => value + 1);
 		const observer = new ResizeObserver(measure);
 		observer.observe(props.trigger);
+		observer.observe(menu);
 		const dismissOutside = (event: Event) => {
 			if (
 				!menu.contains(event.target as Node) &&
@@ -184,6 +204,11 @@ function DropdownMenu(props: {
 			? [custom, ...matches.filter((option) => option.id !== custom.id)]
 			: matches;
 	});
+	createEffect(filtered, () => {
+		queueMicrotask(() => {
+			if (menu.isConnected) measure();
+		});
+	});
 	const SearchBox = () => (
 		<Show when={showSearch()}>
 			<div {...stylex.attrs(styles.searchWrap)}>
@@ -206,11 +231,12 @@ function DropdownMenu(props: {
 	);
 	const OptionsBox = () => (
 		<div
+			ref={(element) => {
+				optionsBox = element;
+			}}
 			{...stylex.attrs(styles.optionsBox)}
 			style={{
-				"max-height": px(
-					Math.max(44, position().maxH - (showSearch() ? 38 : 0)),
-				),
+				"max-height": px(Math.max(0, position().maxH - searchHeight() - 2)),
 			}}
 		>
 			{filtered().length === 0 ? (
@@ -223,6 +249,7 @@ function DropdownMenu(props: {
 						<button
 							type="button"
 							role="menuitemradio"
+							title={opt().status}
 							aria-checked={opt().id === config.value ? "true" : "false"}
 							tabindex={-1}
 							onClick={() => {

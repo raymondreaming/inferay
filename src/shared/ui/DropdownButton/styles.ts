@@ -184,8 +184,11 @@ export const styles = stylex.create({
 	},
 	optionStatus: {
 		color: color.textMuted,
+		display: "block",
 		fontSize: font.size_1,
-		marginLeft: controlSize._1_5,
+		overflow: "hidden",
+		textOverflow: "ellipsis",
+		whiteSpace: "nowrap",
 	},
 	optionSelected: {
 		backgroundColor: color.controlActive,

@@ -1,6 +1,7 @@
 import type { OnboardingTour } from "@contracts";
 import {
 	listenWindowEvent,
+	OPEN_ACTIVE_GIT_GRAPH_EVENT,
 	OPEN_ONBOARDING_EVENT,
 	setActiveGitGraphVisible,
 	setActiveGitSidebarVisible,
@@ -25,7 +26,7 @@ import {
 } from "solid-js";
 
 const GRAPH_SELECTOR = '[aria-label="Repository commit history"]';
-const CHANGES_SELECTOR = '[aria-label="Resize changes sidebar"]';
+const CHANGES_SELECTOR = '[aria-label="Changes sidebar"]';
 const WORKSPACE_SELECTOR = "[data-chat-workspace]";
 
 interface OnboardingProgress {
@@ -102,6 +103,7 @@ export function useOnboardingTour() {
 				panelsTouched.current = true;
 		};
 		const stop = [
+			listenWindowEvent(OPEN_ACTIVE_GIT_GRAPH_EVENT, watch),
 			listenWindowEvent(TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT, watch),
 			listenWindowEvent(TOGGLE_ACTIVE_GIT_GRAPH_EVENT, watch),
 		];

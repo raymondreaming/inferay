@@ -18,7 +18,7 @@ import { settingsApi } from "../../services/settingsApi.ts";
 import { editorStyles as styles } from "./styles.ts";
 
 const BACKGROUND_MODES = [
-	{ id: "solid", label: "Black" },
+	{ id: "solid", label: "Dark" },
 	{ id: "glass", label: "Glass" },
 	{ id: "scene", label: "Scene" },
 ] as const;

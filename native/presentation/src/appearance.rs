@@ -231,7 +231,14 @@ pub fn dropdown_position(input: &serde_json::Value) -> DropdownPosition {
     } else {
         count
     };
-    let content = (visible * value("rowHeight") + if count > 5. { 38. } else { 0. } + 2.).min(400.);
+    let content = input["contentHeight"]
+        .as_f64()
+        .unwrap_or(visible * value("rowHeight") + if count > 5. { 38. } else { 0. } + 2.);
+    let content = if value("maxVisible") > 0. {
+        content
+    } else {
+        content.min(400.)
+    };
     let width = rect("width").max(value("minWidth"));
     DropdownPosition {
         top: if top { 0. } else { rect("bottom") + 4. },

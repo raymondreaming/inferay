@@ -69,6 +69,13 @@ pub struct DockCanvas {
 }
 
 #[derive(serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct DockResizePreview {
+    tree: Tree,
+    min_height: String,
+}
+
+#[derive(serde::Serialize, ts_rs::TS)]
 pub struct DockSaved {
     tree: Option<Tree>,
     preset: (Option<String>, usize),
@@ -96,7 +103,10 @@ pub fn resize_preview(body: &Value) -> Result<Value, String> {
     let path = body["path"].as_array().ok_or("resize path is required")?;
     let ratio = body["ratio"].as_f64().ok_or("resize ratio is required")?;
     tree.resize(path, ratio);
-    serde_json::to_value(tree).map_err(|error| error.to_string())
+    Ok(json!(DockResizePreview {
+        min_height: tree.minimum_canvas_height(),
+        tree
+    }))
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize, ts_rs::TS)]
@@ -118,6 +128,36 @@ pub enum Tree {
     },
 }
 impl Tree {
+    fn minimum_height_fraction(&self) -> f64 {
+        match self {
+            Self::Split {
+                direction,
+                ratio,
+                first,
+                second,
+            } => {
+                let (a, b) = (
+                    first.minimum_height_fraction(),
+                    second.minimum_height_fraction(),
+                );
+                if direction == "vertical" {
+                    (a * ratio).min(b * (1. - ratio))
+                } else {
+                    a.min(b)
+                }
+            }
+            _ => 1.,
+        }
+    }
+    fn minimum_canvas_height(&self) -> String {
+        // Every chat keeps at least half the viewport, including custom splits.
+        let fraction = self.minimum_height_fraction();
+        format!(
+            "max({:.3}%, {:.3}px)",
+            (50. / fraction).max(100.),
+            180. / fraction
+        )
+    }
     fn span(&self, axis: &str) -> usize {
         match self {
             Self::Empty { columns } => {
@@ -371,13 +411,10 @@ pub fn project(body: &Value) -> Result<Value, String> {
     };
     let tree = tree.map(|tree| tree.constrain(display_columns).pad_rows(display_columns));
     let horizontal = tree.as_ref().map_or(1, |tree| tree.span("horizontal"));
-    let vertical = tree.as_ref().map_or(1, |tree| tree.span("vertical"));
     let canvas = DockCanvas {
-        min_height: format!(
-            "max({}%, {}px)",
-            (vertical as f64 / number(&body["rows"]).max(1.) * 100.).max(100.),
-            vertical * 340
-        ),
+        min_height: tree
+            .as_ref()
+            .map_or_else(|| "100%".into(), Tree::minimum_canvas_height),
         width: format!(
             "{}%",
             if tree.is_some() {

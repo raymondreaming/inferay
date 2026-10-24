@@ -82,7 +82,6 @@ interface WorkspaceCanvasProps {
 	panes: Pane[];
 	selectedPaneId: string | null;
 	columns: number;
-	rows: number;
 	onSelectPane: (id: string) => void;
 	onFocusPane?: (id: string) => void;
 	onClosePane: (id: string) => void;

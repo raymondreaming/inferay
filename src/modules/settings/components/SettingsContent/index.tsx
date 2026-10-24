@@ -17,7 +17,7 @@ import {
 	type SyntaxHighlightTheme,
 	useSyntaxHighlightTheme,
 } from "@shared/hooks/useSyntaxHighlight.tsx";
-import type { SettingsModalTarget } from "@shared/lib/dom.tsx";
+import type { SettingsTarget } from "@shared/lib/dom.tsx";
 import {
 	loadDefaultChatSettings,
 	project,
@@ -45,11 +45,11 @@ import { McpSettings } from "./McpSettings.tsx";
 import { SearchFoldersSection } from "./SearchFoldersSection.tsx";
 import { styles } from "./styles.ts";
 
-type SettingsModalSection = "all" | SettingsModalTarget;
+type SettingsSectionId = "all" | Exclude<SettingsTarget, "skills">;
 
 /** Native models own choices and defaults; this component owns form/query lifecycles. */
-export function SettingsModalContent(props: { section: SettingsModalSection }) {
-	const show = (section: SettingsModalTarget) =>
+export function SettingsContent(props: { section: SettingsSectionId }) {
+	const show = (section: SettingsTarget) =>
 		props.section === "all" || props.section === section;
 	const accounts = useQueryResource(() => ({
 		queryKey: ["agents", "account-status"],

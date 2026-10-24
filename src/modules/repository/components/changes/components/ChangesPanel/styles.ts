@@ -6,7 +6,6 @@ import {
 	layer,
 	motion,
 	radius,
-	shadow,
 } from "../../../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
 	root: {
@@ -19,6 +18,27 @@ export const styles = stylex.create({
 		backgroundColor: color.transparent,
 	},
 
+	workingTree: {
+		display: "grid",
+		gridTemplateRows: "auto minmax(0, 1fr) auto",
+		gridTemplateColumns: "minmax(0, 1fr)",
+	},
+	withCommit: {
+		gridTemplateColumns: {
+			default: "minmax(0, 1fr)",
+			"@container changes (min-width: 900px)":
+				"minmax(0, 2fr) minmax(240px, 1fr)",
+		},
+		gridTemplateRows: {
+			default: "auto minmax(0, 1fr) auto",
+			"@container changes (min-width: 900px)": "auto minmax(0, 1fr)",
+		},
+	},
+	workingFiles: {
+		display: "grid",
+		gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+		minWidth: 0,
+	},
 	scrollArea: {
 		flex: 1,
 		minHeight: controlSize._0,
@@ -32,6 +52,7 @@ export const styles = stylex.create({
 		overflow: "hidden",
 	},
 	emptyState: {
+		gridColumn: "1 / -1",
 		display: "flex",
 		alignItems: "center",
 		justifyContent: "center",
@@ -67,6 +88,7 @@ export const styles = stylex.create({
 		fontSize: font.size_1,
 	},
 	sidebarHeader: {
+		gridColumn: "1 / -1",
 		position: "sticky",
 		top: controlSize._0,
 		zIndex: layer.dropdown,
@@ -135,15 +157,45 @@ export const styles = stylex.create({
 		transitionDuration: motion.durationFast,
 	},
 	commitSection: {
-		display: "flex",
-		flexShrink: 0,
-		flexDirection: "column",
-		backgroundColor: color.transparent,
-		borderTopWidth: 1,
+		display: "grid",
+		gridTemplateColumns: {
+			default: "minmax(0, 1fr) auto",
+			"@container changes (min-width: 900px)": "minmax(0, 1fr)",
+		},
+		gridColumn: {
+			default: "1 / -1",
+			"@container changes (min-width: 900px)": "2",
+		},
+		gridRow: {
+			default: "auto",
+			"@container changes (min-width: 900px)": "2",
+		},
+		minWidth: 0,
+		alignItems: "center",
+		alignContent: "start",
+		gap: controlSize._2,
+		padding: controlSize._2,
+		borderTopWidth: {
+			default: 1,
+			"@container changes (min-width: 900px)": 0,
+		},
 		borderTopStyle: "solid",
 		borderTopColor: color.border,
-		boxShadow: "0 -10px 24px rgba(0, 0, 0, 0.16)",
+		borderLeftWidth: {
+			default: 0,
+			"@container changes (min-width: 900px)": 1,
+		},
+		borderLeftStyle: "solid",
+		borderLeftColor: color.border,
 	},
+	commitMessageRow: {
+		display: "flex",
+		alignItems: "center",
+		gap: controlSize._1,
+		minWidth: 0,
+	},
+	commitAction: { justifySelf: "end", whiteSpace: "nowrap" },
+
 	sectionTitle: {
 		color: color.textMain,
 		fontSize: font.size_2_75,
@@ -152,105 +204,6 @@ export const styles = stylex.create({
 	fileGroupTitle: {
 		color: color.textSoft,
 		fontSize: font.size_2,
-	},
-	commitForm: {
-		display: "flex",
-		order: 2,
-		flexDirection: "column",
-		gap: controlSize._1_5,
-		paddingInline: controlSize._2,
-		paddingBlock: controlSize._2,
-	},
-	commitEditor: {
-		height: controlSize._7,
-		backgroundColor: color.backgroundRaised,
-		borderColor: {
-			default: color.border,
-			":focus-within": color.borderStrong,
-		},
-		borderRadius: radius.md,
-		borderStyle: "solid",
-		borderWidth: 1,
-		boxShadow: {
-			default: shadow.composerFrame,
-			":focus-within": shadow.composerFrameFocus,
-		},
-		overflow: "hidden",
-		transitionDuration: motion.durationBase,
-		transitionProperty: "border-color, box-shadow, background-color",
-	},
-	summaryRow: {
-		display: "flex",
-		height: "100%",
-		alignItems: "center",
-	},
-	summaryInput: {
-		minWidth: controlSize._0,
-		height: "100%",
-		flex: 1,
-		backgroundColor: color.transparent,
-		color: color.textMain,
-		fontSize: font.size_3,
-		fontWeight: font.weight_5,
-		outline: "none",
-		paddingBlock: controlSize._0,
-		paddingInline: controlSize._3,
-		"::placeholder": {
-			color: color.textFaint,
-		},
-	},
-	generateMessageButton: {
-		alignItems: "center",
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.surfaceWhite06,
-		},
-		borderRadius: radius.md,
-		color: {
-			default: color.textMuted,
-			":hover": color.textMain,
-		},
-		display: "flex",
-		flexShrink: 0,
-		height: controlSize._6,
-		justifyContent: "center",
-		marginRight: controlSize._2,
-		width: controlSize._6,
-		":disabled": {
-			opacity: 0.45,
-		},
-	},
-	commitButtonSurface: {
-		display: "flex",
-		width: "100%",
-		height: controlSize._7,
-		overflow: "hidden",
-		borderWidth: 1,
-		borderStyle: "solid",
-		borderColor: color.textWarmWhite,
-		borderRadius: radius.md,
-		backgroundColor: color.textWarmWhite,
-		boxShadow: "inset 0 0 0 1px rgba(0, 0, 0, 0.12)",
-	},
-	commitMainAction: {
-		display: "flex",
-		minWidth: controlSize._0,
-		flex: 1,
-		alignItems: "center",
-		justifyContent: "center",
-		gap: controlSize._1_5,
-		backgroundColor: {
-			default: color.transparent,
-			":hover": "rgba(0, 0, 0, 0.06)",
-		},
-		color: color.textWarmInk,
-		fontSize: font.size_2,
-		fontWeight: font.weight_6,
-		":disabled": {
-			color: color.textWarmInk,
-			opacity: 1,
-			WebkitTextFillColor: "#111210",
-		},
 	},
 	detailsRoot: {
 		display: "flex",
@@ -373,12 +326,12 @@ export const styles = stylex.create({
 	},
 	splitFileGroup: {
 		boxSizing: "border-box",
-		flexGrow: 0,
-		flexShrink: 0,
-		height: "50%",
-		minHeight: "50%",
-		maxHeight: "50%",
+		minWidth: 0,
+		minHeight: 0,
 		overflow: "hidden",
+		borderLeftWidth: { default: 0, ":not(:first-child)": 1 },
+		borderLeftStyle: "solid",
+		borderLeftColor: color.border,
 	},
 	emptyGroupBody: {
 		height: controlSize._12,
@@ -393,10 +346,10 @@ export const styles = stylex.create({
 	},
 	groupHeader: {
 		display: "flex",
-		height: controlSize._8,
+		flexWrap: "wrap",
+		minHeight: controlSize._8,
 		flexShrink: 0,
 		alignItems: "center",
-		justifyContent: "space-between",
 		borderBottomWidth: 1,
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
@@ -404,13 +357,9 @@ export const styles = stylex.create({
 		paddingInline: controlSize._3,
 		gap: controlSize._2,
 	},
-	groupHeaderSeparated: {
-		borderTopWidth: 1,
-		borderTopStyle: "solid",
-		borderTopColor: color.border,
-	},
 	groupToggle: {
 		display: "flex",
+		flexShrink: 0,
 		alignItems: "center",
 		gap: controlSize._2,
 		backgroundColor: color.transparent,
@@ -445,6 +394,7 @@ export const styles = stylex.create({
 		paddingInline: controlSize._1_5,
 	},
 	actionAllButton: {
+		marginLeft: "auto",
 		height: controlSize._5,
 		flexShrink: 0,
 		whiteSpace: "nowrap",

@@ -68,6 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         inferay_presentation::documents::DocumentView,
         inferay_presentation::dock_session::DockRequest,
         inferay_presentation::dock::DockLayout,
+        inferay_presentation::dock::DockResizePreview,
         inferay_presentation::appearance::SidebarResize,
         inferay_core::syntax::SyntaxKind,
         inferay_core::syntax::SyntaxInput,

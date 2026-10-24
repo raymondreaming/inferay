@@ -96,7 +96,7 @@ export function ProjectNavigation() {
 										title={path()}
 										aria-label={`Open repository ${path().split("/").at(-1)}`}
 										aria-current={
-											projects.view() === "code" &&
+											projects.repositoryOpen() &&
 											projects.repositoryPath() === path()
 												? "page"
 												: undefined
@@ -105,7 +105,7 @@ export function ProjectNavigation() {
 											styles.tab,
 											...selectionAppearance(
 												"navigation",
-												projects.view() === "code" &&
+												projects.repositoryOpen() &&
 													projects.repositoryPath() === path(),
 											),
 										)}

@@ -28,7 +28,9 @@ export function repositoryKeyboardInput(event: KeyboardEvent) {
 		shift: event.shiftKey,
 		repeat: event.repeat,
 		composing: event.isComposing,
-		blocked: event.defaultPrevented,
+		blocked:
+			event.defaultPrevented ||
+			Boolean(document.querySelector("[data-settings-page]")),
 		editable: Boolean(
 			target?.isContentEditable ||
 			target?.closest('input, textarea, select, [role="textbox"]'),
@@ -228,9 +230,6 @@ export function dispatchWindowEvent<T>(name: string, detail: T): void {
 export const GRAPH_KEYBOARD_EVENT = "inferay-graph-keyboard";
 export const OPEN_ACTIVE_GIT_GRAPH_EVENT = "inferay-open-active-git-graph";
 export const TOGGLE_ACTIVE_GIT_GRAPH_EVENT = "inferay-toggle-active-git-graph";
-export function dispatchToggleActiveGitGraph() {
-	window.dispatchEvent(new CustomEvent(TOGGLE_ACTIVE_GIT_GRAPH_EVENT));
-}
 export const TOGGLE_ACTIVE_GIT_SIDEBAR_EVENT =
 	"inferay-toggle-active-git-sidebar";
 export function dispatchOpenActiveGitGraph(): void {
@@ -255,16 +254,15 @@ export function setActiveGitSidebarVisible(visible: boolean): void {
 		visible,
 	});
 }
-export const OPEN_SETTINGS_MODAL_EVENT = "inferay-open-settings-modal";
-export type SettingsModalTarget =
-	"agents" | "mcp" | "appearance" | "workspace" | "github";
-export interface OpenSettingsModalDetail {
-	readonly section: SettingsModalTarget;
+export const OPEN_SETTINGS_EVENT = "inferay-open-settings";
+export type SettingsTarget =
+	"agents" | "mcp" | "appearance" | "workspace" | "github" | "skills";
+export interface OpenSettingsDetail {
+	readonly section: SettingsTarget;
+	readonly skills?: SkillsTarget;
 }
-export function openSettingsModal(
-	section: SettingsModalTarget = "agents",
-): void {
-	dispatchWindowEvent<OpenSettingsModalDetail>(OPEN_SETTINGS_MODAL_EVENT, {
+export function openSettings(section: SettingsTarget = "agents"): void {
+	dispatchWindowEvent<OpenSettingsDetail>(OPEN_SETTINGS_EVENT, {
 		section,
 	});
 }
@@ -272,7 +270,6 @@ export const OPEN_ONBOARDING_EVENT = "inferay-open-onboarding";
 export function openOnboarding(): void {
 	window.dispatchEvent(new CustomEvent(OPEN_ONBOARDING_EVENT));
 }
-export const OPEN_SKILLS_EVENT = "inferay-open-skills";
 export type SkillsTarget =
 	| {
 			mode: "browse";
@@ -289,7 +286,10 @@ export function openSkills(
 		mode: "browse",
 	},
 ): void {
-	dispatchWindowEvent(OPEN_SKILLS_EVENT, target);
+	dispatchWindowEvent<OpenSettingsDetail>(OPEN_SETTINGS_EVENT, {
+		section: "skills",
+		skills: target,
+	});
 }
 export const REMOVE_AGENT_PANE_REQUEST_EVENT =
 	"inferay-remove-agent-pane-request";

@@ -23,7 +23,12 @@ import {
 	nextGitGraphHistoryLimit,
 	useGraphPreferences,
 } from "@repository/components/graph/components/CommitGraph/useCommitGraphState.tsx";
-import { ChatDiffPanel } from "@repository/components/operations/ChatDiffPanel/index.tsx";
+import {
+	ChatDiffPanel,
+	GitOperationFeedback,
+} from "@repository/components/operations/ChatDiffPanel/index.tsx";
+import { useGitOperations } from "@repository/components/operations/ChatDiffPanel/useGitOperations.tsx";
+import { RepositoryToolbar } from "@repository/components/operations/ChatDiffPanel/ViewerHeader.tsx";
 import {
 	WorkbenchDiffRail,
 	WorkbenchSidebar,
@@ -44,7 +49,6 @@ import {
 	runGitOperation,
 } from "@repository/services/gitApi.ts";
 import {
-	createPointerResize,
 	DOCUMENT_OPEN_EVENT,
 	type DocumentOpenDetail,
 	GRAPH_KEYBOARD_EVENT,
@@ -78,7 +82,6 @@ import {
 } from "solid-js";
 
 const GIT_FILE_VIEW_MODE_STORAGE_KEY = "inferay-git-file-view-mode";
-const SIDEBAR_WIDTH_KEY = "agent-workspace-changes-width";
 const DIFF_VIEW_MODE_KEY = "agent-workspace-diff-view-mode";
 
 const EMPTY_FILES: GitFileEntry[] = [];
@@ -104,15 +107,10 @@ export function useRepositoryWorkbench(repositoryPath: Accessor<string>) {
 		rustProject<RepositoryPreferences>("repositoryPreferences", {
 			fileViewMode: readStoredValue(GIT_FILE_VIEW_MODE_STORAGE_KEY),
 			diffViewMode: readStoredValue(DIFF_VIEW_MODE_KEY),
-			sidebarWidth: readStoredValue(SIDEBAR_WIDTH_KEY),
 		});
 	const [fileViewMode, setFileViewModeState] = createSignal(
 		() => readPreferences().fileViewMode,
 	);
-	const [sidebarWidth, setSidebarWidth] = createSignal(() => {
-		void repositoryPath();
-		return readPreferences().sidebarWidth;
-	});
 	onSettled(() =>
 		listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {
 			const { key, value } =
@@ -123,19 +121,10 @@ export function useRepositoryWorkbench(repositoryPath: Accessor<string>) {
 				(value === "path" || value === "tree")
 			)
 				setFileViewModeState(value);
-			if (key === SIDEBAR_WIDTH_KEY)
-				setSidebarWidth(readPreferences().sidebarWidth);
 		}),
 	);
 	const [diffViewMode, setDiffViewModeState] = createSignal(
 		() => readPreferences().diffViewMode,
-	);
-	const [zenMode, setZenMode] = createSignal(false);
-	createEffect(
-		() => panelSession().graphVisible,
-		(visible) => {
-			if (!visible) setZenMode(false);
-		},
 	);
 	const [graphActionError, setGraphActionError] = createSignal<string | null>(
 		null,
@@ -150,16 +139,6 @@ export function useRepositoryWorkbench(repositoryPath: Accessor<string>) {
 		setDiffViewModeState(mode);
 		writeStoredValue(DIFF_VIEW_MODE_KEY, mode);
 	};
-	const trackResize = createPointerResize();
-	const toggleZenMode = () => setZenMode((current) => !current);
-	createEffect(zenMode, (enabled) => {
-		if (!enabled) return;
-		return listenWindowEvent("keydown", (event) => {
-			if ((event as KeyboardEvent).key !== "Escape") return;
-			(event as KeyboardEvent).preventDefault();
-			setZenMode(false);
-		});
-	});
 	const [panelsUnlocked, setPanelsUnlocked] = createSignal(false);
 	const context = createMemo(() =>
 		rustProject<{
@@ -398,7 +377,7 @@ export function useRepositoryWorkbench(repositoryPath: Accessor<string>) {
 		input: object,
 		fallback: string,
 	): Promise<GitActionResponse> => {
-		const cwd = graphCwd();
+		const cwd = graphCwd() ?? activeCwd();
 		try {
 			if (!cwd) throw new Error("No Git repository selected");
 			const result = await runGitOperation(cwd, endpoint, input);
@@ -595,7 +574,6 @@ export function useRepositoryWorkbench(repositoryPath: Accessor<string>) {
 				?.focus({ preventScroll: true });
 		});
 	const closeDiffViewer = () => {
-		setZenMode(false);
 		updatePanelSession({
 			type: "dismissDiff",
 		});
@@ -758,7 +736,6 @@ export function useRepositoryWorkbench(repositoryPath: Accessor<string>) {
 		} else if (action.type === "focusGraph") {
 			const cwd = session.diffViewerCwd ?? activeCwd();
 			if (cwd) {
-				setZenMode(false);
 				updatePanelSession({ type: "openGraph", cwd });
 				focusCommitGraph();
 			}
@@ -821,44 +798,15 @@ export function useRepositoryWorkbench(repositoryPath: Accessor<string>) {
 					(session.mainViewMode === "graph" && session.graphVisible)
 				)
 					return;
-				setZenMode(false);
 				updatePanelSession({ type: "toggleGraph", cwd });
 			}),
-			listenWindowEvent(OPEN_ACTIVE_GIT_GRAPH_EVENT, () =>
-				changeMainViewMode("graph"),
-			),
+			listenWindowEvent(OPEN_ACTIVE_GIT_GRAPH_EVENT, () => {
+				setPanelsUnlocked(true);
+				changeMainViewMode("graph");
+			}),
 		];
 		return () => cleanup.forEach((remove) => remove());
 	});
-	const handleResizeStart = (
-		event: PointerEvent & {
-			currentTarget: HTMLButtonElement;
-		},
-	) => {
-		if (event.button !== 0) return;
-		event.preventDefault();
-		const rail = event.currentTarget.parentElement;
-		const startWidth = sidebarWidth();
-		const startX = event.clientX;
-		let width = startWidth;
-		try {
-			event.currentTarget.setPointerCapture(event.pointerId);
-		} catch {}
-		trackResize(
-			event.pointerId,
-			(moveEvent) => {
-				moveEvent.preventDefault();
-				width = rustProject<number>("repositoryResize", {
-					width: startWidth + startX - moveEvent.clientX,
-				});
-				if (rail) rail.style.width = `${width}px`;
-			},
-			() => {
-				writeStoredValue(SIDEBAR_WIDTH_KEY, String(width));
-				setSidebarWidth(width);
-			},
-		);
-	};
 	const renderAuxiliaryPanel = (id: string) => {
 		if (id === "workspace-file-viewer")
 			return (
@@ -913,6 +861,12 @@ export function useRepositoryWorkbench(repositoryPath: Accessor<string>) {
 			render: () => renderAuxiliaryPanel(panel.id),
 		}));
 	});
+	const operations = useGitOperations(() => ({
+		repositoryKey: graphCwd() ?? activeCwd(),
+		graph,
+		onRunRefOperation: runGraphRefOperation,
+		onRunGraphAction: runGraphActionRequest,
+	}));
 	const diffPanel = (
 		<>
 			{context().diffVisible ? (
@@ -943,8 +897,7 @@ export function useRepositoryWorkbench(repositoryPath: Accessor<string>) {
 						graphError={graphActionError() ?? graph.error}
 						selectionAnnouncement={graphSelectionAnnouncement()}
 						repositoryKey={graphCwd()}
-						onRunRefOperation={runGraphRefOperation}
-						onRunGraphAction={runGraphActionRequest}
+						operations={operations}
 						branch={project()?.branch}
 						onClose={closeDiffViewer}
 						closeLabel={
@@ -957,8 +910,6 @@ export function useRepositoryWorkbench(repositoryPath: Accessor<string>) {
 						startAtFirstChange={
 							!historical().commitSource && !historical().comparisonSource
 						}
-						zenMode={zenMode()}
-						onToggleZenMode={toggleZenMode}
 					/>
 				</WorkbenchDiffRail>
 			) : null}
@@ -973,9 +924,6 @@ export function useRepositoryWorkbench(repositoryPath: Accessor<string>) {
 					}}
 					onFocus={focusDiffViewer}
 					visible={sidebarVisible()}
-					width={sidebarWidth()}
-					error={panelSessionError()}
-					onResize={handleResizeStart}
 				>
 					<ChangesPanel
 						actions={changeActions}
@@ -1012,6 +960,27 @@ export function useRepositoryWorkbench(repositoryPath: Accessor<string>) {
 			return auxiliaryPanels();
 		},
 		diffPanel,
+		toolbar: (
+			<RepositoryToolbar
+				branch={project()?.branch}
+				operations={operations}
+				actions={graph.actions}
+			/>
+		),
+		operationFeedback: (
+			<GitOperationFeedback
+				operations={operations}
+				returnFocus={() =>
+					diffRailElement?.querySelector<HTMLElement>(
+						'[aria-label="Repository commit history"]',
+					) ?? sidebarElement
+				}
+			/>
+		),
 		sidebar,
+		sidebarVisible,
+		error: panelSessionError,
+		graphVisible: () =>
+			panelSession().mainViewMode === "graph" && context().diffVisible,
 	};
 }

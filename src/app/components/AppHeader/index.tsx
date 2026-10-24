@@ -3,7 +3,7 @@ import {
 	dispatchCreateAgentChat,
 	dispatchOpenActiveGitGraph,
 	openOnboarding,
-	openSettingsModal,
+	openSettings,
 	openSkills,
 } from "@shared/lib/dom.tsx";
 import {
@@ -13,25 +13,17 @@ import {
 	IconSettings,
 	IconSparkles,
 } from "@shared/ui/Icons/index.tsx";
-import { showProjectView } from "@workspace/hooks/useProjects.tsx";
-import { useWorkspaceState } from "@workspace/hooks/useWorkspaceState.tsx";
-import { createMemo } from "solid-js";
+import {
+	openProjectRepository,
+	projects,
+	showProjectView,
+} from "@workspace/hooks/useProjects.tsx";
 import { CommandPalette } from "../CommandPalette/index.tsx";
 export function AppHeader() {
-	const [shellState] = useWorkspaceState(() => false);
-	const selectedGroup = createMemo(() =>
-		shellState().groups.find(
-			(group) => group.id === shellState().selectedGroupId,
-		),
-	);
-	const selectedCwd = createMemo(
-		() =>
-			selectedGroup()?.panes.find(
-				(pane) => pane.id === selectedGroup()?.selectedPaneId,
-			)?.cwd,
-	);
 	const openCommitGraph = () => {
-		if (!selectedCwd()) return;
+		const path = projects.repositoryPath();
+		if (!path) return;
+		openProjectRepository(path);
 		requestAnimationFrame(dispatchOpenActiveGitGraph);
 	};
 	const createNewChat = () => {
@@ -70,7 +62,7 @@ export function AppHeader() {
 			detail: "Configure Inferay",
 			keywords: "settings preferences configuration",
 			icon: <IconSettings size={iconSize.compact} />,
-			run: () => openSettingsModal(),
+			run: () => openSettings(),
 		},
 		{
 			id: "onboarding",

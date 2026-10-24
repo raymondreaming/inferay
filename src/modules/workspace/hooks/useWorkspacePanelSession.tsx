@@ -144,7 +144,7 @@ const loadPanelVisibility = () =>
 		"panelVisibility",
 		readStoredJson(VISIBILITY_KEY, {}),
 	);
-export function usePanelVisibility() {
+function usePanelVisibility() {
 	const [visibility, setVisibility] = createSignal(loadPanelVisibility);
 	onSettled(() =>
 		listenWindowEvent(CLIENT_STORAGE_CHANGED_EVENT, (event) => {

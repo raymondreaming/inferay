@@ -78,12 +78,9 @@ export const styles = stylex.create({
 	},
 	shell: {
 		backdropFilter: "none",
-		backgroundColor: color.background,
+		backgroundColor: color.transparent,
 		borderRadius: radius.none,
 		borderWidth: controlSize._0,
-		borderRightWidth: 1,
-		borderRightStyle: "solid",
-		borderRightColor: color.border,
 		boxSizing: "border-box",
 		boxShadow: "none",
 		display: "flex",

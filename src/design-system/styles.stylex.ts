@@ -15,7 +15,7 @@ export const color = stylex.defineVars({
 	backgroundPanel: "var(--inferay-surface-panel)",
 	backgroundCanvas: "var(--inferay-surface-canvas)",
 	backgroundOverlay: stylex.types.color("rgba(0, 0, 0, 0.6)"),
-	shellSurface: stylex.types.color("transparent"),
+	shellSurface: "var(--inferay-surface-shell)",
 	surfaceGlassStrong: "var(--inferay-surface-glass-strong)",
 	surfaceInset:
 		"color-mix(in srgb, var(--color-inferay-gray) 34%, transparent)",
@@ -38,14 +38,14 @@ export const color = stylex.defineVars({
 	borderSubtle:
 		"color-mix(in srgb, var(--color-inferay-gray-border) 48%, transparent)",
 	borderStrong: "var(--color-inferay-gray-border-bold)",
-	focusRing: "color-mix(in srgb, var(--color-inferay-info) 58%, transparent)",
+	focusRing: "color-mix(in srgb, var(--color-inferay-white) 45%, transparent)",
 	controlHover: "var(--color-inferay-gray)",
 	controlActive:
 		"color-mix(in srgb, var(--color-inferay-gray) 82%, var(--color-inferay-light-gray) 18%)",
 	textMain: "var(--color-inferay-white)",
 	textSoft: "var(--color-inferay-soft-white)",
 	textMuted: "var(--color-inferay-muted-gray)",
-	textFaint: stylex.types.color("rgba(255, 255, 255, 0.3)"),
+	textFaint: "var(--color-inferay-muted-gray)",
 	textWarmWhite: stylex.types.color("#f4f4f2"),
 	textWarmInk: stylex.types.color("#111210"),
 	accent: "var(--color-inferay-accent)",
@@ -231,7 +231,10 @@ export const surfaceStyles = stylex.create({
 	/** The one treatment for every floating layer: modals, dialogs, menus, popovers. */
 	overlay: {
 		backdropFilter: effect.floatingSurfaceBlur,
-		backgroundColor: color.backgroundPanel,
+		backgroundColor: {
+			default: color.backgroundPanel,
+			":is(dialog)": color.backgroundCanvas,
+		},
 		backgroundImage: "none",
 		borderColor: color.border,
 		borderStyle: "solid",
@@ -274,7 +277,7 @@ const selection = stylex.create({
 		},
 	},
 	navigationSelected: {
-		backgroundColor: color.controlActive,
+		backgroundColor: "var(--inferay-selection-fill)",
 		boxShadow: "none",
 	},
 	base: {
@@ -286,7 +289,7 @@ const selection = stylex.create({
 		boxShadow: "none",
 		boxSizing: "border-box",
 		color: {
-			default: color.textMuted,
+			default: color.textSoft,
 			":hover": color.textMain,
 		},
 		transitionDuration: motion.durationBase,
@@ -297,7 +300,7 @@ const selection = stylex.create({
 		borderRadius: radius.md,
 	},
 	repository: {
-		borderRadius: radius.none,
+		borderRadius: radius.md,
 	},
 	view: {
 		borderRadius: radius.sm,
@@ -323,7 +326,7 @@ const selection = stylex.create({
 	selected: {
 		backgroundColor:
 			"var(--inferay-selection-fill, var(--inferay-surface-panel))",
-		boxShadow: "var(--inferay-selection-outline, none)",
+		boxShadow: "none",
 		color: color.textMain,
 	},
 	selectedBorder: {

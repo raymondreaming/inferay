@@ -34,21 +34,21 @@
 }
 
 :root {
-	--color-inferay-black: #000000;
-	--color-inferay-dark-gray: #1c1c1e;
-	--color-inferay-gray: #2c2c2e;
-	--color-inferay-light-gray: #3a3a3c;
-	--color-inferay-gray-border: rgba(255, 255, 255, 0.08);
-	--color-inferay-gray-border-bold: rgba(255, 255, 255, 0.15);
-	--color-inferay-accent: #5a8cff;
-	--color-inferay-accent-hover: #7aa3ff;
+	--color-inferay-black: #202020;
+	--color-inferay-dark-gray: #303030;
+	--color-inferay-gray: #3b3b3b;
+	--color-inferay-light-gray: #484848;
+	--color-inferay-gray-border: rgba(235, 235, 235, 0.06);
+	--color-inferay-gray-border-bold: rgba(235, 235, 235, 0.12);
+	--color-inferay-accent: #4da3f5;
+	--color-inferay-accent-hover: #7bbcff;
 	--color-inferay-success: #30d158;
 	--color-inferay-warning: #ff9f0a;
 	--color-inferay-error: #ff453a;
 	--color-inferay-info: #8a8aff;
-	--color-inferay-white: #f5f5f7;
-	--color-inferay-soft-white: rgba(255, 255, 255, 0.55);
-	--color-inferay-muted-gray: rgba(255, 255, 255, 0.3);
+	--color-inferay-white: #ebebeb;
+	--color-inferay-soft-white: rgba(235, 235, 235, 0.72);
+	--color-inferay-muted-gray: rgba(235, 235, 235, 0.5);
 	--color-inferay-accent-foreground: #111111;
 	--inferay-panel-base-weight: 45%;
 }
@@ -57,11 +57,14 @@
 :root {
 	color-scheme: dark;
 	--inferay-surface-base: var(--color-inferay-black);
+	--inferay-surface-shell: var(--color-inferay-dark-gray);
 	--inferay-surface-raised: var(--color-inferay-dark-gray);
 	--inferay-surface-subtle: var(--color-inferay-gray);
 	--inferay-surface-canvas: var(--color-inferay-black);
-	--inferay-surface-modal: var(--color-inferay-black);
 	--inferay-overlay-blur: none;
+	--inferay-workspace-blur: none;
+	--inferay-selection-fill: rgba(235, 235, 235, 0.09);
+	--inferay-selection-border: rgba(235, 235, 235, 0.06);
 	--inferay-surface-panel: color-mix(
 		in srgb,
 		var(--inferay-surface-base) var(--inferay-panel-base-weight),
@@ -113,6 +116,9 @@
 }
 
 :root[data-inferay-background="scene"] {
+	--inferay-overlay-blur: blur(24px) saturate(104%);
+	--inferay-surface-shell: transparent;
+	--inferay-workspace-blur: blur(12px) saturate(104%);
 	--inferay-surface-base: color-mix(
 		in srgb,
 		var(--color-inferay-black) 46%,
@@ -136,22 +142,26 @@
 }
 
 :root[data-inferay-background="glass"] {
-	--inferay-overlay-blur: blur(56px) saturate(108%);
-	--inferay-selection-fill: rgba(255, 255, 255, 0.14);
-	--inferay-selection-border: rgba(255, 255, 255, 0.22);
-	--inferay-selection-outline: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+	--color-inferay-black: #0d0d0d;
+	--color-inferay-dark-gray: #181818;
+	--color-inferay-gray: #242424;
+	--color-inferay-light-gray: #303030;
+	--inferay-overlay-blur: blur(24px) saturate(110%);
+	/* Native tint owns the dark glass; only a faint highlight sits above it. */
+	--inferay-surface-shell: rgba(235, 235, 235, 0.05);
 	--inferay-surface-base: transparent;
 	--inferay-surface-raised: color-mix(
 		in srgb,
-		var(--color-inferay-dark-gray) 42%,
+		var(--color-inferay-dark-gray) 86%,
 		transparent
 	);
 	--inferay-surface-subtle: color-mix(
 		in srgb,
-		var(--color-inferay-gray) 34%,
+		var(--color-inferay-gray) 80%,
 		transparent
 	);
-	--inferay-surface-canvas: transparent;
+	--inferay-surface-panel: rgba(24, 24, 24, 0.88);
+	--inferay-surface-canvas: rgba(6, 6, 6, 0.4);
 }
 
 /* Scene tints reuse the same semantic surfaces and selection recipes. */
@@ -217,7 +227,22 @@ input,
 textarea,
 select,
 [role="button"] {
-	transition: all 0.15s ease;
+	transition:
+		background-color 0.15s ease,
+		border-color 0.15s ease,
+		color 0.15s ease,
+		opacity 0.15s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	button,
+	a,
+	input,
+	textarea,
+	select,
+	[role="button"] {
+		transition: none;
+	}
 }
 
 button,

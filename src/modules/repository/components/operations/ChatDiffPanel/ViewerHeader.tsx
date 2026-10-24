@@ -2,15 +2,13 @@ import type { DiffViewMode } from "@contracts";
 import { iconSize } from "@design-system/styles.stylex.ts";
 import { FileTypeIcon } from "@explorer/components/FileTypeIcon/index.tsx";
 import type { SelectedFile } from "@repository/components/changes/components/ChangesPanel/index.tsx";
+import type { GitGraphActionRequest } from "@repository/components/graph/components/CommitGraph/index.tsx";
 import type { useGitDiff } from "@repository/hooks/useGitDiff.tsx";
 import { ariaValue } from "@shared/lib/dom.tsx";
+import { DropdownButton } from "@shared/ui/DropdownButton/index.tsx";
 import {
-	IconArrowDown,
-	IconCollapse,
-	IconExpand,
 	IconGitBranch,
 	IconLayoutGrid,
-	IconRefreshCw,
 	IconX,
 } from "@shared/ui/Icons/index.tsx";
 import { Dynamic } from "@solidjs/web";
@@ -21,27 +19,17 @@ import type { useGitOperations } from "./useGitOperations.tsx";
 
 export function ViewerHeader(props: {
 	readonly mainViewMode: "diff" | "graph";
-	readonly branch?: string;
 	readonly file: SelectedFile | null;
 	readonly diff: ReturnType<typeof useGitDiff>["diff"];
-	readonly operations: ReturnType<typeof useGitOperations>;
 	readonly onMainViewModeChange: (mode: "diff" | "graph") => void;
 	readonly viewMode: DiffViewMode;
 	readonly onViewModeChange: (mode: DiffViewMode) => void;
-	readonly zenMode: boolean;
-	readonly onToggleZenMode: () => void;
 	readonly onClose: () => void;
 	readonly closeLabel: string;
 }) {
 	const stats = () => props.diff?.metadata?.stats;
 	return (
 		<header {...stylex.attrs(styles.viewerHeader, styles.viewerHeaderTop)}>
-			{props.mainViewMode === "graph" && (
-				<span title={props.branch} {...stylex.attrs(styles.graphTitle)}>
-					<IconGitBranch size={iconSize.compact} />
-					{props.branch || "Commit graph"}
-				</span>
-			)}
 			{props.mainViewMode === "diff" && props.file ? (
 				<DiffFilePath path={props.file.path} />
 			) : null}
@@ -59,39 +47,6 @@ export function ViewerHeader(props: {
 						</span>
 					) : null}
 				</span>
-			) : null}
-			{props.mainViewMode === "graph" ? (
-				<div {...stylex.attrs(styles.graphSyncActions)}>
-					{(["fetch", "pull", "push"] as const).map((action) => {
-						const ActionIcon = createMemo(() =>
-							action === "fetch" ? IconRefreshCw : IconArrowDown,
-						);
-						const label = `${action[0]!.toLocaleUpperCase()}${action.slice(1)} repository`;
-						const actionName = `${action[0]!.toLocaleUpperCase()}${action.slice(1)}`;
-						return (
-							<button
-								type="button"
-								disabled={props.operations.state.graphActionRunning}
-								onClick={() =>
-									props.operations.requestGraphAction({
-										action,
-										itemId: "repository",
-									})
-								}
-								title={label}
-								aria-label={ariaValue(label)}
-								{...stylex.attrs(styles.graphSyncButton)}
-							>
-								<Dynamic
-									component={ActionIcon()}
-									size={iconSize.compact}
-									{...stylex.attrs(action === "push" && styles.graphPushIcon)}
-								/>
-								<span>{actionName}</span>
-							</button>
-						);
-					})}
-				</div>
 			) : null}
 			{props.mainViewMode !== "graph" ? (
 				<>
@@ -131,35 +86,6 @@ export function ViewerHeader(props: {
 					</div>
 				</>
 			) : null}
-			<button
-				type="button"
-				onClick={props.onToggleZenMode}
-				title={
-					props.zenMode
-						? "Restore chats (Esc)"
-						: props.mainViewMode === "graph"
-							? "Expand commit graph"
-							: "Expand diff"
-				}
-				aria-label={
-					props.zenMode
-						? "Restore chats"
-						: props.mainViewMode === "graph"
-							? "Expand commit graph"
-							: "Expand diff"
-				}
-				aria-pressed={ariaValue(props.zenMode)}
-				{...stylex.attrs(
-					styles.viewerModeButton,
-					props.zenMode && styles.viewerModeButtonActive,
-				)}
-			>
-				{props.zenMode ? (
-					<IconCollapse size={iconSize.compact} />
-				) : (
-					<IconExpand size={iconSize.compact} />
-				)}
-			</button>
 			{props.mainViewMode !== "graph" ? (
 				<button
 					type="button"
@@ -194,5 +120,67 @@ function DiffFilePath(_props: { readonly path: string }) {
 				</strong>
 			</span>
 		</span>
+	);
+}
+
+export function RepositoryToolbar(props: {
+	branch?: string;
+	operations: ReturnType<typeof useGitOperations>;
+	actions: Record<string, { title: string }>;
+}) {
+	const busy = () =>
+		props.operations.state.graphActionRunning ||
+		props.operations.state.refOperationRunning;
+	const actions = createMemo(() =>
+		(
+			[
+				"fetch",
+				"pull",
+				"push",
+				"createBranch",
+				"createTag",
+				"stashPush",
+				...(props.branch
+					? ([
+							"renameBranch",
+							"setUpstream",
+							"pushSetUpstream",
+							"forcePushWithLease",
+						] as const)
+					: []),
+			] as const
+		).map((action) => ({
+			id: action,
+			label: props.actions[action]?.title ?? action,
+		})),
+	);
+	return (
+		<>
+			<span title={props.branch} {...stylex.attrs(styles.graphTitle)}>
+				<IconGitBranch size={iconSize.compact} />
+				<span {...stylex.attrs(styles.branchName)}>
+					{props.branch || "No branch"}
+				</span>
+			</span>
+
+			<DropdownButton
+				label="Repository actions"
+				placeholder="Actions"
+				value={null}
+				variant="ghost"
+				size="sm"
+				disabled={busy()}
+				options={actions()}
+				onChange={(action) =>
+					props.operations.requestGraphAction({
+						action: action as GitGraphActionRequest["action"],
+						itemId: "repository",
+						target: ["fetch", "pull", "push", "stashPush"].includes(action)
+							? undefined
+							: props.branch || "HEAD",
+					})
+				}
+			/>
+		</>
 	);
 }

@@ -7,14 +7,30 @@ import {
 	radius,
 } from "../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
-	dialog: {
-		width: "min(1080px, calc(100vw - 32px))",
-		height: "min(780px, calc(100dvh - 48px))",
-	},
 	root: {
 		display: "flex",
-		height: "100%",
+		height: "max(440px, calc(100dvh - 220px))",
+		minWidth: 0,
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.border,
+		borderRadius: radius.xl,
+		backgroundColor: color.surfaceWhite04,
+		overflow: "hidden",
 		flexDirection: "column",
+	},
+	confirmation: {
+		display: "flex",
+		alignItems: "center",
+		justifyContent: "flex-end",
+		gap: controlSize._2,
+		flexShrink: 0,
+		flexWrap: "wrap",
+		padding: controlSize._3,
+		fontSize: font.size_3,
+		borderBottomWidth: 1,
+		borderBottomStyle: "solid",
+		borderBottomColor: color.border,
 	},
 	content: {
 		display: "flex",
@@ -40,7 +56,7 @@ export const styles = stylex.create({
 		},
 		minHeight: 0,
 		width: {
-			default: "17rem",
+			default: "14rem",
 			"@media (max-width: 700px)": "100%",
 		},
 	},
@@ -49,12 +65,8 @@ export const styles = stylex.create({
 		flexDirection: "column",
 		flexShrink: 0,
 		gap: controlSize._2,
-		paddingBlock: controlSize._4,
+		paddingBlock: controlSize._3,
 		paddingInline: controlSize._3,
-		paddingRight: {
-			default: controlSize._3,
-			"@media (max-width: 700px)": controlSize._12,
-		},
 	},
 	newButton: {
 		justifyContent: "center",
@@ -181,7 +193,7 @@ export const styles = stylex.create({
 		fontSize: font.size_2,
 		gap: controlSize._1,
 		lineHeight: 1.6,
-		paddingBlock: controlSize._4,
+		paddingBlock: controlSize._3,
 		paddingInline: controlSize._2_5,
 	},
 	detailPane: {
@@ -205,8 +217,7 @@ export const styles = stylex.create({
 		gap: controlSize._2,
 		justifyContent: "space-between",
 		paddingBlock: controlSize._2,
-		paddingInline: controlSize._6,
-		paddingRight: controlSize._12,
+		paddingInline: controlSize._4,
 	},
 	editorEmpty: {
 		alignItems: "center",

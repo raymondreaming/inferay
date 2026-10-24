@@ -21,6 +21,7 @@ export function InlineDirectoryPicker(
 	props: {
 		onCancel?: () => void;
 		stableHeight?: boolean;
+		autoFocus?: boolean;
 		excludePaths?: readonly string[];
 	} & (
 		| { onSelect: (path: string) => void; onSelectionChange?: never }
@@ -63,6 +64,7 @@ export function InlineDirectoryPicker(
 	);
 	const loading = createMemo(() => isSearching() && search.loading);
 	onSettled(() => {
+		if (props.autoFocus === false) return;
 		const timer = setTimeout(() => input?.focus(), 10);
 		return () => clearTimeout(timer);
 	});
@@ -83,8 +85,10 @@ export function InlineDirectoryPicker(
 	};
 	const handleKeyDown = (event: KeyboardEvent) => {
 		if (event.key === "Escape") {
-			event.preventDefault();
-			props.onCancel?.();
+			if (props.onCancel) {
+				event.preventDefault();
+				props.onCancel();
+			}
 		} else if (itemCount() > 0) {
 			if (event.key === "ArrowDown") {
 				event.preventDefault();

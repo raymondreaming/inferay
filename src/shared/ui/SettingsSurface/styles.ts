@@ -31,18 +31,17 @@ export const styles = stylex.create({
 	},
 	sectionTitle: {
 		color: color.textMain,
-		fontSize: font.size_5,
+		fontSize: font.size_4,
 		fontWeight: font.weight_6,
 		letterSpacing: "-0.008em",
 		margin: controlSize._0,
 	},
 	sectionDescription: {
 		color: color.textMuted,
-		fontSize: font.size_2,
+		fontSize: font.size_3,
 		lineHeight: 1.5,
 		marginBlockEnd: controlSize._0,
 		marginBlockStart: controlSize._1,
-		maxWidth: "34rem",
 	},
 	sectionAction: {
 		alignItems: "center",
@@ -54,6 +53,13 @@ export const styles = stylex.create({
 		display: "flex",
 		flexDirection: "column",
 		minWidth: controlSize._0,
+		padding: controlSize._3,
+		paddingInline: controlSize._4,
+		borderWidth: 1,
+		borderStyle: "solid",
+		borderColor: color.border,
+		borderRadius: radius.xl,
+		backgroundColor: color.surfaceWhite04,
 	},
 	row: {
 		alignItems: "center",
@@ -66,9 +72,9 @@ export const styles = stylex.create({
 		display: "flex",
 		gap: controlSize._4,
 		justifyContent: "space-between",
-		minHeight: controlSize._10,
+		minHeight: controlSize._8,
 		minWidth: controlSize._0,
-		paddingBlock: controlSize._2,
+		paddingBlock: controlSize._3,
 	},
 	rowText: {
 		display: "flex",
@@ -79,12 +85,12 @@ export const styles = stylex.create({
 	},
 	rowLabel: {
 		color: color.textSoft,
-		fontSize: font.size_3,
+		fontSize: font.size_4,
 		fontWeight: font.weight_5,
 	},
 	rowDescription: {
 		color: color.textMuted,
-		fontSize: font.size_1,
+		fontSize: font.size_3,
 		lineHeight: 1.5,
 	},
 	rowControl: {

@@ -1,4 +1,4 @@
-import { captureEvent, px } from "@shared/lib/dom.tsx";
+import { captureEvent } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import type { Element } from "solid-js";
 import { styles } from "./styles.ts";
@@ -6,13 +6,6 @@ export function WorkbenchSidebar(_props: {
 	ref?: (element: HTMLElement) => void;
 	onFocus: () => void;
 	visible: boolean;
-	width: number;
-	error: string | null;
-	onResize: (
-		event: PointerEvent & {
-			currentTarget: HTMLButtonElement;
-		},
-	) => void;
 	children?: Element;
 }) {
 	const captureFocus = captureEvent("pointerdown", () => _props.onFocus());
@@ -34,26 +27,8 @@ export function WorkbenchSidebar(_props: {
 			tabindex={-1}
 			aria-label="Changes sidebar"
 			{...stylex.attrs(styles.sidebarShell)}
-			style={{
-				width: _props.visible ? px(_props.width) : 0,
-			}}
 		>
-			{_props.error ? (
-				<div role="alert" {...stylex.attrs(styles.persistenceError)}>
-					{_props.error}
-				</div>
-			) : null}
-			{_props.visible ? (
-				<>
-					<button
-						type="button"
-						aria-label="Resize changes sidebar"
-						onPointerDown={_props.onResize}
-						{...stylex.attrs(styles.resizeHandle)}
-					/>
-					{_props.children}
-				</>
-			) : null}
+			{_props.visible ? <>{_props.children}</> : null}
 		</aside>
 	);
 }

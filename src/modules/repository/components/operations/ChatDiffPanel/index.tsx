@@ -11,7 +11,7 @@ import {
 	RepositoryOperationBar,
 } from "./RefOperationDialog.tsx";
 import { styles } from "./styles.ts";
-import { useGitOperations } from "./useGitOperations.tsx";
+import type { useGitOperations } from "./useGitOperations.tsx";
 import { ViewerHeader } from "./ViewerHeader.tsx";
 
 function gitGraphEmptyLabel(graph: ReturnType<typeof useGitGraph>): string {
@@ -29,54 +29,36 @@ function gitGraphEmptyLabel(graph: ReturnType<typeof useGitGraph>): string {
 	}
 }
 export function ChatDiffPanel(
-	props: Omit<ComponentProps<typeof ViewerHeader>, "operations"> &
-		ReturnType<Parameters<typeof useGitOperations>[0]> & {
-			readonly loading: boolean;
-			readonly error?: string;
-			readonly graphView: Pick<
-				ComponentProps<typeof CommitGraph>,
-				| "preferences"
-				| "onPreferencesChange"
-				| "selectedHash"
-				| "selectedIds"
-				| "onSelect"
-				| "onOpenSelection"
-				| "onCheckoutRef"
-				| "onLoadMore"
-			>;
-			readonly graphError: string | null;
-			readonly selectionAnnouncement: string;
-			readonly startAtFirstChange: boolean;
-		},
+	props: ComponentProps<typeof ViewerHeader> & {
+		readonly branch?: string;
+		readonly repositoryKey?: string;
+		readonly graph: ReturnType<typeof useGitGraph>;
+		readonly operations: ReturnType<typeof useGitOperations>;
+		readonly loading: boolean;
+		readonly error?: string;
+		readonly graphView: Pick<
+			ComponentProps<typeof CommitGraph>,
+			| "preferences"
+			| "onPreferencesChange"
+			| "selectedHash"
+			| "selectedIds"
+			| "onSelect"
+			| "onOpenSelection"
+			| "onCheckoutRef"
+			| "onLoadMore"
+		>;
+		readonly graphError: string | null;
+		readonly selectionAnnouncement: string;
+		readonly startAtFirstChange: boolean;
+	},
 ) {
-	const operations = useGitOperations(() => props);
-	const { state } = operations;
-	let panel: HTMLElement | undefined;
-	const returnGraphFocus = () =>
-		panel?.querySelector<HTMLElement>(
-			'[aria-label="Repository commit history"]',
-		);
+	const operations = props.operations;
 	return (
-		<section
-			ref={(element) => {
-				panel = element;
-			}}
-			{...stylex.attrs(styles.viewerPanel)}
-		>
+		<section {...stylex.attrs(styles.viewerPanel)}>
 			<span role="status" aria-live="polite" {...stylex.attrs(styles.srStatus)}>
 				{props.selectionAnnouncement}
 			</span>
-			<ViewerHeader {...props} operations={operations} />
-			{props.mainViewMode === "graph" ? (
-				<OperationToast
-					phase={operations.operationModel().operationActivity.phase}
-					message={
-						state.graphActionRunning && operations.presentation()
-							? `${operations.presentation()!.confirm} in progress…`
-							: operations.operationModel().operationActivity.message
-					}
-				/>
-			) : null}
+			{props.mainViewMode === "diff" ? <ViewerHeader {...props} /> : null}
 			<div {...stylex.attrs(styles.viewerBody)}>
 				{props.mainViewMode === "graph" ? (
 					props.graph.loading &&
@@ -152,30 +134,49 @@ export function ChatDiffPanel(
 						{props.error ?? "No diff available"}
 					</div>
 				) : null}
-				{props.mainViewMode === "graph" && state.pendingRefAction ? (
-					<RefOperationDialog
-						returnFocus={returnGraphFocus}
-						operations={operations}
-						pendingRefAction={state.pendingRefAction}
-					/>
-				) : null}
-				{props.mainViewMode === "graph" &&
-				operations.dialogOpen() &&
-				state.pendingGraphAction &&
-				operations.presentation() ? (
-					<GraphActionDialog
-						returnFocus={returnGraphFocus}
-						operations={operations}
-						pendingGraphActionPresentation={operations.presentation()!}
-						pendingGraphAction={state.pendingGraphAction}
-					/>
-				) : null}
-				{props.mainViewMode === "graph" &&
-				operations.operationModel().recoveryTitle &&
-				!state.pendingRefAction ? (
-					<RepositoryOperationBar operations={operations} />
-				) : null}
 			</div>
 		</section>
+	);
+}
+
+export function GitOperationFeedback(props: {
+	operations: ReturnType<typeof useGitOperations>;
+	returnFocus: () => HTMLElement | null | undefined;
+}) {
+	const operations = props.operations;
+	const { state } = operations;
+	return (
+		<>
+			{
+				<OperationToast
+					phase={operations.operationModel().operationActivity.phase}
+					message={
+						state.graphActionRunning && operations.presentation()
+							? `${operations.presentation()!.confirm} in progress…`
+							: operations.operationModel().operationActivity.message
+					}
+				/>
+			}
+			{state.pendingRefAction ? (
+				<RefOperationDialog
+					returnFocus={props.returnFocus}
+					operations={operations}
+					pendingRefAction={state.pendingRefAction}
+				/>
+			) : null}
+			{operations.dialogOpen() &&
+			state.pendingGraphAction &&
+			operations.presentation() ? (
+				<GraphActionDialog
+					returnFocus={props.returnFocus}
+					operations={operations}
+					pendingGraphActionPresentation={operations.presentation()!}
+					pendingGraphAction={state.pendingGraphAction}
+				/>
+			) : null}
+			{operations.operationModel().recoveryTitle && !state.pendingRefAction ? (
+				<RepositoryOperationBar operations={operations} />
+			) : null}
+		</>
 	);
 }

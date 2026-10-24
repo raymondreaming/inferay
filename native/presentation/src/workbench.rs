@@ -5,22 +5,13 @@ use serde_json::{Value, json};
 #[derive(serde::Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct RepositoryPreferences {
-    sidebar_width: f64,
     #[ts(type = "'path' | 'tree'")]
     file_view_mode: String,
     diff_view_mode: crate::diff::DiffViewMode,
 }
 
 pub fn preferences(input: &Value) -> RepositoryPreferences {
-    let width = |key: &str, default: f64| {
-        input[key]
-            .as_f64()
-            .or_else(|| string(&input[key]).trim().parse::<f64>().ok())
-            .filter(|value| value.is_finite() && *value > 0.)
-            .unwrap_or(default)
-    };
     RepositoryPreferences {
-        sidebar_width: width("sidebarWidth", 230.).clamp(230., 420.),
         file_view_mode: if input["fileViewMode"] == "path" {
             "path"
         } else {
@@ -36,7 +27,26 @@ pub fn preferences(input: &Value) -> RepositoryPreferences {
 }
 
 pub fn resize(input: &Value) -> Value {
-    json!(number(&input["width"]).clamp(230., 420.))
+    let available = number(&input["availableWidth"]).max(0.);
+    let maximum = (available - 320.).max(360.).min(available);
+    let width = input["width"]
+        .as_f64()
+        .or_else(|| string(&input["width"]).trim().parse::<f64>().ok())
+        .filter(|width| width.is_finite() && *width > 0.)
+        .unwrap_or(520.);
+    json!(width.clamp(360.0_f64.min(maximum), maximum))
+}
+
+pub fn changes_layout(input: &Value) -> Value {
+    let available = number(&input["availableHeight"]).max(0.);
+    let minimum = 120_f64.min(available / 2.);
+    let maximum = (available - 120.).max(minimum);
+    let preferred = input["height"]
+        .as_f64()
+        .or_else(|| string(&input["height"]).trim().parse::<f64>().ok())
+        .filter(|height| height.is_finite())
+        .unwrap_or(available * 0.4);
+    json!({"height": preferred.clamp(minimum, maximum), "minimum": minimum, "maximum": maximum})
 }
 
 pub fn context(input: &Value) -> Value {
@@ -681,6 +691,55 @@ pub fn retained_workspaces(input: &Value) -> Value {
 #[cfg(test)]
 mod ref_dialog_tests {
     use super::*;
+    #[test]
+    fn changes_area_resizes_and_keeps_both_panes_reachable() {
+        assert_eq!(
+            changes_layout(&json!({"availableHeight": 800}))["height"],
+            320.
+        );
+        assert_eq!(
+            changes_layout(&json!({"availableHeight": 800, "height": "480"}))["height"],
+            480.
+        );
+        assert_eq!(
+            changes_layout(&json!({"availableHeight": 800, "height": 9999}))["height"],
+            680.
+        );
+        assert_eq!(
+            changes_layout(&json!({"availableHeight": 800, "height": -100}))["height"],
+            120.
+        );
+        assert_eq!(
+            changes_layout(&json!({"availableHeight": 180, "height": 480})),
+            json!({"height":90., "minimum":90., "maximum":90.})
+        );
+        assert_eq!(changes_layout(&json!({"availableHeight": 0}))["height"], 0.);
+        assert_eq!(
+            changes_layout(&json!({"availableHeight": 800, "height": "NaN"}))["height"],
+            320.
+        );
+    }
+
+    #[test]
+    fn repository_panel_width_keeps_room_for_chat_and_fits_small_windows() {
+        assert_eq!(resize(&json!({"availableWidth": 1200})), 520.);
+        assert_eq!(
+            resize(&json!({"availableWidth": 1200, "width": "700"})),
+            700.
+        );
+        assert_eq!(
+            resize(&json!({"availableWidth": 1200, "width": 5000})),
+            880.
+        );
+        assert_eq!(resize(&json!({"availableWidth": 1200, "width": 1})), 360.);
+        assert_eq!(resize(&json!({"availableWidth": 450, "width": 700})), 360.);
+        assert_eq!(resize(&json!({"availableWidth": 280, "width": 700})), 280.);
+        assert_eq!(resize(&json!({"availableWidth": 0})), 0.);
+        assert_eq!(
+            resize(&json!({"availableWidth": 1200, "width": "NaN"})),
+            520.
+        );
+    }
     #[test]
     fn historical_queries_use_selection_scalars_and_preserve_diff_sources() {
         let mut input = json!({"mainViewMode":"graph", "graphCwd":"/repo", "graphRevision":"r1",

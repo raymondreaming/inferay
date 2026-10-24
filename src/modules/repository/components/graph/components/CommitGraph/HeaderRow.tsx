@@ -1,4 +1,4 @@
-import { px } from "@shared/lib/dom.tsx";
+import { createPointerResize, px } from "@shared/lib/dom.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { createMemo, createSignal, For } from "solid-js";
 import { ColumnResizeHandle } from "./ColumnResizeHandle.tsx";
@@ -9,8 +9,8 @@ import {
 	type ColumnVisibility,
 	type ColumnWidths,
 	GRAPH_PADDING,
+	ROW_HEIGHT,
 	TOOLS_WIDTH,
-	TOP_PADDING,
 } from "./useCommitGraphState.tsx";
 export function HeaderRow(_props: {
 	graphWidth: number;
@@ -21,6 +21,7 @@ export function HeaderRow(_props: {
 	onResizeStart: (column: keyof ColumnWidths, event: PointerEvent) => void;
 }) {
 	const [hovered, setHovered] = createSignal(false);
+	const trackReorder = createPointerResize();
 	const visible = (column: ColumnKey) => _props.columns[column];
 	const labels = createMemo<Record<ColumnKey, string>>(() => ({
 		date: "Date",
@@ -46,7 +47,7 @@ export function HeaderRow(_props: {
 			{...stylex.attrs(styles.header)}
 			style={{
 				width: px(headerWidth()),
-				height: px(TOP_PADDING),
+				height: px(ROW_HEIGHT),
 			}}
 		>
 			{
@@ -56,27 +57,30 @@ export function HeaderRow(_props: {
 							<div
 								data-graph-column-header={column()}
 								title={`Drag to reorder ${labels()[column()].toLocaleLowerCase()}`}
-								draggable="true"
-								onDragStart={(event) => {
-									event.dataTransfer?.setData(
-										"application/x-inferay-graph-column",
-										column(),
+								onPointerDown={(event) => {
+									if (event.button !== 0) return;
+									event.preventDefault();
+									const parent = event.currentTarget.parentElement;
+									const source = column();
+									const startX = event.clientX;
+									let target: ColumnKey | null = null;
+									trackReorder(
+										event.pointerId,
+										(move) => {
+											if (Math.abs(move.clientX - startX) < 4) return;
+											const cell = document
+												.elementFromPoint(move.clientX, move.clientY)
+												?.closest<HTMLElement>("[data-graph-column-header]");
+											target =
+												cell && parent?.contains(cell)
+													? (cell.dataset.graphColumnHeader as ColumnKey)
+													: null;
+										},
+										() => {
+											if (target && target !== source)
+												_props.onMoveColumn(source, target);
+										},
 									);
-								}}
-								onDragOver={(event) => {
-									if (
-										Array.from(event.dataTransfer?.types ?? []).includes(
-											"application/x-inferay-graph-column",
-										)
-									)
-										event.preventDefault();
-								}}
-								onDrop={(event) => {
-									const source = event.dataTransfer?.getData(
-										"application/x-inferay-graph-column",
-									) as ColumnKey;
-									if (source && source !== column())
-										_props.onMoveColumn(source, column());
 								}}
 								{...stylex.attrs(styles.headerCell, styles.draggableHeader)}
 								style={{
@@ -96,19 +100,16 @@ export function HeaderRow(_props: {
 											: 0,
 								}}
 							>
-								<span
-									{...stylex.attrs(
-										styles.headerLabel,
-										!hovered() && styles.headerLabelHidden,
-									)}
-								>
+								<span {...stylex.attrs(styles.headerLabel)}>
 									{labels()[column()]}
 								</span>
-								<ColumnResizeHandle
-									column={column()}
-									visible={hovered()}
-									onResizeStart={_props.onResizeStart}
-								/>
+								{
+									<ColumnResizeHandle
+										column={column()}
+										visible={hovered()}
+										onResizeStart={_props.onResizeStart}
+									/>
+								}
 							</div>
 						);
 					}}

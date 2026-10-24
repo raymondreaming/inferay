@@ -4,8 +4,10 @@ import { createRoot, flush } from "solid-js";
 import {
 	openProjectRepository,
 	projects,
+	refreshProjects,
 	selectProject,
 	showProjectView,
+	toggleProjectRepository,
 } from "../../../src/modules/workspace/hooks/useProjects.tsx";
 import {
 	configureWorkspaceState,
@@ -15,9 +17,15 @@ import {
 } from "../../../src/modules/workspace/hooks/useWorkspaceState.tsx";
 
 test("project tabs restore their own section and repository", async () => {
+	let repositoryPaths: Record<string, string> = {
+		first: "/first",
+		second: "/second",
+	};
+	let delayed: Promise<Response> | undefined;
 	const fetch = spyOn(globalThis, "fetch").mockImplementation(
 		Object.assign(
 			async () =>
+				delayed ??
 				Response.json({
 					root: "/profile",
 					conversationProjects: {
@@ -40,7 +48,7 @@ test("project tabs restore their own section and repository", async () => {
 						automations: [],
 						issues: [],
 						plugins: [],
-						repositoryPaths: { first: "/first", second: "/second" },
+						repositoryPaths,
 					},
 				}),
 			{ preconnect: globalThis.fetch.preconnect },
@@ -128,10 +136,13 @@ test("project tabs restore their own section and repository", async () => {
 		expect(projects.view()).toBe("automations");
 		openProjectRepository("/second");
 		flush();
+		expect(projects.view()).toBe("automations");
 		await select("navigation-b");
+		expect(projects.repositoryOpen()).toBe(false);
 		expect(projects.view()).toBe("chat");
 		await select("navigation-a");
-		expect(projects.view()).toBe("code");
+		expect(projects.view()).toBe("automations");
+		expect(projects.repositoryOpen()).toBe(true);
 		expect(projects.repositoryPath()).toBe("/second");
 		expect(projects.error()).toBe("");
 		showProjectView("chat");
@@ -153,6 +164,28 @@ test("project tabs restore their own section and repository", async () => {
 			workspace().groups.find((g) => g.id === workspace().selectedGroupId)
 				?.selectedPaneId,
 		).toBe("a2");
+		toggleProjectRepository();
+		flush();
+		repositoryPaths = { first: "/first" };
+		await refreshProjects();
+		flush();
+		expect(projects.repositoryPath()).toBe("/first");
+		expect(projects.repositoryOpen()).toBe(false);
+		repositoryPaths = {};
+		await refreshProjects();
+		flush();
+		expect(projects.repositoryPath()).toBeNull();
+		const old = Promise.withResolvers<Response>();
+		delayed = old.promise;
+		const oldRefresh = refreshProjects();
+		delayed = undefined;
+		repositoryPaths = { other: "/other" };
+		await select("navigation-b");
+		old.resolve(Response.json({ invalid: "outdated response" }));
+		await oldRefresh;
+		flush();
+		expect(projects.repositoryPath()).toBe("/other");
+		expect(projects.error()).toBe("");
 	} finally {
 		dispose();
 		fetch.mockRestore();

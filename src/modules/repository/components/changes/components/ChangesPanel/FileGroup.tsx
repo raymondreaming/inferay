@@ -113,12 +113,7 @@ export function FileGroup<T extends FileRowEntry>(_props: {
 			)}
 		>
 			{_props.showHeader !== false ? (
-				<div
-					{...stylex.attrs(
-						styles.groupHeader,
-						_props.title === "Staged" && styles.groupHeaderSeparated,
-					)}
-				>
+				<div {...stylex.attrs(styles.groupHeader)}>
 					<button
 						type="button"
 						onPointerDown={(event) => {
@@ -144,12 +139,23 @@ export function FileGroup<T extends FileRowEntry>(_props: {
 							/>
 						)}
 						<span {...stylex.attrs(styles.sectionTitle, styles.fileGroupTitle)}>
-							{_props.title} Files
+							{_props.title}
 						</span>
 						<span {...stylex.attrs(styles.countPill)}>
 							{_props.files.length}
 						</span>
 					</button>
+					{_props.onDiscardAll && !isEmpty() && (
+						<button
+							type="button"
+							onClick={_props.onDiscardAll}
+							title={`Discard all ${_props.title.toLowerCase()} changes`}
+							aria-label={`Discard all ${_props.title.toLowerCase()} changes`}
+							{...stylex.attrs(styles.headerIconButton)}
+						>
+							<IconTrash size={iconSize.sm} />
+						</button>
+					)}
 					{_props.onActionAll &&
 						!isCollapsed() &&
 						_props.actionLabel &&
@@ -168,17 +174,6 @@ export function FileGroup<T extends FileRowEntry>(_props: {
 								{_props.actionLabel} All
 							</button>
 						)}
-					{_props.onDiscardAll && !isEmpty() && (
-						<button
-							type="button"
-							onClick={_props.onDiscardAll}
-							title={`Discard all ${_props.title.toLowerCase()} changes`}
-							aria-label={`Discard all ${_props.title.toLowerCase()} changes`}
-							{...stylex.attrs(styles.headerIconButton)}
-						>
-							<IconTrash size={iconSize.sm} />
-						</button>
-					)}
 				</div>
 			) : null}
 			{isEmpty() ? (

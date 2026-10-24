@@ -10,7 +10,7 @@ import {
 	type CreateAgentChatTarget,
 	dispatchCreateAgentChat,
 	listenWindowEvent,
-	openSettingsModal,
+	openSettings,
 	px,
 	WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
 	type WorkspaceSidebarCollapsedDetail,
@@ -146,7 +146,7 @@ export function WorkspaceSidebar() {
 			await mutateAgentWorkspaceState({
 				type: "addWorkspace",
 			});
-			showProjectView("code");
+			showProjectView("chat");
 			return;
 		}
 		await mutateAgentWorkspaceState({
@@ -267,7 +267,7 @@ export function WorkspaceSidebar() {
 						/>
 						<button
 							type="button"
-							onClick={() => openSettingsModal()}
+							onClick={() => openSettings()}
 							{...stylex.attrs(styles.sidebarSettings)}
 						>
 							<IconSettings size={iconSize.md} />
@@ -275,7 +275,7 @@ export function WorkspaceSidebar() {
 						</button>
 						<button
 							type="button"
-							onClick={() => openSettingsModal("github")}
+							onClick={() => openSettings("github")}
 							{...stylex.attrs(styles.sidebarAccount)}
 							title="Account settings"
 						>

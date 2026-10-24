@@ -8,11 +8,7 @@ import { HeaderRow } from "./HeaderRow.tsx";
 import { RefContextMenu } from "./RefContextMenu.tsx";
 import { RowContextMenu } from "./RowContextMenu.tsx";
 import { styles } from "./styles.ts";
-import {
-	ROW_HEIGHT,
-	TOP_PADDING,
-	useCommitGraphState,
-} from "./useCommitGraphState.tsx";
+import { ROW_HEIGHT, useCommitGraphState } from "./useCommitGraphState.tsx";
 
 export type {
 	GitGraphActionRequest,
@@ -32,155 +28,165 @@ export const CommitGraph = function CommitGraph(
 		return () => element?.removeEventListener(GRAPH_KEYBOARD_EVENT, navigate);
 	});
 	return (
-		<div
-			ref={(_element) => assignRef(view.scrollerRef, _element)}
-			{...stylex.attrs(styles.root)}
-			role="listbox"
-			tabindex={0}
-			aria-label="Repository commit history"
-			aria-keyshortcuts="ArrowUp ArrowDown ArrowRight Alt+ArrowUp Alt+ArrowDown"
-			onScroll={(event) => {
-				view.rememberScroll(
-					event.currentTarget.scrollTop,
-					event.currentTarget.scrollLeft,
-				);
-				const remaining =
-					event.currentTarget.scrollHeight -
-					event.currentTarget.scrollTop -
-					event.currentTarget.clientHeight;
-				if (
-					view.hasMore &&
-					!view.loadingMore &&
-					view.onLoadMore &&
-					remaining < ROW_HEIGHT * 16
-				) {
-					view.onLoadMore();
-				}
-			}}
-			onMouseMove={view.handleMouseMove}
-			onMouseLeave={() => view.setHoveredRow(null)}
-			onKeyDown={view.navigateRows}
-		>
-			{view.commits.length === 0 ? (
+		<div {...stylex.attrs(styles.root)}>
+			<div {...stylex.attrs(styles.headerBar)}>
 				<div
-					role="status"
+					ref={(element) => assignRef(view.headerRef, element)}
+					{...stylex.attrs(styles.headerViewport)}
+				>
+					<HeaderRow
+						graphWidth={view.graphWidth}
+						columns={view.columns}
+						widths={view.columnWidths}
+						order={view.visibleOrder}
+						onMoveColumn={view.moveColumn}
+						onResizeStart={view.startColumnResize}
+					/>
+				</div>
+				<GraphColumnMenu
+					columns={view.columns}
+					order={view.order}
+					isColumnsOpen={view.isColumnsOpen}
+					onToggleColumnsMenu={() => view.setIsColumnsOpen((open) => !open)}
+					onToggleColumn={view.toggleColumn}
+					hiddenRefs={view.hiddenRefDetails}
+					onShowRef={(fullName) =>
+						view.setHiddenRefs((current) =>
+							current.filter((value) => value !== fullName),
+						)
+					}
+					query={view.query ?? ""}
+					onQueryChange={view.setQuery}
+					matchCount={view.selectableItems.length}
+				/>
+			</div>
+			<div
+				ref={(_element) => assignRef(view.scrollerRef, _element)}
+				{...stylex.attrs(styles.scroller)}
+				role="listbox"
+				tabindex={0}
+				aria-label="Repository commit history"
+				aria-keyshortcuts="ArrowUp ArrowDown ArrowRight Alt+ArrowUp Alt+ArrowDown"
+				onScroll={(event) => {
+					view.rememberScroll(
+						event.currentTarget.scrollTop,
+						event.currentTarget.scrollLeft,
+					);
+					const remaining =
+						event.currentTarget.scrollHeight -
+						event.currentTarget.scrollTop -
+						event.currentTarget.clientHeight;
+					if (
+						view.hasMore &&
+						!view.loadingMore &&
+						view.onLoadMore &&
+						remaining < ROW_HEIGHT * 16
+					) {
+						view.onLoadMore();
+					}
+				}}
+				onMouseMove={view.handleMouseMove}
+				onMouseLeave={() => view.setHoveredRow(null)}
+				onKeyDown={view.navigateRows}
+			>
+				{view.commits.length === 0 ? (
+					<div
+						role="status"
+						style={{
+							padding: "24px",
+						}}
+					>
+						{view.emptyLabel}
+					</div>
+				) : null}
+				<div
+					{...stylex.attrs(styles.rowsLayer)}
 					style={{
-						padding: "24px",
+						height: px(view.graphHeight),
+						width: px(view.tableWidth),
 					}}
 				>
-					{view.emptyLabel}
+					{view.columns.graph && (
+						<CommitGraphLinesLayer
+							class={stylex.attrs(styles.linesLayer).class}
+							width={view.graphWidth}
+							height={view.graphHeight}
+							style={view.lineLayerStyle}
+							lines={view.lines}
+							lineWidth={LINE_WIDTH}
+						/>
+					)}
+					{
+						<For
+							each={view.commits.slice(view.visibleStart, view.visibleEnd)}
+							keyed={(row) => row.id}
+						>
+							{(commit, visibleIndex) => {
+								const logicalIndex = createMemo(
+									() => view.visibleStart + visibleIndex(),
+								);
+								return (
+									<CommitRow
+										commit={commit()}
+										rowActive={view.hoveredRow === commit().id}
+										onRowHover={view.handleRowHover}
+										worktree={
+											commit().worktreePath
+												? view.worktreesByPath.get(commit().worktreePath!)
+												: undefined
+										}
+										graphWidth={view.graphWidth}
+										displayColumn={view.displayGraphColumn(commit().column)}
+										selected={
+											view.selectedHash === commit().id ||
+											view.selectedIdSet.has(commit().id)
+										}
+										onSelect={view.onSelect}
+										onCheckoutRef={view.onCheckoutRef}
+										onRefDrop={view.onRefDrop}
+										onOpenRefContextMenu={view.openRefContextMenu}
+										onOpenItemContextMenu={view.openItemContextMenu}
+										ghostRef={
+											view.references[
+												commit().navigation.containingBranch ?? ""
+											]
+										}
+										hiddenRefNames={view.hiddenRefNames}
+										pinnedRefNames={view.pinnedRefNames}
+										historyMatch={
+											view.searchActive ||
+											view.soloRefs.length === 0 ||
+											view.reachableHistory.has(commit().id) ||
+											view.reachableHistory.has(commit().hash)
+										}
+										visibleOrder={view.visibleOrder}
+										graphStart={view.graphLeft}
+										widths={view.columnWidths}
+										virtualTop={logicalIndex() * ROW_HEIGHT}
+										githubAvatar={view.avatarForCommit(commit())}
+									/>
+								);
+							}}
+						</For>
+					}
 				</div>
-			) : null}
-			<GraphColumnMenu
-				columns={view.columns}
-				order={view.order}
-				isColumnsOpen={view.isColumnsOpen}
-				onToggleColumnsMenu={() => view.setIsColumnsOpen((open) => !open)}
-				onToggleColumn={view.toggleColumn}
-				hiddenRefs={view.hiddenRefDetails}
-				onShowRef={(fullName) =>
-					view.setHiddenRefs((current) =>
-						current.filter((value) => value !== fullName),
-					)
-				}
-				query={view.query ?? ""}
-				onQueryChange={view.setQuery}
-				matchCount={view.selectableItems.length}
-			/>
-			{/* Column controls occupy the existing top spacer; lines and nodes share its origin. */}
-			<div
-				{...stylex.attrs(styles.rowsLayer)}
-				style={{
-					height: px(view.totalHeight),
-					width: px(view.tableWidth),
-				}}
-			>
-				<HeaderRow
-					graphWidth={view.graphWidth}
-					columns={view.columns}
-					widths={view.columnWidths}
-					order={view.order}
-					onMoveColumn={view.moveColumn}
-					onResizeStart={view.startColumnResize}
-				/>
-				{view.columns.graph && (
-					<CommitGraphLinesLayer
-						class={stylex.attrs(styles.linesLayer).class}
-						width={view.graphWidth}
-						height={view.graphHeight}
-						style={view.lineLayerStyle}
-						lines={view.lines}
-						lineWidth={LINE_WIDTH}
-					/>
-				)}
-				{
-					<For
-						each={view.commits.slice(view.visibleStart, view.visibleEnd)}
-						keyed={(row) => row.id}
+				{view.hasMore ? (
+					<button
+						type="button"
+						disabled={view.loadingMore}
+						onClick={view.onLoadMore}
+						{...stylex.attrs(styles.loadMore)}
 					>
-						{(commit, visibleIndex) => {
-							const logicalIndex = createMemo(
-								() => view.visibleStart + visibleIndex(),
-							);
-							return (
-								<CommitRow
-									commit={commit()}
-									rowActive={view.hoveredRow === commit().id}
-									onRowHover={view.handleRowHover}
-									worktree={
-										commit().worktreePath
-											? view.worktreesByPath.get(commit().worktreePath!)
-											: undefined
-									}
-									graphWidth={view.graphWidth}
-									displayColumn={view.displayGraphColumn(commit().column)}
-									selected={
-										view.selectedHash === commit().id ||
-										view.selectedIdSet.has(commit().id)
-									}
-									onSelect={view.onSelect}
-									onCheckoutRef={view.onCheckoutRef}
-									onRefDrop={view.onRefDrop}
-									onOpenRefContextMenu={view.openRefContextMenu}
-									onOpenItemContextMenu={view.openItemContextMenu}
-									ghostRef={
-										view.references[commit().navigation.containingBranch ?? ""]
-									}
-									hiddenRefNames={view.hiddenRefNames}
-									pinnedRefNames={view.pinnedRefNames}
-									historyMatch={
-										view.searchActive ||
-										view.soloRefs.length === 0 ||
-										view.reachableHistory.has(commit().id) ||
-										view.reachableHistory.has(commit().hash)
-									}
-									visibleOrder={view.visibleOrder}
-									graphStart={view.graphLeft}
-									widths={view.columnWidths}
-									virtualTop={TOP_PADDING + logicalIndex() * ROW_HEIGHT}
-									githubAvatar={view.avatarForCommit(commit())}
-								/>
-							);
-						}}
-					</For>
-				}
+						{view.loadingMore ? "Loading older commits…" : "Load older commits"}
+					</button>
+				) : null}
+				{view.refContextMenu ? (
+					<RefContextMenu {...view} refContextMenu={view.refContextMenu} />
+				) : null}
+				{view.itemContextMenu ? (
+					<RowContextMenu {...view} itemContextMenu={view.itemContextMenu} />
+				) : null}
 			</div>
-			{view.hasMore ? (
-				<button
-					type="button"
-					disabled={view.loadingMore}
-					onClick={view.onLoadMore}
-					{...stylex.attrs(styles.loadMore)}
-				>
-					{view.loadingMore ? "Loading older commits…" : "Load older commits"}
-				</button>
-			) : null}
-			{view.refContextMenu ? (
-				<RefContextMenu {...view} refContextMenu={view.refContextMenu} />
-			) : null}
-			{view.itemContextMenu ? (
-				<RowContextMenu {...view} itemContextMenu={view.itemContextMenu} />
-			) : null}
 		</div>
 	);
 };

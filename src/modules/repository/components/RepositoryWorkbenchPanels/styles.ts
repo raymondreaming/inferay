@@ -1,33 +1,17 @@
 import * as stylex from "@stylexjs/stylex";
-import {
-	color,
-	controlSize,
-	font,
-	layer,
-	radius,
-} from "../../../../design-system/styles.stylex.ts";
+import { color, controlSize } from "../../../../design-system/styles.stylex.ts";
 export const styles = stylex.create({
-	persistenceError: {
-		position: "fixed",
-		bottom: controlSize._4,
-		right: controlSize._4,
-		maxWidth: "min(360px, calc(100vw - 32px))",
-		padding: controlSize._3,
-		borderRadius: radius.md,
-		backgroundColor: color.backgroundPanel,
-		color: color.danger,
-		fontSize: font.size_3,
-		zIndex: layer.dropdown,
-	},
 	sidebarShell: {
+		containerType: "inline-size",
+		containerName: "changes",
 		position: "relative",
 		display: "flex",
 		height: "100%",
 		minHeight: controlSize._0,
-		flexShrink: 0,
-		borderLeftWidth: 1,
-		borderLeftStyle: "solid",
-		borderLeftColor: color.border,
+		width: "100%",
+		borderTopWidth: 1,
+		borderTopStyle: "solid",
+		borderTopColor: color.border,
 		backgroundColor: color.transparent,
 	},
 	diffRail: {
@@ -40,19 +24,5 @@ export const styles = stylex.create({
 		flex: 1,
 		backgroundColor: color.transparent,
 		overflow: "visible",
-	},
-	resizeHandle: {
-		position: "absolute",
-		zIndex: layer.sticky,
-		top: controlSize._0,
-		bottom: controlSize._0,
-		left: -3,
-		width: controlSize._1_5,
-		borderWidth: 0,
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.controlActive,
-		},
-		cursor: "ew-resize",
 	},
 });

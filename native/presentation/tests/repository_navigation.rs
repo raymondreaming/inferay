@@ -550,3 +550,44 @@ fn changes_panel_groups_canonical_files_without_losing_both_sides_of_a_path() {
     assert_eq!(model["additions"], 6.0);
     assert_eq!(model["deletions"], 4.0);
 }
+
+#[test]
+fn compact_history_keeps_branch_before_graph_and_enabled_columns() {
+    let mut input = json!({"columns": {"graph":true,"message":true,"refs":true,"date":true,"author":true,"sha":true},
+        "order":["refs","graph","message","date","author","sha"],
+        "widths":{"refs":216,"graph":96,"message":340,"date":132,"author":136,"sha":76},
+        "maxColumn":12,"count":10,"availableWidth":520,"stretch":true});
+    for width in [360., 520., 759.] {
+        input["availableWidth"] = json!(width);
+        let compact = project("graphLayout", &input).unwrap();
+        assert_eq!(
+            compact["visibleOrder"],
+            json!(["refs", "graph", "message", "date", "author", "sha"])
+        );
+        let widths = &compact["columnWidths"];
+        let date_right = widths["refs"].as_f64().unwrap()
+            + widths["graph"].as_f64().unwrap()
+            + widths["message"].as_f64().unwrap()
+            + widths["date"].as_f64().unwrap();
+        if width >= 520. {
+            assert!(date_right <= width);
+        }
+        assert_eq!(widths["date"], 160.);
+        assert!(compact["tableWidth"].as_f64().unwrap() > width);
+        assert_eq!(compact["graphLeft"], widths["refs"]);
+    }
+    input["columns"]["date"] = json!(false);
+    input["columns"]["author"] = json!(false);
+    let hidden = project("graphLayout", &input).unwrap();
+    assert_eq!(
+        hidden["visibleOrder"],
+        json!(["refs", "graph", "message", "sha"])
+    );
+    input["columns"]["date"] = json!(true);
+    input["columns"]["author"] = json!(true);
+    input["availableWidth"] = json!(1200);
+    let full = project("graphLayout", &input).unwrap();
+    assert_eq!(full["visibleOrder"], input["order"]);
+    assert_eq!(full["columnWidths"]["refs"], 216.);
+    assert_eq!(full["tableWidth"], 1200.);
+}

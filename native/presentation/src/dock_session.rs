@@ -18,8 +18,6 @@ pub struct DockRequest {
     ids: Vec<String>,
     columns: usize,
     visible_columns: usize,
-    #[ts(optional)]
-    rows: Option<usize>,
     #[ts(optional, type = "Record<string, unknown>")]
     action: Option<Value>,
 }

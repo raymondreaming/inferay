@@ -118,6 +118,7 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
         "repositoryFileSelection" => json!(workbench::file_selection(input)),
         "repositoryPreferences" => json!(workbench::preferences(input)),
         "repositoryResize" => workbench::resize(input),
+        "repositoryChangesLayout" => workbench::changes_layout(input),
         "repositoryWorkbenchContext" => workbench::context(input),
         "repositoryInteraction" => json!(workbench::interaction(input)),
         "repositoryKeyboardAction" => workbench::keyboard_action(input),

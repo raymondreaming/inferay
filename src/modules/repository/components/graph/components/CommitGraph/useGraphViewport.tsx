@@ -14,6 +14,7 @@ export function useGraphViewport(
 	const [scrollTop, setScrollTop] = createSignal(0);
 	const [viewportHeight, setViewportHeight] = createSignal(600);
 	const [viewportWidth, setViewportWidth] = createSignal(0);
+	let header: HTMLDivElement | null = null;
 	let remember = (_top: number, _left: number) => {};
 	createEffect(
 		() => [repository(), element(), hasRows()] as const,
@@ -27,6 +28,7 @@ export function useGraphViewport(
 			const persist = () => writeStoredJson(key, position);
 			scroller.scrollTop = position.top;
 			scroller.scrollLeft = position.left;
+			if (header) header.scrollLeft = scroller.scrollLeft;
 			setScrollTop(position.top);
 			const measure = () => {
 				if (scroller.clientHeight === 0) return;
@@ -37,6 +39,7 @@ export function useGraphViewport(
 			const observer = new ResizeObserver(measure);
 			observer.observe(scroller);
 			remember = (top, left) => {
+				if (header) header.scrollLeft = left;
 				position = { top, left };
 				if (!frame)
 					frame = requestAnimationFrame(() => {
@@ -61,6 +64,15 @@ export function useGraphViewport(
 		},
 	);
 	return {
+		headerRef: {
+			get current() {
+				return header;
+			},
+			set current(value: HTMLDivElement | null) {
+				header = value;
+				if (value) value.scrollLeft = element()?.scrollLeft ?? 0;
+			},
+		},
 		scrollerRef: {
 			get current() {
 				return element();

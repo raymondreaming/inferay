@@ -63,7 +63,7 @@ export function SkillEditor(props: {
 				)}
 			</div>
 			<div {...stylex.attrs(styles.body)}>
-				<p>
+				<p {...stylex.attrs(styles.scope)}>
 					Global skill · Available in every project. Changes apply wherever this
 					skill is used.
 				</p>

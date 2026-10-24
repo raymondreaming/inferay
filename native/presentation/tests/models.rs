@@ -5,6 +5,23 @@ fn render(op: &str, input: Value) -> Value {
 }
 
 #[test]
+fn dropdown_fits_ten_measured_repository_rows_but_stays_compact_for_short_lists() {
+    let mut input = json!({"placement":"auto","count":12,"maxVisible":10,
+        "rowHeight":30,"contentHeight":522,"width":1400,"height":900,"minWidth":220,
+        "rect":{"top":50,"bottom":80,"left":900,"width":300}});
+    let menu = render("dropdownPosition", input.clone());
+    assert_eq!(menu["maxH"], 522.);
+    assert_eq!(menu["placement"], "bottom");
+    input["count"] = json!(2);
+    input["contentHeight"] = json!(98);
+    assert_eq!(render("dropdownPosition", input.clone())["maxH"], 98.);
+    input["count"] = json!(12);
+    input["contentHeight"] = json!(522);
+    input["height"] = json!(300);
+    assert_eq!(render("dropdownPosition", input)["maxH"], 216.);
+}
+
+#[test]
 fn added_and_deleted_files_use_full_width_but_modified_files_stay_split() {
     use inferay_core::repository::GitHunkDiff;
     for (is_new, patch, full_width) in [

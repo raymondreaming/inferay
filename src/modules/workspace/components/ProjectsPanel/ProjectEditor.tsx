@@ -26,7 +26,7 @@ export function ProjectEditor(props: { project?: Project; close: () => void }) {
 	const [managingRepositories, setManagingRepositories] = createSignal(false);
 	async function submitProject(event: SubmitEvent) {
 		event.preventDefault();
-		if (confirmingArchive()) return;
+		if (confirmingArchive() || projects.busy() || !name().trim()) return;
 		try {
 			const existing =
 				projects.list().find((p) => p.id === props.project?.id) ??
@@ -43,7 +43,7 @@ export function ProjectEditor(props: { project?: Project; close: () => void }) {
 				definition: {
 					schema: "inferay.project/1",
 					id,
-					name: name(),
+					name: name().trim(),
 					description: description(),
 					instructions: instructions(),
 					archived: false,
@@ -69,6 +69,7 @@ export function ProjectEditor(props: { project?: Project; close: () => void }) {
 	) : (
 		<Modal
 			label={props.project ? "Edit project" : "New project"}
+			closeDisabled={projects.busy()}
 			onClose={() => {
 				if (!projects.busy()) props.close();
 			}}
@@ -78,127 +79,175 @@ export function ProjectEditor(props: { project?: Project; close: () => void }) {
 				onSubmit={(e) => void submitProject(e)}
 				{...stylex.attrs(styles.form)}
 			>
-				<strong>{props.project ? "Edit project" : "Create a project"}</strong>
-				<label>
+				<h2 {...stylex.attrs(styles.dialogTitle)}>
+					{props.project ? "Edit project" : "New project"}
+				</h2>
+				<label {...stylex.attrs(styles.editorField)}>
 					Name
 					<TextInput
+						autofocus
+						placeholder="Project name"
 						fullWidth
 						required
 						value={name()}
 						onInput={(e) => setName(e.currentTarget.value)}
 					/>
 				</label>
-				<label>
-					Description
+				<label {...stylex.attrs(styles.editorField)}>
+					Description (optional)
 					<TextInput
 						fullWidth
 						value={description()}
 						onInput={(e) => setDescription(e.currentTarget.value)}
 					/>
 				</label>
-				<label>
-					Project instructions
-					<textarea
-						value={instructions()}
-						onInput={(e) => setInstructions(e.currentTarget.value)}
-						{...stylex.attrs(styles.notes)}
-					/>
-				</label>
 				{props.project ? (
-					<Button size="sm" onClick={() => setManagingRepositories(true)}>
-						Manage repositories
-					</Button>
+					<div {...stylex.attrs(styles.row)}>
+						<span {...stylex.attrs(styles.listText)}>
+							Repositories ({props.project.definition.repositories.length})
+						</span>
+						<Button
+							size="xs"
+							variant="text"
+							aria-label="Manage repositories"
+							onClick={() => setManagingRepositories(true)}
+						>
+							Manage
+						</Button>
+					</div>
 				) : (
 					<fieldset {...stylex.attrs(styles.repositoryChoices)}>
 						<legend>Repositories</legend>
 						<InlineDirectoryPicker
-							stableHeight
+							autoFocus={false}
 							onSelectionChange={setRepositories}
 						/>
 					</fieldset>
 				)}
+				<details
+					open={Boolean(props.project?.definition.instructions)}
+					{...stylex.attrs(styles.editorDetails)}
+				>
+					<summary {...stylex.attrs(styles.editorSummary)}>
+						Project instructions
+					</summary>
+					<textarea
+						aria-label="Project instructions"
+						placeholder="Guidance for agents working in this project…"
+						value={instructions()}
+						onInput={(e) => setInstructions(e.currentTarget.value)}
+						{...stylex.attrs(styles.notes)}
+					/>
+				</details>
+				{props.project ? (
+					<details
+						{...stylex.attrs(styles.editorDetails)}
+						onToggle={(event) => {
+							if (!event.currentTarget.open) {
+								setConfirmingArchive(false);
+								setArchiveName("");
+							}
+						}}
+					>
+						<summary {...stylex.attrs(styles.editorSummary)}>
+							Archive project
+						</summary>
+						<section
+							aria-label="Archive project"
+							{...stylex.attrs(styles.editorArchive)}
+						>
+							<p {...stylex.attrs(styles.muted)}>
+								Remove this project from your tabs and stop its automations.
+								Repository files, resources, and conversations are preserved.
+							</p>
+							{confirmingArchive() ? (
+								<>
+									<label {...stylex.attrs(styles.editorField)}>
+										Type {props.project.definition.name} to confirm
+										<TextInput
+											fullWidth
+											aria-label="Project name to confirm archive"
+											value={archiveName()}
+											onInput={(e) => setArchiveName(e.currentTarget.value)}
+										/>
+									</label>
+									<div {...stylex.attrs(styles.row)}>
+										<Button
+											size="sm"
+											variant="danger"
+											disabled={
+												projects.busy() ||
+												archiveName() !== props.project.definition.name
+											}
+											onClick={() => {
+												const project = props.project;
+												if (
+													!project ||
+													archiveName() !== project.definition.name
+												)
+													return;
+												void saveProjectCommand(
+													editDefinition(project, {
+														...project.definition!,
+														archived: true,
+													}),
+												)
+													.then(async () => {
+														await selectProject("");
+														props.close();
+													})
+													.catch(() => {});
+											}}
+										>
+											Confirm archive
+										</Button>
+										<Button
+											size="sm"
+											disabled={projects.busy()}
+											onClick={() => {
+												setConfirmingArchive(false);
+												setArchiveName("");
+											}}
+										>
+											Keep project
+										</Button>
+									</div>
+								</>
+							) : (
+								<Button
+									size="sm"
+									variant="danger"
+									onClick={() => setConfirmingArchive(true)}
+								>
+									Archive project
+								</Button>
+							)}
+						</section>
+					</details>
+				) : null}
 				{projects.error() ? <p role="alert">{projects.error()}</p> : null}
-				<div {...stylex.attrs(styles.row)}>
+				<div {...stylex.attrs(styles.editorActions)}>
+					<Button
+						size="sm"
+						variant="text"
+						disabled={projects.busy()}
+						onClick={props.close}
+					>
+						Cancel
+					</Button>
 					<Button
 						size="sm"
 						type="submit"
 						variant="primary"
-						disabled={projects.busy() || confirmingArchive()}
+						disabled={projects.busy() || confirmingArchive() || !name().trim()}
 					>
-						{props.project ? "Save project" : "Create project"}
-					</Button>
-					<Button size="sm" onClick={props.close}>
-						Cancel
+						{projects.busy()
+							? "Saving…"
+							: props.project
+								? "Save changes"
+								: "Create project"}
 					</Button>
 				</div>
-				{props.project ? (
-					<section aria-label="Archive project" {...stylex.attrs(styles.card)}>
-						<strong>Archive project</strong>
-						<p {...stylex.attrs(styles.muted)}>
-							Remove this project from your tabs and stop its automations.
-							Repository files, resources, and conversations are preserved.
-						</p>
-						{confirmingArchive() ? (
-							<>
-								<label>
-									Type {props.project.definition.name} to confirm
-									<TextInput
-										fullWidth
-										aria-label="Project name to confirm archive"
-										value={archiveName()}
-										onInput={(e) => setArchiveName(e.currentTarget.value)}
-									/>
-								</label>
-								<div {...stylex.attrs(styles.row)}>
-									<Button
-										size="sm"
-										variant="danger"
-										disabled={
-											projects.busy() ||
-											archiveName() !== props.project.definition.name
-										}
-										onClick={() => {
-											const project = props.project;
-											if (!project || archiveName() !== project.definition.name)
-												return;
-											void saveProjectCommand(
-												editDefinition(project, {
-													...project.definition!,
-													archived: true,
-												}),
-											)
-												.then(async () => {
-													await selectProject("");
-													props.close();
-												})
-												.catch(() => {});
-										}}
-									>
-										Confirm archive
-									</Button>
-									<Button
-										size="sm"
-										disabled={projects.busy()}
-										onClick={() => {
-											setConfirmingArchive(false);
-											setArchiveName("");
-										}}
-									>
-										Keep project
-									</Button>
-								</div>
-							</>
-						) : (
-							<Button
-								size="sm"
-								variant="danger"
-								onClick={() => setConfirmingArchive(true)}
-							>
-								Archive project
-							</Button>
-						)}
-					</section>
-				) : null}
 			</form>
 		</Modal>
 	);

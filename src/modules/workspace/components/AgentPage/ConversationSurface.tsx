@@ -47,8 +47,7 @@ export function ConversationSurface(props: {
 			active={props.active}
 			panes={panes()}
 			selectedPaneId={selectedPaneId()}
-			columns={props.group?.columns ?? 2}
-			rows={props.group?.rows ?? 1}
+			columns={3}
 			onSelectPane={props.actions.selectPane}
 			onFocusPane={props.onFocusPane}
 			onClosePane={props.actions.removePane}

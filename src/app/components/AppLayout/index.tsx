@@ -1,14 +1,13 @@
 import { OnboardingLayer } from "@onboarding/components/OnboardingLayer/index.tsx";
-import { SettingsModalHost } from "@settings/components/SettingsModal/index.tsx";
+import { SettingsPageHost } from "@settings/components/SettingsPage/index.tsx";
 import {
 	useAppAppearance,
 	usesNativeGlass,
 } from "@settings/hooks/useAppAppearance.tsx";
 import { wsClient } from "@shared/lib/native.tsx";
-import { SkillsModalHost } from "@skills/components/SkillsModal/index.tsx";
 import * as stylex from "@stylexjs/stylex";
 import { ProjectsPanel } from "@workspace/components/ProjectsPanel/index.tsx";
-import { ProjectRepositoryWorkbench } from "@workspace/components/ProjectsPanel/ProjectRepositoryWorkbench.tsx";
+import { RepositoryPanel } from "@workspace/components/RepositoryPanel/index.tsx";
 import { RepositoryWorkspaceBar } from "@workspace/components/RepositoryWorkspaceBar/index.tsx";
 import { WorkspaceSidebar } from "@workspace/components/WorkspaceSidebar/index.tsx";
 import {
@@ -35,19 +34,7 @@ export function AppLayout(props: { children: Element }) {
 		return () => clearInterval(timer);
 	});
 	return (
-		<div
-			{...shellThemeProps}
-			data-background-mode={_source.background.mode}
-			style={{
-				"--inferay-app-background":
-					_source.background.mode === "glass"
-						? "transparent"
-						: "var(--color-inferay-black)",
-				"--inferay-glass-blur": `${_source.background.glassBlur}px`,
-				"--inferay-panel-backdrop":
-					_source.background.mode === "glass" ? "none" : undefined,
-			}}
-		>
+		<div {...shellThemeProps} data-background-mode={_source.background.mode}>
 			<div
 				aria-hidden="true"
 				{...stylex.attrs(styles.backgroundLayer)}
@@ -81,32 +68,34 @@ export function AppLayout(props: { children: Element }) {
 				}}
 			/>
 			<AppHeader />
-			<RepositoryWorkspaceBar />
-			<SettingsModalHost />
-			<SkillsModalHost />
-			{projects.view() === "chat" && projects.selectedId() ? (
-				<OnboardingLayer />
-			) : null}
-			<div {...stylex.attrs(styles.appBody, styles.appBodySidebarOpen)}>
-				<WorkspaceSidebar />
-				<div {...stylex.attrs(styles.mainColumn)}>
-					<main {...stylex.attrs(styles.mainContent)}>
-						<Loading fallback={null}>
-							{projects.view() === "chat" && projects.selectedId() ? (
-								props.children
-							) : projects.view() === "code" && projects.repositoryPath() ? (
-								<Show when={projects.repositoryPath()} keyed>
-									{(path) => <ProjectRepositoryWorkbench path={path} />}
-								</Show>
-							) : (
-								<Show when={projects.selectedId() || "all"} keyed>
-									{(_projectId) => <ProjectsPanel />}
-								</Show>
-							)}
-						</Loading>
-					</main>
+			<SettingsPageHost>
+				<RepositoryWorkspaceBar />
+				{projects.view() === "chat" && projects.selectedId() ? (
+					<OnboardingLayer />
+				) : null}
+				<div {...stylex.attrs(styles.appBody)}>
+					<WorkspaceSidebar />
+					<div {...stylex.attrs(styles.mainColumn)}>
+						<main {...stylex.attrs(styles.mainContent)}>
+							<Loading fallback={null}>
+								{projects.view() === "chat" && projects.selectedId() ? (
+									props.children
+								) : (
+									<Show when={projects.selectedId() || "all"} keyed>
+										{(_projectId) => <ProjectsPanel />}
+									</Show>
+								)}
+							</Loading>
+						</main>
+						<Show
+							when={projects.repositoryOpen() && projects.selectedId()}
+							keyed
+						>
+							{(_projectId) => <RepositoryPanel />}
+						</Show>
+					</div>
 				</div>
-			</div>
+			</SettingsPageHost>
 		</div>
 	);
 }

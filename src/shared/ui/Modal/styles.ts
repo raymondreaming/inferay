@@ -12,7 +12,7 @@ export const styles = stylex.create({
 		margin: "auto",
 		boxSizing: "border-box",
 		color: color.textMain,
-		borderRadius: radius._2xl,
+		borderRadius: radius.xl,
 		maxWidth: "calc(100vw - 32px)",
 		maxHeight: "calc(100dvh - 48px)",
 		padding: 0,
@@ -23,8 +23,8 @@ export const styles = stylex.create({
 	},
 	close: {
 		position: "absolute",
-		top: controlSize._3,
-		right: controlSize._3,
+		top: controlSize._2,
+		right: controlSize._2,
 		zIndex: 1,
 	},
 });

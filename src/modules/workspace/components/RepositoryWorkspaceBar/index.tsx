@@ -1,11 +1,8 @@
 import { iconSize, selectionAppearance } from "@design-system/styles.stylex.ts";
-import { useBackgroundQuery } from "@shared/hooks/useQueryResource.tsx";
 import {
 	APP_REGION_DRAG_CLASS,
 	APP_REGION_NO_DRAG_CLASS,
 	ariaValue,
-	dispatchToggleActiveGitGraph,
-	dispatchToggleActiveGitSidebar,
 	listenWindowEvent,
 	WORKSPACE_SIDEBAR_COLLAPSED_EVENT,
 	type WorkspaceSidebarCollapsedDetail,
@@ -15,21 +12,19 @@ import {
 	setWorkspaceSidebarCollapsed,
 } from "@shared/lib/native.tsx";
 import {
+	IconCommitGraph,
 	IconFolder,
 	IconPanelLeft,
 	IconPlus,
 	IconWrench,
 } from "@shared/ui/Icons/index.tsx";
 import * as stylex from "@stylexjs/stylex";
-import {
-	panelQuery,
-	usePanelVisibility,
-} from "@workspace/hooks/useWorkspacePanelSession.tsx";
 import { createMemo, createSignal, For, onSettled } from "solid-js";
 import {
 	projects,
 	reorderProject,
 	selectProject,
+	toggleProjectRepository,
 } from "../../hooks/useProjects.tsx";
 import {
 	openAgentPane,
@@ -37,7 +32,6 @@ import {
 } from "../../hooks/useWorkspaceState.tsx";
 import type { Project } from "../../model/projectFiles.ts";
 import { ProjectEditor } from "../ProjectsPanel/ProjectEditor.tsx";
-import { RepositoryPanelControls } from "./RepositoryPanelControls.tsx";
 import { SidebarChatFlyout } from "./SidebarChatFlyout.tsx";
 import { styles } from "./styles.ts";
 
@@ -57,12 +51,6 @@ export function RepositoryWorkspaceBar() {
 		undefined,
 	);
 	const [chatFlyoutHovered, setChatFlyoutHovered] = createSignal(false);
-	const panelVisibility = usePanelVisibility();
-	const panelState = useBackgroundQuery(() => ({
-		...panelQuery(projects.repositoryPath() ?? ""),
-		// The workbench owns loading and transitions; this observer only reflects its cache.
-		enabled: false,
-	}));
 	onSettled(() => {
 		return listenWindowEvent(WORKSPACE_SIDEBAR_COLLAPSED_EVENT, (event) => {
 			setWorkspaceSidebarCollapsedState(
@@ -90,7 +78,12 @@ export function RepositoryWorkspaceBar() {
 				)
 			)
 				return;
-			if (document.querySelector('[role="dialog"], dialog[open]')) return;
+			if (
+				document.querySelector(
+					'[role="dialog"], dialog[open], [data-settings-page]',
+				)
+			)
+				return;
 			const tabs = projects
 				.list()
 				.filter((project) => !project.definition.archived);
@@ -324,22 +317,19 @@ export function RepositoryWorkspaceBar() {
 					close={() => setEditingProject(undefined)}
 				/>
 			) : null}
-			{projects.view() === "code" ? (
-				<>
-					<span {...stylex.attrs(styles.emptyLabel)}>
-						{projects.repositoryPath()?.split("/").at(-1)}
-					</span>
-					<RepositoryPanelControls
-						hasActiveWorkspace={!!projects.repositoryPath()}
-						graphVisible={
-							panelState.data?.mainViewMode === "graph" &&
-							panelVisibility().graphVisible
-						}
-						sidebarVisible={panelVisibility().sidebarVisible}
-						onToggleGraph={dispatchToggleActiveGitGraph}
-						onToggleSidebar={dispatchToggleActiveGitSidebar}
-					/>
-				</>
+			{projects.selectedId() ? (
+				<button
+					type="button"
+					aria-label="Toggle repository panel"
+					title="Repository history and changes"
+					aria-expanded={ariaValue(projects.repositoryOpen())}
+					aria-pressed={ariaValue(projects.repositoryOpen())}
+					aria-controls="project-repository-panel"
+					onClick={toggleProjectRepository}
+					class={`${APP_REGION_NO_DRAG_CLASS} ${stylex.attrs(styles.panelToggle).class ?? ""}`}
+				>
+					<IconCommitGraph size={iconSize.md} />
+				</button>
 			) : null}
 		</header>
 	);

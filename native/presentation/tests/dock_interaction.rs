@@ -140,3 +140,70 @@ fn unchanged_membership_retains_custom_splits_and_reordering() {
     assert_eq!(restored["saved"]["tree"]["ratio"], 0.72);
     assert_eq!(restored["saved"]["tree"]["first"]["first"]["id"], "c");
 }
+
+#[test]
+fn nine_chats_keep_half_view_height_and_scroll_the_third_row() {
+    let mut input = json!({"ids":[], "columns":3,"visibleColumns":3,"rows":3});
+    // Old one-column preferences must not lock newly added chats into a stack.
+    let old = inferay_presentation::dock::project(
+        &json!({"ids":["1"], "columns":1,"visibleColumns":1,"rows":1}),
+    )
+    .unwrap();
+    input["saved"] = old["saved"].clone();
+    for count in 2..=9 {
+        input["ids"] = json!((1..=count).map(|n| n.to_string()).collect::<Vec<_>>());
+        let layout = inferay_presentation::dock::project(&input).unwrap();
+        input["saved"] = layout["saved"].clone();
+    }
+    let layout = inferay_presentation::dock::project(&input).unwrap();
+    assert_eq!(layout["canvas"]["minHeight"], "max(150.000%, 540.000px)");
+    let tree = &layout["tree"];
+    assert_eq!(tree["direction"], "vertical");
+    for (row, first) in [
+        (&tree["first"]["first"], "1"),
+        (&tree["first"]["second"], "4"),
+        (&tree["second"], "7"),
+    ] {
+        assert_eq!(row["direction"], "horizontal");
+        assert_eq!(row["first"]["first"]["id"], first);
+    }
+    // Opening a side panel may narrow the view; closing it restores all columns.
+    input["visibleColumns"] = json!(1);
+    let narrow = inferay_presentation::dock::project(&input).unwrap();
+    let height = narrow["canvas"]["minHeight"].as_str().unwrap();
+    let percent: f64 = height
+        .strip_prefix("max(")
+        .unwrap()
+        .split('%')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(percent >= 450., "Nine stacked chats each need half a view");
+    input["saved"] = narrow["saved"].clone();
+    input["visibleColumns"] = json!(3);
+    assert_eq!(
+        inferay_presentation::dock::project(&input).unwrap()["tree"],
+        *tree
+    );
+}
+
+#[test]
+fn row_resizing_preserves_the_minimum_chat_height_during_preview_and_after_save() {
+    let mut input = json!({"ids":["a","b"],"columns":1,"visibleColumns":1});
+    let initial = inferay_presentation::dock::project(&input).unwrap();
+    assert_eq!(initial["canvas"]["minHeight"], "max(100.000%, 360.000px)");
+    let preview = project(
+        "resizeDockSplit",
+        &json!({
+            "tree":initial["tree"],"path":[],"ratio":0.75
+        }),
+    )
+    .unwrap();
+    assert_eq!(preview["minHeight"], "max(200.000%, 720.000px)");
+    input["saved"] = initial["saved"].clone();
+    input["action"] = json!({"type":"resize","path":[],"ratio":0.75});
+    let saved = inferay_presentation::dock::project(&input).unwrap();
+    assert_eq!(saved["tree"], preview["tree"]);
+    assert_eq!(saved["canvas"]["minHeight"], preview["minHeight"]);
+}

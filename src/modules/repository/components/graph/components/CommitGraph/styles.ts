@@ -14,13 +14,32 @@ export const GRAPH_DASH_WIDTH = 1;
 export const styles = stylex.create({
 	root: {
 		position: "relative",
-		overflow: "auto",
+		display: "flex",
+		flexDirection: "column",
+		overflow: "hidden",
 		borderStyle: "solid",
 		borderColor: color.border,
 		backgroundColor: color.background,
 		height: "100%",
 		borderWidth: controlSize._0,
 		borderRadius: radius.none,
+	},
+	scroller: {
+		position: "relative",
+		flex: 1,
+		minHeight: 0,
+		overflow: "auto",
+	},
+	headerBar: {
+		position: "relative",
+		flexShrink: 0,
+		height: 23,
+		zIndex: layer.sticky,
+	},
+	headerViewport: {
+		height: "100%",
+		marginRight: 32,
+		overflow: "hidden",
 	},
 	loadMore: {
 		display: "flex",
@@ -92,22 +111,16 @@ export const styles = stylex.create({
 		fontVariantNumeric: "tabular-nums",
 	},
 	header: {
-		position: "absolute",
-		top: 0,
-		zIndex: layer.sticky,
+		position: "relative",
 		display: "flex",
 		minWidth: "100%",
 		alignItems: "center",
-		backgroundColor: color.transparent,
 	},
 	headerLabel: {
 		color: color.textMuted,
 		fontSize: font.size_0_5,
 		textTransform: "uppercase",
 		pointerEvents: "none",
-	},
-	headerLabelHidden: {
-		visibility: "hidden",
 	},
 	headerCell: {
 		position: "relative",
@@ -123,13 +136,9 @@ export const styles = stylex.create({
 	},
 	draggableHeader: {
 		cursor: "grab",
-		backgroundColor: {
-			default: color.transparent,
-			":hover": color.surfaceWhite04,
-		},
 	},
 	columnMenuOverlay: {
-		position: "sticky",
+		position: "absolute",
 		top: 0,
 		left: 0,
 		height: 0,

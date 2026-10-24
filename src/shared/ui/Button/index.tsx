@@ -5,8 +5,8 @@ import { styles } from "./styles.ts";
 
 export function Button(
 	props: JSX.ButtonHTMLAttributes<HTMLButtonElement> & {
-		variant?: "primary" | "secondary" | "ghost" | "danger";
-		size?: "sm" | "md" | "lg";
+		variant?: "primary" | "secondary" | "ghost" | "text" | "danger";
+		size?: "xs" | "sm" | "md" | "lg";
 	},
 ) {
 	const nativeProps = omit(props, "variant", "size", "class", "children");
