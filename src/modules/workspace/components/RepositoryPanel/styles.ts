@@ -35,7 +35,7 @@ export const styles = stylex.create({
 		borderBottomStyle: "solid",
 		borderBottomColor: color.border,
 	},
-	repositoryPicker: { flex: "1 0 88px", minWidth: 88, maxWidth: 200 },
+	repositoryPicker: { flex: "0 1 auto", minWidth: 0, maxWidth: 200 },
 	views: { display: "flex", gap: 4, flexShrink: 0 },
 	workbench: {
 		display: "flex",

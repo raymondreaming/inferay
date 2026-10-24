@@ -220,7 +220,6 @@ export function RepositoryPanel() {
 											icon={<IconFolder size={iconSize.sm} />}
 											variant="ghost"
 											size="sm"
-											fullWidth
 										/>
 									</div>
 									{workbench.toolbar}
