@@ -16,6 +16,7 @@ Start high and go lower only as far as the task needs.
 | Effects | [effects.md](effects.md) | Captured proposals, review, and the planned generic delivery and recovery contract |
 | Reference | [reference/project-files.md](reference/project-files.md) | Exact definition file formats, limits, validation and local state |
 | Working on the code | [CODING_GUIDELINES](../CODING_GUIDELINES.md), [CONTRIBUTING](../CONTRIBUTING.md), [design system](../src/design-system/README.md) | Rules, boundaries, setup, checks, releases |
+| Active desktop UI | [GPUI](../native/gpui/README.md) | Target for future development, run commands, current capabilities and remaining migration gaps |
 | Performance | [performance-notes.md](performance-notes.md), [chat performance rules](../src/modules/conversation/PERFORMANCE.md) | Current measurements, approaches that do not help, chat-surface rules |
 | Origin comparison | [origin-comparison.md](origin-comparison.md) | Every Origin feature next to Inferay: kept, rebuilt, left in Origin or dropped |
 | Roadmap | [roadmap.md](roadmap.md) | What works, what is being built, what comes next, known gaps |

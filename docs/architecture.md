@@ -2,6 +2,12 @@
 
 How Inferay is built. For what the product's concepts mean, read [concepts.md](concepts.md); for the rules on dependency direction and ownership, read [CODING_GUIDELINES.md](../CODING_GUIDELINES.md).
 
+## Active UI and retained legacy host
+
+GPUI (`native/gpui`) is the supported target for all future UI features, fixes, and performance work. The Solid renderer (`src/`) and webview desktop host (`native/desktop-host`) are deprecated and retained temporarily as migration references. Do not implement new UI work in the deprecated version unless explicitly requested. Validate GPUI incrementally as features are used; deprecation does not mean feature parity is complete. Keep the shared Rust core, presentation, diff engine, and server.
+
+GPUI owns native rendering and input, using the same authenticated local backend services. It can own an embedded backend or attach to the existing host with `INFERAY_EXTERNAL_BACKEND_ADDR`; never run two backends against the same profile. The process diagram below documents the deprecated webview distribution, which is still retained.
+
 ## Processes
 
 ```

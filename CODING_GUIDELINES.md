@@ -21,6 +21,10 @@ When choices are comparable, prefer fewer concepts, fewer execution paths, fewer
 
 ## Architecture
 
+GPUI (`native/gpui`) is the supported target for all future UI features, fixes, and performance work. The Solid renderer (`src/`) and webview desktop host (`native/desktop-host`) are deprecated and retained temporarily as migration references. Do not implement new UI work in the deprecated version unless explicitly requested. Validate GPUI incrementally as features are used; deprecation does not mean feature parity is complete. Keep the shared Rust core, presentation, diff engine, and server.
+
+The Solid-specific guidance below applies only to retained legacy code.
+
 Inferay has a local Rust backend and a Solid renderer. Dependencies flow inward:
 
 ```text

@@ -1,5 +1,14 @@
 # Contributing to Inferay
 
+## Active development target
+
+GPUI (`native/gpui`) is the supported target for all future UI features, fixes, and performance work. The Solid renderer (`src/`) and webview desktop host (`native/desktop-host`) are deprecated and retained temporarily as migration references. Do not implement new UI work in the deprecated version unless explicitly requested. Validate GPUI incrementally as features are used; deprecation does not mean feature parity is complete. Keep the shared Rust core, presentation, diff engine, and server.
+
+Use `bun run dev:gpui` for native UI development and `bun run build:gpui` to build the app. Run `cargo test --manifest-path native/gpui/Cargo.toml` and `cargo clippy --manifest-path native/gpui/Cargo.toml --all-targets -- -D warnings`. See [GPUI setup](native/gpui/README.md) for backend/profile ownership and incremental verification.
+
+The web renderer setup and release commands below describe the deprecated distribution pipeline, which remains until native packaging replaces it.
+
+
 ## Development
 
 Use **Bun 1.4.4**. The version is pinned in `.bun-version` and `package.json`; dependency installation and development/build entry points check it.

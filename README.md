@@ -38,7 +38,7 @@ Open a repository, start a chat, and choose an agent. Add another pane when you 
 
 ## Built for the desktop
 
-Inferay uses a Rust desktop host and local backend. Rust also owns application models shared with the interface through WebAssembly; Solid 2 handles the views and browser interactions.
+Inferay’s active desktop UI is GPUI, backed by the shared Rust application services. All future UI development targets GPUI. The older Solid/webview app is deprecated and temporarily retained as a migration reference. Feature parity is incomplete; see the [GPUI capabilities and remaining work](native/gpui/README.md).
 
 For how Inferay is built and how its projects, plugins and automations work, start at [docs](docs/README.md). For development setup, checks and releases, see [Contributing](CONTRIBUTING.md).
 
