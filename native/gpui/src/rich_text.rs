@@ -214,8 +214,11 @@ impl RichText {
                                     .items_center()
                                     .px(px(8.))
                                     .py(px(1.))
-                                    .text_size(px(10.))
-                                    .text_color(rgba(0xebebeb80))
+                                    .text_size(px(9.))
+                                    .line_height(px(12.))
+                                    .font_family(".SystemUIFont")
+                                    .font_weight(FontWeight::NORMAL)
+                                    .text_color(rgba(0xebebeb70))
                                     .child(lang.clone())
                                     .child(
                                         crate::button(

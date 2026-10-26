@@ -138,7 +138,7 @@ impl RepositoryView {
     fn viewport_width(&self) -> f32 {
         (self.available_width
             - if self.expanded && self.changes {
-                340.
+                self.changes_width
             } else {
                 0.
             })
@@ -570,7 +570,6 @@ impl RepositoryView {
             }
         });
         let split = self.split_diff;
-        let content_width = self.viewport_width();
         div()
             .on_mouse_down(
                 MouseButton::Left,
@@ -627,7 +626,7 @@ impl RepositoryView {
                     range
                         .map(|i| {
                             let row = div()
-                                .w(px(content_width))
+                                .w_full()
                                 .overflow_hidden()
                                 .h(px(colors::DIFF_ROW))
                                 .flex()
@@ -646,7 +645,7 @@ impl RepositoryView {
                                                 _ => 0,
                                             };
                                             div()
-                                                .w(px(content_width / 2.))
+                                                .w(relative(0.5))
                                                 .flex_shrink_0()
                                                 .min_w_0()
                                                 .h_full()
