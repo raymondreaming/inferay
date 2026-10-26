@@ -176,10 +176,10 @@ pub fn keyboard_action(input: &Value) -> Value {
         }
         Some("openFile") => json!({"type":"enterSidebar"}),
         Some("close") if flag(&input["hasFile"]) => json!({"type":"close"}),
-        Some(action @ ("pageDown" | "pageUp"))
+        Some(action @ ("nextChange" | "previousChange"))
             if diff && flag(&input["hasFile"]) && !flag(&input["button"]) =>
         {
-            json!({"type":"scrollDiff","direction":if action == "pageDown" { 1 } else { -1 }})
+            json!({"type":"stepDiffChange","direction":if action == "nextChange" { 1 } else { -1 }})
         }
         Some("previousFile") => json!({"type":"cycle","direction":-1}),
         Some("nextFile") => json!({"type":"cycle","direction":1}),

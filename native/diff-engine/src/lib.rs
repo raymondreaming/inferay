@@ -1,6 +1,7 @@
 mod prepared_diff;
 pub use prepared_diff::{
-    PreparedEditDiff, SequentialEdit, prepare_conflict_lines, prepare_edit_diff,
+    LineTextSegment, MinimapSegment, PreparedEditDiff, PreparedEditLine, SequentialEdit,
+    change_ranges, minimap_segments, prepare_conflict_lines, prepare_edit_diff,
 };
 mod git_exec;
 mod worktree_index;

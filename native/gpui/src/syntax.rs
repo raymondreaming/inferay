@@ -3,6 +3,41 @@ use gpui::*;
 use inferay_core::syntax::SyntaxKind;
 use std::{collections::HashMap, ops::Range, sync::LazyLock};
 
+/// Classify a whole source once, then project spans to UTF-8 row ranges.
+pub(crate) fn line_highlights(
+    lines: &[&str],
+    path: &str,
+    theme: &str,
+) -> Vec<Vec<(Range<usize>, HighlightStyle)>> {
+    let extension = std::path::Path::new(path)
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("text");
+    let text = lines.join("\n");
+    let spans = crate::syntax::highlights(&text, extension, theme);
+    let mut offset = 0;
+    let mut cursor = 0;
+    lines
+        .iter()
+        .map(|line| {
+            let end = offset + line.len();
+            let mut runs = Vec::new();
+            while cursor < spans.len() && spans[cursor].0.start < end {
+                let (range, style) = &spans[cursor];
+                if range.end > offset {
+                    runs.push((
+                        range.start.max(offset) - offset..range.end.min(end) - offset,
+                        *style,
+                    ));
+                }
+                cursor += 1;
+            }
+            offset = end + 1;
+            runs
+        })
+        .collect()
+}
+
 // These are immutable bundled assets, not a cache of documents or user input.
 static PALETTES: LazyLock<HashMap<&'static str, HashMap<&'static str, Hsla>>> =
     LazyLock::new(|| {

@@ -1045,12 +1045,7 @@ impl WorkspaceView {
                         div()
                             .ml(ui(4.))
                             .py(ui(2.))
-                            .when_some(render.and_then(|r| r.edit.as_ref()), |d, edit| {
-                                d.child(crate::rich_text::edit_card(edit))
-                            })
-                            .when(render.and_then(|r| r.edit.as_ref()).is_none(), |d| {
-                                d.child(row.rich.render(&message.id))
-                            }),
+                            .child(row.rich.render(&message.id)),
                     )
                 })
                 .into_any_element()

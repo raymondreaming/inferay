@@ -1,4 +1,5 @@
 mod backend;
+mod chat_inline_diff;
 mod copy_button;
 mod input;
 #[cfg(test)]

@@ -1,5 +1,6 @@
 //! Bounded native rendering work and byte-budgeted, coalesced response reuse.
 use axum::body::Bytes;
+use inferay_native_diff::{MinimapSegment, change_ranges, minimap_segments};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
@@ -349,76 +350,12 @@ async fn cached_in(
     .await
 }
 
-#[derive(serde::Serialize, ts_rs::TS)]
-#[serde(rename_all = "camelCase")]
-struct MinimapSegment {
-    #[ts(type = "'add' | 'remove'")]
-    r#type: &'static str,
-    #[ts(type = "'left' | 'right' | 'full'")]
-    side: &'static str,
-    start_line: usize,
-    end_line: usize,
-}
-
-fn minimap_segments(
-    lines: &[inferay_native_diff::GitDiffLine],
-    side: &'static str,
-    row_count: usize,
-) -> Vec<MinimapSegment> {
-    use inferay_native_diff::GitDiffLineType;
-    if row_count == 0 || row_count >= 3000 {
-        return Vec::new();
-    }
-    let mut segments = Vec::new();
-    let mut current = None;
-    let mut start = 0;
-    for index in 0..=lines.len() {
-        let next = lines.get(index).and_then(|line| match line.line_type {
-            GitDiffLineType::Add => Some("add"),
-            GitDiffLineType::Remove => Some("remove"),
-            _ => None,
-        });
-        if next == current {
-            continue;
-        }
-        if let Some(kind) = current {
-            segments.push(MinimapSegment {
-                r#type: kind,
-                side,
-                start_line: start,
-                end_line: index,
-            });
-            if segments.len() == 100 {
-                break;
-            }
-        }
-        current = next;
-        start = index;
-    }
-    segments
-}
-
 fn max_line_chars(lines: &[inferay_native_diff::GitDiffLine]) -> usize {
     lines
         .iter()
         .map(|line| line.content.encode_utf16().count())
         .max()
         .unwrap_or(0)
-}
-
-// Half-open row ranges, in the coordinate system of the displayed view.
-fn change_ranges(changed: impl Iterator<Item = bool>) -> Vec<[usize; 2]> {
-    let mut ranges: Vec<[usize; 2]> = Vec::new();
-    for (index, changed) in changed.enumerate() {
-        if changed {
-            if let Some(last) = ranges.last_mut().filter(|last| last[1] == index) {
-                last[1] = index + 1;
-            } else {
-                ranges.push([index, index + 1]);
-            }
-        }
-    }
-    ranges
 }
 
 #[derive(serde::Serialize, ts_rs::TS)]

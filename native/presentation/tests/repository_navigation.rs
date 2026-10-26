@@ -274,7 +274,7 @@ fn left_after_repository_switch_uses_visible_panel_instead_of_old_focus() {
 }
 
 #[test]
-fn space_pages_current_diff_from_sidebar_without_moving_focus_or_selection() {
+fn space_steps_changes_from_sidebar_without_moving_focus_or_selection() {
     let mut input = json!({"key":" ","sidebarFocused":true,"sidebarVisible":true,
         "mainViewMode":"diff","hasFile":true,"historical":true});
     for repeat in [false, true] {
@@ -283,7 +283,7 @@ fn space_pages_current_diff_from_sidebar_without_moving_focus_or_selection() {
             input["shift"] = json!(shift);
             assert_eq!(
                 project("repositoryKeyboardAction", &input).unwrap(),
-                json!({"type":"scrollDiff","direction":direction})
+                json!({"type":"stepDiffChange","direction":direction})
             );
         }
     }

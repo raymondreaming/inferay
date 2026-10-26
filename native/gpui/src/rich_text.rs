@@ -11,6 +11,7 @@ pub struct RichText {
 }
 #[derive(Clone)]
 enum Block {
+    Edit(crate::chat_inline_diff::EditDiff),
     Plain(PreparedText),
     Text {
         heading: bool,
@@ -110,6 +111,7 @@ impl RichText {
                         ));
                     }
                     Block::Quote(children) => recolor(children, theme),
+                    Block::Edit(edit) => *edit = edit.retheme(theme),
                     _ => {}
                 }
             }
@@ -129,6 +131,17 @@ impl RichText {
         }
         if message.role != "tool" {
             return Self::prepare(&message.content, theme);
+        }
+        if let Some(edit) = message
+            .render
+            .as_ref()
+            .and_then(|render| render.edit.as_ref())
+        {
+            return Self {
+                blocks: vec![Block::Edit(crate::chat_inline_diff::EditDiff::prepare(
+                    edit, theme,
+                ))],
+            };
         }
         let mut blocks = Vec::new();
         let mut code = |language: &str, content: String| {
@@ -266,6 +279,7 @@ impl RichText {
             .children(blocks.iter().enumerate().map(|(index, block)| {
                 let id = format!("{id}-{index}");
                 match block {
+                    Block::Edit(edit) => edit.render(&id).into_any_element(),
                     Block::Code { lang, text, tool } => {
                         if *tool {
                             return div()
@@ -445,34 +459,6 @@ fn inline(tokens: &[MdInlineToken]) -> PreparedText {
     );
     PreparedText::new(text.into(), highlights, links)
 }
-pub fn edit_card(edit: &inferay_core::chat_protocol::ChatEdit) -> Div {
-    div()
-        .debug_selector(|| "tool-edit-card".into())
-        .rounded(ui(4.))
-        .border_1()
-        .border_color(rgba(0xebebeb18))
-        .bg(rgba(0x181818dc))
-        .overflow_hidden()
-        .mb(ui(8.))
-        .children(
-            [
-                (&edit.old_string, 0xff686818, "−"),
-                (&edit.new_string, 0x55d68b18, "+"),
-            ]
-            .into_iter()
-            .filter(|(s, _, _)| !s.is_empty())
-            .map(|(text, bg, sign)| {
-                div()
-                    .bg(rgba(bg))
-                    .px(ui(8.))
-                    .py(ui(4.))
-                    .font_family("Menlo")
-                    .text_size(ui(crate::colors::CHAT_SMALL))
-                    .child(format!("{sign} {text}"))
-            }),
-        )
-}
-
 pub fn system_card(render: &inferay_core::chat_protocol::NativeChatRender) -> Option<AnyElement> {
     use inferay_core::chat_protocol::GoalCardStatus;
     let (title, objective, detail, turns, accent, glyph, command) = if let Some(goal) = &render.goal

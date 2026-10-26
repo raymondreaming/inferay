@@ -139,19 +139,32 @@ pub fn next_change(input: &Value) -> Value {
     if ranges.is_empty() {
         return Value::Null;
     }
-    let line = number(&input["line"]);
-    let index = if number(&input["direction"]) > 0. {
+    let ranges: Vec<_> = ranges
+        .iter()
+        .map(|range| [number(&range[0]) as usize, number(&range[1]) as usize])
+        .collect();
+    json!(next_change_index(
+        &ranges,
+        number(&input["line"]),
+        number(&input["direction"]) as i32
+    ))
+}
+
+pub fn next_change_index(ranges: &[[usize; 2]], line: f64, direction: i32) -> Option<usize> {
+    if ranges.is_empty() {
+        return None;
+    }
+    Some(if direction > 0 {
         ranges
             .iter()
-            .position(|position| number(&position[0]) > line)
+            .position(|range| range[0] as f64 > line)
             .unwrap_or(0)
     } else {
         ranges
             .iter()
-            .rposition(|position| number(&position[0]) < line)
+            .rposition(|range| (range[0] as f64) < line)
             .unwrap_or(ranges.len() - 1)
-    };
-    json!(index)
+    })
 }
 
 fn grouped(n: usize) -> String {

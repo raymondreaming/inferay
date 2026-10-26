@@ -1,94 +1,13 @@
 use crate::zoom::ui;
 mod changes;
+mod diff;
+use diff::PreparedDiff;
 mod graph;
 use crate::{button, colors, icon};
 use gpui::{prelude::*, *};
 use inferay_core::{path_security::AllowedPaths, repository::*};
 use serde_json::{Value, json};
 use std::sync::Arc;
-
-struct PreparedDiff {
-    diff: Arc<GitHunkDiff>,
-    path: SharedString,
-    theme: String,
-    old: Vec<Vec<(std::ops::Range<usize>, HighlightStyle)>>,
-    new: Vec<Vec<(std::ops::Range<usize>, HighlightStyle)>>,
-    patch: Arc<[SharedString]>,
-}
-impl PreparedDiff {
-    fn classify(
-        lines: &[GitDiffLine],
-        path: &str,
-        theme: &str,
-    ) -> Vec<Vec<(std::ops::Range<usize>, HighlightStyle)>> {
-        let extension = std::path::Path::new(path)
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("text");
-        let source: Vec<_> = lines
-            .iter()
-            .map(|line| {
-                if matches!(
-                    line.line_type,
-                    GitDiffLineType::Hunk | GitDiffLineType::Spacer
-                ) {
-                    ""
-                } else {
-                    line.content.as_str()
-                }
-            })
-            .collect();
-        let text = source.join("\n");
-        let spans = crate::syntax::highlights(&text, extension, theme);
-        let mut offset = 0;
-        let mut cursor = 0;
-        source
-            .iter()
-            .map(|line| {
-                let end = offset + line.len();
-                let mut runs = Vec::new();
-                while cursor < spans.len() && spans[cursor].0.start < end {
-                    let (range, style) = &spans[cursor];
-                    if range.end > offset {
-                        runs.push((
-                            range.start.max(offset) - offset..range.end.min(end) - offset,
-                            *style,
-                        ));
-                    }
-                    cursor += 1;
-                }
-                offset = end + 1;
-                runs
-            })
-            .collect()
-    }
-    fn new(diff: GitHunkDiff, path: &str, theme: &str) -> Self {
-        Self {
-            old: Self::classify(&diff.old_lines, path, theme),
-            new: Self::classify(&diff.new_lines, path, theme),
-            patch: diff
-                .raw_patch
-                .as_deref()
-                .unwrap_or("")
-                .lines()
-                .map(SharedString::from)
-                .collect(),
-            diff: Arc::new(diff),
-            path: path.to_owned().into(),
-            theme: theme.into(),
-        }
-    }
-    fn retheme(&self, theme: &str) -> Self {
-        Self {
-            old: Self::classify(&self.diff.old_lines, &self.path, theme),
-            new: Self::classify(&self.diff.new_lines, &self.path, theme),
-            diff: self.diff.clone(),
-            path: self.path.clone(),
-            patch: self.patch.clone(),
-            theme: theme.into(),
-        }
-    }
-}
 
 pub enum RepositoryEvent {
     Expand,
@@ -107,6 +26,9 @@ pub struct RepositoryView {
     tree_files: bool,
     collapsed_directories: std::collections::HashSet<String>,
     diff_scroll: UniformListScrollHandle,
+    diff_change: Option<usize>,
+    minimap_bounds: Bounds<Pixels>,
+    minimap_drag: Option<Pixels>,
     files_scroll: [ScrollHandle; 2],
     cwd: String,
     pub repositories: Vec<(String, String)>,
@@ -180,6 +102,8 @@ impl RepositoryView {
         self.diff_task = None;
         self.theme_task = None;
         self.diff = None;
+        self.diff_change = None;
+        self.minimap_drag = None;
     }
 
     fn viewport_width(&self) -> f32 {
@@ -207,6 +131,9 @@ impl RepositoryView {
             tree_files: false,
             collapsed_directories: Default::default(),
             diff_scroll: UniformListScrollHandle::new(),
+            diff_change: None,
+            minimap_bounds: Bounds::default(),
+            minimap_drag: None,
             files_scroll: [ScrollHandle::new(), ScrollHandle::new()],
             cwd,
             repositories: vec![],
@@ -346,13 +273,8 @@ impl RepositoryView {
                     }
                 }
             }
-            Some("scrollDiff") => {
-                let handle = &self.diff_scroll.0.borrow().base_handle;
-                let mut offset = handle.offset();
-                offset.y -= handle.bounds().size.height
-                    * 0.9
-                    * action["direction"].as_i64().unwrap() as f32;
-                handle.set_offset(offset);
+            Some("stepDiffChange") => {
+                self.step_diff_change(action["direction"].as_i64().unwrap() as i32, window)
             }
             _ => return,
         }
@@ -629,156 +551,11 @@ impl RepositoryView {
             let _ = this.update(cx, |view, cx| {
                 view.error = diff.is_none().then(|| "Could not load this diff.".into());
                 view.diff = diff;
+                view.jump_diff_change(0);
                 cx.notify();
             });
         }));
         cx.notify();
-    }
-    fn diff_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let diff = self.diff.clone();
-        let count = diff.as_ref().map_or(0, |d| {
-            if self.split_diff {
-                d.diff.old_lines.len().max(d.diff.new_lines.len())
-            } else {
-                d.patch.len()
-            }
-        });
-        let split = self.split_diff;
-        div()
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|s, _, _, _| s.keyboard_scope = "diff"),
-            )
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .child(
-                div()
-                    .h(ui(32.))
-                    .flex_shrink_0()
-                    .flex()
-                    .items_center()
-                    .gap(ui(8.))
-                    .px(ui(8.))
-                    .child(button("close-diff", "← Graph").on_click(cx.listener(
-                        |s, _, window, cx| {
-                            s.show_diff = false;
-                            s.open_after_selection = false;
-                            s.history = true;
-                            s.keyboard_scope = "graph";
-                            window.focus(&s.focus, cx);
-                            cx.notify();
-                        },
-                    )))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_size(ui(11.))
-                            .text_ellipsis()
-                            .child(self.file.clone().unwrap_or_default()),
-                    )
-                    .child(
-                        button("diff-mode", if split { "Split" } else { "Unified" }).on_click(
-                            cx.listener(|s, _, _, cx| {
-                                s.split_diff = !s.split_diff;
-                                cx.notify();
-                            }),
-                        ),
-                    ),
-            )
-            .when(diff.as_ref().is_some_and(|d| d.diff.is_binary), |d| {
-                d.child(div().p(ui(12.)).child("Binary file"))
-            })
-            .child(
-                uniform_list("diff-lines", count, move |range, _, _| {
-                    let Some(data) = diff.as_ref() else {
-                        return Vec::new();
-                    };
-                    let diff = &data.diff;
-                    range
-                        .map(|i| {
-                            let row = div()
-                                .w_full()
-                                .overflow_hidden()
-                                .h(ui(colors::DIFF_ROW))
-                                .flex()
-                                .font_family("Menlo")
-                                .line_height(ui(colors::DIFF_ROW))
-                                .text_size(ui(colors::DIFF_TEXT));
-                            if split {
-                                row.children(
-                                    [diff.old_lines.get(i), diff.new_lines.get(i)]
-                                        .into_iter()
-                                        .enumerate()
-                                        .map(|(side, line)| {
-                                            let tint = match line.map(|l| &l.line_type) {
-                                                Some(GitDiffLineType::Add) => 0x55d68b18,
-                                                Some(GitDiffLineType::Remove) => 0xff686818,
-                                                _ => 0,
-                                            };
-                                            div()
-                                                .w(relative(0.5))
-                                                .flex_shrink_0()
-                                                .min_w_0()
-                                                .h_full()
-                                                .overflow_hidden()
-                                                .bg(rgba(tint))
-                                                .flex()
-                                                .gap(ui(8.))
-                                                .border_r_1()
-                                                .border_color(rgba(0xebebeb0f))
-                                                .child(
-                                                    div()
-                                                        .w(ui(colors::DIFF_GUTTER))
-                                                        .text_size(ui(colors::DIFF_NUMBER))
-                                                        .text_right()
-                                                        .flex_shrink_0()
-                                                        .text_color(rgba(0xebebeb60))
-                                                        .child(
-                                                            line.and_then(|l| l.number)
-                                                                .map(|n| n.to_string())
-                                                                .unwrap_or_default(),
-                                                        ),
-                                                )
-                                                .child(
-                                                    StyledText::new(
-                                                        line.map(|l| l.content.clone())
-                                                            .unwrap_or_default(),
-                                                    )
-                                                    .with_highlights(
-                                                        if side == 0 {
-                                                            &data.old
-                                                        } else {
-                                                            &data.new
-                                                        }
-                                                        .get(i)
-                                                        .into_iter()
-                                                        .flatten()
-                                                        .cloned(),
-                                                    ),
-                                                )
-                                        }),
-                                )
-                            } else {
-                                let line = data.patch.get(i).cloned().unwrap_or_default();
-                                row.bg(rgba(if line.starts_with('+') {
-                                    0x55d68b18
-                                } else if line.starts_with('-') {
-                                    0xff686818
-                                } else {
-                                    0
-                                }))
-                                .child(line)
-                            }
-                        })
-                        .collect()
-                })
-                .track_scroll(&self.diff_scroll)
-                .flex_1()
-                .min_h_0(),
-            )
     }
 }
 impl Render for RepositoryView {
@@ -792,6 +569,9 @@ impl Render for RepositoryView {
                 cx.listener(|s, _, window, cx| window.focus(&s.focus, cx)),
             )
             .on_mouse_move(cx.listener(|view, event: &MouseMoveEvent, window, cx| {
+                if let Some(grab) = view.minimap_drag {
+                    view.scroll_minimap(event.position.y, grab, window);
+                }
                 if let Some((start, size)) = view.changes_resize {
                     if view.expanded {
                         view.changes_width = (size
@@ -809,7 +589,12 @@ impl Render for RepositoryView {
                 MouseButton::Left,
                 cx.listener(|view, _, _, _| {
                     view.changes_resize = None;
+                    view.minimap_drag = None;
                 }),
+            )
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|view, _, _, _| view.minimap_drag = None),
             )
             .on_key_down(cx.listener(Self::navigate))
             .relative()
@@ -1127,7 +912,7 @@ mod tests {
         );
         let recolored = prepared.retheme("vitesse");
         assert!(Arc::ptr_eq(&prepared.diff, &recolored.diff));
-        assert!(Arc::ptr_eq(&prepared.patch, &recolored.patch));
+        assert!(Arc::ptr_eq(&prepared.inline, &recolored.inline));
         assert_ne!(prepared.new, recolored.new);
     }
 

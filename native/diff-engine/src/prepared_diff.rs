@@ -10,35 +10,35 @@ pub struct SequentialEdit {
 
 #[derive(Clone, Debug, Serialize, ts_rs::TS)]
 pub struct LineTextSegment {
-    text: String,
-    changed: bool,
+    pub text: String,
+    pub changed: bool,
 }
 
 #[derive(Clone, Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct PreparedEditLine {
     #[serde(rename = "type")]
-    line_type: GitDiffLineType,
-    text: String,
+    pub line_type: GitDiffLineType,
+    pub text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    old_line_num: Option<usize>,
+    pub old_line_num: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    new_line_num: Option<usize>,
+    pub new_line_num: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    segments: Option<Vec<LineTextSegment>>,
+    pub segments: Option<Vec<LineTextSegment>>,
 }
 
 #[derive(Debug, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct PreparedEditDiff {
-    lines: Vec<PreparedEditLine>,
-    line_count: usize,
-    content_width_chars: usize,
-    virtualized: bool,
-    has_changes: bool,
+    pub lines: Vec<PreparedEditLine>,
+    pub line_count: usize,
+    pub content_width_chars: usize,
+    pub virtualized: bool,
+    pub has_changes: bool,
 }
 
 fn inline_tokens(text: &str) -> Vec<&str> {
@@ -175,8 +175,16 @@ pub fn prepare_edit_diff(
     {
         return Err("Edit diff exceeds the supported size".into());
     }
-    let old: Vec<&str> = before.split('\n').collect();
-    let new: Vec<&str> = after.split('\n').collect();
+    let old: Vec<&str> = if before.is_empty() {
+        vec![]
+    } else {
+        before.split('\n').collect()
+    };
+    let new: Vec<&str> = if after.is_empty() {
+        vec![]
+    } else {
+        after.split('\n').collect()
+    };
     let mut lines = Vec::new();
     let mut removed = Vec::new();
     let mut added = Vec::new();
@@ -283,6 +291,45 @@ mod edit_card_tests {
     use super::*;
 
     #[test]
+    fn empty_files_do_not_create_phantom_changed_lines() {
+        let created = prepare_edit_diff("", "new", &[]).unwrap();
+        assert_eq!(created.lines.len(), 1);
+        assert_eq!(created.lines[0].line_type, GitDiffLineType::Add);
+        let deleted = prepare_edit_diff("old", "", &[]).unwrap();
+        assert_eq!(deleted.lines.len(), 1);
+        assert_eq!(deleted.lines[0].line_type, GitDiffLineType::Remove);
+        assert!(!prepare_edit_diff("", "", &[]).unwrap().has_changes);
+    }
+
+    #[test]
+    fn overview_keeps_both_colors_and_the_end_of_large_diffs() {
+        let lines: Vec<_> = (0..100_000)
+            .map(|i| GitDiffLine {
+                number: Some(i + 1),
+                content: String::new(),
+                line_type: if i % 2 == 0 {
+                    GitDiffLineType::Add
+                } else {
+                    GitDiffLineType::Remove
+                },
+            })
+            .collect();
+        let segments = minimap_segments(&lines, "full", lines.len());
+        assert!(segments.len() <= 2048);
+        for kind in ["add", "remove"] {
+            assert!(
+                segments
+                    .iter()
+                    .any(|s| s.r#type == kind && s.start_line == 0 && s.end_line == lines.len())
+            );
+        }
+        let sparse = minimap_segments(&lines[..2], "left", 2);
+        assert_eq!((sparse[0].start_line, sparse[0].end_line), (0, 1));
+        assert_eq!((sparse[1].start_line, sparse[1].end_line), (1, 2));
+        assert!(minimap_segments(&[], "full", 0).is_empty());
+    }
+
+    #[test]
     fn changed_rows_preserve_order_numbers_and_inline_segments_across_hunks() {
         let prepared = serde_json::to_value(
             prepare_edit_diff(
@@ -305,4 +352,64 @@ mod edit_card_tests {
         assert!(prepared.get("hunks").is_none());
         assert_eq!(prepared["contentWidthChars"], 34);
     }
+}
+
+// Half-open row ranges, in the coordinate system of the displayed view.
+pub fn change_ranges(changed: impl Iterator<Item = bool>) -> Vec<[usize; 2]> {
+    let mut ranges: Vec<[usize; 2]> = Vec::new();
+    for (index, changed) in changed.enumerate() {
+        if changed {
+            if let Some(last) = ranges.last_mut().filter(|last| last[1] == index) {
+                last[1] = index + 1;
+            } else {
+                ranges.push([index, index + 1]);
+            }
+        }
+    }
+    ranges
+}
+
+#[derive(serde::Serialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct MinimapSegment {
+    #[ts(type = "'add' | 'remove'")]
+    pub r#type: &'static str,
+    #[ts(type = "'left' | 'right' | 'full'")]
+    pub side: &'static str,
+    pub start_line: usize,
+    pub end_line: usize,
+}
+
+pub fn minimap_segments(
+    lines: &[GitDiffLine],
+    side: &'static str,
+    row_count: usize,
+) -> Vec<MinimapSegment> {
+    if row_count == 0 {
+        return Vec::new();
+    }
+    let buckets = row_count.min(1024);
+    let mut added = vec![false; buckets];
+    let mut removed = vec![false; buckets];
+    for (index, line) in lines.iter().take(row_count).enumerate() {
+        let bucket = index * buckets / row_count;
+        match line.line_type {
+            GitDiffLineType::Add => added[bucket] = true,
+            GitDiffLineType::Remove => removed[bucket] = true,
+            _ => {}
+        }
+    }
+    let mut segments = Vec::new();
+    for (kind, bins) in [("add", added), ("remove", removed)] {
+        for [start, end] in change_ranges(bins.into_iter()) {
+            segments.push(MinimapSegment {
+                r#type: kind,
+                side,
+                start_line: (start * row_count).div_ceil(buckets),
+                end_line: (end * row_count).div_ceil(buckets).min(row_count),
+            });
+        }
+    }
+    segments.sort_by_key(|segment| segment.start_line);
+    segments
 }
