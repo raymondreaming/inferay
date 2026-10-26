@@ -1,5 +1,5 @@
 //! Pure renderer models. Native persistence and side effects remain in core/server.
-//! The browser supplies interaction facts and renders the resulting projections.
+//! GPUI supplies interaction facts and renders the resulting projections.
 pub mod appearance;
 pub mod chat_retention;
 pub mod chat_view;
@@ -21,13 +21,12 @@ pub mod shortcuts;
 pub mod skills;
 pub mod transcript;
 pub mod ui_performance;
-mod wasm_json;
+mod json_wire;
 pub mod workbench;
 pub mod workspace_session;
 
 use serde::Deserialize;
 use serde_json::{Value, json};
-use wasm_bindgen::prelude::*;
 
 fn array(value: &Value) -> &[Value] {
     value.as_array().map(Vec::as_slice).unwrap_or_default()
@@ -55,10 +54,7 @@ macro_rules! typed_projections {
                 _ => None,
             }
         }
-        pub fn projection_contracts(cfg: &ts_rs::Config) -> Vec<(&'static str, String, String)> {
-            use ts_rs::TS;
-            vec![$(($name, <$request>::name(cfg), <$response>::name(cfg))),*]
-        }
+
     };
 }
 typed_projections! {
@@ -170,13 +166,4 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
         },
         _ => return Err(format!("Unknown presentation operation: {operation}")),
     })
-}
-
-#[wasm_bindgen]
-pub fn presentation(operation: &str, input: &str) -> Result<String, JsValue> {
-    let run = || -> Result<String, String> {
-        let input = serde_json::from_str(input).map_err(|error| error.to_string())?;
-        serde_json::to_string(&project(operation, &input)?).map_err(|error| error.to_string())
-    };
-    run().map_err(|error| JsValue::from_str(&error))
 }

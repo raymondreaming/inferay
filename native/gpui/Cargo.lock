@@ -2979,7 +2979,7 @@ dependencies = [
 
 [[package]]
 name = "inferay-gpui"
-version = "0.1.0"
+version = "0.1.113"
 dependencies = [
  "anyhow",
  "chrono",
@@ -3022,7 +3022,6 @@ dependencies = [
  "serde",
  "serde_json",
  "ts-rs",
- "wasm-bindgen",
 ]
 
 [[package]]

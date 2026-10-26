@@ -1,8 +1,7 @@
 //! Streaming transport cursor. Parsing is already native; block objects stay in JS.
-use crate::wasm_json;
+use crate::json_wire;
 use serde_json::{Value, json};
 use std::collections::HashMap;
-use wasm_bindgen::prelude::*;
 
 #[derive(Clone)]
 struct Cursor {
@@ -33,16 +32,16 @@ impl Request {
         request.to_string()
     }
 }
-#[wasm_bindgen]
+
 #[derive(Default)]
 pub struct MarkdownCursor {
     current: Option<Cursor>,
     requests: HashMap<u32, Request>,
     attempt: u32,
 }
-#[wasm_bindgen]
+
 impl MarkdownCursor {
-    #[wasm_bindgen(constructor)]
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -94,9 +93,9 @@ impl MarkdownCursor {
         let retry = status == 409 && !self.requests.get(&attempt)?.retried;
         retry.then(|| self.restart(attempt, id))
     }
-    pub fn finish(&mut self, attempt: u32, status: u16, metadata: &str) -> Result<String, JsValue> {
-        let metadata: Value = wasm_json::parse(metadata)?;
-        wasm_json::result(self.settle(attempt, status, &metadata)).map(|result| result.to_string())
+    pub fn finish(&mut self, attempt: u32, status: u16, metadata: &str) -> Result<String, String> {
+        let metadata: Value = json_wire::parse(metadata)?;
+        json_wire::result(self.settle(attempt, status, &metadata)).map(|result| result.to_string())
     }
     pub fn discard(&mut self, attempt: u32) {
         self.requests.remove(&attempt);

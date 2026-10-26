@@ -1,134 +1,19 @@
 # Architecture
 
-How Inferay is built. For what the product's concepts mean, read [concepts.md](concepts.md); for the rules on dependency direction and ownership, read [CODING_GUIDELINES.md](../CODING_GUIDELINES.md).
+## GPUI-only desktop
 
-## Active UI and retained legacy host
+The GPUI-only cutover removes the Solid renderer, WebAssembly UI bridge, and Tao/Wry host. GPUI owns the desktop window, native input, and rendering. It starts the shared Rust backend or attaches to an existing authenticated loopback backend. Only one backend may own a profile.
 
-GPUI (`native/gpui`) is the supported target for all future UI features, fixes, and performance work. The Solid renderer (`src/`) and webview desktop host (`native/desktop-host`) are deprecated and retained temporarily as migration references. Do not implement new UI work in the deprecated version unless explicitly requested. Validate GPUI incrementally as features are used; deprecation does not mean feature parity is complete. Keep the shared Rust core, presentation, diff engine, and server.
-
-GPUI owns native rendering and input, using the same authenticated local backend services. It can own an embedded backend or attach to the existing host with `INFERAY_EXTERNAL_BACKEND_ADDR`; never run two backends against the same profile. The process diagram below documents the deprecated webview distribution, which is still retained.
-
-## Processes
-
-```
-┌──────────── inferay-desktop (one process) ────────────┐
-│ Tao window + Wry WebView ──HTTP/WS──► Axum server     │──► claude / codex CLIs (per turn)
-│   renderer (Solid + WASM)   loopback   (tokio runtime)│──► git, gh, tool processes
-└────────────────────────────────────────────────────────┘
-```
-
-- **Desktop host** (`native/desktop-host/src/main.rs`) opens a Tao window with a Wry WebView and starts the Axum server **in the same process** on `127.0.0.1` with a random port. Navigation stays on that origin; other links open in the default app. Window controls go over a Wry IPC channel.
-- **Server** (`native/server/src/lib.rs`) serves the renderer from `dist/`, one WebSocket at `/ws` (chat send, reconnect, control, unsubscribe, destroy) and `/api/*` routes dispatched by path and method. Every launch makes a random token, checked from the `X-Inferay-Auth` header or a cookie; only loopback hosts are accepted.
-- **Development** (`bun run dev`, `scripts/dev-app.sh`) builds the renderer, server and desktop host, then runs the binaries directly so cleanup owns their processes. It serves on `127.0.0.1:4317` with live reload, watches `src`, `public` and `native` to rebuild the renderer, and attaches the desktop host through `INFERAY_EXTERNAL_BACKEND_ADDR`. The profile defaults to `build/dev-profile`, separate from the installed app; `INFERAY_USER_DATA_DIR` and `INFERAY_DEV_BACKEND_ADDR` can override the profile and address. Server changes need a restart. For a standalone dev bundle, omit `INFERAY_EXTERNAL_BACKEND_ADDR` so the desktop process owns its backend, and set an isolated `INFERAY_USER_DATA_DIR` in the bundle environment.
-
-## Crates and renderer
-
-| Part | Role |
+| Owner | Responsibility |
 |---|---|
-| `native/core` | Pure vocabulary and rules: chat and agent protocol, workspace state and transitions, skills (`prompts/`), projects and definition files, provider config, path policy. No tokio, HTTP or UI (enforced by `check-native-boundaries.sh`). |
-| `native/presentation` | Pure renderer models compiled to WebAssembly: chat view, transcript, composer, diff, graph, dock, panels, workbench, markdown, shortcuts. |
-| `native/diff-engine` | Git execution, prepared diffs, graph layout, worktree renames. |
-| `native/server` | HTTP and WebSocket, provider runner, chat runtime, persistence, projects and automations, Git, forge and MCP integration. |
-| `native/desktop-host` | Window, menus, vibrancy. |
-| `native/tooling` | Release tooling and `export-renderer-types`. |
-| `src/` | Solid renderer: `app/` composition, `modules/` (agents, context, conversation, explorer, onboarding, repository, settings, skills, workspace), `shared/`, `design-system/`. One application shell at `/`, composed directly without a client router. Startup normalizes restored legacy paths to `/` while preserving search/hash. |
+| `native/gpui` | Native views, input, window, retained UI state and task lifetimes |
+| `native/core` | Pure domain vocabulary and transitions |
+| `native/presentation` | Pure layout, transcript, dock, and interaction models |
+| `native/diff-engine` | Local Git reads, operations, diffs, and graph projection |
+| `native/server` | HTTP/WebSocket APIs, providers, persistence, projects, and network integrations |
+| `native/tooling` | API reference and release tooling |
 
-**Contracts.** `scripts/build-presentation.sh` exports Rust types to `build/presentation/contracts` (imported as `@contracts`), builds the presentation crate for `wasm32-unknown-unknown`, runs `wasm-bindgen` and inlines the module so the renderer loads it synchronously. The renderer calls Rust models through one `presentation(op, json)` entry. See [ADR 0001](adr/0001-rust-models-solid-views.md).
-
-The automation editor edits the canonical definition directly, preserving fields that its controls do not expose. Rust supplies new-definition defaults and schedule presets. Project views retain indexed definitions rather than copying their fields into a second renderer model. Library content summaries reuse native definition classification.
-
-Automation execution parses immutable typed inputs once and shares them with granted tools. Approval comparisons and retained run files still use the original JSON snapshot, so this runtime representation does not change approval hashes or saved formats.
-
-Commit details read author identity, message and changed files; graph refs and provider metadata stay in the graph/forge queries that consume them. Commit, comparison and working-tree line counts share Git’s NUL-delimited numstat parser. Historical changes combine raw status and numstat in one Git invocation, retaining literal filenames and rename paths.
-
-Repository status has two query shapes. `/api/git/statuses` returns one canonical file list
-and display metadata for detailed workbenches; `/api/git/summaries` returns
-`GitChangeSummary` values keyed by canonical repository path for project navigation.
-Both use the same native Git status and line-count computation, path authorization
-and deduplication. Only the detailed query builds presentation metadata. The presentation model
-derives staged and unstaged sections from the canonical list; status responses
-do not duplicate file records into groups. The core status model owns the summary. Graph preparation computes it
-once per readable worktree, includes it as `GitWorktree.changeSummary`, and reuses
-it for graph WIP rows. Clean worktrees carry a zero summary; unreadable worktrees
-omit it. This remains available when graph search hides WIP rows.
-
-Project navigation observes the existing active graph queries and displays their
-native summaries directly, excluding those paths from its independent five-second
-summary poll. Successful graphs retain their three-second refresh interval. If a
-graph closes, becomes disabled, or fails, its paths return to independent polling.
-No separate result cache or renderer-side line aggregation is introduced.
-
-The detailed workbench also lets its initial graph request own the current
-repository's status read. The workbench hook establishes the graph intent before
-its first query subscription, while the panel transition settles. Its changes
-panel remains loading until that request settles; unrelated paths still load
-independently, and graph failure enables the independent status query. The
-presentation component does not issue a second initialization command.
-
-Detailed native status includes an opaque revision covering status fields and
-changed-file size/mtime. Diff requests use that status revision, whether supplied
-by the visible graph or the independent status poll. Opening a diff stops the
-graph poll without freezing the diff at a remembered graph revision. Graph
-preparation reuses these fingerprints rather than scanning file metadata again.
-
-Repository diff queries retain recently visited files for 30 seconds. After a
-successful response, the query lifecycle releases superseded revisions of the same
-diff identity only when they have no observers, have settled, and predate the
-new request. Other views/files and newer or in-flight results remain cached;
-failed or cancelled reads do not evict snapshots. Validators stay with those query results. Refreshes reuse a validator only for
-an identical repository/file/view/staging/history scope. An unchanged native
-response returns 304; the renderer preserves the previous diff object and skips
-JSON decoding and syntax preflight. Selected-file changes still return new data,
-and failed responses still hide stale content. Working-tree image URLs include
-the existing file/index fingerprint so changed images invalidate both the diff
-and the browser image source. Native diff computation and its two-second cache
-lifetime remain unchanged. Native inline-view preparation borrows source rows
-while selecting context windows and ordering removals/additions. It allocates
-owned strings only for retained output rows; the transport contract is unchanged.
-
-Graph refreshes retain one validator and snapshot per reader, scoped by repository,
-limit, search and ref preferences. The native renderer cache owns both serialized
-bytes and their precomputed ETag under the existing 64 MiB / 128-entry budget.
-Clients with an exact base negotiate `A-IM: inferay-graph`; a 226 response carries
-changed root fields and an optional commit splice, with `IM`, `Delta-Base`, the
-new ETag and `Cache-Control: no-store`. This follows the conditional-response
-semantics in [RFC 3229](https://www.rfc-editor.org/rfc/rfc3229.html#section-10.3).
-The server compares borrowed serialized JSON on its bounded blocking pool, reading
-commit arrays once. It never predicts graph stability from refs alone. Once a
-replacement is available, it releases older cached responses for that exact scope;
-in-flight comparisons retain their own base references, and late reads of older
-cached entries cannot remove newer entries. History collection reserves the
-requested row count, and graph serialization reserves the prior response size
-plus 4 KiB for small edits, avoiding repeated growth of large allocations. A missing/evicted base, unsupported
-negotiation, small response, comparison failure or insufficient size reduction
-returns the ordinary full representation. Unchanged graphs still return 304.
-The renderer applies a delta only to its matching base and keeps unchanged arrays
-and commit objects; failures and cancelled requests never publish a new base.
-This reduces transport and browser reconstruction, not native Git history work.
-Graph presentation includes the maximum commit column; renderer layout sends that scalar and the commit count instead of resending history on resize. History lookups remain independent of geometry, and rendered search rows already belong to the native filtered result. The workbench indexes canonical commit objects once per graph snapshot and shares that lookup with selection reconciliation; retained selections survive filtering but reset across repositories. Resolving selected objects stays in the renderer, without serializing history or worktree status through WASM. Diff prefetch sends only the visible file count and selected index; native adjacency rules return indices into the same file objects.
-
-Project editor operations use request/result signatures generated from their Rust dispatch entries: automation defaults, trigger presets, proposal paths, graph layout, import manifests, skill choices, tool grants and effect controls. TypeScript infers their results and rejects mismatched inputs or caller-selected result types. Older unrelated JSON projections retain an explicitly generated operation-name union; they have not all been converted to typed requests. The existing exporter owns dependency exports, and there is no separate handwritten operation registry.
-
-Sent user messages keep their full text. The composer presentation model badges only complete known slash commands and recognizes HTTP(S) links without changing their stored URL. Link badges fetch optional page titles and raster favicons through `/api/link-metadata`, with a hostname fallback and an hour of renderer query caching. The native fetcher sends no browser credentials, bounds time and response size, and validates and pins public DNS addresses on every redirect. Private and unavailable pages remain usable as links without metadata.
-
-## Workspace ownership
-
-The core workspace resolves pane actions by stable pane ID and owns repository/workspace/chat selection rules. Selecting, removing or changing a chat does not require the renderer to supply its owning group. The WebAssembly workspace replica uses those rules with typed, shared snapshots; optimistic edits copy only when necessary, while acknowledged snapshots share ownership. It owns pending intent and acknowledgement rollback; the Solid adapter owns only the request queue and a shared memoized project view. Workspace responses contain the canonical groups and panes once. The presentation model returns visible chat indices into that snapshot; sidebar consumers reference the original pane records. There is no second renderer state setter bypassing that queue.
-
-The chat canvas uses the native grid dock model for layout, pointer placement and scrolling. Its local `useWorkspaceDock` adapter owns persistence, responsive sizing, pointer capture and cancellation; the canvas owns pane rendering, text selection and wheel routing. Canceling a drag or hiding the workspace releases its listeners without selecting a pane. Wheel routing checks the event's ancestors and the chat's explicit scroll area instead of scanning every descendant. Panel transitions and optimistic replay use the same typed Rust session. Legacy snapshots are repaired only when read from storage; graph and history display flags are derived rather than persisted. Saved detached document panels still restore, while the unused document-detaching commands and drag controls have been removed. Repository documents and changes remain in the repository workbench; the chat dock has no alternate row layout or auxiliary-panel rendering path. The project repository panel is the sole workbench host beside the current page. Its Rust resize projection leaves room for chat, while its browser adapter owns pointer and keyboard resizing. Repository selection and open state belong to the project navigation owner and restore per project. History and diffs fill the upper panel; optional changes and commit controls occupy the lower panel. The workbench unmounts on close or repository switch, so global keyboard handlers and Git observers belong to only one active repository.
-
-Native repository and checkpoint commands share the diff engine's Git command boundary.
-On macOS, when the first executable Git on PATH is `/usr/bin/git`, it resolves
-Apple's selected tool with a bounded `xcrun --find git` call and reuses that binary.
-Every call still checks PATH precedence; custom installations, wrappers and
-relative PATH entries retain normal command lookup. A failed lookup or missing
-resolved binary falls back to `git`. The selected Apple toolchain is retained
-for the process lifetime; restart Inferay after switching Xcode installations.
-Other platforms retain normal Git lookup. No Git results, credentials or remote
-operations are cached by this resolver.
-
-Repository `+`/`−` totals count lines across staged, unstaged and untracked changes. The diff engine uses a disposable index to include new files in Git’s numstat and rename detection without staging them in the user’s index; binary files contribute no text lines.
-
+There is no browser renderer or HTML fallback route. Shared media and authenticated APIs remain available. See [GPUI](../native/gpui/README.md) for capabilities, remaining feature gaps, and native build instructions.
 
 ## Provider runner
 
@@ -198,14 +83,4 @@ Bundled skills ship in the app (`data/prompts.json`). Global custom skills live 
 
 ## Checks
 
-`bun run check:architecture` (`scripts/check-architecture.sh`) runs oxlint, import and native boundary checks, the presentation build and usage check, component structure, Bun's TypeScript checker, the Solid audit, `cargo fmt`, clippy with warnings denied, the renderer build and a dependency audit. Script tests: `bun test scripts/tests`. Rust tests sit beside their modules (`*/tests.rs`, `native/*/tests/`). `bun run verify:projects` drives project workflows end to end in Playwright against a temporary profile. Git hooks run lint-staged with Oxlint, Biome import/CSS/JSON checks and Bun formatting; there is no CI.
-
-Goodbot (`npx goodbot-ai analyze`) is an advisory renderer scan. Its configuration places design tokens below shared UI and features below app composition, and does not require barrels. It does not resolve the renderer's aliases or analyze Rust. Its `_root` aggregation combines generated presentation files outside `src` with `client.tsx`, producing a false module cycle; the configuration documents that specific suppression. The repository's alias-aware file-cycle and native boundary checks remain authoritative and have no cycle exceptions. File-size and complexity findings require an ownership review, not automatic splitting or threshold changes.
-
-Installed-binary regressions run with `cargo test -p inferay-server refuses_native_mutation_paths_in_automation_policy -- --ignored`. Disposable local API fixtures supply tool calls directly, independently of model cooperation. Codex must reject native `apply_patch` and report `exec_command` unavailable. Claude must refuse Bash, Write and Edit as unavailable tools. Target files remain absent or unchanged, even with Inferay project-write permission. Each CLI uses an isolated configuration and local API endpoint; these checks make no paid provider request. They establish refusal for these native mutation paths on the installed versions, not read isolation or every future provider tool.
-
-A migration rehearsal runs with `INFERAY_MIGRATION_SOURCE="<profile>" cargo test -p inferay-server existing_profile_migrates_and_rebuilds_in_disposable_copy -- --ignored --nocapture`. It opens the source database read-only, takes a SQLite backup including committed WAL contents, and copies project files into a bounded disposable profile. All migrations, second-startup checks and database deletion happen in that copy. It verifies retained job IDs and run states, rebuilt definitions (including local skills), disabled schedules, absent approvals and local repository bindings. The source app keeps running; run against a quiet profile so file edits do not race the snapshot. This rehearsal targets file-backed profiles (schema 3 or newer); older database fixtures verify refusal without modifying stored data.
-
-The `manual_and_scheduled_agents_are_durable_regular_chats` regression uses a local provider fixture to exercise both trigger paths, live transcript persistence, ordinary launch arguments, one shared capacity permit, follow-up messages and provider-session restoration. Failure/cancellation coverage retains the chat association. Explicit library tools keep their native sandbox tests. Opt-in `calls_granted_library_tool` tests exercise real Claude and Codex tool grants and consume provider account usage.
-
-Run history exposes conversation availability as soon as the run has a chat association, including active runs. Open chat selects that same pane; if it was removed, it restores the saved pane identity. Legacy runs without an association can import a nonempty retained agent log. Tool-only runs and preflight failures without a conversation cannot open a chat.
+`bun run check` runs native dependency boundaries, Clippy, and Rust tests for the shared workspace and GPUI. Native tests use temporary profiles and repositories. Visual/input changes additionally require native UI verification.

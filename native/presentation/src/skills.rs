@@ -2,7 +2,6 @@
 use inferay_core::prompts::{Prompt, filter_prompts, library::PromptLibrary};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use wasm_bindgen::prelude::*;
 
 #[derive(Clone, Default, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
@@ -80,7 +79,7 @@ enum Action {
     Deleted,
     Failed { message: String },
 }
-#[wasm_bindgen]
+
 pub struct SkillDialogReplica {
     target: Option<Value>,
     skills: Vec<Prompt>,
@@ -88,10 +87,10 @@ pub struct SkillDialogReplica {
     form: SkillFormState,
     deleting: bool,
 }
-#[wasm_bindgen]
+
 impl SkillDialogReplica {
-    #[wasm_bindgen(constructor)]
-    pub fn new(target: &str) -> Result<Self, JsValue> {
+
+    pub fn new(target: &str) -> Result<Self, String> {
         Ok(Self {
             target: Some(serde_json::from_str(target).map_err(error)?),
             skills: vec![],
@@ -100,7 +99,7 @@ impl SkillDialogReplica {
             deleting: false,
         })
     }
-    pub fn receive(&mut self, library: &str) -> Result<(), JsValue> {
+    pub fn receive(&mut self, library: &str) -> Result<(), String> {
         self.skills = serde_json::from_str(library).map_err(error)?;
         if let Some(target) = self.target.take() {
             match target["mode"].as_str() {
@@ -127,7 +126,7 @@ impl SkillDialogReplica {
         }
         Ok(())
     }
-    pub fn dispatch(&mut self, action: &str) -> Result<(), JsValue> {
+    pub fn dispatch(&mut self, action: &str) -> Result<(), String> {
         let action: Action = serde_json::from_str(action).map_err(error)?;
         if self.busy()
             && !matches!(
@@ -258,8 +257,8 @@ impl SkillDialogReplica {
         json!(self.view(search)).to_string()
     }
 }
-fn error(error: serde_json::Error) -> JsValue {
-    JsValue::from_str(&error.to_string())
+fn error(error: serde_json::Error) -> String {
+    error.to_string()
 }
 impl SkillDialogReplica {
     fn selected_skill(&self) -> Option<&Prompt> {

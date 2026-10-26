@@ -6,12 +6,7 @@
 		"useIgnoreFile": true
 	},
 	"files": {
-		"includes": [
-			"**",
-			"!**/dist",
-			"!**/index.template.html",
-			"!**/routeTree.gen.ts"
-		]
+		"includes": ["**", "!**/dist"]
 	},
 	"formatter": {
 		"enabled": false
@@ -22,14 +17,11 @@
 	"overrides": [
 		{
 			"includes": ["**/*.css", "**/*.json", "**/*.jsonc"],
-			"linter": { "enabled": true }
+			"linter": {
+				"enabled": true
+			}
 		}
 	],
-	"css": {
-		"parser": {
-			"tailwindDirectives": true
-		}
-	},
 	"assist": {
 		"enabled": true,
 		"actions": {

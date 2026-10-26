@@ -58,6 +58,8 @@ pub struct WorkspaceView {
     projects: Vec<Project>,
     profile: std::path::PathBuf,
     load_task: Option<Task<()>>,
+    update_task: Option<Task<()>>,
+    update_available: bool,
     preference_updates: Option<tokio::sync::mpsc::UnboundedSender<lifecycle::PreferenceSave>>,
     preference_task: Option<Task<()>>,
     conversations: Vec<Conversation>,
@@ -131,6 +133,29 @@ impl WorkspaceView {
                 cx.notify();
             });
         }));
+        if std::env::var_os("INFERAY_EXTERNAL_BACKEND_ADDR").is_none() {
+            let backend = view.backend.clone();
+            let profile = view.profile.clone();
+            view.update_task = Some(cx.spawn(async move |this, cx| {
+                loop {
+                    let backend = backend.clone();
+                    let profile = profile.clone();
+                    let result = cx.background_executor().spawn(async move {
+                        crate::backend::RUNTIME.block_on(async {
+                            backend.get_or_try_init(|| crate::backend::Backend::connect(profile)).await?
+                                .request(reqwest::Method::GET, "/api/app-info", None).await
+                        })
+                    }).await;
+                    if this.update(cx, |view, cx| {
+                        if let Ok(info) = result {
+                            view.update_available = info["production"] == true && info["update"]["available"] == true;
+                            cx.notify();
+                        }
+                    }).is_err() { break; }
+                    cx.background_executor().timer(std::time::Duration::from_secs(900)).await;
+                }
+            }));
+        }
         view
     }
     fn empty(focus: FocusHandle, input: Entity<TextInput>, cx: &mut Context<Self>) -> Self {
@@ -149,6 +174,8 @@ impl WorkspaceView {
             }],
             profile: crate::session::profile(),
             load_task: None,
+            update_task: None,
+            update_available: false,
             preference_updates: None,
             preference_task: None,
             conversations: vec![Conversation {
@@ -636,7 +663,10 @@ impl WorkspaceView {
             }))
             .child(div().flex_1())
             .child(button("settings", "").child(icon("Settings")).child("Settings").on_click(cx.listener(|s, _, window, cx| s.set_settings(true, window, cx))))
-            .child(div().px(px(9.)).py(px(14.)).text_size(px(colors::CHAT_SMALL)).text_color(rgba(0xebebeb80)).child("Native preview"))
+            .when(self.update_available, |d| d.child(button("update-available", "Update available").on_click(cx.listener(|s, _, window, cx| {
+                s.set_settings(true, window, cx);
+                s.settings_page("about", cx);
+            }))))
             .child(div().id("sidebar-resize").absolute().right(px(-2.)).top_0().w(px(5.)).h_full().cursor_col_resize().on_mouse_down(MouseButton::Left, cx.listener(|s, e: &MouseDownEvent, _, cx| { s.sidebar_resize = Some((e.position.x, s.sidebar_width)); cx.stop_propagation(); })))
     }
     fn transcript(&self, index: usize, cx: &mut Context<Self>) -> impl IntoElement {

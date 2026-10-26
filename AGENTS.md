@@ -1,9 +1,5 @@
 # Inferay agent instructions
 
-GPUI (`native/gpui`) is the supported target for all future UI features, fixes, and performance work. The Solid renderer (`src/`) and webview desktop host (`native/desktop-host`) are deprecated and retained temporarily as migration references. Do not implement new UI work in the deprecated version unless explicitly requested. Validate GPUI incrementally as features are used; deprecation does not mean feature parity is complete. Keep the shared Rust core, presentation, diff engine, and server.
+GPUI (`native/gpui`) is the only desktop UI. The old Solid renderer and webview host have been deleted. All future UI work targets GPUI. Read [CODING_GUIDELINES.md](CODING_GUIDELINES.md) before changing code. Keep core pure, reuse shared Rust behavior, and verify actual interactions incrementally; the cutover does not imply all feature gaps are closed.
 
-Before changing code, read [CODING_GUIDELINES.md](CODING_GUIDELINES.md). It defines Inferay's dependency direction, outbound-network boundary, refactoring workflow, and verification policy.
-
-Keep the Rust core independent of renderer and server concerns. Keep Solid modules as adapters around native models and browser interaction. For refactors, establish the new implementation and ownership first; reconcile tests only once that direction is settled. Do not preserve obsolete APIs, wrappers, or execution paths to satisfy existing tests. Validate the completed batch with the smallest relevant checks.
-
-Documentation starts at [docs/README.md](docs/README.md). Before changing projects, plugins, skills, tools or automations, read [docs/concepts.md](docs/concepts.md) and [docs/reference/project-files.md](docs/reference/project-files.md); new automation capabilities follow [ADR 0002](docs/adr/0002-automation-kernel.md): generic kernel concepts only, domain behavior in plugins. When a change alters a documented contract, update the canonical page in the same change.
+Documentation starts at [docs/README.md](docs/README.md). Before changing projects, plugins, skills, tools or automations, read [docs/concepts.md](docs/concepts.md) and [docs/reference/project-files.md](docs/reference/project-files.md). New automation capabilities follow [ADR 0002](docs/adr/0002-automation-kernel.md).

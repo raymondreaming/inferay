@@ -14,13 +14,13 @@ forbidden_dependency() {
 forbidden_dependency native/core/Cargo.toml inferay-native-diff
 forbidden_dependency native/core/Cargo.toml inferay-presentation
 forbidden_dependency native/core/Cargo.toml inferay-server
-forbidden_dependency native/core/Cargo.toml inferay-desktop
+forbidden_dependency native/core/Cargo.toml inferay-gpui
 forbidden_dependency native/diff-engine/Cargo.toml inferay-presentation
 forbidden_dependency native/diff-engine/Cargo.toml inferay-server
-forbidden_dependency native/diff-engine/Cargo.toml inferay-desktop
+forbidden_dependency native/diff-engine/Cargo.toml inferay-gpui
 forbidden_dependency native/presentation/Cargo.toml inferay-native-diff
 forbidden_dependency native/presentation/Cargo.toml inferay-server
-forbidden_dependency native/presentation/Cargo.toml inferay-desktop
+forbidden_dependency native/presentation/Cargo.toml inferay-gpui
 
 # Framework, transport, and desktop code must not leak into the stable core.
 if rg -n '(^|use )(?:axum|tokio|wry|tao|wasm_bindgen|inferay_server|inferay_native_diff)' native/core/src; then

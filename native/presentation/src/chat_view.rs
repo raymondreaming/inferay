@@ -1,7 +1,6 @@
 //! Row grouping and viewport selection operate on descriptors and measurements,
 //! never on transcript text. The renderer retains its existing message objects.
 use serde::{Deserialize, Serialize};
-use wasm_bindgen::prelude::*;
 
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -107,16 +106,15 @@ pub fn list(input: &serde_json::Value) -> Result<Vec<ChatListRow>, String> {
 
 /// Own offsets and window hysteresis in Rust. Scroll events carry only the
 /// current position and viewport height, not a serialized copy of the history.
-#[wasm_bindgen]
+
 #[derive(Default)]
 pub struct ChatViewport {
     offsets: Vec<f64>,
     retained_window: Option<ChatWindow>,
 }
 
-#[wasm_bindgen]
 impl ChatViewport {
-    #[wasm_bindgen(constructor)]
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -178,7 +176,7 @@ impl ChatViewport {
 
     pub fn window(&mut self, scroll: Option<f64>, height: f64) -> String {
         let next = self.select(scroll, height);
-        let result = crate::wasm_json::stringify(&next, "chat viewport");
+        let result = crate::json_wire::stringify(&next, "chat viewport");
         self.retained_window = Some(next);
         result
     }

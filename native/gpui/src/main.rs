@@ -74,14 +74,14 @@ fn main() {
             ]);
             cx.on_action(|_: &Quit, cx| cx.quit());
             cx.set_menus(vec![
-                Menu::new("Inferay Native").items([MenuItem::action("Quit Inferay Native", Quit)]),
+                Menu::new("Inferay").items([MenuItem::action("Quit Inferay", Quit)]),
             ]);
             let bounds = Bounds::centered(None, size(px(1280.), px(820.)), cx);
             cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     titlebar: Some(TitlebarOptions {
-                        title: Some("Inferay Native Preview".into()),
+                        title: Some("Inferay".into()),
                         appears_transparent: true,
                         traffic_light_position: Some(point(px(16.), px(14.))),
                     }),
@@ -92,7 +92,7 @@ fn main() {
                 },
                 |window, cx| cx.new(|cx| WorkspaceView::new(window, cx)),
             )
-            .expect("open Inferay Native");
+            .expect("open Inferay");
             cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {
                     cx.quit();

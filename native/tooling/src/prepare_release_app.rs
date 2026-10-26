@@ -44,10 +44,6 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     assert_file(&plist)?;
     assert_file(&contents.join("MacOS/inferay"))?;
-    let renderer_dist = resources.join("dist");
-    let renderer_index = renderer_dist.join("index.html");
-    assert_file(&renderer_index)?;
-    assert_renderer_entries(&renderer_dist, &renderer_index)?;
     assert_file(&resources.join("data/prompts.json"))?;
     assert_file(&resources.join("public/app-icon.png"))?;
     assert_file(&resources.join("packages/inferay/package.json"))?;
@@ -97,27 +93,6 @@ fn assert_file(path: &Path) -> Result<(), String> {
     } else {
         Err(format!("missing release app file: {}", path.display()))
     }
-}
-
-fn assert_renderer_entries(dist: &Path, index: &Path) -> Result<(), String> {
-    let html = fs::read_to_string(index)
-        .map_err(|error| format!("failed to read {}: {error}", index.display()))?;
-    let entries = html
-        .split("src=\"")
-        .skip(1)
-        .filter_map(|part| part.split_once('"').map(|(source, _)| source))
-        .filter(|source| source.starts_with("/assets/") && source.ends_with(".js"))
-        .collect::<Vec<_>>();
-    if entries.is_empty() {
-        return Err(format!(
-            "release renderer has no JavaScript entry in {}",
-            index.display()
-        ));
-    }
-    for entry in entries {
-        assert_file(&dist.join(entry.trim_start_matches('/')))?;
-    }
-    Ok(())
 }
 
 fn plist_set(plist: &Path, key: &str, value: &str) -> Result<(), String> {

@@ -6,11 +6,11 @@ use ts_rs::TS;
 // Use the browser's trigonometry when seeding WASM layouts. Tiny differences
 // from native libm amplify during the force simulation and move existing nodes.
 #[cfg(target_arch = "wasm32")]
-#[wasm_bindgen::prelude::wasm_bindgen]
+
 extern "C" {
-    #[wasm_bindgen(js_namespace = Math)]
+
     fn sin(value: f64) -> f64;
-    #[wasm_bindgen(js_namespace = Math)]
+
     fn cos(value: f64) -> f64;
 }
 

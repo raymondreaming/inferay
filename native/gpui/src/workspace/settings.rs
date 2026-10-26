@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 use std::{collections::HashMap, sync::Arc};
 
 const SECTIONS: &[(&str, &str, &str, &str, &str)] = &[
+    ("about", "App", "About & updates", "Sparkles", "Inferay version and software updates."),
     (
         "database",
         "App",
@@ -181,7 +182,7 @@ impl WorkspaceView {
         self.settings_state.menu = None;
         cx.notify();
     }
-    fn settings_page(&mut self, page: &'static str, cx: &mut Context<Self>) {
+    pub(super) fn settings_page(&mut self, page: &'static str, cx: &mut Context<Self>) {
         if page == self.settings_state.page {
             return;
         }
@@ -224,6 +225,10 @@ impl WorkspaceView {
                         let (claude, codex) = tokio::try_join!(get(if refresh { "/api/agents/mcp-status?provider=claude&refresh=true" } else { "/api/agents/mcp-status?provider=claude" }), get(if refresh { "/api/agents/mcp-status?provider=codex&refresh=true" } else { "/api/agents/mcp-status?provider=codex" }))?;
                         json!({"claude":claude,"codex":codex})
                     }
+                    "about" => {
+                        let (info, status) = tokio::try_join!(get("/api/app-info"), get("/api/native/update"))?;
+                        json!({"info":info,"status":status})
+                    }
                     "skills" => get("/api/prompts").await?,
                     "database" => get("/api/databases").await?,
                     "workspace" => get("/api/config/search-folders").await?,
@@ -251,7 +256,7 @@ impl WorkspaceView {
                                 cx,
                             );
                         }
-                        let checking = page == "mcp"
+                        let checking = (page == "about" && value["status"]["status"] == "updating") || page == "mcp"
                             && (value["claude"]["checking"] == true
                                 || value["codex"]["checking"] == true);
                         state.data.insert(page, value);
@@ -261,7 +266,7 @@ impl WorkspaceView {
                                     .timer(std::time::Duration::from_secs(2))
                                     .await;
                                 let _ = this.update(cx, |s, cx| {
-                                    if s.settings && s.settings_state.page == "mcp" {
+                                    if s.settings && matches!(s.settings_state.page, "mcp" | "about") {
                                         s.load_settings(false, cx);
                                     }
                                 });

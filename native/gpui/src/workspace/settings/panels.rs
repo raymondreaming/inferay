@@ -5,6 +5,24 @@ impl WorkspaceView {
         let state = &self.settings_state;
         let data = state.data.get(state.page).unwrap_or(&Value::Null);
         match state.page {
+            "about" => {
+                let info = &data["info"];
+                let status = &data["status"];
+                let updating = status["status"] == "updating";
+                section("Inferay", format!("Version {} · {}", info["version"].as_str().unwrap_or("dev"), info["channel"].as_str().unwrap_or("stable")))
+                    .child(row(if updating { "Installing update… Inferay will restart.".to_owned() }
+                        else if info["update"]["available"] == true { format!("Version {} is available", info["update"]["latestVersion"].as_str().unwrap_or("")) }
+                        else { "No newer version available.".to_owned() }))
+                    .when_some(info["update"]["error"].as_str(), |d, error| d.child(error.to_owned()))
+                    .when_some(status["error"].as_str(), |d, error| d.child(error.to_owned()))
+                    .when(std::env::var_os("INFERAY_EXTERNAL_BACKEND_ADDR").is_none() && info["production"] == true && info["update"]["available"] == true && !updating, |d| d.child(
+                        button("install-update", "Update and restart").on_click(cx.listener(|s, _, _, cx| {
+                            s.save_settings(Method::POST, "/api/native/update".into(), json!({}), cx);
+                        }))
+                    ))
+                    .into_any_element()
+            }
+
             "appearance" => self.appearance_settings(cx),
             "agents" => {
                 let view = serde_json::to_value(inferay_core::provider_config::settings_view(&json!({

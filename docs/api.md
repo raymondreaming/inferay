@@ -25,7 +25,7 @@ bun run build:renderer
 bun run verify:database
 ```
 
-The generator writes deterministic reference artifacts under `docs/reference/` and renderer contracts under `build/presentation/contracts/`. It creates and removes a temporary profile; it does not inspect the user's databases, run automations, contact providers or export data rows. A regression test compares committed artifacts to the same production generators. `scripts/build-presentation.sh` continues to export renderer types during the normal build.
+The generator writes deterministic reference artifacts under `docs/reference/`. It creates and removes a temporary profile; it does not inspect the user's databases, run automations, contact providers or export data rows. A regression test compares committed artifacts to the same production generators.
 
 ## Authentication and request context
 

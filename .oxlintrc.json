@@ -1,6 +1,6 @@
 {
 	"$schema": "./node_modules/oxlint/configuration_schema.json",
-	"plugins": ["typescript", "unicorn", "oxc", "jsx-a11y"],
+	"plugins": ["typescript", "unicorn", "oxc"],
 	"categories": {
 		"correctness": "error"
 	},
@@ -26,9 +26,6 @@
 		"typescript/no-extra-non-null-assertion": "error",
 		"typescript/no-non-null-asserted-optional-chain": "error",
 		"typescript/no-unnecessary-type-constraint": "error",
-		"jsx-a11y/prefer-tag-over-role": "off",
-		"jsx-a11y/no-static-element-interactions": "off",
-		"jsx-a11y/click-events-have-key-events": "off",
 		"eslint/no-unused-vars": [
 			"error",
 			{

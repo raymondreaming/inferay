@@ -1,9 +1,8 @@
 //! Dock request ordering and retained layout previews. Storage and HTTP stay in the renderer.
-use crate::{dock, wasm_json};
+use crate::{dock, json_wire};
 use serde_json::{Value, json};
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use wasm_bindgen::prelude::*;
 
 thread_local! {
     static SAVED: RefCell<VecDeque<(String, Value)>> = const { RefCell::new(VecDeque::new()) };
@@ -22,7 +21,6 @@ pub struct DockRequest {
     action: Option<Value>,
 }
 
-#[wasm_bindgen]
 #[derive(Default)]
 pub struct DockSession {
     revision: u32,
@@ -31,9 +29,8 @@ pub struct DockSession {
     layout: Option<Value>,
 }
 
-#[wasm_bindgen]
 impl DockSession {
-    #[wasm_bindgen(constructor)]
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -44,15 +41,15 @@ impl DockSession {
         stored: Option<String>,
         legacy: Option<String>,
         deduplicate: bool,
-    ) -> Result<String, JsValue> {
+    ) -> Result<String, String> {
         if deduplicate && self.last_request.as_deref() == Some(request) {
             return Ok("null".into());
         }
         let request_key = request.to_owned();
         let previous_revision = self.revision;
         self.revision = self.revision.wrapping_add(1);
-        let request: DockRequest = wasm_json::parse(request)?;
-        let mut request = wasm_json::result(serde_json::to_value(request))?;
+        let request: DockRequest = json_wire::parse(request)?;
+        let mut request = json_wire::result(serde_json::to_value(request))?;
         let workspace = request["workspaceId"].as_str().unwrap_or_default();
         let settled = self
             .acknowledged
@@ -73,7 +70,7 @@ impl DockSession {
         if let Some(legacy) = parse_optional(legacy) {
             request["legacy"] = legacy;
         }
-        let layout = wasm_json::result(
+        let layout = json_wire::result(
             request["action"]
                 .is_null()
                 .then(|| dock::project(&request))
@@ -103,8 +100,8 @@ impl DockSession {
         revision: u32,
         workspace: &str,
         layout: &str,
-    ) -> Result<String, JsValue> {
-        let layout: Value = wasm_json::parse(layout)?;
+    ) -> Result<String, String> {
+        let layout: Value = json_wire::parse(layout)?;
         SAVED.with(|cache| {
             let mut cache = cache.borrow_mut();
             cache.retain(|(id, _)| id != workspace);

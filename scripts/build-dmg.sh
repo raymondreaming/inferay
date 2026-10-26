@@ -35,6 +35,7 @@ rm -rf "${BUILD_DIR}/${APP_NAME}.app"
 # Build the Rust-hosted app first.
 bash scripts/build-rust-app.sh
 
+mkdir -p "$OUTPUT_DIR"
 echo "Creating DMG installer..."
 
 if [ -d "${BUILD_DIR}/${APP_NAME}.app" ]; then

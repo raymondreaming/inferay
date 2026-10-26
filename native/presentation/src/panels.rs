@@ -1,5 +1,5 @@
 //! Shared workbench transitions. The native server is the durable writer.
-use crate::wasm_json;
+use crate::json_wire;
 use serde_json::{Value, json};
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
@@ -564,7 +564,7 @@ pub struct PanelPresentation {
 }
 
 /// Optimistic panel metadata. File bodies remain in the renderer's cache.
-#[wasm_bindgen::prelude::wasm_bindgen]
+
 #[derive(Default)]
 pub struct PanelReplica {
     workspaces: std::collections::HashMap<String, PanelPending>,
@@ -593,9 +593,9 @@ impl PanelPending {
         session
     }
 }
-#[wasm_bindgen::prelude::wasm_bindgen]
+
 impl PanelReplica {
-    #[wasm_bindgen(constructor)]
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -611,9 +611,9 @@ impl PanelReplica {
         action: &str,
         now: f64,
         current: &str,
-    ) -> Result<String, wasm_bindgen::JsValue> {
-        let action: PanelAction = wasm_json::parse(action)?;
-        let current: PanelSession = wasm_json::parse(current)?;
+    ) -> Result<String, String> {
+        let action: PanelAction = json_wire::parse(action)?;
+        let current: PanelSession = json_wire::parse(current)?;
         let state = self.workspaces.entry(workspace.into()).or_default();
         let mut next = current.clone();
         next.apply(action.clone(), now as u64);
@@ -629,27 +629,27 @@ impl PanelReplica {
         workspace: &str,
         revision: u32,
         session: &str,
-    ) -> Result<String, wasm_bindgen::JsValue> {
-        let session = wasm_json::parse(session)?;
+    ) -> Result<String, String> {
+        let session = json_wire::parse(session)?;
         let state = self.workspaces.entry(workspace.into()).or_default();
         if state.revision == revision {
             state.canonical = session;
         }
-        Ok(wasm_json::stringify(&state.session(), "panel session"))
+        Ok(json_wire::stringify(&state.session(), "panel session"))
     }
     pub fn settle(
         &mut self,
         workspace: &str,
         sequence: u32,
         session: Option<String>,
-    ) -> Result<String, wasm_bindgen::JsValue> {
-        let canonical = session.map(|s| wasm_json::parse(&s)).transpose()?;
+    ) -> Result<String, String> {
+        let canonical = session.map(|s| json_wire::parse(&s)).transpose()?;
         let state = self.workspaces.entry(workspace.into()).or_default();
         state.pending.retain(|(id, _, _)| *id != sequence);
         if let Some(canonical) = canonical {
             state.canonical = canonical;
             state.revision += 1;
         }
-        Ok(wasm_json::stringify(&state.session(), "panel session"))
+        Ok(json_wire::stringify(&state.session(), "panel session"))
     }
 }

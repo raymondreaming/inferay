@@ -1,4 +1,4 @@
-use crate::wasm_json;
+use crate::json_wire;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -95,7 +95,7 @@ pub struct UiTiming {
 }
 
 /// Accumulate bounded measurements without serializing the sample on each frame.
-#[wasm_bindgen::prelude::wasm_bindgen]
+
 #[derive(Default)]
 pub struct UiTimingRecorder {
     sample: UiTiming,
@@ -104,9 +104,9 @@ pub struct UiTimingRecorder {
     ready_frame: bool,
     sent: bool,
 }
-#[wasm_bindgen::prelude::wasm_bindgen]
+
 impl UiTimingRecorder {
-    #[wasm_bindgen(constructor)]
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -118,8 +118,8 @@ impl UiTimingRecorder {
         timestamp: f64,
         now: f64,
         long_tasks: bool,
-    ) -> Result<f64, wasm_bindgen::JsValue> {
-        let context = wasm_json::parse(context)?;
+    ) -> Result<f64, String> {
+        let context = json_wire::parse(context)?;
         self.start = if timestamp > 0. && timestamp <= now {
             timestamp
         } else {
@@ -257,6 +257,6 @@ impl UiTimingRecorder {
                 .map(|ready| self.sample.frame_ready_ms - ready);
         }
         self.sample.result = result;
-        wasm_json::stringify(&self.sample, "timing sample")
+        json_wire::stringify(&self.sample, "timing sample")
     }
 }

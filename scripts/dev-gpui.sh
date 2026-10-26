@@ -7,6 +7,9 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp native/gpui/target/release/inferay-gpui "$app/Contents/MacOS/inferay-gpui"
 mkdir -p "$app/Contents/Resources/data"
 cp data/prompts.json "$app/Contents/Resources/data/prompts.json"
+mkdir -p "$app/Contents/Resources/public" "$app/Contents/Resources/packages/inferay"
+cp public/*.png public/*.svg "$app/Contents/Resources/public/"
+cp packages/inferay/package.json "$app/Contents/Resources/packages/inferay/"
 iconutil -c icns public/icon.iconset -o "$app/Contents/Resources/Inferay.icns"
 cat > "$app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>

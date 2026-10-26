@@ -1,9 +1,8 @@
 //! Document selection and admission; the browser retains file bodies by path.
-use crate::wasm_json;
+use crate::json_wire;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use ts_rs::TS;
-use wasm_bindgen::prelude::*;
 
 #[derive(Default, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -13,24 +12,24 @@ pub struct DocumentView {
     pub restoring: bool,
     pub error: Option<String>,
 }
-#[wasm_bindgen]
+
 pub struct DocumentReplica {
     view: DocumentView,
     closed: HashSet<String>,
     pending: HashMap<String, u32>,
     selection: u32,
 }
-#[wasm_bindgen]
+
 impl DocumentReplica {
-    #[wasm_bindgen(constructor)]
+
     pub fn new(
         paths: &str,
         active_path: Option<String>,
         restoring: bool,
-    ) -> Result<DocumentReplica, JsValue> {
+    ) -> Result<DocumentReplica, String> {
         Ok(Self {
             view: DocumentView {
-                paths: wasm_json::parse(paths)?,
+                paths: json_wire::parse(paths)?,
                 active_path,
                 restoring,
                 error: None,
@@ -41,7 +40,7 @@ impl DocumentReplica {
         })
     }
     pub fn snapshot(&self) -> String {
-        wasm_json::stringify(&self.view, "document view")
+        json_wire::stringify(&self.view, "document view")
     }
     pub fn select(&mut self, path: &str) {
         self.selection += 1;
@@ -89,8 +88,8 @@ impl DocumentReplica {
         }
         true
     }
-    pub fn restore(&mut self, paths: &str, active: Option<String>) -> Result<(), JsValue> {
-        let mut paths: Vec<String> = wasm_json::parse(paths)?;
+    pub fn restore(&mut self, paths: &str, active: Option<String>) -> Result<(), String> {
+        let mut paths: Vec<String> = json_wire::parse(paths)?;
         paths.retain(|p| !self.closed.contains(p));
         if self.selection == 0 && self.view.active_path.is_none() {
             self.view.active_path = if active.as_ref().is_some_and(|p| self.closed.contains(p)) {

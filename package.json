@@ -9,33 +9,19 @@
 	"scripts": {
 		"preinstall": "bun scripts/check-bun-version.mjs",
 		"prepare": "bun scripts/check-bun-version.mjs && husky",
-		"dev": "bash scripts/dev-app.sh",
+		"dev": "bash scripts/dev-gpui.sh",
 		"dev:gpui": "bash scripts/dev-gpui.sh",
 		"build:gpui": "bash scripts/dev-gpui.sh --build-only",
-		"build:native": "bun scripts/check-bun-version.mjs && cargo build --release -p inferay-desktop",
-		"build:renderer": "bun scripts/check-bun-version.mjs && bash scripts/sync-file-icons.sh && bun run build:presentation && node node_modules/vite/bin/vite.js build --mode production",
 		"build": "bash scripts/build-rust-app.sh",
-		"dmg": "bash scripts/build-dmg.sh && open artifacts/inferay-installer.dmg",
-		"start": "bun run build:renderer && cargo run --release -p inferay-desktop",
+		"start": "bash scripts/dev-gpui.sh",
+		"dmg": "bash scripts/build-dmg.sh",
 		"release": "cargo run -p inferay-tooling -- release",
 		"release:resume": "cargo run -p inferay-tooling -- release --resume",
-		"format": "bun fmt ./src",
-		"format:check": "bun fmt --check ./src",
-		"typecheck": "bun check --no-script",
-		"lint": "oxlint --deny-warnings .",
-		"lint:fix": "oxlint --fix --deny-warnings .",
-		"check": "bun run lint && bun run typecheck && bun run format:check && biome check ./src",
-		"code": "bun scripts/count-code.ts",
-		"generate:api": "cargo run -p inferay-tooling --bin export-api-reference && cargo run -p inferay-tooling --bin export-renderer-types",
-		"check:components": "bun scripts/check-component-structure.ts",
+		"check": "bash scripts/check-architecture.sh",
 		"check:architecture": "bash scripts/check-architecture.sh",
-		"check:boundaries": "bun scripts/check-architecture-boundaries.ts",
-		"check:native": "cargo check -p inferay-desktop",
-		"check:rust-host": "cargo check -p inferay-desktop",
-		"build:presentation": "bash scripts/build-presentation.sh",
-		"sync:file-icons": "bash scripts/sync-file-icons.sh",
-		"verify:database": "cargo build -p inferay-server --bin inferay-dev-server && bun scripts/verify-database.ts",
-		"verify:projects": "cargo build -p inferay-server --bin inferay-dev-server && bun scripts/verify-projects.mjs"
+		"check:native": "cargo check --manifest-path native/gpui/Cargo.toml",
+		"code": "bun scripts/count-code.ts",
+		"generate:api": "cargo run -p inferay-tooling --bin export-api-reference"
 	},
 	"lint-staged": {
 		"*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}": [
@@ -49,33 +35,11 @@
 		]
 	},
 	"devDependencies": {
-		"@babel/core": "^7",
-		"@babel/parser": "7.29.8",
-		"@babel/traverse": "^7",
-		"@babel/types": "7.29.8",
 		"@biomejs/biome": "^2.5.12",
-		"@solidjs/compiler": "2.0.0-rc.6",
-		"@solidjs/vite-plugin": "3.0.0-next.39",
-		"@stylexjs/unplugin": "0.19.0",
-		"@tailwindcss/vite": "4.3.0",
 		"@types/bun": "latest",
-		"chokidar": "^5.0.0",
-		"csstype": "^3.2.3",
 		"husky": "^9.1.7",
 		"lint-staged": "^16.4.0",
-		"oxlint": "1.82.0",
-		"playwright": "1.63.0",
-		"typescript": "7.0.2"
+		"oxlint": "1.82.0"
 	},
-	"dependencies": {
-		"@solidjs/web": "2.0.0-rc.6",
-		"@stylexjs/stylex": "0.19.0",
-		"@tanstack/query-core": "5.101.4",
-		"@tanstack/solid-query": "6.0.0-rc.3",
-		"@yutengjing/vscode-icons": "0.1.1",
-		"mermaid": "^12.0.0",
-		"solid-js": "2.0.0-rc.6",
-		"tailwindcss": "^4.3.3",
-		"vite": "8.1.5"
-	}
+	"dependencies": {}
 }

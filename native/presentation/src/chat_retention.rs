@@ -1,10 +1,8 @@
 //! Bounded chat retention metadata. Browser-owned replicas, messages, and viewport maps stay in
 //! the renderer; this model owns recency, weights, and closed-pane eviction.
-use crate::wasm_json;
+use crate::json_wire;
 use std::collections::{HashMap, HashSet, VecDeque};
-use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen]
 pub struct ChatSessionRetention {
     entries: HashMap<String, (String, f64)>,
     order: VecDeque<String>,
@@ -14,9 +12,8 @@ pub struct ChatSessionRetention {
     max_weight: f64,
 }
 
-#[wasm_bindgen]
 impl ChatSessionRetention {
-    #[wasm_bindgen(constructor)]
+
     pub fn new(max_entries: u32, max_weight: f64) -> Self {
         Self {
             entries: HashMap::new(),
@@ -56,8 +53,8 @@ impl ChatSessionRetention {
         serde_json::json!([true, evicted]).to_string()
     }
 
-    pub fn set_pane_ids(&mut self, pane_ids: &str) -> Result<String, JsValue> {
-        let pane_ids: HashSet<String> = wasm_json::parse(pane_ids)?;
+    pub fn set_pane_ids(&mut self, pane_ids: &str) -> Result<String, String> {
+        let pane_ids: HashSet<String> = json_wire::parse(pane_ids)?;
         let evicted = self
             .order
             .iter()
@@ -72,7 +69,7 @@ impl ChatSessionRetention {
             self.remove(identity);
         }
         self.pane_ids = Some(pane_ids);
-        Ok(wasm_json::stringify(&evicted, "chat session evictions"))
+        Ok(json_wire::stringify(&evicted, "chat session evictions"))
     }
 }
 
@@ -85,16 +82,14 @@ impl ChatSessionRetention {
     }
 }
 
-#[wasm_bindgen]
 pub struct ChatViewportRetention {
     entries: HashSet<String>,
     order: VecDeque<String>,
     max_entries: usize,
 }
 
-#[wasm_bindgen]
 impl ChatViewportRetention {
-    #[wasm_bindgen(constructor)]
+
     pub fn new(max_entries: u32) -> Self {
         Self {
             entries: HashSet::new(),
@@ -117,6 +112,6 @@ impl ChatViewportRetention {
             self.entries.remove(&oldest);
             evicted.push(oldest);
         }
-        wasm_json::stringify(&evicted, "viewport eviction identities")
+        json_wire::stringify(&evicted, "viewport eviction identities")
     }
 }

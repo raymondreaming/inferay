@@ -1,5 +1,5 @@
 //! Optimistic workspace selection and acknowledgement policy. HTTP ordering stays in JS.
-use crate::wasm_json;
+use crate::json_wire;
 use inferay_core::{
     agent_state::{Workspace, WorkspaceSelection},
     workspace_action::AgentWorkspaceAction,
@@ -8,7 +8,6 @@ use serde::Serialize;
 use serde_json::json;
 use std::{collections::HashSet, rc::Rc};
 use ts_rs::TS;
-use wasm_bindgen::prelude::*;
 
 #[derive(Default, Serialize, TS)]
 pub struct WorkspaceSnapshot {
@@ -16,7 +15,7 @@ pub struct WorkspaceSnapshot {
     state: Option<Rc<Workspace>>,
     error: Option<String>,
 }
-#[wasm_bindgen]
+
 #[derive(Default)]
 pub struct WorkspaceReplica {
     snapshot: WorkspaceSnapshot,
@@ -25,17 +24,17 @@ pub struct WorkspaceReplica {
     structural: HashSet<u32>,
     sequence: u32,
 }
-#[wasm_bindgen]
+
 impl WorkspaceReplica {
-    #[wasm_bindgen(constructor)]
+
     pub fn new() -> Self {
         Self::default()
     }
     pub fn snapshot(&self) -> String {
-        wasm_json::stringify(&self.snapshot, "workspace snapshot")
+        json_wire::stringify(&self.snapshot, "workspace snapshot")
     }
-    pub fn begin(&mut self, action: &str) -> Result<String, JsValue> {
-        let action: AgentWorkspaceAction = wasm_json::parse(action)?;
+    pub fn begin(&mut self, action: &str) -> Result<String, String> {
+        let action: AgentWorkspaceAction = json_wire::parse(action)?;
         let selection = self
             .snapshot
             .state
@@ -56,8 +55,8 @@ impl WorkspaceReplica {
         }
         Ok(json!({"id":self.sequence,"selecting":selecting}).to_string())
     }
-    pub fn accept(&mut self, state: &str, request: Option<u32>) -> Result<String, JsValue> {
-        let state = wasm_json::parse(state)?;
+    pub fn accept(&mut self, state: &str, request: Option<u32>) -> Result<String, String> {
+        let state = json_wire::parse(state)?;
         self.clear(request);
         self.canonical = state;
         self.snapshot.state = self.canonical.clone();

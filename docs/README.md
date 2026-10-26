@@ -7,7 +7,7 @@ Start high and go lower only as far as the task needs.
 | Product | [README](../README.md) | What Inferay is and does |
 | Concepts | [concepts.md](concepts.md) | Projects, repositories, resources, skills, tools, plugins, automations, runs, and how they differ; current status of each |
 | Architecture | [architecture.md](architecture.md) | How the app is built: processes, crates, renderer, provider runner, chat, storage, environment variables |
-| Decisions | [adr/](adr/) | Why things are shaped this way: [0001](adr/0001-rust-models-solid-views.md) Rust models with Solid views; [0002](adr/0002-automation-kernel.md) the automation kernel |
+| Decisions | [adr/](adr/) | Why things are shaped this way: [0001](adr/0001-rust-models-solid-views.md) original Rust/Solid decision (superseded by the GPUI cutover); [0002](adr/0002-automation-kernel.md) the automation kernel |
 | Storage | [storage.md](storage.md) | Where everything lives, the databases and their tables, how data is written and how chats, automations and the interface read it |
 | API | [api.md](api.md), [OpenAPI](reference/openapi.json) | Database API contracts, generated schemas/types and HTTP route coverage |
 | MCP | [mcp.md](mcp.md), [tool catalogue](reference/mcp-tools.json) | Native tool scopes, provider transports and external connections |
@@ -15,9 +15,9 @@ Start high and go lower only as far as the task needs.
 | Connections | [connections.md](connections.md) | Project key management, Keychain storage and the remaining execution boundary |
 | Effects | [effects.md](effects.md) | Captured proposals, review, and the planned generic delivery and recovery contract |
 | Reference | [reference/project-files.md](reference/project-files.md) | Exact definition file formats, limits, validation and local state |
-| Working on the code | [CODING_GUIDELINES](../CODING_GUIDELINES.md), [CONTRIBUTING](../CONTRIBUTING.md), [design system](../src/design-system/README.md) | Rules, boundaries, setup, checks, releases |
+| Working on the code | [CODING_GUIDELINES](../CODING_GUIDELINES.md), [CONTRIBUTING](../CONTRIBUTING.md) | Rules, boundaries, setup, checks, releases |
 | Active desktop UI | [GPUI](../native/gpui/README.md) | Target for future development, run commands, current capabilities and remaining migration gaps |
-| Performance | [performance-notes.md](performance-notes.md), [chat performance rules](../src/modules/conversation/PERFORMANCE.md) | Current measurements, approaches that do not help, chat-surface rules |
+| Performance | [performance-notes.md](performance-notes.md) | Current measurements, approaches that do not help, chat-surface rules |
 | Origin comparison | [origin-comparison.md](origin-comparison.md) | Every Origin feature next to Inferay: kept, rebuilt, left in Origin or dropped |
 | Roadmap | [roadmap.md](roadmap.md) | What works, what is being built, what comes next, known gaps |
 

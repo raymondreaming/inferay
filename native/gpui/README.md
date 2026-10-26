@@ -1,8 +1,8 @@
 # Inferay GPUI
 
-The native macOS renderer uses GPUI 0.3.9 and the existing Inferay Rust services. GPUI (`native/gpui`) is the supported target for all future UI features, fixes, and performance work. The Solid renderer (`src/`) and webview desktop host (`native/desktop-host`) are deprecated and retained temporarily as migration references. Do not implement new UI work in the deprecated version unless explicitly requested. Validate GPUI incrementally as features are used; deprecation does not mean feature parity is complete. Keep the shared Rust core, presentation, diff engine, and server.
+GPUI is Inferay's only desktop renderer. The GPUI-only cutover removes the Solid UI, webview host, browser build chain, and web renderer tests. Git history preserves that implementation. Future development and incremental testing happen here; this milestone does not claim complete feature parity.
 
-The remaining-work inventory below records known gaps; test and resolve them incrementally in GPUI.
+Shared Rust application behavior remains in `native/core`, `native/presentation`, `native/diff-engine`, and `native/server`.
 
 ## Build and run
 
@@ -40,9 +40,7 @@ Native design tokens, icons, and syntax palettes live in `assets/` and `src/colo
 | Files and project resources | Native explorer/editing, memory, plugins, automations, proposal flows |
 | Browser/tool surfaces | Native integration and complete lifecycle |
 | Rendering and input | More matched screenshots, complete keyboard/accessibility behavior, measured interaction performance |
-| Packaging | Native-only build/release pipeline; removal of `src/`, `native/desktop-host`, and obsolete web build/dependency/test paths once their behaviors are replaced |
-
-The old renderer has not been deleted. Removing it before the missing behaviors are implemented would remove working app functionality. Version control can preserve the old implementation once migration is complete.
+| Packaging | Verify production installer and release behavior on the native-only pipeline |
 
 ## Verification
 
@@ -57,3 +55,9 @@ Tests cover Enter/newline/IME behavior, stop request targeting and failure recov
 `vendor/gpui-pre-apple` contains narrow CoreText weight, alpha-blending, and shadow-clipping fixes. `vendor/gpui-pre-macos` retains the native dark window material. See `NOTICE` and the included Apache license. Upstream Cocoa deprecation warnings remain in these framework dependencies.
 
 Repository parity: linked worktree WIP rows stay beside their loaded HEAD instead of appearing at the top when that commit is outside the history page. Path/Tree controls, collapsible directories, and aggregate additions/deletions are available for current changes and commits. The repository left edge and lower detail panel (side panel when expanded) have resize handles. These sizes currently remain local to the open preview.
+
+## GPUI-only release milestone
+
+The 2026-10-26 cutover deletes the former UI and host in one commit. The production bundle keeps `com.inferay.app`, `/Applications/inferay.app`, the existing Inferay Dock icon, and the existing user profile. `packages/inferay` remains the npm installer/launcher; the release command builds the GPUI DMG, updates both GPUI manifest and lockfile, and publishes the existing npm/GitHub artifacts.
+
+Production GPUI checks for updates on launch and every 15 minutes. Available updates open Settings → About & updates, where Update and restart uses the shared installer backend. External-backend development sessions cannot initiate installation or restart their owning backend. Local builds verify packaging; publishing and a real downloaded-version upgrade are separate release operations.

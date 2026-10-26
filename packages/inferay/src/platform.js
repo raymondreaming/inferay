@@ -27,11 +27,8 @@ function installedAppCandidates() {
 
 function devAppCandidates(cwd = process.cwd()) {
 	return [
-		resolve(cwd, "build/dev-macos-arm64/inferay-dev.app"),
-		resolve(cwd, "build/dev-macos-arm64/inferay.app"),
-		resolve(cwd, "build/release-macos-arm64/inferay.app"),
-		resolve(cwd, "build/stable-macos-arm64/inferay.app"),
-		resolve(cwd, "build/macos-arm64/inferay.app"),
+		resolve(cwd, "build/gpui/Inferay Native.app"),
+		resolve(cwd, "build/rust-macos-arm64/inferay.app"),
 	];
 }
 

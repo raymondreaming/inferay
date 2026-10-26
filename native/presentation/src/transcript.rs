@@ -4,7 +4,6 @@
 //! must not be copied back through JSON for every streaming append.
 use crate::{array, string};
 use serde_json::{Value, json};
-use wasm_bindgen::prelude::*;
 
 #[derive(Default, serde::Serialize, ts_rs::TS)]
 #[serde(
@@ -65,7 +64,7 @@ fn valid_message(message: &Value) -> bool {
             "user" | "assistant" | "tool" | "system" | "btw"
         )
 }
-#[wasm_bindgen]
+
 #[derive(Default)]
 pub struct ChatReplica {
     messages: Vec<String>,
@@ -73,9 +72,9 @@ pub struct ChatReplica {
     epoch: Value,
     reconnecting: bool,
 }
-#[wasm_bindgen]
+
 impl ChatReplica {
-    #[wasm_bindgen(constructor)]
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -90,23 +89,23 @@ impl ChatReplica {
     }
     /// Resolve browser-only insertions against the already admitted native IDs.
     /// Ordinary local rows carry only an ID; only notices carry content.
-    pub fn merge(&self, local: &str, notices: &str) -> Result<String, JsValue> {
+    pub fn merge(&self, local: &str, notices: &str) -> Result<String, String> {
         let local: Vec<Value> = serde_json::from_str(local)
-            .map_err(|e| JsValue::from_str(&format!("Invalid local transcript: {e}")))?;
+            .map_err(|e| String::from(&format!("Invalid local transcript: {e}")))?;
         let notices: Vec<Value> = serde_json::from_str(notices)
-            .map_err(|e| JsValue::from_str(&format!("Invalid native notices: {e}")))?;
-        Ok(crate::wasm_json::stringify(
+            .map_err(|e| String::from(&format!("Invalid native notices: {e}")))?;
+        Ok(crate::json_wire::stringify(
             &self.merge_insertions(&local, &notices),
             "transcript insertions",
         ))
     }
-    pub fn receive(&mut self, message: &str, pane: &str, current: &str) -> Result<String, JsValue> {
+    pub fn receive(&mut self, message: &str, pane: &str, current: &str) -> Result<String, String> {
         let message = serde_json::from_str(message)
-            .map_err(|e: serde_json::Error| JsValue::from_str(&e.to_string()))?;
+            .map_err(|e: serde_json::Error| String::from(&e.to_string()))?;
         let current = serde_json::from_str(current)
-            .map_err(|e: serde_json::Error| JsValue::from_str(&e.to_string()))?;
+            .map_err(|e: serde_json::Error| String::from(&e.to_string()))?;
         serde_json::to_string(&self.event(&message, pane, &current))
-            .map_err(|e| JsValue::from_str(&e.to_string()))
+            .map_err(|e| String::from(&e.to_string()))
     }
 }
 impl ChatReplica {

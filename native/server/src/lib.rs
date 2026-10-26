@@ -146,7 +146,6 @@ pub struct ServerConfig {
     pub user_data_dir: PathBuf,
     pub auth_token: String,
     pub release_api_url: Option<String>,
-    pub live_reload: bool,
     pub run_automations: bool,
 }
 
@@ -162,7 +161,6 @@ impl ServerConfig {
                 .unwrap_or_else(default_user_data_directory),
             auth_token: Uuid::new_v4().to_string(),
             release_api_url: None,
-            live_reload: false,
             run_automations: std::env::var("INFERAY_DISABLE_AUTOMATIONS").as_deref() != Ok("1"),
         }
     }
@@ -171,7 +169,6 @@ impl ServerConfig {
 #[derive(Clone)]
 struct ServerState {
     user_data_dir: PathBuf,
-    dist_dir: PathBuf,
     public_dir: PathBuf,
     allowed_paths: AllowedPaths,
     agent_command_resolver: Arc<AgentCommandResolver>,
@@ -194,7 +191,6 @@ struct ServerState {
     auth_token: String,
     client: Client,
     connection_reset: broadcast::Sender<()>,
-    live_reload: bool,
 }
 
 #[derive(Deserialize)]
@@ -367,11 +363,6 @@ fn build_router_with_connection_reset(
         .user_data_dir
         .canonicalize()
         .expect("Could not resolve Inferay data directory");
-    let dist_dir = if config.app_root.join("dist").is_dir() {
-        config.app_root.join("dist")
-    } else {
-        config.app_root.join("views")
-    };
     let allowed_paths = AllowedPaths::new(
         &config.app_root,
         &config.home_directory,
@@ -435,7 +426,6 @@ fn build_router_with_connection_reset(
     }
     let state = ServerState {
         user_data_dir: config.user_data_dir.clone(),
-        dist_dir,
         public_dir: config.app_root.join("public"),
         allowed_paths,
         agent_command_resolver,
@@ -458,7 +448,6 @@ fn build_router_with_connection_reset(
         auth_token: config.auth_token,
         client: Client::new(),
         connection_reset,
-        live_reload: config.live_reload,
     };
     Ok(Router::new()
         .route("/ws", any(native_websocket))
@@ -500,10 +489,13 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
     if request.method() != Method::GET && request.method() != Method::HEAD {
         return text_response(StatusCode::NOT_FOUND, "Not found");
     }
-    if let Some(response) = serve_dist_path(&state, &path, &request_headers, head_only).await {
-        return response;
+    if path == "/" {
+        return response_with_headers(
+            if head_only { Body::empty() } else { Body::from("{\"app\":\"inferay\",\"ui\":\"gpui\"}") },
+            "application/json", "no-store", true, &request_headers, &state.auth_token,
+        );
     }
-    serve_renderer_index(&state, &request_headers, head_only).await
+    text_response(StatusCode::NOT_FOUND, "Not found")
 }
 async fn dispatch_api(state: &ServerState, path: &str, request: Request) -> ApiResult<Response> {
     let result = match (path, request.method().as_str()) {
@@ -2553,89 +2545,6 @@ fn json_response(status: StatusCode, value: impl Serialize) -> Response {
     json_bytes_response(status, body.into())
 }
 
-async fn serve_dist_path(
-    state: &ServerState,
-    path: &str,
-    request_headers: &HeaderMap,
-    head_only: bool,
-) -> Option<Response> {
-    let relative = path.strip_prefix('/').unwrap_or(path);
-    if relative.is_empty() || relative.split('/').any(|part| part == "..") {
-        return None;
-    }
-    let file = state.dist_dir.join(relative);
-    if !file.is_file() {
-        return None;
-    }
-    let content_type = content_type(&file);
-    let cache = if path.starts_with("/assets/") {
-        "public, max-age=31536000, immutable"
-    } else {
-        "no-cache"
-    };
-    Some(
-        serve_file(
-            &file,
-            content_type,
-            cache,
-            content_type == "text/html",
-            request_headers,
-            &state.auth_token,
-            head_only,
-        )
-        .await,
-    )
-}
-
-async fn serve_renderer_index(
-    state: &ServerState,
-    headers: &HeaderMap,
-    head_only: bool,
-) -> Response {
-    let index = state.dist_dir.join("index.html");
-    if state.live_reload && !head_only {
-        return serve_live_reload_index(state, &index, headers).await;
-    }
-    serve_file(
-        &index,
-        "text/html",
-        "no-cache",
-        true,
-        headers,
-        &state.auth_token,
-        head_only,
-    )
-    .await
-}
-
-async fn serve_live_reload_index(
-    state: &ServerState,
-    index: &Path,
-    headers: &HeaderMap,
-) -> Response {
-    let Ok(html) = tokio::fs::read_to_string(index).await else {
-        return text_response(StatusCode::NOT_FOUND, "Not found");
-    };
-    let revision = tokio::fs::metadata(index)
-        .await
-        .ok()
-        .and_then(|metadata| metadata.modified().ok())
-        .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
-        .map_or(0, |duration| duration.as_nanos());
-    let reload = format!(
-        r#"<meta name="inferay-build" content="{revision}"><script>(()=>{{const revision="{revision}";setInterval(async()=>{{try{{const html=await fetch("/?inferay-live-reload="+Date.now(),{{cache:"no-store"}}).then(response=>response.text());const next=html.match(/name="inferay-build" content="([^"]+)"/);if(next&&next[1]!==revision)location.reload();}}catch{{}}}},500);}})();</script>"#
-    );
-    let html = html.replacen("</head>", &format!("{reload}</head>"), 1);
-    response_with_headers(
-        Body::from(html),
-        "text/html",
-        "no-cache",
-        true,
-        headers,
-        &state.auth_token,
-    )
-}
-
 async fn serve_file(
     path: &Path,
     content_type: &'static str,
@@ -3137,23 +3046,6 @@ fn public_asset(path: &str) -> Option<&'static str> {
     }
 }
 
-fn content_type(path: &Path) -> &'static str {
-    match path.extension().and_then(|extension| extension.to_str()) {
-        Some("html") => "text/html",
-        Some("js") => "application/javascript",
-        Some("css") => "text/css",
-        Some("json") => "application/json",
-        Some("png") => "image/png",
-        Some("jpg" | "jpeg") => "image/jpeg",
-        Some("svg") => "image/svg+xml",
-        Some("woff2") => "font/woff2",
-        Some("woff") => "font/woff",
-        Some("ico") => "image/x-icon",
-        Some("webp") => "image/webp",
-        _ => "application/octet-stream",
-    }
-}
-
 fn text_response(status: StatusCode, text: &'static str) -> Response {
     let mut response = Response::new(Body::from(text));
     *response.status_mut() = status;
@@ -3163,6 +3055,27 @@ fn text_response(status: StatusCode, text: &'static str) -> Response {
 #[cfg(test)]
 mod file_http_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn native_bootstrap_preserves_auth_without_serving_a_renderer() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        std::fs::create_dir(root.join("app")).unwrap();
+        let mut config = ServerConfig::new("127.0.0.1:0".parse().unwrap(), root.join("app"));
+        config.home_directory = root.join("home");
+        config.user_data_dir = root.join("state");
+        let auth = config.auth_token.clone();
+        let mut server = ServerHandle::start(config).unwrap();
+        let client = Client::new();
+        let origin = format!("http://{}", server.local_addr());
+        let response = client.get(&origin).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(response.headers()[SET_COOKIE].to_str().unwrap().contains(&auth));
+        assert_eq!(serde_json::from_slice::<Value>(&response.bytes().await.unwrap()).unwrap()["ui"], "gpui");
+        assert_eq!(client.get(format!("{origin}/index.html")).send().await.unwrap().status(), StatusCode::NOT_FOUND);
+        server.shutdown();
+    }
+
 
     #[tokio::test]
     async fn working_tree_diff_validators_follow_content_and_preserve_errors() {

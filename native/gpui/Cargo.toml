@@ -1,11 +1,11 @@
 [package]
 name = "inferay-gpui"
-version = "0.1.0"
+version = "0.1.113"
 edition = "2024"
 license = "LicenseRef-Inferay"
 publish = false
 
-# Keep the experimental renderer's framework resolution out of the shipping app.
+# Resolve GPUI's framework dependencies separately from the shared Rust workspace.
 [workspace]
 
 [dependencies]

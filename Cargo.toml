@@ -1,7 +1,6 @@
 [workspace]
 members = [
     "native/core",
-    "native/desktop-host",
     "native/diff-engine",
     "native/server",
     "native/tooling",
