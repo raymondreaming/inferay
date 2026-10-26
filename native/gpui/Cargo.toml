@@ -1,0 +1,41 @@
+[package]
+name = "inferay-gpui"
+version = "0.1.0"
+edition = "2024"
+license = "LicenseRef-Inferay"
+publish = false
+
+# Keep the experimental renderer's framework resolution out of the shipping app.
+[workspace]
+
+[dependencies]
+futures-util = "0.3.32"
+tokio-tungstenite = "0.29.0"
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls", "multipart"] }
+url = "2.5.8"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
+inferay-server = { path = "../server" }
+tokio = { version = "1.49", features = ["rt-multi-thread", "time", "net"] }
+gpui = { package = "gpui-pre", version = "=0.3.9", default-features = false }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.9", default-features = false, features = ["font-kit", "runtime_shaders"] }
+inferay-presentation = { path = "../presentation" }
+inferay-core = { path = "../core" }
+inferay-native-diff = { path = "../diff-engine" }
+serde_json = "1"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+unicode-segmentation = "1"
+anyhow = "1"
+env_logger = "0.11"
+chrono = "0.4"
+
+[profile.dev]
+debug = 0
+incremental = false
+
+[patch.crates-io]
+gpui-pre-macos = { path = "vendor/gpui-pre-macos" }
+gpui-pre-apple = { path = "vendor/gpui-pre-apple" }
+
+[dev-dependencies]
+tempfile = "3"
+gpui = { package = "gpui-pre", version = "=0.3.9", default-features = false, features = ["test-support"] }

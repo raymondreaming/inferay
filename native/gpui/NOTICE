@@ -1,0 +1,22 @@
+The native text input in src/input.rs is adapted from Zed Industries' GPUI
+examples/input.rs at revision 93d745668805029476e6d7fbb19652116fed51de.
+Copyright Zed Industries. Licensed under Apache License 2.0 (LICENSE-APACHE).
+Source: https://github.com/zed-industries/zed/blob/93d745668805029476e6d7fbb19652116fed51de/crates/gpui/examples/input.rs
+Modifications: Inferay colors, compact multiline layout, wrapping and scrolling,
+selection painting, input range handling, constructor and key bindings.
+
+vendor/gpui-pre-apple is gpui-pre-apple 0.3.9 from crates.io (Zed Industries,
+Apache-2.0). Three focused modifications follow the fixes demonstrated by
+Monocode at b200f566 (https://github.com/hardbeat920/monocode): round CoreText
+font weights for CSS face matching, use source-over destination alpha for both
+Metal pipelines, and clip outer shadows outside their element. No Monocode
+application code is included. The remainder is the upstream registry source.
+
+vendor/gpui-pre-macos is gpui-pre-macos 0.3.9 from crates.io (Zed Industries,
+Apache-2.0). The preview retains the native UnderWindowBackground material
+instead of stripping its tint and saturation, matching Inferay desktop-host.
+
+assets/fonts/Geist-{Regular,Medium,SemiBold}.ttf are the Geist faces used by
+Inferay's index.html, downloaded from Google Fonts (fonts.gstatic.com/geist/v5).
+Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font).
+Licensed under the SIL Open Font License 1.1; see assets/fonts/OFL.txt.

@@ -10,6 +10,8 @@
 		"preinstall": "bun scripts/check-bun-version.mjs",
 		"prepare": "bun scripts/check-bun-version.mjs && husky",
 		"dev": "bash scripts/dev-app.sh",
+		"dev:gpui": "bash scripts/dev-gpui.sh",
+		"build:gpui": "bash scripts/dev-gpui.sh --build-only",
 		"build:native": "bun scripts/check-bun-version.mjs && cargo build --release -p inferay-desktop",
 		"build:renderer": "bun scripts/check-bun-version.mjs && bash scripts/sync-file-icons.sh && bun run build:presentation && node node_modules/vite/bin/vite.js build --mode production",
 		"build": "bash scripts/build-rust-app.sh",
