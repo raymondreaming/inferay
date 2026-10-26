@@ -339,6 +339,20 @@ impl ChatMessageBuffer {
         self.prepare_render_model();
     }
 
+    /// Apply an already admitted renderer splice without finalizing streaming rows.
+    /// Returns the first affected presentation row, including preceding tool groups.
+    pub fn splice_replica_messages(
+        &mut self,
+        range: std::ops::Range<usize>,
+        messages: Vec<ChatTranscriptMessage>,
+    ) -> usize {
+        let start = range.start.saturating_sub(1);
+        self.messages.splice(range, messages);
+        self.mark_changed(start);
+        self.prepare_render_model();
+        self.dirty_start.take().unwrap_or(start)
+    }
+
     pub fn replace_in_assistant_messages(&mut self, mut replacer: impl FnMut(&str) -> String) {
         for index in 0..self.messages.len() {
             let message = &mut self.messages[index];
@@ -919,8 +933,8 @@ fn javascript_truthy(value: &Value) -> bool {
 
 #[derive(Clone, Debug, PartialEq, Serialize, ts_rs::TS)]
 pub struct CommandCard {
-    label: String,
-    description: Option<String>,
+    pub label: String,
+    pub description: Option<String>,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "lowercase")]
@@ -934,11 +948,11 @@ pub enum GoalCardStatus {
 #[derive(Clone, Debug, PartialEq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct GoalCard {
-    status: GoalCardStatus,
-    title: String,
-    objective: Option<String>,
-    turns_label: Option<String>,
-    detail: Option<String>,
+    pub status: GoalCardStatus,
+    pub title: String,
+    pub objective: Option<String>,
+    pub turns_label: Option<String>,
+    pub detail: Option<String>,
 }
 
 fn prepare_system_card(value: &Value, render: &mut NativeChatRender) {
@@ -1173,6 +1187,39 @@ mod output_reference_tests {
         assert_eq!(
             buffer.messages()[0].render.as_ref().unwrap().output_start,
             Some(start)
+        );
+    }
+    #[test]
+    fn replica_splice_preserves_streaming_and_rebuilds_group_boundaries() {
+        let mut buffer = ChatMessageBuffer::default();
+        let mut first = ChatTranscriptMessage::new("assistant", "Hello");
+        first.is_streaming = Some(true);
+        buffer.splice_replica_messages(0..0, vec![first.clone()]);
+        assert_eq!(buffer.messages()[0].is_streaming, Some(true));
+        first.content.push_str(" world");
+        buffer.splice_replica_messages(0..1, vec![first]);
+        assert_eq!(buffer.messages()[0].content, "Hello world");
+        let mut tool = ChatTranscriptMessage::new("tool", "first output");
+        tool.tool_name = Some("Bash".into());
+        buffer.splice_replica_messages(1..1, vec![tool]);
+        let mut next = ChatTranscriptMessage::new("tool", "second output");
+        next.tool_name = Some("Bash".into());
+        let affected = buffer.splice_replica_messages(2..2, vec![next]);
+        assert!(affected <= 1);
+        assert!(
+            buffer.messages()[1]
+                .render
+                .as_ref()
+                .unwrap()
+                .continues_after
+        );
+        buffer.splice_replica_messages(2..3, vec![]);
+        assert!(
+            !buffer.messages()[1]
+                .render
+                .as_ref()
+                .unwrap()
+                .continues_after
         );
     }
 }

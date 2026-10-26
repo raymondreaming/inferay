@@ -40,19 +40,19 @@ pub struct ChatLoadingState {
 #[derive(Default, serde::Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatEventPlan {
-    admission: TranscriptAdmission,
+    pub admission: TranscriptAdmission,
     ready: bool,
     refresh_workspace: bool,
     #[ts(type = "'cleared' | 'exit' | null")]
-    control: Option<String>,
-    status: Option<ChatLoadingState>,
+    pub control: Option<String>,
+    pub status: Option<ChatLoadingState>,
     finish: bool,
     checkpoints: bool,
-    pending_steers: Vec<usize>,
-    stage_steer: bool,
-    resolve_steer: Option<String>,
-    queue: bool,
-    notice: Option<String>,
+    pub pending_steers: Vec<usize>,
+    pub stage_steer: bool,
+    pub resolve_steer: Option<String>,
+    pub queue: bool,
+    pub notice: Option<String>,
 }
 
 fn valid_integer(value: &Value) -> Option<u64> {
@@ -110,7 +110,7 @@ impl ChatReplica {
     }
 }
 impl ChatReplica {
-    fn event(&mut self, message: &Value, pane: &str, current: &Value) -> Option<ChatEventPlan> {
+    pub fn event(&mut self, message: &Value, pane: &str, current: &Value) -> Option<ChatEventPlan> {
         let kind = string(&message["type"]);
         if message["paneId"] != pane
             || !(kind.starts_with("chat:") || kind.starts_with("checkpoint:"))

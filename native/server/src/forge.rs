@@ -32,9 +32,10 @@ const TOOL_PATHS: [&str; 6] = [
 ];
 
 #[derive(Default)]
-pub(super) struct ForgeState {
+pub struct ForgeState {
     accounts_cache: tokio::sync::Mutex<Option<AccountsCache>>,
     repos_cache: tokio::sync::Mutex<Option<ReposCache>>,
+    avatar_images: tokio::sync::Mutex<HashMap<String, Arc<Vec<u8>>>>,
     commit_avatar_cache: tokio::sync::Mutex<HashMap<String, Option<String>>>,
     author_identity_cache: tokio::sync::Mutex<HashMap<String, Value>>,
     merged_pr_cache: Arc<tokio::sync::Mutex<HashMap<String, MergedPrCache>>>,
@@ -153,10 +154,10 @@ pub(crate) struct ForgeAccount {
     active: bool,
 }
 
-#[derive(Deserialize)]
-struct AuthorIdentityRequest {
-    hash: Option<String>,
-    email: Option<String>,
+#[derive(Clone, Deserialize)]
+pub struct AuthorIdentityRequest {
+    pub hash: Option<String>,
+    pub email: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize, ts_rs::TS)]
@@ -209,7 +210,7 @@ pub(super) async fn handle_request(state: &ServerState, path: &str, request: Req
             if query_has_key(&request, "refresh") {
                 *state.forge_state.accounts_cache.lock().await = None;
             }
-            let accounts = list_github_accounts(state)
+            let accounts = list_github_accounts(&state.forge_state)
                 .await
                 .map_err(|e| e.to_string())?;
             Ok(json!({"accounts":accounts}))
@@ -228,69 +229,27 @@ pub(super) async fn handle_request(state: &ServerState, path: &str, request: Req
                 body.get("identities").cloned().unwrap_or_else(|| json!([])),
             )
             .unwrap_or_default();
-            let known = {
-                let cache = state.forge_state.author_identity_cache.lock().await;
-                identities
-                    .iter()
-                    .filter_map(|identity| {
-                        let email = normalized(identity.email.as_deref());
-                        cache.get(&email).map(|value| (email, value.clone()))
-                    })
-                    .collect::<HashMap<_, _>>()
-            };
-            let hashes = body["hashes"]
+            let hashes: Vec<String> = body["hashes"]
                 .as_array()
                 .into_iter()
                 .flatten()
                 .filter_map(Value::as_str)
-                .filter(|hash| {
-                    (7..=64).contains(&hash.len())
-                        && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
-                })
-                .filter(|hash| {
-                    !identities.iter().any(|identity| {
-                        identity.hash.as_deref() == Some(*hash)
-                            && known.contains_key(&normalized(identity.email.as_deref()))
-                    })
-                })
-                .take(100)
                 .map(str::to_owned)
-                .collect::<Vec<_>>();
-            let avatars = if hashes.is_empty() {
-                HashMap::new()
+                .collect();
+            let cwd = if hashes.is_empty() {
+                None
             } else {
-                let cwd = required(
+                Some(required(
                     state
                         .allowed_paths
                         .resolve_allowed_local_path(body["cwd"].as_str().unwrap_or_default()),
                     "Repository is outside allowed local roots",
-                )?;
-                resolve_commit_avatars(state, &cwd, &hashes)
-                    .await
-                    .unwrap_or_default()
+                )?)
             };
-            let known = {
-                let cache = state.forge_state.author_identity_cache.lock().await;
-                identities
-                    .iter()
-                    .filter_map(|identity| {
-                        let email = normalized(identity.email.as_deref());
-                        cache.get(&email).map(|value| (email, value.clone()))
-                    })
-                    .collect::<HashMap<_, _>>()
-            };
-            let accounts = if identities
-                .iter()
-                .all(|identity| known.contains_key(&normalized(identity.email.as_deref())))
-            {
-                Vec::new()
-            } else {
-                list_github_accounts(state).await.unwrap_or_default()
-            };
-            Ok(json!({
-                "avatars": avatars,
-                "identities": identities.iter().map(|identity| known.get(&normalized(identity.email.as_deref())).cloned().unwrap_or_else(|| resolve_author_identity(&accounts, identity))).collect::<Vec<_>>()
-            }))
+            Ok(state
+                .forge_state
+                .author_avatars(cwd.as_deref(), &hashes, &identities)
+                .await)
         }
         "/api/forge/clone" => {
             let body: Value = api_body(request).await?;
@@ -322,6 +281,173 @@ pub(super) async fn handle_request(state: &ServerState, path: &str, request: Req
             Ok(json!({"ok":ok}))
         }
         _ => unreachable!("forge handler called for an unknown route"),
+    }
+}
+
+impl ForgeState {
+    async fn author_avatars(
+        &self,
+        cwd: Option<&Path>,
+        hashes: &[String],
+        identities: &[AuthorIdentityRequest],
+    ) -> Value {
+        let known = {
+            let cache = self.author_identity_cache.lock().await;
+            identities
+                .iter()
+                .filter_map(|identity| {
+                    let email = normalized(identity.email.as_deref());
+                    cache.get(&email).map(|value| (email, value.clone()))
+                })
+                .collect::<HashMap<_, _>>()
+        };
+        let hashes = hashes
+            .iter()
+            .map(String::as_str)
+            .filter(|hash| {
+                (7..=64).contains(&hash.len()) && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+            })
+            .filter(|hash| {
+                !identities.iter().any(|identity| {
+                    identity.hash.as_deref() == Some(*hash)
+                        && known.contains_key(&normalized(identity.email.as_deref()))
+                })
+            })
+            .take(100)
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        let avatars = if hashes.is_empty() {
+            HashMap::new()
+        } else {
+            if let Some(cwd) = cwd {
+                resolve_commit_avatars(self, cwd, &hashes)
+                    .await
+                    .unwrap_or_default()
+            } else {
+                HashMap::new()
+            }
+        };
+        let known = {
+            let cache = self.author_identity_cache.lock().await;
+            identities
+                .iter()
+                .filter_map(|identity| {
+                    let email = normalized(identity.email.as_deref());
+                    cache.get(&email).map(|value| (email, value.clone()))
+                })
+                .collect::<HashMap<_, _>>()
+        };
+        let accounts = if identities
+            .iter()
+            .all(|identity| known.contains_key(&normalized(identity.email.as_deref())))
+        {
+            Vec::new()
+        } else {
+            list_github_accounts(self).await.unwrap_or_default()
+        };
+        json!({
+            "avatars": avatars,
+            "identities": identities.iter().map(|identity| known.get(&normalized(identity.email.as_deref())).cloned().unwrap_or_else(|| resolve_author_identity(&accounts, identity))).collect::<Vec<_>>()
+        })
+    }
+
+    /// Resolve verified GitHub identities and fetch bounded PNG images for native renderers.
+    /// Failures remain retryable; successful images are shared across repositories by URL.
+    pub async fn author_images(
+        &self,
+        cwd: &Path,
+        identities: &[AuthorIdentityRequest],
+    ) -> HashMap<String, Arc<Vec<u8>>> {
+        let hashes: Vec<_> = identities.iter().filter_map(|i| i.hash.clone()).collect();
+        let resolved = self.author_avatars(Some(cwd), &hashes, identities).await;
+        let Ok(client) = reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .build()
+        else {
+            return HashMap::new();
+        };
+        let mut result = HashMap::new();
+        for (index, identity) in identities.iter().enumerate() {
+            let hash = identity.hash.as_deref().unwrap_or_default();
+            let Some(url) = resolved["identities"][index]["avatarUrl"]
+                .as_str()
+                .or_else(|| resolved["avatars"][hash].as_str())
+            else {
+                continue;
+            };
+            // Only image hosts returned by GitHub identity resolution are accepted.
+            let Ok(parsed) = Url::parse(url) else {
+                continue;
+            };
+            if parsed.scheme() != "https"
+                || !matches!(
+                    parsed.host_str(),
+                    Some("avatars.githubusercontent.com" | "github.com")
+                )
+            {
+                continue;
+            }
+            let cached = self.avatar_images.lock().await.get(url).cloned();
+            let bytes = if let Some(cached) = cached {
+                cached
+            } else {
+                let Ok(mut response) = client
+                    .get(url)
+                    .send()
+                    .await
+                    .and_then(reqwest::Response::error_for_status)
+                else {
+                    continue;
+                };
+                if response
+                    .content_length()
+                    .is_some_and(|length| length > 2 * 1024 * 1024)
+                {
+                    continue;
+                }
+                let mut bytes = Vec::new();
+                let mut failed = false;
+                loop {
+                    match response.chunk().await {
+                        Ok(Some(chunk)) if bytes.len() + chunk.len() <= 2 * 1024 * 1024 => {
+                            bytes.extend_from_slice(&chunk)
+                        }
+                        Ok(None) => break,
+                        _ => {
+                            failed = true;
+                            break;
+                        }
+                    }
+                }
+                if failed {
+                    continue;
+                }
+                let Ok(image) = image::load_from_memory(&bytes) else {
+                    continue;
+                };
+                let mut png = std::io::Cursor::new(Vec::new());
+                if image
+                    .thumbnail(64, 64)
+                    .write_to(&mut png, image::ImageFormat::Png)
+                    .is_err()
+                {
+                    continue;
+                }
+                let bytes = Arc::new(png.into_inner());
+                let mut cache = self.avatar_images.lock().await;
+                if cache.len() >= 500 {
+                    cache.clear();
+                }
+                cache.insert(url.to_owned(), bytes.clone());
+                bytes
+            };
+            result.insert(hash.to_owned(), bytes.clone());
+            let email = normalized(identity.email.as_deref());
+            if !email.is_empty() {
+                result.insert(email, bytes);
+            }
+        }
+        result
     }
 }
 
@@ -357,7 +483,7 @@ fn resolve_author_identity(accounts: &[ForgeAccount], identity: &AuthorIdentityR
 }
 
 async fn resolve_commit_avatars(
-    state: &ServerState,
+    state: &ForgeState,
     cwd: &Path,
     hashes: &[String],
 ) -> Result<HashMap<String, Option<String>>, CommandError> {
@@ -374,7 +500,7 @@ async fn resolve_commit_avatars(
     let mut result = HashMap::new();
     let mut missing = Vec::new();
     {
-        let cache = state.forge_state.commit_avatar_cache.lock().await;
+        let cache = state.commit_avatar_cache.lock().await;
         for hash in hashes {
             if let Some(Some(avatar)) = cache.get(&format!("{prefix}{hash}")) {
                 result.insert(hash.clone(), Some(avatar.clone()));
@@ -411,8 +537,8 @@ async fn resolve_commit_avatars(
     .await?;
     let value: Value = serde_json::from_str(&output).map_err(parse_error)?;
     let repository_data = value.pointer("/data/repository");
-    let mut cache = state.forge_state.commit_avatar_cache.lock().await;
-    let mut authors = state.forge_state.author_identity_cache.lock().await;
+    let mut cache = state.commit_avatar_cache.lock().await;
+    let mut authors = state.author_identity_cache.lock().await;
     for (index, hash) in missing.iter().enumerate() {
         let avatar = repository_data
             .and_then(|repo| repo.pointer(&format!("/c{index}/author/user/avatarUrl")))
@@ -465,9 +591,9 @@ fn parse_github_remote(remote: &str) -> Option<(String, String, String)> {
     (!owner.is_empty() && !repository.is_empty()).then_some((host, owner, repository))
 }
 
-async fn list_github_accounts(state: &ServerState) -> Result<Vec<ForgeAccount>, CommandError> {
+async fn list_github_accounts(state: &ForgeState) -> Result<Vec<ForgeAccount>, CommandError> {
     let now = epoch_millis();
-    if let Some(cache) = state.forge_state.accounts_cache.lock().await.as_ref()
+    if let Some(cache) = state.accounts_cache.lock().await.as_ref()
         && now.saturating_sub(cache.cached_at) < ACCOUNTS_CACHE_TTL_MS
     {
         return Ok(cache.value.clone());
@@ -477,7 +603,7 @@ async fn list_github_accounts(state: &ServerState) -> Result<Vec<ForgeAccount>, 
     let output = match output {
         Ok(output) => output,
         Err(error) if is_logged_out(&error.stderr) => {
-            *state.forge_state.accounts_cache.lock().await = Some(AccountsCache {
+            *state.accounts_cache.lock().await = Some(AccountsCache {
                 value: Vec::new(),
                 cached_at: epoch_millis(),
             });
@@ -492,7 +618,7 @@ async fn list_github_accounts(state: &ServerState) -> Result<Vec<ForgeAccount>, 
             .then_with(|| right.active.cmp(&left.active))
             .then_with(|| locale_compare(&left.login, &right.login))
     });
-    *state.forge_state.accounts_cache.lock().await = Some(AccountsCache {
+    *state.accounts_cache.lock().await = Some(AccountsCache {
         value: accounts.clone(),
         cached_at: epoch_millis(),
     });
@@ -573,7 +699,7 @@ async fn list_github_repos(state: &ServerState, limit: usize) -> Vec<GithubRepo>
     }
 
     let result = async {
-        let accounts = list_github_accounts(state).await?;
+        let accounts = list_github_accounts(&state.forge_state).await?;
         let active = accounts
             .iter()
             .find(|account| account.active)

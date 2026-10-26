@@ -70,9 +70,12 @@ pub mod checkpoint;
 mod client_storage;
 mod database_explorer;
 mod forge;
+pub use forge::{AuthorIdentityRequest, ForgeState};
 mod highlight;
+pub use highlight::classify as classify_syntax;
 mod json_file;
 mod markdown;
+pub use markdown::{MdBlock, MdInlineToken, prepare as prepare_markdown};
 mod markdown_stream;
 mod memory_store;
 mod native_app;
@@ -250,11 +253,25 @@ pub struct ServerHandle {
 
 impl ServerHandle {
     pub fn start(config: ServerConfig) -> Result<Self, String> {
+        std::fs::create_dir_all(&config.user_data_dir).map_err(|error| error.to_string())?;
+        let profile_lock = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(config.user_data_dir.join("backend.lock"))
+            .map_err(|error| format!("could not open profile lock: {error}"))?;
+        profile_lock
+            .try_lock()
+            .map_err(|_| "Inferay services are already running for this profile".to_owned())?;
         let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
         let thread = thread::Builder::new()
             .name("inferay-rust-server".into())
-            .spawn(move || run_server(config, ready_tx, shutdown_rx))
+            .spawn(move || {
+                let _profile_lock = profile_lock;
+                run_server(config, ready_tx, shutdown_rx)
+            })
             .map_err(|error| format!("failed to start Rust server thread: {error}"))?;
 
         let local_addr = ready_rx

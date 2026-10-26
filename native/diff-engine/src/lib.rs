@@ -2844,10 +2844,14 @@ pub fn get_git_graph_snapshot_with_query(
         let head_index = if worktree.is_current {
             0
         } else {
-            semantic_commits
+            let Some(index) = semantic_commits
                 .iter()
-                .position(|commit| commit.hash == worktree.head)
-                .unwrap_or(0)
+                .position(|commit| commit.hash == worktree.head) else {
+                    // The linked worktree belongs beside its HEAD, not above
+                    // unrelated newer history when that HEAD is not loaded.
+                    continue;
+                };
+            index
         };
         let identity = if worktree.is_current {
             format!("inferay-wip-current:{}", worktree.path)
@@ -3453,6 +3457,13 @@ mod graph_layout_tests {
             assert!(snapshot.rows[1].rails.iter().all(|rail| rail.dashed));
             assert!(snapshot.rows[3].convergences.iter().all(|edge| edge.dashed));
         }
+        git(&["add", "file.txt"]);
+        git(&["commit", "-m", "Newer main commit"]);
+        let page = get_git_graph_snapshot_with_query(cwd, 1, prepare_git_graph(cwd), "");
+        assert!(!page.commits.iter().any(|commit| commit.item_kind == GitGraphItemKind::WorktreeWip && commit.id != "wip"));
+        let full = get_git_graph_snapshot_with_query(cwd, 100, prepare_git_graph(cwd), "");
+        let wip = full.commits.iter().position(|commit| commit.item_kind == GitGraphItemKind::WorktreeWip && commit.id != "wip").unwrap();
+        assert_eq!(full.commits[wip + 1].hash, head);
     }
 
     #[test]
