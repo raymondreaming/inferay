@@ -1782,6 +1782,36 @@ impl Render for WorkspaceView {
 mod tests {
     use super::*;
     #[gpui::test]
+    fn stop_hook_has_no_row_or_details_even_if_previously_expanded(cx: &mut gpui::TestAppContext) {
+        let id = "hook:turn:stop";
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            let mut view = WorkspaceView::empty(cx.focus_handle(), cx.new(TextInput::new), cx);
+            view.status.clear();
+            view.expanded.insert(id.into());
+            let mut buffer = inferay_core::chat_protocol::ChatMessageBuffer::default();
+            buffer.replace_messages(vec![serde_json::from_value(serde_json::json!({"id":"answer","role":"assistant","content":"The answer remains visible."})).unwrap()]);
+            buffer.apply_event(&serde_json::json!({"type":"inferay.tool","id":id,"name":"stop hook","input":{"event":"stop"},"output":"completed","done":true}));
+            view.conversations[0].transcript.publish(PreparedTranscript::prepare(0, buffer.messages().iter().cloned().map(std::sync::Arc::new), "vscode-black"), None);
+            view
+        });
+        cx.simulate_resize(size(px(900.), px(700.)));
+        cx.draw(point(px(0.), px(0.)), size(px(900.), px(700.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        assert!(cx.debug_bounds("tool-dot-hook:turn:stop").is_none());
+        assert!(cx.debug_bounds("tool-details-hook:turn:stop").is_none());
+        assert!(cx.debug_bounds("tool-timeline-row").is_none());
+        view.read_with(cx, |view, _| {
+            let transcript = &view.conversations[0].transcript;
+            assert_eq!(transcript.rows().len(), 2);
+            assert_eq!(transcript.last_visible(), Some(0));
+            assert_eq!(
+                transcript.scroll.bounds_for_item(1).unwrap().size.height,
+                px(0.)
+            );
+        });
+    }
+    #[gpui::test]
     fn tool_connectors_join_dot_centers_across_hidden_and_expanded_rows(
         cx: &mut gpui::TestAppContext,
     ) {

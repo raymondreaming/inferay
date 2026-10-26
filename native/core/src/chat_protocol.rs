@@ -619,7 +619,18 @@ impl ChatMessageBuffer {
                 }
                 render
             };
-            let kind = if render.file_path.is_some() {
+            // Stop hooks are internal completion bookkeeping, not a user-facing
+            // transcript step. Retain them as hidden group boundaries so they
+            // cannot leave a connector attached to the next turn's first tool.
+            let stop_hook = message.role == "tool"
+                && message.id.starts_with("hook:")
+                && message
+                    .tool_name
+                    .as_deref()
+                    .is_some_and(|name| name.eq_ignore_ascii_case("stop hook"));
+            let kind = if stop_hook {
+                ChatRenderKind::Message
+            } else if render.file_path.is_some() {
                 ChatRenderKind::EditGroup
             } else if message.role == "tool"
                 && !matches!(
@@ -633,12 +644,12 @@ impl ChatMessageBuffer {
             };
             render.group_start = index;
             render.group_anchor = None;
-            let mut hidden = false;
+            let mut hidden = stop_hook;
             if let Some(previous) = index
                 .checked_sub(1)
                 .and_then(|index| self.messages.get(index))
             {
-                hidden = previous.role == message.role
+                hidden |= previous.role == message.role
                     && previous.tool_name == message.tool_name
                     && previous.content == message.content;
                 if let Some(previous_render) = previous.render.as_ref()
@@ -1251,6 +1262,58 @@ mod output_reference_tests {
         assert_eq!(javascript_slice("a🌳b", 3, usize::MAX), "b");
         assert_eq!(javascript_slice("a🌳b", 7, 9), "");
         assert_eq!(javascript_slice("a🌳b", 3, 1), "");
+    }
+
+    #[test]
+    fn stop_hooks_stay_recorded_but_hidden_live_and_after_restore() {
+        let mut buffer = ChatMessageBuffer::default();
+        for done in [false, true] {
+            buffer.apply_event(&serde_json::json!({"type":"inferay.tool","id":"hook:turn:stop","name":"stop hook","input":{"event":"stop","source":"hooks.json"},"output":"completed","done":done}));
+            assert_eq!(buffer.messages().len(), 1);
+            assert!(buffer.messages()[0].render.as_ref().unwrap().hidden);
+            assert_eq!(
+                buffer.messages()[0].render.as_ref().unwrap().kind,
+                ChatRenderKind::Message
+            );
+            assert_eq!(buffer.messages()[0].is_streaming, Some(!done));
+        }
+        let records = buffer.messages().to_vec();
+        assert!(records[0].content.contains("completed"));
+        let mut restored = ChatMessageBuffer::default();
+        restored.replace_messages(records);
+        assert!(restored.messages()[0].render.as_ref().unwrap().hidden);
+        for (id, name, input) in [
+            (
+                "hook:turn:pre",
+                "preToolUse hook",
+                serde_json::json!({"event":"preToolUse"}),
+            ),
+            ("job", "stop_job", serde_json::json!({"id":"job"})),
+        ] {
+            restored.apply_event(&serde_json::json!({"type":"inferay.tool","id":id,"name":name,"input":input,"done":true}));
+            assert!(
+                !restored
+                    .messages()
+                    .last()
+                    .unwrap()
+                    .render
+                    .as_ref()
+                    .unwrap()
+                    .hidden
+            );
+            if id.starts_with("hook:") {
+                assert!(
+                    restored
+                        .messages()
+                        .last()
+                        .unwrap()
+                        .render
+                        .as_ref()
+                        .unwrap()
+                        .group_leader
+                );
+            }
+        }
     }
 
     #[test]
