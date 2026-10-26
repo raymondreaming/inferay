@@ -171,3 +171,62 @@ fn codex_connector_calls_are_visible_before_completion_and_keep_their_results() 
     assert_eq!(transcript.messages()[1].is_streaming, Some(true));
     assert!(transcript.messages()[0].render.as_ref().unwrap().continues_after);
 }
+
+#[test]
+fn codex_progress_summaries_and_plans_update_visible_transcript_rows() {
+    let mut protocol = CodexProtocolState::default();
+    let mut context = AgentProtocolContext::new("/repo");
+    let mut buffer = inferay_core::chat_protocol::ChatMessageBuffer::default();
+    for (method, params) in [
+        ("item/reasoning/summaryTextDelta", json!({"turnId":"t","itemId":"r","summaryIndex":0,"delta":"Checking "})),
+        ("item/reasoning/summaryTextDelta", json!({"turnId":"t","itemId":"r","summaryIndex":0,"delta":"repository changes."})),
+        ("turn/plan/updated", json!({"turnId":"t","plan":[{"step":"Inspect changes","status":"inProgress"}]})),
+        ("turn/plan/updated", json!({"turnId":"t","plan":[{"step":"Inspect changes","status":"completed"}]})),
+    ] {
+        protocol.handle_notification(&mut context, method, &params, &ProtocolFiles::default());
+        for emission in context.take_emissions() {
+            if let ProtocolEmission::Chat(event) = emission { buffer.apply_event(&event); }
+        }
+    }
+    let messages = buffer.messages();
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0].role, "system");
+    assert_eq!(messages[0].content, "Checking repository changes.");
+    assert!(messages[1].content.contains("✓ Inspect changes"));
+    assert!(!messages[1].content.contains('●'));
+}
+
+#[test]
+fn tool_results_reach_transcript_and_preserve_the_matching_input() {
+    let mut buffer = inferay_core::chat_protocol::ChatMessageBuffer::default();
+    for id in ["a", "b"] {
+        buffer.apply_event(&json!({"type":"content_block_start","content_block":{"type":"tool_use","id":id,"name":"Read","input":{"file_path":id}}}));
+        buffer.apply_event(&json!({"type":"content_block_stop"}));
+    }
+    buffer.apply_event(&json!({"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"a","content":"contents of a"}]}}));
+    let messages = buffer.messages();
+    assert_eq!(messages.len(), 2);
+    assert!(messages[0].content.contains("file_path"));
+    assert!(messages[0].content.contains("contents of a"));
+    assert!(!messages[1].content.contains("contents of a"));
+}
+
+#[test]
+fn codex_raw_tool_calls_and_outputs_share_one_visible_row() {
+    let mut state = CodexProtocolState::default();
+    let mut context = AgentProtocolContext::new("/repo");
+    let mut buffer = inferay_core::chat_protocol::ChatMessageBuffer::default();
+    for item in [
+        json!({"type":"function_call","call_id":"code-1","name":"exec","arguments":"pwd"}),
+        json!({"type":"function_call_output","call_id":"code-1","output":"/repo"}),
+    ] {
+        state.handle_notification(&mut context, "rawResponseItem/completed", &json!({"item":item}), &ProtocolFiles::default());
+        for event in context.take_emissions() {
+            if let ProtocolEmission::Chat(event) = event { buffer.apply_event(&event); }
+        }
+    }
+    assert_eq!(buffer.messages().len(), 1);
+    assert_eq!(buffer.messages()[0].tool_name.as_deref(), Some("exec"));
+    assert!(buffer.messages()[0].content.contains("pwd"));
+    assert!(buffer.messages()[0].content.contains("/repo"));
+}

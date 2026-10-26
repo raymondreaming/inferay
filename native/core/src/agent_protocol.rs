@@ -170,6 +170,33 @@ impl CodexProtocolState {
                     "usage": params["tokenUsage"],
                 })));
             }
+            ("item/reasoning/summaryTextDelta", _) => {
+                context.emissions.push(ProtocolEmission::Chat(json!({
+                    "type":"inferay.progress",
+                    "id":format!("codex-summary:{}:{}:{}", string_field(params,"turnId"), string_field(params,"itemId"), params["summaryIndex"]),
+                    "delta":params["delta"]
+                })));
+            }
+            ("turn/plan/updated", _) => {
+                let mut text = String::from("Plan\n");
+                if let Some(explanation) = params["explanation"].as_str().filter(|text| !text.is_empty()) {
+                    text.push_str(explanation);
+                    text.push('\n');
+                }
+                if let Some(steps) = params["plan"].as_array() {
+                    for step in steps {
+                        let mark = match step["status"].as_str() {
+                            Some("completed") => "✓",
+                            Some("inProgress") => "●",
+                            _ => "○",
+                        };
+                        text.push_str(&format!("{mark} {}\n", string_field(step,"step")));
+                    }
+                }
+                context.emissions.push(ProtocolEmission::Chat(json!({
+                    "type":"inferay.progress", "id":format!("codex-plan:{}", string_field(params,"turnId")), "text":text
+                })));
+            }
             ("turn/started", _) => {
                 self.emit_status(context, "thinking", true);
             }
@@ -241,6 +268,18 @@ impl CodexProtocolState {
                     context.emissions.push(ProtocolEmission::FileChange(paths));
                 }
                 self.active_patch_paths.clear();
+            }
+            ("rawResponseItem/completed", "function_call" | "custom_tool_call") => {
+                close_block(context, &mut self.assistant_open);
+                let name = string_field(item, "name");
+                self.emit_status(context, &format!("tool:{name}"), true);
+                let input = item.get("arguments").or_else(|| item.get("input")).cloned().unwrap_or(Value::Null);
+                context.emissions.push(ProtocolEmission::Chat(json!({
+                    "type":"content_block_start", "content_block":{
+                        "type":"tool_use", "id":item["call_id"], "name":name, "input":input
+                    }
+                })));
+                context.emissions.push(ProtocolEmission::Chat(json!({"type":"content_block_stop"})));
             }
             ("rawResponseItem/completed", "custom_tool_call_output" | "function_call_output") => {
                 context.emissions.push(ProtocolEmission::Chat(json!({

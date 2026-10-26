@@ -812,6 +812,7 @@ fn codex_turn_params(thread_id: &str, prompt: &str, invocation: &CodexInvocation
         "approvalPolicy": "never",
         "sandboxPolicy": {"type":"dangerFullAccess"},
         "model": invocation.model,
+        "summary": "auto",
         "effort": invocation.reasoning_level.as_deref().map(normalize_reasoning_effort)
     })
 }

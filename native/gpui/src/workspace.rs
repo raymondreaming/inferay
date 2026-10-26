@@ -923,6 +923,13 @@ impl WorkspaceView {
                             cx.notify();
                         })),
                 )
+                .when(!open && !content.trim().is_empty(), |d| {
+                    let preview = content.lines().rev().filter(|line| !line.trim().is_empty()).take(3).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+                    let preview: String = preview.chars().take(360).collect();
+                    d.child(div().debug_selector(|| "tool-output-preview".into()).ml(px(4.)).mb(px(4.)).px(px(8.)).py(px(4.))
+                        .border_l_1().border_color(rgba(0xebebeb20)).text_size(px(colors::CHAT_DETAIL))
+                        .text_color(rgba(0xebebeb80)).font_family("Menlo").child(preview))
+                })
                 .when_some(render.and_then(|r| r.edit.as_ref()), |d, edit| {
                     d.child(crate::rich_text::edit_card(edit))
                 })
@@ -935,7 +942,12 @@ impl WorkspaceView {
                             .bg(rgba(0xffffff06))
                             .font_family("Menlo")
                             .text_size(px(colors::CHAT_DETAIL))
-                            .child(chat.rich[message_index].render(&message.id)),
+                            .child(chat.rich[message_index].render(&message.id))
+                            .child(div().flex().justify_end().child(
+                                button(SharedString::from(format!("copy-tool-{}", message.id)), "Copy output")
+                                    .h(px(24.)).on_click({ let content = content.clone(); move |_, _, cx| {
+                                        cx.write_to_clipboard(ClipboardItem::new_string(content.clone()));
+                                    }}))),
                     )
                 })
                 .into_any_element()
@@ -1880,6 +1892,7 @@ mod tests {
         let row = cx.debug_bounds("tool-timeline-row").unwrap();
         assert!(row.size.height >= px(24.));
         assert!(cx.debug_bounds("tool-source").is_some());
+        assert!(cx.debug_bounds("tool-output-preview").is_some());
         cx.simulate_click(row.center(), Modifiers::default());
         view.read_with(cx, |view, _| assert!(view.expanded.contains("live-tool")));
     }
