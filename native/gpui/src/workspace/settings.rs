@@ -420,18 +420,12 @@ impl WorkspaceView {
             _ => ".SystemUIFont",
         };
         for chat in &self.conversations {
-            chat.scroll.remeasure();
+            chat.transcript.scroll.remeasure();
         }
         let theme = data["theme"].as_str().unwrap_or("vscode-black");
         if theme != self.syntax_theme {
             self.syntax_theme = theme.into();
-            for chat in &mut self.conversations {
-                chat.rich = chat
-                    .messages
-                    .iter()
-                    .map(|message| crate::rich_text::RichText::message(message, &self.syntax_theme))
-                    .collect();
-            }
+            for index in 0..self.conversations.len() { self.refresh_chat_theme(index, cx); }
             for repo in self.repository_views.values() {
                 repo.update(cx, |repo, cx| {
                     repo.set_syntax_theme(self.syntax_theme.clone(), cx)

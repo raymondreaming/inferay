@@ -1,8 +1,8 @@
-//! Live chat subscriptions share the browser's epoch/revision admission model.
+//! Live chat transport uses shared transcript admission and native task lifetimes.
 use super::*;
 use crate::backend::{Backend, RUNTIME};
 use futures_util::{SinkExt, StreamExt};
-use inferay_core::chat_protocol::ChatMessageBuffer;
+use inferay_core::chat_protocol::{ChatMessageBuffer, ChatTranscriptMessage};
 use inferay_presentation::transcript::{ChatReplica, TranscriptAdmission};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
@@ -12,6 +12,9 @@ pub(super) struct Command {
     pub completed: tokio::sync::oneshot::Sender<Result<(), String>>,
 }
 
+const UPDATE_CAPACITY: usize = 8;
+
+#[cfg_attr(test, derive(Clone))]
 struct Update {
     changed: Option<(usize, Vec<ChatTranscriptMessage>)>,
     notice: Option<String>,
@@ -22,6 +25,28 @@ struct Update {
     start_time: Option<f64>,
     refresh_title: bool,
     queue: Option<Vec<Value>>,
+}
+
+
+impl Update {
+    // Each admitted patch replaces a suffix. Keep the earliest untouched prefix
+    // and the newest suffix before performing Markdown and syntax preparation.
+    fn merge(&mut self, mut next: Self) {
+        next.changed = match (self.changed.take(), next.changed.take()) {
+            (Some((start, mut earlier)), Some((new_start, newer))) if new_start > start => {
+                assert!(new_start - start <= earlier.len());
+                earlier.truncate(new_start - start);
+                earlier.extend(newer);
+                Some((start, earlier))
+            }
+            (_, Some(changed)) | (Some(changed), None) => Some(changed),
+            (None, None) => None,
+        };
+        next.queue = next.queue.or_else(|| self.queue.take());
+        next.refresh_title |= self.refresh_title;
+        next.terminal |= self.terminal;
+        *self = next;
+    }
 }
 
 impl WorkspaceView {
@@ -130,8 +155,8 @@ impl WorkspaceView {
             chat.running = true;
             chat.run_status = "sending".into();
             chat.start_time = Some(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as f64);
-            chat.scroll.set_follow_mode(FollowMode::Tail);
-            chat.scroll.scroll_to_end();
+            chat.transcript.scroll.set_follow_mode(FollowMode::Tail);
+            chat.transcript.scroll.scroll_to_end();
         }
         let sent_text = text.clone();
         let sent_images = chat.images.clone();
@@ -181,7 +206,7 @@ impl WorkspaceView {
                             chat.input.update(cx, |input, cx| input.set_content("", cx));
                         }
                         chat.images.retain(|path| !sent_images.contains(path));
-                        chat.scroll.scroll_to_end();
+                        chat.transcript.scroll.scroll_to_end();
                     }
                     Ok(()) => {}
                     Err(error) => {
@@ -217,9 +242,9 @@ impl WorkspaceView {
         };
         let backend = self.backend.clone();
         let profile = self.profile.clone();
-        let (updates, mut incoming) = tokio::sync::mpsc::channel(8);
+        let (updates, mut incoming) = tokio::sync::mpsc::channel(UPDATE_CAPACITY);
         RUNTIME.spawn(async move {
-            let mut replica = ChatReplica::new();
+            let mut replica = ChatReplica::default();
             let mut buffer = ChatMessageBuffer::default();
             let mut queue = json!([]);
             let mut status = json!({"isLoading":false,"status":"idle","startTime":null});
@@ -231,10 +256,7 @@ impl WorkspaceView {
                     let mut socket = backend.chat_socket().await?;
                     let (commands, mut pending) = tokio::sync::mpsc::channel::<Command>(1);
                     let mut ready = false;
-                    replica.reconnect();
-                    let mut reconnect: Value = serde_json::from_str(&replica.cursor())?;
-                    reconnect["type"] = "chat:reconnect".into();
-                    reconnect["paneId"] = pane.clone().into();
+                    let reconnect = replica.reconnect(&pane);
                     socket
                         .send(Message::Text(reconnect.to_string().into()))
                         .await?;
@@ -375,15 +397,20 @@ impl WorkspaceView {
             }
         });
         chat.live_task = Some(cx.spawn(async move |this, cx| {
-            while let Some(update) = incoming.recv().await {
+            while let Some(mut update) = incoming.recv().await {
+                for _ in 1..UPDATE_CAPACITY {
+                    let Ok(next) = incoming.try_recv() else { break; };
+                    update.merge(next);
+                }
+                let changed = update.changed.take();
                 if this.update(cx, |view, cx| {
                     view.track_draft(index, false, cx);
                     if update.refresh_title {
                         view.refresh_chat_title(index, cx);
                     }
                     let chat = &mut view.conversations[index];
-                    chat.connection_error = update.notice.clone();
-                    chat.commands = update.commands.clone();
+                    chat.connection_error = update.notice.take();
+                    chat.commands = update.commands.take();
                     let status = inferay_presentation::transcript::run_status(&json!({
                         "current":{"isLoading":chat.running,"status":chat.run_status,"startTime":chat.start_time.map(|time| time as u64)},
                         "incoming":{"isLoading":update.running,"status":update.status,"startTime":update.start_time.map(|time| time as u64)},
@@ -392,8 +419,8 @@ impl WorkspaceView {
                     chat.running = status["isLoading"].as_bool().unwrap_or(false);
                     chat.start_time = status["startTime"].as_f64();
                     chat.run_status = status["status"].as_str().unwrap_or("idle").into();
-                    if let Some(queue) = &update.queue {
-                        chat.queue = queue.clone();
+                    if let Some(queue) = update.queue.take() {
+                        chat.queue = queue;
                         if chat.queue_editor.as_ref().is_some_and(|(id, _)| !chat.queue.iter().any(|m| m["id"].as_str() == Some(id.as_str()))) {
                             chat.queue_editor = None;
                             chat.queue_submit = None;
@@ -401,53 +428,98 @@ impl WorkspaceView {
                     }
                     cx.notify();
                 }).is_err() { break; }
-                let prepared = if let Some((start, messages)) = update.changed {
-                    let Ok(theme) = this.read_with(cx, |view, _| view.syntax_theme.clone()) else {
-                        break;
-                    };
-                    let rich = cx
-                        .background_executor()
-                        .spawn(async move {
-                            let rich = messages
-                                .iter()
-                                .map(|message| crate::rich_text::RichText::message(message, &theme))
-                                .collect::<Vec<_>>();
-                            (start, messages, rich)
-                        })
-                        .await;
-                    Some(rich)
-                } else {
-                    None
-                };
-                if this
-                    .update(cx, |view, cx| {
-                        let chat = &mut view.conversations[index];
-                        if let Some((start, messages, rich)) = prepared {
-                            let follow = chat.scroll.is_following_tail();
-                            let anchor = chat.scroll.logical_scroll_top();
-                            let anchor_id = chat.messages.get(anchor.item_ix).map(|m| m.id.clone());
-                            chat.scroll
-                                .splice(start..chat.scroll.item_count(), messages.len());
-                            chat.messages.truncate(start);
-                            chat.rich.truncate(start);
-                            chat.messages.extend(messages);
-                            chat.rich.extend(rich);
-                            chat.total_messages = chat.messages.len();
-                            if follow {
-                                chat.scroll.scroll_to_end();
-                            } else if let Some(id) = anchor_id
-                                && let Some(item_ix) = chat.messages.iter().position(|m| m.id == id)
-                            {
-                                chat.scroll.scroll_to(ListOffset { item_ix, ..anchor });
-                            }
-                        }
-                        cx.notify();
-                    })
-                    .is_err()
-                {
-                    break;
-                }
+                let Some((start, messages)) = changed else { continue; };
+                let Ok(theme) = this.read_with(cx, |view, _| view.syntax_theme.clone()) else { break; };
+                let prepared = cx.background_executor().spawn(async move {
+                    PreparedTranscript::prepare(start, messages.into_iter().map(std::sync::Arc::new), &theme)
+                }).await;
+                let Ok(prepared) = Self::prepare_for_current_theme(&this, prepared, cx).await else { break; };
+                if this.update(cx, |view, cx| {
+                    view.conversations[index].transcript.publish(prepared, None);
+                    cx.notify();
+                }).is_err() { break; }
             }
         }));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+
+    fn update(start: usize, messages: Vec<ChatTranscriptMessage>) -> Update {
+        Update {
+            changed: Some((start, messages)), notice: None, commands: None,
+            running: false, status: "idle".into(), terminal: false,
+            start_time: None, refresh_title: false, queue: None,
+        }
+    }
+
+    fn message(id: usize, content: &str) -> ChatTranscriptMessage {
+        serde_json::from_value(json!({"id":id.to_string(),"role":"assistant","content":content})).unwrap()
+    }
+
+    #[test]
+    fn coalesced_suffixes_match_sequential_publication_including_clear() {
+        let initial: Vec<_> = (0..6).map(|i| message(i, "original")).collect();
+        for seed in 0..40 {
+            let mut expected = initial.clone();
+            let mut combined: Option<Update> = None;
+            for step in 0..12 {
+                let start = (seed * 7 + step * 11) % (expected.len() + 1);
+                let suffix: Vec<_> = (0..(seed + step) % 5).map(|i| message(step * 10 + i, "new")).collect();
+                expected.truncate(start);
+                expected.extend(suffix.clone());
+                let next = update(start, suffix);
+                if let Some(combined) = &mut combined { combined.merge(next); } else { combined = Some(next); }
+            }
+            let (start, suffix) = combined.unwrap().changed.unwrap();
+            let mut actual = initial.clone();
+            actual.truncate(start);
+            actual.extend(suffix);
+            assert_eq!(actual, expected, "sequence {seed}");
+        }
+    }
+
+    #[test]
+    fn coalescing_preserves_queue_refresh_and_terminal_events() {
+        let mut combined = update(0, vec![message(0, "final response")]);
+        combined.terminal = true;
+        combined.refresh_title = true;
+        combined.queue = Some(vec![json!({"id":"queued"})]);
+        let mut next = update(0, vec![]);
+        next.changed = None;
+        next.notice = Some("disconnected".into());
+        combined.merge(next);
+        assert_eq!(combined.changed.unwrap().1[0].content, "final response");
+        assert!(combined.terminal && combined.refresh_title);
+        assert_eq!(combined.queue.unwrap()[0]["id"], "queued");
+        assert_eq!(combined.notice.as_deref(), Some("disconnected"));
+    }
+
+    #[test]
+    #[ignore = "paired release benchmark"]
+    fn benchmark_stream_burst_preparation() {
+        use std::hint::black_box;
+        let source = "A paragraph with **bold**, `code`, and a [reference](https://example.com).\n\n".repeat(128);
+        let updates: Vec<_> = (0..8).map(|i| update(0, vec![message(0, &format!("{source}chunk {i}"))])).collect();
+        let mut combined = updates[0].clone();
+        for next in updates[1..].iter().cloned() { combined.merge(next); }
+        assert_eq!(combined.changed.as_ref().unwrap().1, updates.last().unwrap().changed.as_ref().unwrap().1);
+        crate::performance::compare("stream_burst_8_updates", |coalesce| {
+            let mut pending = black_box(updates.clone()).into_iter();
+            if coalesce {
+                let mut combined = pending.next().unwrap();
+                for next in pending { combined.merge(next); }
+                let (start, messages) = combined.changed.unwrap();
+                black_box(PreparedTranscript::prepare(start, messages.into_iter().map(std::sync::Arc::new), "vscode-black"));
+            } else {
+                for next in pending {
+                    let (start, messages) = next.changed.unwrap();
+                    black_box(PreparedTranscript::prepare(start, messages.into_iter().map(std::sync::Arc::new), "vscode-black"));
+                }
+            }
+        });
     }
 }

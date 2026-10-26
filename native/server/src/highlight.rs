@@ -133,7 +133,10 @@ pub struct SyntaxRun {
     pub kind: SyntaxKind,
 }
 
-fn serialize_lines<S: serde::Serializer>(lines: &[Vec<SyntaxRun>], serializer: S) -> Result<S::Ok, S::Error> {
+fn serialize_lines<S: serde::Serializer>(
+    lines: &[Vec<SyntaxRun>],
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
     struct Line<'a>(&'a [SyntaxRun]);
     impl Serialize for Line<'_> {
         fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -181,7 +184,10 @@ pub fn classify(path: &str, text: &str) -> Option<Classified> {
             let current = kind(&stack);
             match runs.last_mut() {
                 Some(run) if run.kind == current => run.utf16_len += units(piece),
-                _ => runs.push(SyntaxRun { utf16_len: units(piece), kind: current }),
+                _ => runs.push(SyntaxRun {
+                    utf16_len: units(piece),
+                    kind: current,
+                }),
             }
         }
         lines.push(runs);
@@ -251,4 +257,65 @@ pub fn classify_diff(path: &str, text: &str, types: &[String]) -> Option<Classif
         start = end;
     }
     Some(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn typed_runs_preserve_the_flat_http_contract() {
+        let document = Classified {
+            version: 3,
+            language: "Rust".into(),
+            lines: vec![
+                vec![
+                    SyntaxRun {
+                        utf16_len: 3,
+                        kind: SyntaxKind::Keyword,
+                    },
+                    SyntaxRun {
+                        utf16_len: 2,
+                        kind: SyntaxKind::Plain,
+                    },
+                ],
+                vec![],
+            ],
+        };
+        assert_eq!(
+            serde_json::to_value(document).unwrap(),
+            json!({
+                "version":3, "language":"Rust", "lines":[[3,"keyword",2,"plain"],[]]
+            })
+        );
+    }
+
+    #[test]
+    fn classification_covers_unicode_lines_without_duplicate_adjacent_kinds() {
+        let source = "const café = \"🦀\";\nif (café) { return café; } // comment\n\n";
+        let document = classify("js", source).unwrap();
+        assert_eq!(document.lines.len(), source.lines().count());
+        for (line, runs) in source.lines().zip(&document.lines) {
+            assert_eq!(
+                runs.iter().map(|run| run.utf16_len).sum::<usize>(),
+                units(line)
+            );
+            assert!(runs.windows(2).all(|pair| pair[0].kind != pair[1].kind));
+        }
+        assert!(
+            document
+                .lines
+                .iter()
+                .flatten()
+                .any(|run| run.kind == SyntaxKind::Control)
+        );
+        assert!(
+            document
+                .lines
+                .iter()
+                .flatten()
+                .any(|run| run.kind == SyntaxKind::String)
+        );
+    }
 }

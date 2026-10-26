@@ -25,3 +25,13 @@ Reference: Solid conversation UI at `275d1a66^`; target: GPUI only. Shared Rust 
 - Native timeline expansion remains interactive; previews do not replace full output.
 
 Provider latency is independent of rendering. A provider that emits no summary, commentary, or tool event still has no activity to display beyond its known run status. A production replay is required before claiming full parity; passing compilation or fixture tests does not establish it.
+
+## Confirmed launch regression and live verification
+
+The GPUI executor's blocked Unix signal mask was inherited by provider children. A diagnostic child confirmed that `SIGCHLD`, `SIGTERM`, and other signals were blocked. Codex emitted `hook/started` but could not observe the hook subprocess exiting; the subprocess remained a zombie and no model request or tool output followed. Replaying the same provider configuration and startup exchange outside the GUI completed in seconds. The pre-cutover server launch code was substantially the same; the launching thread's signal state changed with the host.
+
+Provider process creation now clears the signal mask in the child before exec, without changing the host's mask. A regression test launches from a thread with blocked `SIGCHLD`/`SIGTERM`, verifies the child receives neither block, verifies its own child completes, and verifies the parent's mask is retained. This applies to both Codex and direct provider launches.
+
+Verified through computer use in the installed app: an actual greeting and `pwd` produced commentary, command output and an answer within roughly ten seconds; the original repository-history request produced Git calls and a completed summary; Stop cancelled a running `sleep 120` and returned the composer to Send. Hook lifecycle events now have transcript rows, and completed hooks are excluded from both missing-final-summary recovery and fallback. A fresh printf/JSON turn completed without an extra recovery run. Expanded output showed the complete highlighted JSON, with separate command and working-directory sections and icon-only copy controls.
+
+Responsive columns now serialize as an integer, matching the dock projection input. Previously the floating-point JSON value failed `as_u64()` and silently restored three columns. Computer use verified one and two chat columns beside the repository panel and restoration to three columns when it closed; the persisted layout is retained.

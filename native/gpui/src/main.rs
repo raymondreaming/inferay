@@ -1,10 +1,13 @@
 mod backend;
 mod input;
+#[cfg(test)]
+mod performance;
 mod repository;
 mod rich_text;
 mod selectable;
 mod session;
 mod syntax;
+mod transcript;
 mod workspace;
 
 use gpui::{prelude::*, *};

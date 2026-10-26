@@ -93,7 +93,7 @@ pub fn responsive_columns(input: &Value) -> Value {
         (number(&input["width"]) / 300.)
             .floor()
             .min(number(&input["columns"]))
-            .clamp(1., 4.)
+            .clamp(1., 4.) as usize
     )
 }
 

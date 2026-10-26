@@ -230,3 +230,19 @@ fn codex_raw_tool_calls_and_outputs_share_one_visible_row() {
     assert!(buffer.messages()[0].content.contains("pwd"));
     assert!(buffer.messages()[0].content.contains("/repo"));
 }
+
+#[test]
+fn provider_hooks_are_visible_until_completion() {
+    let mut state = CodexProtocolState::default();
+    let mut context = AgentProtocolContext::new("/repo");
+    let mut buffer = inferay_core::chat_protocol::ChatMessageBuffer::default();
+    for method in ["hook/started", "hook/completed"] {
+        state.handle_notification(&mut context, method, &json!({"turnId":"turn","run":{"id":"hook","eventName":"sessionStart","sourcePath":"/hooks.json","status":if method.ends_with("started") {"running"} else {"completed"},"entries":[]}}), &ProtocolFiles::default());
+        for event in context.take_emissions() {
+            if let ProtocolEmission::Chat(event) = event { buffer.apply_event(&event); }
+        }
+        assert_eq!(buffer.messages().len(), 1);
+        assert_eq!(buffer.messages()[0].is_streaming, Some(method.ends_with("started")));
+    }
+    assert!(buffer.messages()[0].content.contains("completed"));
+}

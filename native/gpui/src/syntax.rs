@@ -4,37 +4,57 @@ use inferay_core::syntax::SyntaxKind;
 use std::{collections::HashMap, ops::Range, sync::LazyLock};
 
 // These are immutable bundled assets, not a cache of documents or user input.
-static PALETTES: LazyLock<HashMap<&'static str, HashMap<&'static str, Hsla>>> = LazyLock::new(|| {
-    let mut palettes: HashMap<&'static str, HashMap<&'static str, Hsla>> = HashMap::new();
-    for block in include_str!("../assets/syntax-themes.css").split('}') {
-        let Some((selector, body)) = block.split_once('{') else { continue; };
-        let name = if selector.contains(":root") {
-            ""
-        } else if let Some((_, tail)) = selector.split_once("[data-inferay-syntax-theme=\"") {
-            tail.split_once("\"]").expect("bundled syntax theme selector").0
-        } else {
-            continue;
-        };
-        let mut colors: HashMap<_, _> = body.lines().filter_map(|line| {
-            let (key, value) = line.trim().strip_prefix("--color-syntax-")?.split_once(": #")?;
-            let hex = value.strip_suffix(';')?;
-            let color = u32::from_str_radix(hex, 16).expect("bundled syntax color");
-            Some((key, if hex.len() == 8 { rgba(color).into() } else { rgb(color).into() }))
-        }).collect();
-        if let Some(base) = palettes.get("") {
-            for (&kind, &color) in base {
-                if !matches!(kind, "control" | "variable") { colors.entry(kind).or_insert(color); }
+static PALETTES: LazyLock<HashMap<&'static str, HashMap<&'static str, Hsla>>> =
+    LazyLock::new(|| {
+        let mut palettes: HashMap<&'static str, HashMap<&'static str, Hsla>> = HashMap::new();
+        for block in include_str!("../assets/syntax-themes.css").split('}') {
+            let Some((selector, body)) = block.split_once('{') else {
+                continue;
+            };
+            let name = if selector.contains(":root") {
+                ""
+            } else if let Some((_, tail)) = selector.split_once("[data-inferay-syntax-theme=\"") {
+                tail.split_once("\"]")
+                    .expect("bundled syntax theme selector")
+                    .0
+            } else {
+                continue;
+            };
+            let mut colors: HashMap<_, _> = body
+                .lines()
+                .filter_map(|line| {
+                    let (key, value) = line
+                        .trim()
+                        .strip_prefix("--color-syntax-")?
+                        .split_once(": #")?;
+                    let hex = value.strip_suffix(';')?;
+                    let color = u32::from_str_radix(hex, 16).expect("bundled syntax color");
+                    Some((
+                        key,
+                        if hex.len() == 8 {
+                            rgba(color).into()
+                        } else {
+                            rgb(color).into()
+                        },
+                    ))
+                })
+                .collect();
+            if let Some(base) = palettes.get("") {
+                for (&kind, &color) in base {
+                    if !matches!(kind, "control" | "variable") {
+                        colors.entry(kind).or_insert(color);
+                    }
+                }
             }
+            // Semantic kinds can specialize their palette's declaration/plain colors.
+            let keyword = colors["keyword"];
+            let plain = colors["plain"];
+            colors.entry("control").or_insert(keyword);
+            colors.entry("variable").or_insert(plain);
+            palettes.insert(name, colors);
         }
-        // Semantic kinds can specialize their palette's declaration/plain colors.
-        let keyword = colors["keyword"];
-        let plain = colors["plain"];
-        colors.entry("control").or_insert(keyword);
-        colors.entry("variable").or_insert(plain);
-        palettes.insert(name, colors);
-    }
-    palettes
-});
+        palettes
+    });
 
 pub(crate) fn highlights(
     text: &str,
@@ -101,4 +121,78 @@ pub(crate) fn highlights(
         offset += line.len();
     }
     highlights
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+    #[test]
+    fn syntax_spans_remain_valid_utf8_ranges() {
+        let source = "let emoji = \"😀\"; // café\n";
+        let spans = highlights(source, "rust", "vscode-black");
+        assert!(
+            spans
+                .iter()
+                .all(|(range, _)| source.get(range.clone()).is_some())
+        );
+        assert!(
+            spans
+                .iter()
+                .any(|(_, style)| style.color == Some(rgb(0x569cd6).into()))
+        );
+    }
+    #[test]
+    fn selected_palette_preserves_control_variables_comments_and_alpha() {
+        let code = "const value = \"hello\";\nif (value) { return value; } // comment\n";
+        let black = highlights(code, "js", "vscode-black");
+        let contrast = highlights(code, "js", "contrast");
+        for color in [0xc586c0, 0x9cdcfe, 0xce9178] {
+            assert!(
+                black
+                    .iter()
+                    .any(|(_, style)| style.color == Some(rgb(color).into())),
+                "missing {color:x}"
+            );
+        }
+        assert!(
+            black
+                .iter()
+                .any(|(_, style)| style.font_style == Some(FontStyle::Italic))
+        );
+        assert!(
+            contrast
+                .iter()
+                .any(|(_, style)| style.color == Some(rgb(0xff9492).into()))
+        );
+        assert!(
+            !contrast
+                .iter()
+                .any(|(_, style)| style.color == Some(rgb(0xc586c0).into()))
+        );
+        let vitesse = highlights("let value = 1;", "js", "vitesse");
+        assert!(
+            vitesse
+                .iter()
+                .any(|(_, style)| style.color == Some(rgba(0xdbd7caee).into()))
+        );
+    }
+
+    #[test]
+    fn theme_fallbacks_use_the_selected_palette() {
+        for theme in ["vitesse", "one-dark", "dracula", "slack", "unknown"] {
+            let actual = highlights("if (value) { return value; }", "js", theme);
+            let palette = PALETTES.get(theme).unwrap_or(&PALETTES[""]);
+            assert!(
+                actual
+                    .iter()
+                    .any(|(_, style)| style.color == Some(palette["keyword"]))
+            );
+            assert!(
+                actual
+                    .iter()
+                    .any(|(_, style)| style.color == Some(palette["plain"]))
+            );
+        }
+    }
 }

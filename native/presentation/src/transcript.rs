@@ -1,16 +1,9 @@
-//! A renderer replica of the native transcript. Revisions and epochs are checked
-//! here; JS only applies admitted splices and preserves unchanged object identity.
-//! Keep IDs, not transcript bodies: content already lives in the renderer and
-//! must not be copied back through JSON for every streaming append.
+//! Transcript admission and reconnect state, independent of transport and rendering.
+//! Retain IDs and revisions here; message bodies remain with their native owner.
 use crate::{array, string};
 use serde_json::{Value, json};
 
-#[derive(Default, serde::Serialize, ts_rs::TS)]
-#[serde(
-    tag = "kind",
-    rename_all = "camelCase",
-    rename_all_fields = "camelCase"
-)]
+#[derive(Default)]
 pub enum TranscriptAdmission {
     #[default]
     None,
@@ -36,17 +29,11 @@ pub struct ChatLoadingState {
     start_time: Option<f64>,
 }
 
-#[derive(Default, serde::Serialize, ts_rs::TS)]
-#[serde(rename_all = "camelCase")]
+#[derive(Default)]
 pub struct ChatEventPlan {
     pub admission: TranscriptAdmission,
-    ready: bool,
-    refresh_workspace: bool,
-    #[ts(type = "'cleared' | 'exit' | null")]
     pub control: Option<String>,
     pub status: Option<ChatLoadingState>,
-    finish: bool,
-    checkpoints: bool,
     pub pending_steers: Vec<usize>,
     pub stage_steer: bool,
     pub resolve_steer: Option<String>,
@@ -74,41 +61,13 @@ pub struct ChatReplica {
 }
 
 impl ChatReplica {
-
-    pub fn new() -> Self {
-        Self::default()
-    }
     pub fn clear(&mut self) {
         *self = Self::default();
     }
-    pub fn cursor(&self) -> String {
-        json!({"epoch":self.epoch,"revision":self.revision}).to_string()
-    }
-    pub fn reconnect(&mut self) {
+    pub fn reconnect(&mut self, pane: &str) -> Value {
         self.reconnecting = true;
+        json!({"type":"chat:reconnect", "paneId":pane, "epoch":self.epoch, "revision":self.revision})
     }
-    /// Resolve browser-only insertions against the already admitted native IDs.
-    /// Ordinary local rows carry only an ID; only notices carry content.
-    pub fn merge(&self, local: &str, notices: &str) -> Result<String, String> {
-        let local: Vec<Value> = serde_json::from_str(local)
-            .map_err(|e| String::from(&format!("Invalid local transcript: {e}")))?;
-        let notices: Vec<Value> = serde_json::from_str(notices)
-            .map_err(|e| String::from(&format!("Invalid native notices: {e}")))?;
-        Ok(crate::json_wire::stringify(
-            &self.merge_insertions(&local, &notices),
-            "transcript insertions",
-        ))
-    }
-    pub fn receive(&mut self, message: &str, pane: &str, current: &str) -> Result<String, String> {
-        let message = serde_json::from_str(message)
-            .map_err(|e: serde_json::Error| String::from(&e.to_string()))?;
-        let current = serde_json::from_str(current)
-            .map_err(|e: serde_json::Error| String::from(&e.to_string()))?;
-        serde_json::to_string(&self.event(&message, pane, &current))
-            .map_err(|e| String::from(&e.to_string()))
-    }
-}
-impl ChatReplica {
     pub fn event(&mut self, message: &Value, pane: &str, current: &Value) -> Option<ChatEventPlan> {
         let kind = string(&message["type"]);
         if message["paneId"] != pane
@@ -131,11 +90,7 @@ impl ChatReplica {
                 .then(|| string(&message["action"]).into());
             return Some(plan);
         }
-        plan.ready = kind == "chat:sync";
-        plan.refresh_workspace = matches!(kind, "chat:summary" | "chat:workspace");
-        plan.finish = kind == "chat:done";
-        plan.checkpoints = message["checkpoints"].is_array();
-        plan.pending_steers = if plan.ready {
+        plan.pending_steers = if kind == "chat:sync" {
             array(&message["pendingSteers"])
                 .iter()
                 .enumerate()
@@ -286,61 +241,6 @@ impl ChatReplica {
     }
 }
 
-impl ChatReplica {
-    fn merge_insertions(&self, local: &[Value], notices: &[Value]) -> Vec<(usize, usize)> {
-        let mut positions = std::collections::HashMap::with_capacity(self.messages.len());
-        for (index, id) in self.messages.iter().enumerate() {
-            positions.entry(id.as_str()).or_insert((index, true));
-        }
-        let mut insertions: Vec<(usize, usize)> = Vec::new();
-        for (index, message) in local.iter().enumerate() {
-            let browser = (message["optimistic"] == true && message["role"] == "user")
-                || message["localOnly"] == true
-                || message["role"] == "btw";
-            if !browser
-                || positions
-                    .get(string(&message["id"]))
-                    .is_some_and(|(_, native)| *native)
-            {
-                continue;
-            }
-            if message["localOnly"] == true
-                && notices
-                    .iter()
-                    .any(|m| m[0] == message["role"] && m[1] == message["content"])
-            {
-                continue;
-            }
-            let insertion = (0..index)
-                .rev()
-                .find_map(|anchor| {
-                    let message = &local[anchor];
-                    let id = message.as_str().unwrap_or_else(|| string(&message["id"]));
-                    positions.get(id).map(|(position, _)| position + 1)
-                })
-                .unwrap_or(self.messages.len() + insertions.len());
-            for (position, _) in positions.values_mut() {
-                if *position >= insertion {
-                    *position += 1;
-                }
-            }
-            for (position, _) in &mut insertions {
-                if *position >= insertion {
-                    *position += 1;
-                }
-            }
-            positions
-                .entry(string(&message["id"]))
-                .and_modify(|(position, _)| *position = (*position).min(insertion))
-                .or_insert((insertion, false));
-            insertions.push((insertion, index));
-        }
-        // Ascending final positions can be spliced directly into the native array.
-        insertions.sort_unstable_by_key(|(position, _)| *position);
-        insertions
-    }
-}
-
 /// Local submission starts activity immediately; provider acknowledgement keeps
 /// that start time. A reconnect's old idle snapshot cannot cancel a pending send.
 pub fn run_status(input: &serde_json::Value) -> serde_json::Value {
@@ -376,53 +276,8 @@ mod reconnect_tests {
     use TranscriptAdmission::*;
 
     #[test]
-    fn local_insertions_keep_anchors_and_deduplicate_native_acknowledgements() {
-        let replica = ChatReplica {
-            messages: vec!["a".into(), "b".into(), "ack".into()],
-            ..Default::default()
-        };
-        let local = json!([
-            "a",
-            {"id":"notice","role":"system","content":"local","localOnly":true},
-            "removed",
-            {"id":"pending","role":"user","optimistic":true},
-            "b",
-            {"id":"ack","role":"user","optimistic":true},
-            {"id":"duplicate","role":"system","content":"saved","localOnly":true},
-            {"id":"aside","role":"btw"}
-        ]);
-        assert_eq!(
-            replica.merge_insertions(local.as_array().unwrap(), &[json!(["system", "saved"])]),
-            [(1, 1), (2, 3), (5, 7)]
-        );
-        let reversed = ChatReplica {
-            messages: vec!["b".into(), "a".into()],
-            ..Default::default()
-        };
-        let duplicates = json!(["a", {"id":"same","role":"btw"}, "b", {"id":"same","role":"btw"}, {"id":"last","role":"btw"}]);
-        assert_eq!(
-            reversed.merge_insertions(duplicates.as_array().unwrap(), &[]),
-            [(1, 3), (2, 4), (4, 1)]
-        );
-        // Replaced history has no surviving anchor: keep browser entries at the end.
-        let replacement = ChatReplica {
-            messages: vec!["new".into()],
-            ..Default::default()
-        };
-        assert_eq!(
-            replacement.merge_insertions(local.as_array().unwrap(), &[json!(["system", "saved"])]),
-            [(1, 1), (2, 3), (3, 5), (4, 7)]
-        );
-        assert!(
-            replica
-                .merge_insertions(&[json!({"id":"ack","role":"user","optimistic":true})], &[])
-                .is_empty()
-        );
-    }
-
-    #[test]
     fn event_plan_rejects_wrong_panes_and_stale_sync_side_effects() {
-        let mut replica = ChatReplica::new();
+        let mut replica = ChatReplica::default();
         let idle = json!({"isLoading":false,"status":"idle","startTime":null});
         assert!(
             replica
@@ -431,18 +286,16 @@ mod reconnect_tests {
         );
         let mut sync = json!({"type":"chat:sync","paneId":"pane","modelVersion":1,"epoch":"one","revision":3,"messages":[],"pendingSteers":[{}, {"id":"valid"}]});
         let plan = replica.event(&sync, "pane", &idle).unwrap();
-        assert!(plan.ready);
         assert_eq!(plan.pending_steers, [1]);
         sync["revision"] = json!(2);
         let plan = replica.event(&sync, "pane", &idle).unwrap();
         assert!(matches!(plan.admission, Ignore));
-        assert!(!plan.ready);
         assert!(plan.pending_steers.is_empty());
     }
 
     #[test]
     fn reconnect_preserves_history_and_rejects_stale_or_gapped_updates() {
-        let mut replica = ChatReplica::new();
+        let mut replica = ChatReplica::default();
         let mut sync = json!({"type":"chat:sync","modelVersion":1,"epoch":"session",
             "revision":4,"messages":[{"id":"a","role":"assistant","content":"retained"}]});
         assert!(matches!(
@@ -452,7 +305,12 @@ mod reconnect_tests {
                 delete_count: 0
             }
         ));
-        replica.reconnect();
+        assert_eq!(
+            replica.reconnect("pane"),
+            json!({
+                "type":"chat:reconnect", "paneId":"pane", "epoch":"session", "revision":4
+            })
+        );
         assert!(matches!(
             replica.admit(&json!({"type":"chat:sync","modelVersion":1,
             "epoch":"session","revision":4,"unchanged":true,"messages":null})),

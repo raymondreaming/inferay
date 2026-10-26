@@ -7,66 +7,50 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 struct PreparedDiff {
-    diff: GitHunkDiff,
+    diff: Arc<GitHunkDiff>,
+    path: SharedString,
+    theme: String,
     old: Vec<Vec<(std::ops::Range<usize>, HighlightStyle)>>,
     new: Vec<Vec<(std::ops::Range<usize>, HighlightStyle)>>,
-    patch: Vec<String>,
+    patch: Arc<[SharedString]>,
 }
 impl PreparedDiff {
+    fn classify(lines: &[GitDiffLine], path: &str, theme: &str) -> Vec<Vec<(std::ops::Range<usize>, HighlightStyle)>> {
+        let extension = std::path::Path::new(path).extension().and_then(|s| s.to_str()).unwrap_or("text");
+        let source: Vec<_> = lines.iter().map(|line| {
+            if matches!(line.line_type, GitDiffLineType::Hunk | GitDiffLineType::Spacer) { "" } else { line.content.as_str() }
+        }).collect();
+        let text = source.join("\n");
+        let spans = crate::syntax::highlights(&text, extension, theme);
+        let mut offset = 0;
+        let mut cursor = 0;
+        source.iter().map(|line| {
+            let end = offset + line.len();
+            let mut runs = Vec::new();
+            while cursor < spans.len() && spans[cursor].0.start < end {
+                let (range, style) = &spans[cursor];
+                if range.end > offset {
+                    runs.push((range.start.max(offset) - offset..range.end.min(end) - offset, *style));
+                }
+                cursor += 1;
+            }
+            offset = end + 1;
+            runs
+        }).collect()
+    }
     fn new(diff: GitHunkDiff, path: &str, theme: &str) -> Self {
-        let extension = std::path::Path::new(path)
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("text");
-        let classify = |lines: &[GitDiffLine]| {
-            let source: Vec<_> = lines
-                .iter()
-                .map(|line| {
-                    if matches!(
-                        line.line_type,
-                        GitDiffLineType::Hunk | GitDiffLineType::Spacer
-                    ) {
-                        ""
-                    } else {
-                        line.content.as_str()
-                    }
-                })
-                .collect();
-            let text = source.join("\n");
-            let spans = crate::syntax::highlights(&text, extension, theme);
-            let mut offset = 0;
-            let mut cursor = 0;
-            source
-                .iter()
-                .map(|line| {
-                    let end = offset + line.len();
-                    let mut runs = Vec::new();
-                    while cursor < spans.len() && spans[cursor].0.start < end {
-                        let (range, style) = &spans[cursor];
-                        if range.end > offset {
-                            runs.push((
-                                range.start.max(offset) - offset..range.end.min(end) - offset,
-                                *style,
-                            ));
-                        }
-                        cursor += 1;
-                    }
-                    offset = end + 1;
-                    runs
-                })
-                .collect()
-        };
         Self {
-            old: classify(&diff.old_lines),
-            new: classify(&diff.new_lines),
-            patch: diff
-                .raw_patch
-                .as_deref()
-                .unwrap_or("")
-                .lines()
-                .map(str::to_owned)
-                .collect(),
-            diff,
+            old: Self::classify(&diff.old_lines, path, theme),
+            new: Self::classify(&diff.new_lines, path, theme),
+            patch: diff.raw_patch.as_deref().unwrap_or("").lines().map(SharedString::from).collect(),
+            diff: Arc::new(diff), path: path.to_owned().into(), theme: theme.into(),
+        }
+    }
+    fn retheme(&self, theme: &str) -> Self {
+        Self {
+            old: Self::classify(&self.diff.old_lines, &self.path, theme),
+            new: Self::classify(&self.diff.new_lines, &self.path, theme),
+            diff: self.diff.clone(), path: self.path.clone(), patch: self.patch.clone(), theme: theme.into(),
         }
     }
 }
@@ -122,18 +106,33 @@ pub struct RepositoryView {
     task: Option<Task<()>>,
     selection_task: Option<Task<()>>,
     diff_task: Option<Task<()>>,
+    theme_task: Option<Task<()>>,
 }
 impl RepositoryView {
     pub fn set_syntax_theme(&mut self, theme: String, cx: &mut Context<Self>) {
-        self.syntax_theme = theme;
-        if let (Some(diff), Some(path)) = (&self.diff, &self.file) {
-            self.diff = Some(Arc::new(PreparedDiff::new(
-                diff.diff.clone(),
-                path,
-                &self.syntax_theme,
-            )));
+        if self.syntax_theme == theme { return; }
+        self.syntax_theme = theme.clone();
+        self.theme_task = None;
+        if let Some(diff) = self.diff.clone() {
+            let work = cx.background_executor().spawn(async move { Arc::new(diff.retheme(&theme)) });
+            self.theme_task = Some(cx.spawn(async move |this, cx| {
+                let prepared = work.await;
+                let _ = this.update(cx, |view, cx| {
+                    if view.syntax_theme == prepared.theme
+                        && view.diff.as_ref().is_some_and(|current| Arc::ptr_eq(&current.diff, &prepared.diff)) {
+                        view.diff = Some(prepared);
+                        cx.notify();
+                    }
+                });
+            }));
         }
         cx.notify();
+    }
+
+    fn clear_diff(&mut self) {
+        self.diff_task = None;
+        self.theme_task = None;
+        self.diff = None;
     }
 
     fn viewport_width(&self) -> f32 {
@@ -199,6 +198,7 @@ impl RepositoryView {
             task: None,
             selection_task: None,
             diff_task: None,
+            theme_task: None,
         };
         view.refresh(cx);
         view
@@ -464,12 +464,11 @@ impl RepositoryView {
     fn select_commit(&mut self, index: usize, cx: &mut Context<Self>) {
         self.show_diff = false;
         self.open_after_selection = false;
+        self.clear_diff();
         let commit = &self.graph.commits[index];
         self.selected_item = Some(commit.id.clone());
         self.selection_task = None;
-        self.diff_task = None;
         self.details = None;
-        self.diff = None;
         self.file = None;
         self.error = None;
         if commit.item_kind == GitGraphItemKind::WorktreeWip {
@@ -528,7 +527,7 @@ impl RepositoryView {
         self.selected_staged = staged;
         self.file = Some(path.clone());
         self.diff_scroll.scroll_to_item(0, ScrollStrategy::Top);
-        self.diff = None;
+        self.clear_diff();
         self.error = None;
         let cwd = self.selected_worktree.as_ref().unwrap_or(&self.cwd).clone();
         let hash = self.selected.clone();
@@ -547,7 +546,12 @@ impl RepositoryView {
             diff.map(|diff| Arc::new(PreparedDiff::new(diff, &path, &theme)))
         });
         self.diff_task = Some(cx.spawn(async move |this, cx| {
-            let diff = work.await;
+            let mut diff = work.await;
+            while let Some(prepared) = diff.take() {
+                let Ok(theme) = this.read_with(cx, |view, _| view.syntax_theme.clone()) else { return; };
+                if prepared.theme == theme { diff = Some(prepared); break; }
+                diff = Some(cx.background_executor().spawn(async move { Arc::new(prepared.retheme(&theme)) }).await);
+            }
             let _ = this.update(cx, |view, cx| {
                 view.error = diff.is_none().then(|| "Could not load this diff.".into());
                 view.diff = diff;
@@ -676,15 +680,13 @@ impl RepositoryView {
                                                         } else {
                                                             &data.new
                                                         }
-                                                        .get(i)
-                                                        .cloned()
-                                                        .unwrap_or_default(),
+                                                        .get(i).into_iter().flatten().cloned(),
                                                     ),
                                                 )
                                         }),
                                 )
                             } else {
-                                let line = data.patch.get(i).map(String::as_str).unwrap_or("");
+                                let line = data.patch.get(i).cloned().unwrap_or_default();
                                 row.bg(rgba(if line.starts_with('+') {
                                     0x55d68b18
                                 } else if line.starts_with('-') {
@@ -692,7 +694,7 @@ impl RepositoryView {
                                 } else {
                                     0
                                 }))
-                                .child(line.to_owned())
+                                .child(line)
                             }
                         })
                         .collect()

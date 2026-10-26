@@ -69,9 +69,8 @@ impl RepositoryView {
                     s.task = None;
                     s.loading = false;
                     if s.selected.is_none() && s.selected_worktree == target {
-                        s.diff_task = None;
+                        s.clear_diff();
                         s.file = None;
-                        s.diff = None;
                         s.show_diff = false;
                     }
                     s.refresh(cx);

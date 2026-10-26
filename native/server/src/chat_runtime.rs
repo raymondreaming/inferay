@@ -1061,7 +1061,7 @@ impl ChatRuntime {
             .await
             .message_buffer
             .messages()
-            .last()
+            .iter().rev().find(|m| !m.id.starts_with("hook:"))
             .is_some_and(|m| m.role == "tool");
         if !goal_run && last_is_tool && !session.lock().await.cancelled {
             result = self
@@ -1448,9 +1448,7 @@ impl ChatRuntime {
             .await;
         let needs_summary = {
             let state = session.lock().await;
-            let last = state.message_buffer.messages().last();
-            !(last.is_some_and(|m| m.role == "assistant" && !m.content.trim().is_empty()))
-                && (changed > 0 || last.is_some_and(|m| m.role == "tool"))
+            needs_fallback_summary(state.message_buffer.messages(), changed)
         };
         if needs_summary {
             let text = if changed > 0 {
@@ -1914,6 +1912,13 @@ fn create_system_prefix(
 fn status_message(pane: &str, status: &str, is_loading: bool) -> Value {
     json!({"type":"chat:status","paneId":pane,"status":status,"isLoading":is_loading})
 }
+fn needs_fallback_summary(messages: &[ChatTranscriptMessage], changed: usize) -> bool {
+    // Provider lifecycle hooks can arrive after a complete assistant response.
+    let last = messages.iter().rev().find(|message| !message.id.starts_with("hook:"));
+    !last.is_some_and(|m| m.role == "assistant" && !m.content.trim().is_empty())
+        && (changed > 0 || last.is_some_and(|m| m.role == "tool"))
+}
+
 fn edited_paths(messages: &[ChatTranscriptMessage]) -> Vec<String> {
     let mut paths = Vec::new();
     let start = messages
@@ -1995,6 +2000,18 @@ fn collect_paths(value: &Value, output: &mut Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::{GoalCommand, parse_goal_command};
+
+    #[test]
+    fn lifecycle_hooks_do_not_trigger_a_missing_summary_after_a_final_answer() {
+        use inferay_core::chat_protocol::ChatTranscriptMessage;
+        let answer: ChatTranscriptMessage = serde_json::from_value(serde_json::json!({"id":"answer", "role":"assistant", "content":"The repository is up to date."})).unwrap();
+        let mut hook: ChatTranscriptMessage = serde_json::from_value(serde_json::json!({"id":"hook", "role":"tool", "content":"completed"})).unwrap();
+        hook.id = "hook:turn:stop".into();
+        assert!(!super::needs_fallback_summary(&[answer, hook.clone()], 0));
+        assert!(!super::needs_fallback_summary(&[hook.clone()], 0));
+        let command: ChatTranscriptMessage = serde_json::from_value(serde_json::json!({"id":"command", "role":"tool", "content":"command output"})).unwrap();
+        assert!(super::needs_fallback_summary(&[command, hook], 0));
+    }
 
     #[test]
     fn goal_parser_accepts_unicode_chat_without_panicking() {

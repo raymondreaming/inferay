@@ -3,7 +3,9 @@ mod live;
 mod settings;
 use crate::{Back, Settings, ToggleSidebar, button, colors, icon, input::TextInput};
 use gpui::{prelude::*, *};
+#[cfg(test)]
 use inferay_core::chat_protocol::ChatTranscriptMessage;
+use crate::transcript::PreparedTranscript;
 use std::collections::HashSet;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -27,7 +29,6 @@ struct Conversation {
     images: Vec<std::path::PathBuf>,
     project: usize,
     pane: Option<String>,
-    total_messages: usize,
     loading: bool,
     error: Option<String>,
     task: Option<Task<()>>,
@@ -49,11 +50,50 @@ struct Conversation {
     draft_task: Option<Task<()>>,
     title: String,
     input: Entity<TextInput>,
-    messages: Vec<ChatTranscriptMessage>,
-    rich: Vec<crate::rich_text::RichText>,
-    scroll: ListState,
+    transcript: crate::transcript::Transcript,
+    theme_task: Option<Task<()>>,
     loaded: bool,
     config: inferay_core::provider_config::ProviderSettings,
+}
+impl Conversation {
+    fn new(
+        project: usize,
+        input: Entity<TextInput>,
+        config: inferay_core::provider_config::ProviderSettings,
+    ) -> Self {
+        Self {
+            project,
+            input,
+            config,
+            closed: false,
+            close_task: None,
+            images: vec![],
+            pane: None,
+            loading: false,
+            error: None,
+            task: None,
+            live_task: None,
+            metadata_task: None,
+            commands: None,
+            command_task: None,
+            sending: false,
+            running: false,
+            start_time: None,
+            run_status: "idle".into(),
+            queue: vec![],
+            queue_task: None,
+            queue_editor: None,
+            queue_submit: None,
+            connection_error: None,
+            submit_subscription: None,
+            draft_subscription: None,
+            draft_task: None,
+            title: "New chat".into(),
+            transcript: crate::transcript::Transcript::new(),
+            theme_task: None,
+            loaded: false,
+        }
+    }
 }
 pub struct WorkspaceView {
     backend: std::sync::Arc<tokio::sync::OnceCell<std::sync::Arc<crate::backend::Backend>>>,
@@ -201,40 +241,11 @@ impl WorkspaceView {
             update_available: false,
             preference_updates: None,
             preference_task: None,
-            conversations: vec![Conversation {
-                closed: false,
-                close_task: None,
-                images: vec![],
-                project: 0,
-                pane: None,
-                total_messages: 0,
-                loading: false,
-                error: None,
-                task: None,
-                live_task: None,
-                metadata_task: None,
-                commands: None,
-                command_task: None,
-                sending: false,
-                running: false,
-                start_time: None,
-                run_status: "idle".into(),
-                queue: Vec::new(),
-                queue_task: None,
-                queue_editor: None,
-                queue_submit: None,
-                connection_error: None,
-                submit_subscription: None,
-                draft_subscription: None,
-                draft_task: None,
-                title: "New chat".into(),
+            conversations: vec![Conversation::new(
+                0,
                 input,
-                messages: vec![],
-                rich: vec![],
-                scroll: ListState::new(0, ListAlignment::Top, px(300.)),
-                loaded: false,
-                config: inferay_core::provider_config::resolve(&serde_json::json!({})),
-            }],
+                inferay_core::provider_config::resolve(&serde_json::json!({})),
+            )],
             selected: 0,
             project: 0,
             sidebar: true,
@@ -322,79 +333,18 @@ impl WorkspaceView {
                             &serde_json::json!({"agentKind":pane.agent_kind,"defaults":self.default_config}),
                         )
                     });
-                self.conversations.push(Conversation {
-                closed: false,
-                close_task: None,
-                images: vec![],
-                    project,
-                    pane: Some(pane.id),
-                    total_messages: 0,
-                    loading: false,
-                    error: None,
-                    task: None,
-                    live_task: None,
-                    metadata_task: None,
-                    commands: None,
-                    command_task: None,
-                    sending: false,
-                    running: false,
-                start_time: None,
-                run_status: "idle".into(),
-                queue: Vec::new(),
-                queue_task: None,
-                queue_editor: None,
-                queue_submit: None,
-                    connection_error: None,
-                    submit_subscription: None,
-                    draft_subscription: None,
-                    draft_task: None,
-                    title: pane
-                        .summary
-                        .filter(|s| !s.is_empty())
-                        .unwrap_or_else(|| format!("{} chat", pane.agent_kind)),
-                    input,
-                    messages: vec![],
-                    rich: vec![],
-                    scroll: ListState::new(0, ListAlignment::Top, px(300.)),
-                    loaded: false,
-                    config,
-                });
+                let mut chat = Conversation::new(project, input, config);
+                chat.pane = Some(pane.id);
+                chat.title = pane.summary.filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| format!("{} chat", pane.agent_kind));
+                self.conversations.push(chat);
             }
             if self.conversations.len() == first {
-                self.conversations.push(Conversation {
-                closed: false,
-                close_task: None,
-                images: vec![],
+                self.conversations.push(Conversation::new(
                     project,
-                    pane: None,
-                    total_messages: 0,
-                    loading: false,
-                    error: None,
-                    task: None,
-                    live_task: None,
-                    metadata_task: None,
-                    commands: None,
-                    command_task: None,
-                    sending: false,
-                    running: false,
-                start_time: None,
-                run_status: "idle".into(),
-                queue: Vec::new(),
-                queue_task: None,
-                queue_editor: None,
-                queue_submit: None,
-                    connection_error: None,
-                    submit_subscription: None,
-                    draft_subscription: None,
-                    draft_task: None,
-                    title: "New chat".into(),
-                    input: cx.new(TextInput::new),
-                    messages: vec![],
-                    rich: vec![],
-                    scroll: ListState::new(0, ListAlignment::Top, px(300.)),
-                    loaded: false,
-                    config: self.default_config.clone(),
-                });
+                    cx.new(TextInput::new),
+                    self.default_config.clone(),
+                ));
             }
         }
         self.status.clear();
@@ -435,7 +385,7 @@ impl WorkspaceView {
                 let stats = cx.background_executor().spawn(async move {
                     paths.into_iter().filter_map(|path| inferay_native_diff::get_git_status(&path).map(|status| (path, status.change_summary()))).collect()
                 }).await;
-                if this.update(cx, |s, cx| { s.repository_stats = stats; cx.notify(); }).is_err() { break; }
+                if this.update(cx, |s, cx| { if s.repository_stats != stats { s.repository_stats = stats; cx.notify(); } }).is_err() { break; }
                 cx.background_executor().timer(std::time::Duration::from_secs(5)).await;
             }
         }));
@@ -522,29 +472,21 @@ impl WorkspaceView {
         let theme = self.syntax_theme.clone();
         let work = cx.background_executor().spawn(async move {
             crate::session::transcript(&profile, &pane, limit).map(|(total, messages)| {
-                let rich = messages
-                    .iter()
-                    .map(|message| crate::rich_text::RichText::message(message, &theme))
-                    .collect();
-                (total, messages, rich)
+                (total, PreparedTranscript::prepare(0, messages.into_iter().map(std::sync::Arc::new), &theme))
             })
         });
         chat.task = Some(cx.spawn(async move |this, cx| {
-            let result = work.await;
+            let result = match work.await {
+                Ok((total, prepared)) => Self::prepare_for_current_theme(&this, prepared, cx).await.map(|prepared| (total, prepared)),
+                Err(error) => Err(error),
+            };
             let _ = this.update(cx, |view, cx| {
                 let chat = &mut view.conversations[index];
                 chat.loading = false;
                 match result {
-                    Ok((total, messages, rich)) => {
-                        if !chat.loaded {
-                            chat.scroll.set_follow_mode(FollowMode::Tail);
-                        }
+                    Ok((total, prepared)) => {
                         chat.loaded = true;
-                        chat.scroll
-                            .splice(0..chat.scroll.item_count(), messages.len());
-                        chat.rich = rich;
-                        chat.total_messages = total;
-                        chat.messages = messages;
+                        chat.transcript.publish(prepared, Some(total));
                         view.connect_chat(index, cx);
                     }
                     Err(error) => chat.error = Some(format!("Could not load chat: {error:#}")),
@@ -553,6 +495,33 @@ impl WorkspaceView {
             });
         }));
     }
+    // Revalidate after background work: a theme change must not publish stale styles.
+    async fn prepare_for_current_theme(
+        this: &WeakEntity<Self>, mut prepared: PreparedTranscript, cx: &mut AsyncApp,
+    ) -> anyhow::Result<PreparedTranscript> {
+        loop {
+            let theme = this.read_with(cx, |view, _| view.syntax_theme.clone())?;
+            if theme == prepared.theme { return Ok(prepared); }
+            prepared = cx.background_executor().spawn(async move { prepared.retheme(&theme) }).await;
+        }
+    }
+
+    fn refresh_chat_theme(&mut self, index: usize, cx: &mut Context<Self>) {
+        let chat = &mut self.conversations[index];
+        if chat.closed { return; }
+        let snapshot = chat.transcript.snapshot();
+        let theme = self.syntax_theme.clone();
+        let work = cx.background_executor().spawn(async move { snapshot.retheme(&theme) });
+        chat.theme_task = Some(cx.spawn(async move |this, cx| {
+            let prepared = work.await;
+            let _ = this.update(cx, |view, cx| {
+                if view.syntax_theme != prepared.theme || view.conversations[index].closed { return; }
+                view.conversations[index].transcript.publish_theme(prepared);
+                cx.notify();
+            });
+        }));
+    }
+
     fn new_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.add_chat(cx);
         self.create_chat(self.selected, cx);
@@ -560,40 +529,9 @@ impl WorkspaceView {
     }
     fn add_chat(&mut self, cx: &mut Context<Self>) {
         let input = cx.new(TextInput::new);
-        self.conversations.push(Conversation {
-                closed: false,
-                close_task: None,
-                images: vec![],
-            project: self.project,
-            pane: None,
-            total_messages: 0,
-            loading: false,
-            error: None,
-            task: None,
-            live_task: None,
-            metadata_task: None,
-            commands: None,
-            command_task: None,
-            sending: false,
-            running: false,
-                start_time: None,
-                run_status: "idle".into(),
-                queue: Vec::new(),
-                queue_task: None,
-                queue_editor: None,
-                queue_submit: None,
-            connection_error: None,
-            submit_subscription: None,
-            draft_subscription: None,
-            draft_task: None,
-            title: "New chat".into(),
-            input,
-            messages: vec![],
-            rich: vec![],
-            scroll: ListState::new(0, ListAlignment::Top, px(300.)),
-            loaded: false,
-            config: self.default_config.clone(),
-        });
+        self.conversations.push(Conversation::new(
+            self.project, input, self.default_config.clone(),
+        ));
         self.selected = self.conversations.len() - 1;
         self.projects[self.project].selected = self.selected;
         self.settings = false;
@@ -739,11 +677,11 @@ impl WorkspaceView {
                         chat.error.clone().or_else(|| chat.connection_error.clone()),
                         |d, error| d.child(div().child(error)),
                     )
-                    .when(chat.total_messages > chat.messages.len(), |d| {
+                    .when(chat.transcript.total() > chat.transcript.rows().len(), |d| {
                         d.child(
                             button(("older-messages", index), "Load older messages").on_click(
                                 cx.listener(move |s, _, _, cx| {
-                                    let limit = s.conversations[index].messages.len() + 200;
+                                    let limit = s.conversations[index].transcript.rows().len() + 200;
                                     s.load_chat(index, limit, cx);
                                     cx.notify();
                                 }),
@@ -751,7 +689,7 @@ impl WorkspaceView {
                         )
                     })
                     .when(
-                        chat.messages.is_empty() && !chat.loading && chat.error.is_none(),
+                        chat.transcript.rows().is_empty() && !chat.loading && chat.error.is_none(),
                         |d| {
                             d.child(
                                 div()
@@ -779,7 +717,7 @@ impl WorkspaceView {
             )
             .child(
                 list(
-                    chat.scroll.clone(),
+                    chat.transcript.scroll.clone(),
                     cx.processor(move |view, row, _, cx| view.transcript_row(index, row, cx)),
                 )
                 .flex_1()
@@ -799,7 +737,7 @@ impl WorkspaceView {
                     })
             ))
             .when(
-                !chat.messages.is_empty() && !chat.scroll.is_following_tail(),
+                !chat.transcript.rows().is_empty() && !chat.transcript.scroll.is_following_tail(),
                 |d| {
                     d.child(
                         button(("latest-message", index), "")
@@ -818,7 +756,7 @@ impl WorkspaceView {
                             .child(icon("ChevronDown").size(px(12.)))
                             .on_click(cx.listener(move |view, _, _, cx| {
                                 view.conversations[index]
-                                    .scroll
+                                    .transcript.scroll
                                     .set_follow_mode(FollowMode::Tail);
                                 cx.notify();
                             })),
@@ -833,14 +771,14 @@ impl WorkspaceView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let chat = &self.conversations[index];
-        let message = &chat.messages[message_index];
+        let row = &chat.transcript.rows()[message_index];
+        let message = &row.message;
         if message.render.as_ref().is_some_and(|r| r.hidden) {
             return div().h(px(0.)).into_any_element();
         }
-        let last_visible = !chat.messages[message_index + 1..].iter()
-            .any(|message| !message.render.as_ref().is_some_and(|render| render.hidden));
+        let last_visible = chat.transcript.last_visible() == Some(message_index);
         let id = message.id.clone();
-        let content = message.content.clone();
+        let content = message.clone();
         let row = if message.role == "tool" {
             let open = self.expanded.contains(&id);
             let render = message.render.as_ref();
@@ -918,17 +856,15 @@ impl WorkspaceView {
                                 s.expanded.insert(id.clone());
                             }
                             s.conversations[index]
-                                .scroll
+                                .transcript.scroll
                                 .remeasure_items(message_index..message_index + 1);
                             cx.notify();
                         })),
                 )
-                .when(!open && !content.trim().is_empty(), |d| {
-                    let preview = content.lines().rev().filter(|line| !line.trim().is_empty()).take(3).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
-                    let preview: String = preview.chars().take(360).collect();
+                .when(!open && !row.preview.is_empty(), |d| {
                     d.child(div().debug_selector(|| "tool-output-preview".into()).ml(px(4.)).mb(px(4.)).px(px(8.)).py(px(4.))
                         .border_l_1().border_color(rgba(0xebebeb20)).text_size(px(colors::CHAT_DETAIL))
-                        .text_color(rgba(0xebebeb80)).font_family("Menlo").child(preview))
+                        .text_color(rgba(0xebebeb80)).font_family("Menlo").child(row.preview.clone()))
                 })
                 .when_some(render.and_then(|r| r.edit.as_ref()), |d, edit| {
                     d.child(crate::rich_text::edit_card(edit))
@@ -937,16 +873,17 @@ impl WorkspaceView {
                     d.child(
                         div()
                             .ml(px(4.))
-                            .py(px(4.))
+                            .py(px(2.))
                             .rounded(px(6.))
                             .bg(rgba(0xffffff06))
                             .font_family("Menlo")
                             .text_size(px(colors::CHAT_DETAIL))
-                            .child(chat.rich[message_index].render(&message.id))
+                            .child(row.rich.render(&message.id))
                             .child(div().flex().justify_end().child(
-                                button(SharedString::from(format!("copy-tool-{}", message.id)), "Copy output")
+                                button(SharedString::from(format!("copy-tool-{}", message.id)), "")
+                                    .aria_label("Copy output").w(px(24.)).p(px(4.)).justify_center().child(icon("Copy").size(px(12.)))
                                     .h(px(24.)).on_click({ let content = content.clone(); move |_, _, cx| {
-                                        cx.write_to_clipboard(ClipboardItem::new_string(content.clone()));
+                                        cx.write_to_clipboard(ClipboardItem::new_string(content.content.clone()));
                                     }}))),
                     )
                 })
@@ -962,7 +899,7 @@ impl WorkspaceView {
                 .mt(px(4.)).mb(px(if last_visible { 0. } else { 4. }))
                 .text_size(px(colors::CHAT_SMALL))
                 .text_color(rgba(0xebebeb80))
-                .child(crate::selectable::SelectableText { id: format!("message-text-{}", message.id).into(), text: content, highlights: vec![], links: vec![] })
+                .child(row.rich.render(&message.id))
                 .into_any_element()
         } else if message.role == "user" {
             div()
@@ -977,7 +914,7 @@ impl WorkspaceView {
                         .rounded(px(8.))
                         .rounded_br(px(2.))
                         .children(message.images.iter().flatten().map(|path| img(std::path::PathBuf::from(path)).w(px(220.)).h(px(150.)).object_fit(ObjectFit::Contain)))
-                        .child(crate::selectable::SelectableText { id: format!("message-text-{}", message.id).into(), text: content, highlights: vec![], links: vec![] }),
+                        .child(row.rich.render(&message.id)),
                 )
                 .into_any_element()
         } else {
@@ -987,17 +924,18 @@ impl WorkspaceView {
                     div()
                         .line_height(px(colors::CHAT_BODY * 1.6))
                         .text_color(rgba(0xebebebb8))
-                        .child(chat.rich[message_index].render(&message.id)),
+                        .child(row.rich.render(&message.id)),
                 )
-                .when(message.is_streaming != Some(true) && !content.trim().is_empty(), |d| d.child(
+                .when(message.is_streaming != Some(true) && !content.content.trim().is_empty(), |d| d.child(
                     div().flex().justify_end().mt(px(4.)).child(
-                        button(SharedString::from(format!("copy-{}", message.id)), "Copy")
+                        button(SharedString::from(format!("copy-{}", message.id)), "")
+                            .aria_label("Copy response").w(px(24.)).justify_center()
                             .h(px(24.))
                             .px(px(6.))
                             .text_color(rgba(0xebebeb80))
                             .child(icon("Copy").size(px(12.)))
                             .on_click(move |_, _, cx| {
-                                cx.write_to_clipboard(ClipboardItem::new_string(content.clone()))
+                                cx.write_to_clipboard(ClipboardItem::new_string(content.content.clone()))
                             }),
                     ),
                 ))
@@ -1731,15 +1669,14 @@ mod tests {
             view.status.clear();
             let chat = &mut view.conversations[0];
             chat.loaded = true;
+            let mut messages = Vec::new();
             for i in 0..1_000 {
                 let message: ChatTranscriptMessage = serde_json::from_value(serde_json::json!({
                     "id":format!("row-{i}"),"role":"assistant","content":"A long conversation keeps its composer visible.\n\nThis paragraph wraps as the pane becomes narrower."
                 })).unwrap();
-                chat.rich.push(crate::rich_text::RichText::message(&message, "vscode-black"));
-                chat.messages.push(message);
+                messages.push(std::sync::Arc::new(message));
             }
-            chat.scroll.splice(0..0, chat.messages.len());
-            chat.scroll.set_follow_mode(FollowMode::Tail);
+            chat.transcript.publish(PreparedTranscript::prepare(0, messages, "vscode-black"), None);
             view
         });
         cx.simulate_resize(size(px(1024.), px(768.)));
@@ -1747,7 +1684,7 @@ mod tests {
             view.clone().into_any_element()
         });
         view.read_with(cx, |view, _| {
-            let list = &view.conversations[0].scroll;
+            let list = &view.conversations[0].transcript.scroll;
             assert!(list.viewport_bounds().size.height > px(100.));
             assert!(
                 list.viewport_bounds().bottom() < px(740.),
@@ -1769,7 +1706,7 @@ mod tests {
         assert_eq!(composer.size.height, px(78.));
         let input = cx.debug_bounds("chat-input-shell").unwrap();
         view.read_with(cx, |view, _| {
-            assert_eq!(view.conversations[0].scroll.viewport_bounds().bottom(), input.top());
+            assert_eq!(view.conversations[0].transcript.scroll.viewport_bounds().bottom(), input.top());
         });
         let message = cx.debug_bounds("chat-message-column").unwrap();
         assert_eq!(message.left(), composer.left());
@@ -1785,7 +1722,7 @@ mod tests {
         assert_eq!(composer.size.width, pane.size.width);
         assert_eq!(composer.left(), pane.left());
         view.update(cx, |view, cx| {
-            let scroll = &view.conversations[0].scroll;
+            let scroll = &view.conversations[0].transcript.scroll;
             scroll.set_follow_mode(FollowMode::Normal);
             scroll.scroll_to(ListOffset {
                 item_ix: 0,
@@ -1799,7 +1736,7 @@ mod tests {
         let latest = cx.debug_bounds("latest-message").unwrap();
         cx.simulate_click(latest.center(), Modifiers::default());
         view.read_with(cx, |view, _| {
-            assert!(view.conversations[0].scroll.is_following_tail())
+            assert!(view.conversations[0].transcript.scroll.is_following_tail())
         });
         view.update(cx, |view, cx| {
             view.conversations[0].running = true;
@@ -1819,7 +1756,7 @@ mod tests {
         assert_eq!(activity.bottom(), input.top());
         let progress = cx.debug_bounds("chat-live-progress").unwrap();
         view.read_with(cx, |view, _| {
-            assert_eq!(view.conversations[0].scroll.viewport_bounds().bottom(), progress.top());
+            assert_eq!(view.conversations[0].transcript.scroll.viewport_bounds().bottom(), progress.top());
             assert_eq!(progress.bottom(), activity.top());
         });
         let queue = cx.debug_bounds("chat-queue").unwrap();
@@ -1850,13 +1787,7 @@ mod tests {
                 serde_json::json!({"id":"help", "role":"system", "content":"Available commands"}),
             )
             .unwrap();
-            chat.rich.push(crate::rich_text::RichText::message(
-                &message,
-                "vscode-black",
-            ));
-            chat.messages.push(message);
-            chat.scroll.splice(0..0, 1);
-            chat.scroll.scroll_to_end();
+            chat.transcript.publish(PreparedTranscript::prepare(0, [std::sync::Arc::new(message)], "vscode-black"), None);
             cx.notify();
         });
         cx.simulate_resize(size(px(1024.), px(768.)));
@@ -1864,7 +1795,7 @@ mod tests {
             view.clone().into_any_element()
         });
         view.read_with(cx, |view, _| {
-            let list = &view.conversations[0].scroll;
+            let list = &view.conversations[0].transcript.scroll;
             assert!(list.viewport_bounds().size.height > px(100.));
             assert!(list.bounds_for_item(0).is_some());
         });
@@ -1882,9 +1813,7 @@ mod tests {
             chat.loaded = true;
             chat.running = true;
             chat.run_status = "tool:mcp__github__list_issues".into();
-            chat.messages = buffer.messages().to_vec();
-            chat.rich = chat.messages.iter().map(|m| crate::rich_text::RichText::message(m, "vscode-black")).collect();
-            chat.scroll.splice(0..0, chat.messages.len());
+            chat.transcript.publish(PreparedTranscript::prepare(0, buffer.messages().iter().cloned().map(std::sync::Arc::new), "vscode-black"), None);
             view
         });
         cx.simulate_resize(size(px(800.), px(560.)));
@@ -2104,8 +2033,8 @@ mod tests {
                     view.conversations[0].input.read(cx).content.as_ref(),
                     "Keep this draft"
                 );
-                assert!(view.conversations[0].messages.is_empty());
-                assert!(view.conversations[1].messages.is_empty());
+                assert!(view.conversations[0].transcript.rows().is_empty());
+                assert!(view.conversations[1].transcript.rows().is_empty());
             })
             .unwrap();
     }

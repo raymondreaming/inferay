@@ -1086,12 +1086,32 @@ async fn finish_codex_child(
     }
 }
 
+// GUI worker threads may block signals. exec preserves that mask, which leaves
+// provider runtimes unable to reap hook/tool children or receive cancellation.
+// Reset only in the child; the host's signal policy remains unchanged.
+fn provider_command(binary: impl AsRef<OsStr>) -> Command {
+    let mut command = Command::new(binary);
+    #[cfg(unix)]
+    unsafe {
+        command.pre_exec(|| {
+            let mut mask: libc::sigset_t = std::mem::zeroed();
+            if libc::sigemptyset(&mut mask) != 0
+                || libc::sigprocmask(libc::SIG_SETMASK, &mask, std::ptr::null_mut()) != 0
+            {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    command
+}
+
 fn spawn_codex_app_server(
     binary: &Path,
     cwd: &Path,
     env: &HashMap<OsString, OsString>,
 ) -> std::io::Result<tokio::process::Child> {
-    Command::new(binary)
+    provider_command(binary)
         .args(["app-server", "--listen", "stdio://"])
         .current_dir(cwd)
         .env_clear()
@@ -1111,7 +1131,7 @@ pub(crate) fn spawn_direct(
     let (binary, arguments) = arguments.split_first().ok_or_else(|| {
         std::io::Error::new(std::io::ErrorKind::InvalidInput, "missing agent binary")
     })?;
-    Command::new(binary)
+    provider_command(binary)
         .args(arguments)
         .current_dir(cwd)
         .env_clear()

@@ -65,8 +65,8 @@ impl WorkspaceView {
         chat.submit_subscription = None;
         chat.draft_subscription = None;
         chat.draft_task = None;
-        chat.messages.clear();
-        chat.rich.clear();
+        chat.theme_task = None;
+        chat.transcript = crate::transcript::Transcript::new();
         chat.images.clear();
         if let Some(next) = self.conversations.iter().enumerate()
             .filter(|(_, chat)| !chat.closed && chat.project == project)
@@ -344,7 +344,7 @@ impl WorkspaceView {
                         chat.draft_subscription = None;
                         chat.error = error;
                         chat.loaded = true;
-                        chat.scroll.set_follow_mode(FollowMode::Tail);
+                        chat.transcript.scroll.set_follow_mode(FollowMode::Tail);
                         view.track_draft(index, true, cx);
                         view.connect_chat(index, cx);
                     }

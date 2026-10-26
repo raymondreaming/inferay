@@ -558,3 +558,31 @@ print(json.dumps({'type':'result','result':'finished'}),flush=True)
         started.elapsed().as_secs_f64() * 1000.0
     );
 }
+
+#[test]
+fn provider_launch_clears_inherited_gui_signal_mask_without_changing_parent() {
+    // Confine the blocked mask to a disposable thread, as a GUI executor does.
+    std::thread::spawn(|| {
+        unsafe {
+            let mut blocked: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut blocked);
+            libc::sigaddset(&mut blocked, libc::SIGCHLD);
+            libc::sigaddset(&mut blocked, libc::SIGTERM);
+            assert_eq!(libc::pthread_sigmask(libc::SIG_BLOCK, &blocked, std::ptr::null_mut()), 0);
+        }
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            let output = tokio::time::timeout(std::time::Duration::from_secs(5),
+                provider_command("/usr/bin/python3").args(["-c", "import signal,subprocess; m=signal.pthread_sigmask(signal.SIG_BLOCK, []); assert signal.SIGCHLD not in m and signal.SIGTERM not in m; subprocess.run(['/bin/echo','child completed'],check=True)"])
+                    .output()).await.unwrap().unwrap();
+            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+            assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "child completed");
+        });
+        unsafe {
+            let mut current: libc::sigset_t = std::mem::zeroed();
+            libc::pthread_sigmask(libc::SIG_BLOCK, std::ptr::null(), &mut current);
+            assert_eq!(libc::sigismember(&current, libc::SIGCHLD), 1);
+            assert_eq!(libc::sigismember(&current, libc::SIGTERM), 1);
+        }
+    }).join().unwrap();
+}

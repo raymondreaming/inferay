@@ -197,6 +197,24 @@ impl CodexProtocolState {
                     "type":"inferay.progress", "id":format!("codex-plan:{}", string_field(params,"turnId")), "text":text
                 })));
             }
+            (method @ ("hook/started" | "hook/completed"), _) => {
+                let run = &params["run"];
+                let done = method == "hook/completed";
+                let event = string_field(run, "eventName");
+                if !done {
+                    self.emit_status(context, &format!("Running {event} hook…"), true);
+                } else {
+                    self.emit_status(context, "thinking", true);
+                }
+                context.emissions.push(ProtocolEmission::Chat(json!({
+                    "type":"inferay.tool", "id":format!("hook:{}:{}", string_field(params,"turnId"), string_field(run,"id")),
+                    "name":format!("{event} hook"),
+                    "input":{"source":run["sourcePath"],"event":event},
+                    "output":format!("{}{}", run["statusMessage"].as_str().unwrap_or_else(|| string_field(run,"status")),
+                        run["entries"].as_array().map(|entries| entries.iter().filter_map(|entry| entry["text"].as_str()).map(|text| format!("\n{text}")).collect::<String>()).unwrap_or_default()),
+                    "done":done
+                })));
+            }
             ("turn/started", _) => {
                 self.emit_status(context, "thinking", true);
             }

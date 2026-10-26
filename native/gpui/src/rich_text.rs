@@ -1,110 +1,196 @@
-//! Native rendering of the same Markdown blocks and syntax kinds as the shipping chat.
+//! Prepared native text: Markdown interpretation and style allocation happen off the UI thread.
+use crate::selectable::PreparedText;
 use gpui::{prelude::*, *};
 use inferay_server::{MdBlock, MdInlineToken};
-use std::{collections::HashMap, ops::Range};
+use std::ops::Range;
 
+#[derive(Clone)]
 pub struct RichText {
-    blocks: Vec<MdBlock>,
-    code: HashMap<String, Vec<(Range<usize>, HighlightStyle)>>,
+    blocks: Vec<Block>,
+}
+#[derive(Clone)]
+enum Block {
+    Plain(PreparedText),
+    Text {
+        heading: bool,
+        text: PreparedText,
+    },
+    Code {
+        lang: SharedString,
+        text: PreparedText,
+        tool: bool,
+    },
+    Rule,
+    Quote(Vec<Block>),
+    Table(Vec<Vec<PreparedText>>),
+    List(Vec<ListItem>),
+}
+#[derive(Clone)]
+struct ListItem {
+    indent: usize,
+    bullet: SharedString,
+    text: PreparedText,
+}
+impl Block {
+    fn prepare(block: MdBlock, theme: &str) -> Self {
+        match block.kind {
+            "code" | "mermaid" => {
+                let spans = crate::syntax::highlights(
+                    &block.content,
+                    block.lang.as_deref().unwrap_or("text"),
+                    theme,
+                );
+                Self::Code {
+                    lang: block.lang.unwrap_or_default().into(),
+                    text: PreparedText::new(block.content.into(), spans, vec![]),
+                    tool: false,
+                }
+            }
+            "hr" => Self::Rule,
+            "blockquote" => Self::Quote(
+                block
+                    .children
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|block| Self::prepare(block, theme))
+                    .collect(),
+            ),
+            "table" => Self::Table(
+                block
+                    .rows
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|row| row.into_iter().map(|tokens| inline(&tokens)).collect())
+                    .collect(),
+            ),
+            "ul" | "ol" | "checklist" => Self::List(
+                block
+                    .items
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|item| ListItem {
+                        indent: item.indent,
+                        bullet: item
+                            .checked
+                            .map(|checked| if checked { "✓".into() } else { "□".into() })
+                            .unwrap_or(item.bullet)
+                            .into(),
+                        text: inline(&item.tokens),
+                    })
+                    .collect(),
+            ),
+            _ => Self::Text {
+                heading: block.kind == "heading",
+                text: inline(block.tokens.as_deref().unwrap_or_default()),
+            },
+        }
+    }
 }
 impl RichText {
-    pub fn prepare(text: &str, tool: bool, theme: &str) -> Self {
-        let blocks = if tool {
-            vec![MdBlock {
-                kind: "tool",
-                content: text.into(),
-                lang: Some("text".into()),
-                tokens: None,
-                level: None,
-                rows: None,
-                items: None,
-                children: None,
-            }]
-        } else {
-            inferay_server::prepare_markdown(text, false, true).blocks
-        };
-        let mut code = HashMap::new();
-        fn classify(
-            blocks: &[MdBlock],
-            code: &mut HashMap<String, Vec<(Range<usize>, HighlightStyle)>>,
-            theme: &str,
-        ) {
+    fn prepare(text: &str, theme: &str) -> Self {
+        Self {
+            blocks: inferay_server::prepare_markdown(text, false, true)
+                .blocks
+                .into_iter()
+                .map(|block| Block::prepare(block, theme))
+                .collect(),
+        }
+    }
+
+    pub fn retheme(&self, theme: &str) -> Self {
+        fn recolor(blocks: &mut [Block], theme: &str) {
             for block in blocks {
-                if matches!(block.kind, "code" | "mermaid") {
-                    code.insert(
-                        block.content.clone(),
-                        crate::syntax::highlights(
-                            &block.content,
-                            block.lang.as_deref().unwrap_or("text"),
+                match block {
+                    Block::Code {
+                        text,
+                        lang,
+                        tool: false,
+                    } => {
+                        *text = text.with_highlights(crate::syntax::highlights(
+                            text.content(),
+                            lang,
                             theme,
-                        ),
-                    );
-                }
-                if let Some(children) = &block.children {
-                    classify(children, code, theme);
+                        ));
+                    }
+                    Block::Quote(children) => recolor(children, theme),
+                    _ => {}
                 }
             }
         }
-        classify(&blocks, &mut code, theme);
-        Self { blocks, code }
+        let mut prepared = self.clone();
+        recolor(&mut prepared.blocks, theme);
+        prepared
     }
     pub fn message(
         message: &inferay_core::chat_protocol::ChatTranscriptMessage,
         theme: &str,
     ) -> Self {
+        if matches!(message.role.as_str(), "user" | "system") {
+            return Self {
+                blocks: vec![Block::Plain(PreparedText::plain(message.content.clone()))],
+            };
+        }
         if message.role != "tool" {
-            return Self::prepare(&message.content, false, theme);
+            return Self::prepare(&message.content, theme);
         }
-        let render = message.render.as_ref();
-        let summary = render.and_then(|r| r.summary.as_ref());
-        let output = render.and_then(|r| r.output_start).map(|start| {
-            inferay_core::utf16_slice(
-                &message.content,
-                start,
-                inferay_core::utf16_length(&message.content),
-            )
-        });
-        let mut text = summary
-            .map(|s| match s.kind {
-                "command" => format!("$ {}", s.value),
-                "pattern" => format!("/{}/", s.value),
-                _ => s
-                    .file_name
-                    .as_ref()
-                    .map(|f| format!("{f}\n{}", s.value))
-                    .unwrap_or_else(|| s.value.clone()),
-            })
-            .unwrap_or_else(|| message.content.clone());
-        if summary.is_some()
-            && let Some(output) = output
-            && !output.is_empty()
-        {
-            text.push('\n');
-            text.push_str(&output);
-        }
-        let mut rich = Self::prepare(&text, true, theme);
-        if let Some(summary) = summary {
-            let first_line = text.find('\n').unwrap_or(text.len());
-            rich.code.insert(
-                text.clone(),
-                vec![(
-                    0..first_line,
-                    HighlightStyle {
-                        color: Some(rgb(0xb8d7ff).into()),
-                        ..Default::default()
-                    },
-                )],
-            );
-            if summary.kind == "command" {
-                rich.blocks[0].lang = Some("shell".into());
+        let mut blocks = Vec::new();
+        let mut code = |label: &str, language: &str, content: String| {
+            if content.trim().is_empty() {
+                return;
             }
+            let spans = crate::syntax::highlights(&content, language, theme);
+            blocks.push(Block::Code {
+                lang: label.to_owned().into(),
+                text: PreparedText::new(content.into(), spans, vec![]),
+                tool: true,
+            });
+        };
+        let mut parser =
+            serde_json::Deserializer::from_str(&message.content).into_iter::<serde_json::Value>();
+        if let Some(Ok(input)) = parser
+            .next()
+            .filter(|result| result.as_ref().is_ok_and(|v| v.is_object()))
+        {
+            let output = message.content[parser.byte_offset()..].trim();
+            if let Some(command) = message
+                .render
+                .as_ref()
+                .and_then(|r| r.summary.as_ref())
+                .filter(|s| s.kind == "command")
+                .map(|s| s.value.as_str())
+            {
+                code("Command · shell", "sh", command.to_owned());
+                if let Some(cwd) = input["cwd"].as_str() {
+                    code("Working directory", "text", cwd.to_owned());
+                }
+            } else {
+                code(
+                    "Input · JSON",
+                    "json",
+                    serde_json::to_string_pretty(&input).unwrap_or_default(),
+                );
+            }
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(output) {
+                code(
+                    "Output · JSON",
+                    "json",
+                    serde_json::to_string_pretty(&value).unwrap_or_default(),
+                );
+            } else {
+                code("Output", "text", output.to_owned());
+            }
+        } else {
+            code("Output", "text", message.content.clone());
         }
-        rich
+        Self { blocks }
     }
     pub fn render(&self, id: &str) -> AnyElement {
+        if let [Block::Plain(text)] = self.blocks.as_slice() {
+            return text.render(format!("message-text-{id}")).into_any_element();
+        }
         self.blocks(&self.blocks, id).into_any_element()
     }
-    fn blocks(&self, blocks: &[MdBlock], id: &str) -> Div {
+    fn blocks(&self, blocks: &[Block], id: &str) -> Div {
         div()
             .flex()
             .flex_col()
@@ -112,9 +198,9 @@ impl RichText {
             .min_w_0()
             .children(blocks.iter().enumerate().map(|(index, block)| {
                 let id = format!("{id}-{index}");
-                match block.kind {
-                    "code" | "mermaid" | "tool" => {
-                        let copy = block.content.clone();
+                match block {
+                    Block::Code { lang, text, tool } => {
+                        let copy = text.content().clone();
                         div()
                             .min_w_0()
                             .rounded(px(4.))
@@ -125,20 +211,24 @@ impl RichText {
                                 div()
                                     .flex()
                                     .justify_between()
+                                    .items_center()
                                     .px(px(8.))
-                                    .py(px(4.))
+                                    .py(px(1.))
                                     .text_size(px(10.))
                                     .text_color(rgba(0xebebeb80))
-                                    .child(block.lang.clone().unwrap_or_default())
+                                    .child(lang.clone())
                                     .child(
                                         crate::button(
                                             SharedString::from(format!("copy-code-{id}")),
-                                            "Copy",
+                                            "",
                                         )
+                                        .aria_label("Copy code")
+                                        .size(px(22.)).p(px(4.)).justify_center()
+                                        .child(crate::icon("Copy").size(px(12.)))
                                         .on_click(
                                             move |_, _, cx| {
                                                 cx.write_to_clipboard(ClipboardItem::new_string(
-                                                    copy.clone(),
+                                                    copy.to_string(),
                                                 ))
                                             },
                                         ),
@@ -148,45 +238,40 @@ impl RichText {
                                 div()
                                     .id(SharedString::from(format!("code-{id}")))
                                     .overflow_x_scroll()
-                                    .when(block.kind == "tool", |d| {
-                                        d.max_h(px(112.)).overflow_y_scroll()
-                                    })
+                                    .when(*tool, |d| d.max_h(px(320.)).overflow_y_scroll())
                                     .px(px(8.))
-                                    .py(px(6.))
+                                    .pt(px(2.)).pb(px(6.))
                                     .font_family("Menlo")
                                     .text_size(px(crate::colors::CHAT_SMALL))
                                     .line_height(px(crate::colors::CHAT_SMALL * 1.625))
                                     .whitespace_nowrap()
-                                    .when(block.kind == "tool", |d| {
+                                    .when(*tool, |d| {
                                         d.whitespace_normal()
                                             .text_size(px(crate::colors::CHAT_DETAIL))
                                             .line_height(px(crate::colors::CHAT_DETAIL * 1.6))
                                     })
-                                    .child(crate::selectable::SelectableText {
-                                        id: format!("code-text-{id}").into(), text: block.content.clone(),
-                                        highlights: self.code.get(&block.content).cloned().unwrap_or_default(), links: vec![],
-                                    }),
+                                    .child(text.render(format!("code-text-{id}"))),
                             )
                             .into_any_element()
                     }
-                    "hr" => div()
+                    Block::Rule => div()
                         .my(px(8.))
                         .h(px(1.))
                         .bg(rgba(0xebebeb18))
                         .into_any_element(),
-                    "blockquote" => div()
+                    Block::Quote(children) => div()
                         .pl(px(crate::colors::CHAT_SMALL))
                         .border_l_2()
                         .border_color(rgba(0xebebeb40))
-                        .child(self.blocks(block.children.as_deref().unwrap_or_default(), &id))
+                        .child(self.blocks(children, &id))
                         .into_any_element(),
-                    "table" => div()
+                    Block::Table(rows) => div()
                         .id(SharedString::from(id.clone()))
                         .overflow_x_scroll()
-                        .children(block.rows.iter().flatten().enumerate().map(|(row, cells)| {
+                        .children(rows.iter().enumerate().map(|(row, cells)| {
                             div()
                                 .flex()
-                                .children(cells.iter().enumerate().map(|(col, tokens)| {
+                                .children(cells.iter().enumerate().map(|(col, text)| {
                                     div()
                                         .w(px(180.))
                                         .flex_shrink_0()
@@ -197,49 +282,43 @@ impl RichText {
                                         .when(row == 0, |d| {
                                             d.font_weight(FontWeight::SEMIBOLD).bg(rgba(0xffffff08))
                                         })
-                                        .child(inline(tokens, &format!("{id}-{row}-{col}")))
+                                        .child(text.render(format!("inline-{id}-{row}-{col}")))
                                 }))
                         }))
                         .into_any_element(),
-                    "ul" | "ol" | "checklist" => div()
+                    Block::List(items) => div()
                         .flex()
                         .flex_col()
-                        .children(block.items.iter().flatten().enumerate().map(|(i, item)| {
+                        .children(items.iter().enumerate().map(|(i, item)| {
                             div()
                                 .flex()
                                 .gap(px(8.))
                                 .pl(px(item.indent as f32 * 4.))
-                                .child(
-                                    div().w(px(20.)).flex_shrink_0().child(
-                                        item.checked
-                                            .map(|c| if c { "✓" } else { "□" })
-                                            .unwrap_or(&item.bullet)
-                                            .to_string(),
-                                    ),
-                                )
+                                .child(div().w(px(20.)).flex_shrink_0().child(item.bullet.clone()))
                                 .child(
                                     div()
                                         .flex_1()
                                         .min_w_0()
-                                        .child(inline(&item.tokens, &format!("{id}-{i}"))),
+                                        .child(item.text.render(format!("inline-{id}-{i}"))),
                                 )
                         }))
                         .into_any_element(),
-                    _ => div()
+                    Block::Plain(text) => text.render(id).into_any_element(),
+                    Block::Text { heading, text } => div()
                         .line_height(px(crate::colors::CHAT_BODY * 1.6))
                         .text_size(px(crate::colors::CHAT_BODY))
-                        .when(block.kind == "heading", |d| {
+                        .when(*heading, |d| {
                             d.font_weight(FontWeight::SEMIBOLD)
                                 .text_color(rgb(0xebebeb))
                                 .mt(px(8.))
                         })
-                        .child(inline(block.tokens.as_deref().unwrap_or_default(), &id))
+                        .child(text.render(format!("inline-{id}")))
                         .into_any_element(),
                 }
             }))
     }
 }
-fn inline(tokens: &[MdInlineToken], id: &str) -> crate::selectable::SelectableText {
+fn inline(tokens: &[MdInlineToken]) -> PreparedText {
     let mut text = String::new();
     let mut highlights = Vec::new();
     let mut links = Vec::new();
@@ -294,8 +373,7 @@ fn inline(tokens: &[MdInlineToken], id: &str) -> crate::selectable::SelectableTe
         &mut links,
         HighlightStyle::default(),
     );
-    crate::selectable::SelectableText { id: format!("inline-{id}").into(), text, highlights, links }
-
+    PreparedText::new(text.into(), highlights, links)
 }
 pub fn edit_card(edit: &inferay_core::chat_protocol::ChatEdit) -> Div {
     div()
@@ -361,28 +439,60 @@ pub fn system_card(render: &inferay_core::chat_protocol::NativeChatRender) -> Op
         )
     } else if let Some(skill) = &render.skill_read {
         let skill = serde_json::to_value(skill).ok()?;
-        ("Skill loaded".into(), skill["name"].as_str().map(str::to_owned),
+        (
+            "Skill loaded".into(),
+            skill["name"].as_str().map(str::to_owned),
             skill["description"].as_str().map(str::to_owned),
-            skill["command"].as_str().map(|command| format!("/{command}")), 0x8ab4f8, "✦", false)
+            skill["command"]
+                .as_str()
+                .map(|command| format!("/{command}")),
+            0x8ab4f8,
+            "✦",
+            false,
+        )
     } else if let Some(proposal) = &render.skill_proposal {
         let proposal = serde_json::to_value(proposal).ok()?;
-        ("Skill proposal".into(), proposal["name"].as_str().map(str::to_owned),
+        (
+            "Skill proposal".into(),
+            proposal["name"].as_str().map(str::to_owned),
             proposal["description"].as_str().map(str::to_owned),
-            Some("Not applied".into()), 0xf4bd50, "✦", false)
-    } else if render.automation_definition_proposal.is_some() || render.automation_proposal.is_some() || render.plugin_proposal.is_some() {
+            Some("Not applied".into()),
+            0xf4bd50,
+            "✦",
+            false,
+        )
+    } else if render.automation_definition_proposal.is_some()
+        || render.automation_proposal.is_some()
+        || render.plugin_proposal.is_some()
+    {
         let (title, value) = if let Some(proposal) = &render.automation_definition_proposal {
             ("Automation proposal", serde_json::to_value(proposal).ok()?)
         } else if let Some(proposal) = &render.automation_proposal {
             ("Automation proposal", serde_json::to_value(proposal).ok()?)
         } else {
-            ("Plugin proposal", serde_json::to_value(&render.plugin_proposal).ok()?)
+            (
+                "Plugin proposal",
+                serde_json::to_value(&render.plugin_proposal).ok()?,
+            )
         };
-        let definition = value["content"].as_str().and_then(|content| serde_json::from_str::<serde_json::Value>(content).ok()).unwrap_or(value);
+        let definition = value["content"]
+            .as_str()
+            .and_then(|content| serde_json::from_str::<serde_json::Value>(content).ok())
+            .unwrap_or(value);
         let name = definition["name"].as_str().map(str::to_owned);
-        let detail = definition["description"].as_str()
+        let detail = definition["description"]
+            .as_str()
             .or_else(|| definition["execution"]["instructions"].as_str())
             .map(str::to_owned);
-        (title.into(), name, detail, Some("Not applied".into()), 0xf4bd50, "◇", false)
+        (
+            title.into(),
+            name,
+            detail,
+            Some("Not applied".into()),
+            0xf4bd50,
+            "◇",
+            false,
+        )
     } else {
         return None;
     };
@@ -467,6 +577,94 @@ pub fn system_card(render: &inferay_core::chat_protocol::NativeChatRender) -> Op
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[test]
+    #[ignore = "paired release benchmark"]
+    fn benchmark_retained_inline_text() {
+        use std::hint::black_box;
+        for words in [64, 256, 1024] {
+            let source = "**café** and [🦀](https://example.com) with `code` ".repeat(words);
+            let mut parsed = inferay_server::prepare_markdown(&source, false, true).blocks;
+            let tokens = parsed.remove(0).tokens.unwrap();
+            let prepared = inline(&tokens);
+            assert_eq!(
+                prepared.content().as_ref(),
+                "café and 🦀 with code ".repeat(words).trim_end()
+            );
+            crate::performance::compare(&format!("inline_projection_{words}"), |retained| {
+                black_box(if retained {
+                    prepared.render("paragraph")
+                } else {
+                    inline(black_box(&tokens)).render("paragraph")
+                });
+            });
+        }
+    }
+
+    #[gpui::test]
+    #[ignore = "paired release GPUI frame benchmark"]
+    fn benchmark_retained_text_frame(cx: &mut gpui::TestAppContext) {
+        struct TextView {
+            tokens: Vec<MdInlineToken>,
+            prepared: PreparedText,
+            retained: bool,
+        }
+        impl Render for TextView {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div().size_full().overflow_hidden().child(if self.retained {
+                    self.prepared.render("paragraph")
+                } else {
+                    inline(&self.tokens).render("paragraph")
+                })
+            }
+        }
+        let source = "**café** and [🦀](https://example.com) with `code` ".repeat(512);
+        let mut parsed = inferay_server::prepare_markdown(&source, false, true).blocks;
+        let tokens = parsed.remove(0).tokens.unwrap();
+        let prepared = inline(&tokens);
+        let (view, cx) = cx.add_window_view(|_, _| TextView {
+            tokens,
+            prepared,
+            retained: false,
+        });
+        crate::performance::compare("gpui_retained_text_frame_512", |retained| {
+            view.update(cx, |view, cx| {
+                view.retained = retained;
+                cx.notify();
+            });
+            cx.draw(point(px(0.), px(0.)), size(px(624.), px(600.)), |_, _| {
+                view.clone().into_any_element()
+            });
+        });
+    }
+
+    #[gpui::test]
+    fn prepared_markdown_selection_copies_visible_unicode_text(cx: &mut gpui::TestAppContext) {
+        struct Message(RichText);
+        impl Render for Message {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div().size_full().child(self.0.render("message"))
+            }
+        }
+        let (view, cx) = cx.add_window_view(|_, _| {
+            Message(RichText::prepare(
+                "**Hello café** [🦀](https://example.com)",
+                "vscode-black",
+            ))
+        });
+        cx.draw(point(px(0.), px(0.)), size(px(400.), px(200.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        let bounds = cx.debug_bounds("selectable-text").unwrap();
+        cx.simulate_click(bounds.center(), Modifiers::default());
+        cx.simulate_keystrokes("cmd-a cmd-c");
+        assert_eq!(
+            cx.read_from_clipboard()
+                .and_then(|item| item.text())
+                .as_deref(),
+            Some("Hello café 🦀")
+        );
+    }
     #[test]
     fn restored_tools_show_commands_outputs_and_edit_payloads() {
         let mut buffer = inferay_core::chat_protocol::ChatMessageBuffer::default();
@@ -486,10 +684,17 @@ mod tests {
                 .label,
             "exec"
         );
-        assert_eq!(
-            RichText::message(message, "vscode-black").blocks[0].content,
-            "$ cargo test\npassed 🌳"
-        );
+        let rich = RichText::message(message, "vscode-black");
+        let Block::Code { text, lang, .. } = &rich.blocks[0] else {
+            panic!("tool code block")
+        };
+        assert_eq!(text.content().as_ref(), "cargo test");
+        assert_eq!(lang.as_ref(), "Command · shell");
+        let Block::Code { text, lang, .. } = &rich.blocks[1] else {
+            panic!("separate output")
+        };
+        assert_eq!(text.content().as_ref(), "passed 🌳");
+        assert_eq!(lang.as_ref(), "Output");
         assert_eq!(
             buffer.messages()[1]
                 .render
@@ -501,65 +706,35 @@ mod tests {
                 .file_path,
             "main.rs"
         );
-        assert_eq!(
-            RichText::prepare("output\n````\nmore", true, "vscode-black").blocks[0].content,
-            "output\n````\nmore"
-        );
-    }
-    #[test]
-    fn selected_palette_preserves_control_variables_comments_and_alpha() {
-        let code = "const value = \"hello\";\nif (value) { return value; } // comment\n";
-        let black = crate::syntax::highlights(code, "js", "vscode-black");
-        let contrast = crate::syntax::highlights(code, "js", "contrast");
-        for color in [0xc586c0, 0x9cdcfe, 0xce9178] {
-            assert!(
-                black
-                    .iter()
-                    .any(|(_, style)| style.color == Some(rgb(color).into())),
-                "missing {color:x}"
-            );
-        }
-        assert!(
-            black
-                .iter()
-                .any(|(_, style)| style.font_style == Some(FontStyle::Italic))
-        );
-        assert!(
-            contrast
-                .iter()
-                .any(|(_, style)| style.color == Some(rgb(0xff9492).into()))
-        );
-        assert!(
-            !contrast
-                .iter()
-                .any(|(_, style)| style.color == Some(rgb(0xc586c0).into()))
-        );
-        let vitesse = crate::syntax::highlights("let value = 1;", "js", "vitesse");
-        assert!(
-            vitesse
-                .iter()
-                .any(|(_, style)| style.color == Some(rgba(0xdbd7caee).into()))
-        );
+        let raw = serde_json::from_value(
+            serde_json::json!({"id":"raw", "role":"tool", "content":"output\n````\nmore"}),
+        )
+        .unwrap();
+        let rich = RichText::message(&raw, "vscode-black");
+        let Block::Code { text, .. } = &rich.blocks[0] else {
+            panic!("literal tool output")
+        };
+        assert_eq!(text.content().as_ref(), "output\n````\nmore");
     }
     #[test]
     fn preserves_rich_blocks_and_unicode_syntax_ranges() {
         let rich = RichText::prepare(
             "**Bold** and [link](https://example.com)\n\n- one\n- two\n\n```rust\nlet emoji = \"😀\";\n```",
-            false,
             "vscode-black",
         );
-        assert!(rich.blocks.iter().any(|b| b.kind == "ul"));
-        let code = rich.blocks.iter().find(|b| b.kind == "code").unwrap();
-        let spans = &rich.code[&code.content];
         assert!(
-            spans
+            rich.blocks
                 .iter()
-                .any(|(_, style)| style.color == Some(rgb(0x569cd6).into()))
+                .any(|block| matches!(block, Block::List(_)))
         );
-        assert!(
-            spans
-                .iter()
-                .all(|(r, _)| code.content.get(r.clone()).is_some())
-        );
+        let Block::Code { text, .. } = rich
+            .blocks
+            .iter()
+            .find(|block| matches!(block, Block::Code { .. }))
+            .unwrap()
+        else {
+            unreachable!()
+        };
+        assert_eq!(text.content().as_ref(), "let emoji = \"😀\";");
     }
 }
