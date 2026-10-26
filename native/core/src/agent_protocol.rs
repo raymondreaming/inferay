@@ -173,6 +173,27 @@ impl CodexProtocolState {
             ("turn/started", _) => {
                 self.emit_status(context, "thinking", true);
             }
+            (method @ ("item/started" | "item/completed"), "mcpToolCall" | "dynamicToolCall" | "webSearch") => {
+                let done = method == "item/completed";
+                let name = match item_type {
+                    "mcpToolCall" => format!("mcp__{}__{}", string_field(item, "server"), string_field(item, "tool")),
+                    "webSearch" => "WebSearch".to_owned(),
+                    _ => string_field(item, "tool").to_owned(),
+                };
+                if !done {
+                    close_block(context, &mut self.assistant_open);
+                    self.emit_status(context, &format!("tool:{name}"), true);
+                }
+                let input = if item_type == "webSearch" { json!({"query":item["query"]}) } else { item["arguments"].clone() };
+                let output = if !item["error"].is_null() { item["error"].clone() }
+                    else if item_type == "dynamicToolCall" { item["contentItems"].clone() }
+                    else if item_type == "webSearch" { item["results"].clone() }
+                    else { item["result"].clone() };
+                context.emissions.push(ProtocolEmission::Chat(json!({
+                    "type":"inferay.tool", "id":format!("codex-tool:{}", string_field(item,"id")),
+                    "name":name,"input":input,"output":output,"done":done
+                })));
+            }
             ("item/started", "commandExecution") => {
                 let payload = json!({
                     "command": string_field(item, "command"),

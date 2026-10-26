@@ -442,6 +442,30 @@ pub fn system_card(render: &inferay_core::chat_protocol::NativeChatRender) -> Op
             "⋮",
             true,
         )
+    } else if let Some(skill) = &render.skill_read {
+        let skill = serde_json::to_value(skill).ok()?;
+        ("Skill loaded".into(), skill["name"].as_str().map(str::to_owned),
+            skill["description"].as_str().map(str::to_owned),
+            skill["command"].as_str().map(|command| format!("/{command}")), 0x8ab4f8, "✦", false)
+    } else if let Some(proposal) = &render.skill_proposal {
+        let proposal = serde_json::to_value(proposal).ok()?;
+        ("Skill proposal".into(), proposal["name"].as_str().map(str::to_owned),
+            proposal["description"].as_str().map(str::to_owned),
+            Some("Not applied".into()), 0xf4bd50, "✦", false)
+    } else if render.automation_definition_proposal.is_some() || render.automation_proposal.is_some() || render.plugin_proposal.is_some() {
+        let (title, value) = if let Some(proposal) = &render.automation_definition_proposal {
+            ("Automation proposal", serde_json::to_value(proposal).ok()?)
+        } else if let Some(proposal) = &render.automation_proposal {
+            ("Automation proposal", serde_json::to_value(proposal).ok()?)
+        } else {
+            ("Plugin proposal", serde_json::to_value(&render.plugin_proposal).ok()?)
+        };
+        let definition = value["content"].as_str().and_then(|content| serde_json::from_str::<serde_json::Value>(content).ok()).unwrap_or(value);
+        let name = definition["name"].as_str().map(str::to_owned);
+        let detail = definition["description"].as_str()
+            .or_else(|| definition["execution"]["instructions"].as_str())
+            .map(str::to_owned);
+        (title.into(), name, detail, Some("Not applied".into()), 0xf4bd50, "◇", false)
     } else {
         return None;
     };

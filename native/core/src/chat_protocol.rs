@@ -284,6 +284,53 @@ impl ChatMessageBuffer {
             return;
         };
         match event_type {
+            "inferay.tool" => {
+                let Some(id) = event["id"].as_str().filter(|id| !id.is_empty()) else { return; };
+                let done = event["done"] == true;
+                let mut content = stringify_tool_input(event.get("input"));
+                if done && !event["output"].is_null() {
+                    content.push('\n');
+                    let output = &event["output"];
+                    let parts = output.get("content").and_then(Value::as_array).or_else(|| output.as_array());
+                    if let Some(parts) = parts {
+                        for part in parts {
+                            if let Some(text) = part["text"].as_str() {
+                                content.push_str(text);
+                                content.push('\n');
+                            } else {
+                                if part["type"] == "image" || part["type"] == "inputImage" {
+                                    content.push_str("[Image result]\n");
+                                } else {
+                                    content.push_str(&serde_json::to_string_pretty(part).unwrap_or_default());
+                                    content.push('\n');
+                                }
+                            }
+                        }
+                        if !output["structuredContent"].is_null() {
+                            content.push_str(&serde_json::to_string_pretty(&output["structuredContent"]).unwrap_or_default());
+                        }
+                    } else if let Some(text) = output.as_str() {
+                        content.push_str(text);
+                    } else {
+                        content.push_str(&serde_json::to_string_pretty(output).unwrap_or_default());
+                    }
+                }
+                let content = truncate_chat_content(&content, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
+                if let Some(index) = self.messages.iter().position(|message| message.id == id) {
+                    let message = &mut self.messages[index];
+                    message.content = content;
+                    message.is_streaming = Some(!done);
+                    message.render = None;
+                    self.replaced_content.insert(id.to_owned());
+                    self.mark_changed(index);
+                } else {
+                    let mut message = ChatTranscriptMessage::new("tool", &content);
+                    message.id = id.to_owned();
+                    message.tool_name = event["name"].as_str().map(str::to_owned);
+                    message.is_streaming = Some(!done);
+                    self.push(message);
+                }
+            }
             "assistant" => self.apply_assistant_event(event),
             "content_block_start" => self.apply_block_start(event),
             "content_block_delta" => self.apply_block_delta(event),

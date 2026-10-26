@@ -140,3 +140,34 @@ fn codex_thread_names_follow_the_active_session() {
         vec![ProtocolEmission::Title("Fix repository picker".into())]
     );
 }
+
+#[test]
+fn codex_connector_calls_are_visible_before_completion_and_keep_their_results() {
+    use inferay_core::chat_protocol::ChatMessageBuffer;
+    let mut state = CodexProtocolState::default();
+    let mut context = AgentProtocolContext::new("/repo");
+    let mut transcript = ChatMessageBuffer::default();
+    let a = json!({"id":"a","type":"mcpToolCall","server":"github","tool":"list_issues","arguments":{"repo":"example"}});
+    let b = json!({"id":"b","type":"dynamicToolCall","tool":"inspect_project","arguments":{}});
+    for item in [&a, &b] {
+        state.handle_notification(&mut context, "item/started", &json!({"item":item}), &ProtocolFiles::default());
+        for emission in context.take_emissions() {
+            if let ProtocolEmission::Chat(event) = emission { transcript.apply_event(&event); }
+        }
+    }
+    assert_eq!(transcript.messages().len(), 2);
+    assert!(transcript.messages().iter().all(|m| m.is_streaming == Some(true)));
+    assert_eq!(transcript.messages()[0].render.as_ref().unwrap().display.as_ref().unwrap().source.as_ref().unwrap().server_id, "github");
+    let mut completed = a;
+    completed["result"] = json!({"content":[{"type":"text","text":"Found three issues"}],"structuredContent":{"count":3}});
+    state.handle_notification(&mut context, "item/completed", &json!({"item":completed}), &ProtocolFiles::default());
+    for emission in context.take_emissions() {
+        if let ProtocolEmission::Chat(event) = emission { transcript.apply_event(&event); }
+    }
+    assert_eq!(transcript.messages().len(), 2);
+    assert_eq!(transcript.messages()[0].is_streaming, Some(false));
+    assert!(transcript.messages()[0].content.contains("Found three issues"));
+    assert!(transcript.messages()[0].content.contains("\"count\": 3"));
+    assert_eq!(transcript.messages()[1].is_streaming, Some(true));
+    assert!(transcript.messages()[0].render.as_ref().unwrap().continues_after);
+}

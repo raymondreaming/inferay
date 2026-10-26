@@ -17,6 +17,8 @@ struct Update {
     notice: Option<String>,
     commands: Option<tokio::sync::mpsc::Sender<Command>>,
     running: bool,
+    status: String,
+    terminal: bool,
     start_time: Option<f64>,
     refresh_title: bool,
     queue: Option<Vec<Value>>,
@@ -121,6 +123,16 @@ impl WorkspaceView {
         let config = chat.config.clone();
         chat.sending = true;
         chat.error = None;
+        let local_command = text.split_whitespace().next().is_some_and(|command|
+            ["/help", "/clear", "/exit", "/btw"].iter().any(|local| command.eq_ignore_ascii_case(local)));
+        let started = !stop && !chat.running && !local_command;
+        if started {
+            chat.running = true;
+            chat.run_status = "sending".into();
+            chat.start_time = Some(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as f64);
+            chat.scroll.set_follow_mode(FollowMode::Tail);
+            chat.scroll.scroll_to_end();
+        }
         let sent_text = text.clone();
         let sent_images = chat.images.clone();
         let images = sent_images.clone();
@@ -173,6 +185,11 @@ impl WorkspaceView {
                     }
                     Ok(()) => {}
                     Err(error) => {
+                        if started && chat.run_status == "sending" {
+                            chat.running = false;
+                            chat.start_time = None;
+                            chat.run_status = "idle".into();
+                        }
                         chat.error = Some(format!(
                             "Could not {}: {error:#}",
                             if stop {
@@ -333,7 +350,7 @@ impl WorkspaceView {
                             None
                         };
                         updates
-                            .send(Update { changed, queue: queue_update, notice: plan.notice, commands: ready.then(|| commands.clone()), refresh_title: matches!(event["type"].as_str(), Some("chat:sync" | "chat:summary")), running: status["isLoading"].as_bool().unwrap_or(false), start_time: status["startTime"].as_f64() })
+                            .send(Update { changed, queue: queue_update, notice: plan.notice, commands: ready.then(|| commands.clone()), refresh_title: matches!(event["type"].as_str(), Some("chat:sync" | "chat:summary")), running: status["isLoading"].as_bool().unwrap_or(false), status: status["status"].as_str().unwrap_or("idle").into(), terminal: matches!(event["type"].as_str(), Some("chat:done" | "chat:error")), start_time: status["startTime"].as_f64() })
                             .await
                             .map_err(|_| anyhow::anyhow!("Chat view closed"))?;
                     }
@@ -345,7 +362,7 @@ impl WorkspaceView {
                 };
                 if let Err(error) = result
                     && updates
-                        .send(Update { changed: None, queue: None, notice: Some(format!("{error:#}")), commands: None, refresh_title: false, running: status["isLoading"].as_bool().unwrap_or(false), start_time: status["startTime"].as_f64() })
+                        .send(Update { changed: None, queue: None, notice: Some(format!("{error:#}")), commands: None, refresh_title: false, running: status["isLoading"].as_bool().unwrap_or(false), status: status["status"].as_str().unwrap_or("idle").into(), terminal: false, start_time: status["startTime"].as_f64() })
                         .await
                         .is_err()
                 {
@@ -359,6 +376,31 @@ impl WorkspaceView {
         });
         chat.live_task = Some(cx.spawn(async move |this, cx| {
             while let Some(update) = incoming.recv().await {
+                if this.update(cx, |view, cx| {
+                    view.track_draft(index, false, cx);
+                    if update.refresh_title {
+                        view.refresh_chat_title(index, cx);
+                    }
+                    let chat = &mut view.conversations[index];
+                    chat.connection_error = update.notice.clone();
+                    chat.commands = update.commands.clone();
+                    let status = inferay_presentation::transcript::run_status(&json!({
+                        "current":{"isLoading":chat.running,"status":chat.run_status,"startTime":chat.start_time.map(|time| time as u64)},
+                        "incoming":{"isLoading":update.running,"status":update.status,"startTime":update.start_time.map(|time| time as u64)},
+                        "terminal":update.terminal,
+                    }));
+                    chat.running = status["isLoading"].as_bool().unwrap_or(false);
+                    chat.start_time = status["startTime"].as_f64();
+                    chat.run_status = status["status"].as_str().unwrap_or("idle").into();
+                    if let Some(queue) = &update.queue {
+                        chat.queue = queue.clone();
+                        if chat.queue_editor.as_ref().is_some_and(|(id, _)| !chat.queue.iter().any(|m| m["id"].as_str() == Some(id.as_str()))) {
+                            chat.queue_editor = None;
+                            chat.queue_submit = None;
+                        }
+                    }
+                    cx.notify();
+                }).is_err() { break; }
                 let prepared = if let Some((start, messages)) = update.changed {
                     let Ok(theme) = this.read_with(cx, |view, _| view.syntax_theme.clone()) else {
                         break;
@@ -379,22 +421,7 @@ impl WorkspaceView {
                 };
                 if this
                     .update(cx, |view, cx| {
-                        view.track_draft(index, false, cx);
-                        if update.refresh_title {
-                            view.refresh_chat_title(index, cx);
-                        }
                         let chat = &mut view.conversations[index];
-                        chat.connection_error = update.notice;
-                        chat.commands = update.commands;
-                        chat.running = update.running;
-                        chat.start_time = update.start_time;
-                        if let Some(queue) = update.queue {
-                            chat.queue = queue;
-                            if chat.queue_editor.as_ref().is_some_and(|(id, _)| !chat.queue.iter().any(|m| m["id"].as_str() == Some(id.as_str()))) {
-                                chat.queue_editor = None;
-                            chat.queue_submit = None;
-                            }
-                        }
                         if let Some((start, messages, rich)) = prepared {
                             let follow = chat.scroll.is_following_tail();
                             let anchor = chat.scroll.logical_scroll_top();

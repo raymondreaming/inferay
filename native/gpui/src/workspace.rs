@@ -38,6 +38,7 @@ struct Conversation {
     sending: bool,
     running: bool,
     start_time: Option<f64>,
+    run_status: String,
     queue: Vec<serde_json::Value>,
     queue_task: Option<Task<()>>,
     queue_editor: Option<(String, Entity<TextInput>)>,
@@ -217,6 +218,7 @@ impl WorkspaceView {
                 sending: false,
                 running: false,
                 start_time: None,
+                run_status: "idle".into(),
                 queue: Vec::new(),
                 queue_task: None,
                 queue_editor: None,
@@ -337,6 +339,7 @@ impl WorkspaceView {
                     sending: false,
                     running: false,
                 start_time: None,
+                run_status: "idle".into(),
                 queue: Vec::new(),
                 queue_task: None,
                 queue_editor: None,
@@ -375,6 +378,7 @@ impl WorkspaceView {
                     sending: false,
                     running: false,
                 start_time: None,
+                run_status: "idle".into(),
                 queue: Vec::new(),
                 queue_task: None,
                 queue_editor: None,
@@ -573,6 +577,7 @@ impl WorkspaceView {
             sending: false,
             running: false,
                 start_time: None,
+                run_status: "idle".into(),
                 queue: Vec::new(),
                 queue_task: None,
                 queue_editor: None,
@@ -720,7 +725,7 @@ impl WorkspaceView {
             .flex_col()
             .px(px(0.))
             .pt(px(0.))
-            .pb(px(18.))
+            .pb(px(0.))
             .child(
                 div()
                     .w_full()
@@ -781,6 +786,18 @@ impl WorkspaceView {
                 .min_h_0()
                 .w_full(),
             )
+            .when(chat.running, |d| d.child(
+                div().debug_selector(|| "chat-live-progress".into()).w_full().max_w(px(624.)).mx_auto().px(px(12.)).py(px(4.))
+                    .text_size(px(colors::CHAT_SMALL)).text_color(rgba(0xebebeb80))
+                    .child(match chat.run_status.as_str() {
+                        "sending" => "Sending message…".to_owned(),
+                        "thinking" => "Thinking…".to_owned(),
+                        "responding" => "Writing response…".to_owned(),
+                        status if status.starts_with("tool:") => inferay_core::tool_presentation::display(Some(&status[5..]), &serde_json::Value::Null).label,
+                        "idle" | "" => "Working…".to_owned(),
+                        status => status.to_owned(),
+                    })
+            ))
             .when(
                 !chat.messages.is_empty() && !chat.scroll.is_following_tail(),
                 |d| {
@@ -820,6 +837,8 @@ impl WorkspaceView {
         if message.render.as_ref().is_some_and(|r| r.hidden) {
             return div().h(px(0.)).into_any_element();
         }
+        let last_visible = !chat.messages[message_index + 1..].iter()
+            .any(|message| !message.render.as_ref().is_some_and(|render| render.hidden));
         let id = message.id.clone();
         let content = message.content.clone();
         let row = if message.role == "tool" {
@@ -835,11 +854,9 @@ impl WorkspaceView {
                 .max_w(px(544.))
                 .mx_auto()
                 .pl(px(12.))
-                .pb(px(4.))
+                .pb(px(if last_visible { 0. } else { 4. }))
                 .when(
-                    chat.messages
-                        .get(message_index + 1)
-                        .is_some_and(|m| m.role == "tool"),
+                    render.is_some_and(|render| render.continues_after),
                     |d| d.border_l_1().border_color(rgba(0xebebeb24)),
                 )
                 .child(
@@ -851,11 +868,16 @@ impl WorkspaceView {
                         .rounded_full()
                         .bg(rgb(0x202020))
                         .border_1()
-                        .border_color(rgba(0xebebeb40)),
+                        .border_color(rgba(0xebebeb40))
+                        .when(message.is_streaming == Some(true), |dot| dot.child(
+                            div().absolute().inset_0().rounded_full().bg(rgb(0x8ab4f8))
+                                .with_animation(SharedString::from(format!("tool-active-{id}")), Animation::new(std::time::Duration::from_millis(1200)).repeat(),
+                                    |dot, phase| dot.opacity(0.45 + 0.55 * (phase * std::f32::consts::PI).sin())))),
                 )
                 .child(
                     div()
                         .id(SharedString::from(id.clone()))
+                        .debug_selector(|| "tool-timeline-row".into())
                         .role(Role::Button)
                         .aria_label(label.clone())
                         .flex()
@@ -866,6 +888,9 @@ impl WorkspaceView {
                         .cursor_pointer()
                         .text_size(px(colors::CHAT_SMALL))
                         .text_color(rgba(0xebebebb8))
+                        .when_some(display.and_then(|display| display.source.as_ref()), |d, source| d.child(
+                            div().debug_selector(|| "tool-source".into()).flex_shrink_0().text_size(px(colors::CHAT_DETAIL)).text_color(rgb(0x8ab4f8))
+                                .child(source.server_label.clone())))
                         .child(
                             div()
                                 .min_w_0()
@@ -922,7 +947,7 @@ impl WorkspaceView {
             card
         } else if message.role == "system" {
             div()
-                .my(px(4.))
+                .mt(px(4.)).mb(px(if last_visible { 0. } else { 4. }))
                 .text_size(px(colors::CHAT_SMALL))
                 .text_color(rgba(0xebebeb80))
                 .child(crate::selectable::SelectableText { id: format!("message-text-{}", message.id).into(), text: content, highlights: vec![], links: vec![] })
@@ -931,7 +956,7 @@ impl WorkspaceView {
             div()
                 .flex()
                 .justify_end()
-                .mb(px(8.))
+                .mb(px(if last_visible { 0. } else { 8. }))
                 .child(
                     div()
                         .max_w(relative(0.85))
@@ -945,14 +970,14 @@ impl WorkspaceView {
                 .into_any_element()
         } else {
             div()
-                .mb(px(8.))
+                .mb(px(if last_visible { 0. } else { 8. }))
                 .child(
                     div()
                         .line_height(px(colors::CHAT_BODY * 1.6))
                         .text_color(rgba(0xebebebb8))
                         .child(chat.rich[message_index].render(&message.id)),
                 )
-                .child(
+                .when(message.is_streaming != Some(true) && !content.trim().is_empty(), |d| d.child(
                     div().flex().justify_end().mt(px(4.)).child(
                         button(SharedString::from(format!("copy-{}", message.id)), "Copy")
                             .h(px(24.))
@@ -963,7 +988,7 @@ impl WorkspaceView {
                                 cx.write_to_clipboard(ClipboardItem::new_string(content.clone()))
                             }),
                     ),
-                )
+                ))
                 .into_any_element()
         };
         div()
@@ -1189,11 +1214,11 @@ impl WorkspaceView {
             .find(|r| r.id == chat.config.reasoning_level)
             .map(|r| r.label.clone())
             .unwrap_or_else(|| chat.config.reasoning_level.clone());
-        div().debug_selector(|| "chat-composer".into()).relative().w_full().max_w(px(624.)).mx_auto().px(px(12.)).pt(px(4.)).pb(px(8.)).flex_shrink_0()
+        div().debug_selector(|| "chat-composer".into()).relative().w_full().max_w(px(624.)).mx_auto().px(px(12.)).pt(px(0.)).pb(px(8.)).flex_shrink_0()
             .when(!self.status.is_empty(), |d| d.child(div().px(px(8.)).pb(px(10.)).text_size(px(11.)).text_color(rgba(0xebebeb80)).child(self.status.clone())))
             .when(chat.running, |d| d.child(
-                div().debug_selector(|| "chat-activity".into()).flex().items_center().justify_between().px(px(8.)).py(px(1.))
-                    .child(div().h(px(20.)).flex().items_center().when_some(chat.start_time, |d, start| d.child(
+                div().debug_selector(|| "chat-activity".into()).flex().items_center().justify_between().h(px(20.)).pb(px(4.))
+                    .child(div().h(px(16.)).flex().items_center().when_some(chat.start_time, |d, start| d.child(
                         div().id(("activity-time", index)).flex().items_center().gap(px(6.)).with_animation(
                             ("chat-activity", index), Animation::new(std::time::Duration::from_millis(1500)).repeat(),
                             move |d, phase| {
@@ -1215,10 +1240,10 @@ impl WorkspaceView {
                             },
                         )
                     )))
-                    .child(button(("activity-stop", index), "").aria_label("Stop generation").size(px(20.)).p(px(2.)).border_1().border_color(rgba(0xebebeb1a)).rounded(px(6.)).child(icon("Stop").size(px(16.)))
+                    .child(button(("activity-stop", index), "").aria_label("Stop generation").size(px(16.)).p(px(0.)).justify_center().border_1().border_color(rgba(0xebebeb1a)).rounded(px(4.)).child(icon("Stop").size(px(12.)))
                         .on_click(cx.listener(move |view, _, _, cx| view.send_chat(index, true, cx))))
             ))
-            .child(div().relative().rounded(px(12.)).border_1().border_color(rgba(0xebebeb0f))
+            .child(div().debug_selector(|| "chat-input-shell".into()).relative().rounded(px(12.)).border_1().border_color(rgba(0xebebeb0f))
                 .when(chat.running || chat.input.focus_handle(cx).is_focused(window), |d| d.child(
                     div().absolute().inset_0().rounded(px(12.)).overflow_hidden().with_animation(("composer-beam", index), Animation::new(std::time::Duration::from_millis(2500)).repeat(), |d, phase| d.child(
                         canvas(|_, _, _| (), move |bounds, _, window, _| {
@@ -1729,7 +1754,11 @@ mod tests {
         assert!(
             ((composer.left() - pane.left()) - (pane.right() - composer.right())).abs() < px(1.)
         );
-        assert_eq!(composer.size.height, px(82.));
+        assert_eq!(composer.size.height, px(78.));
+        let input = cx.debug_bounds("chat-input-shell").unwrap();
+        view.read_with(cx, |view, _| {
+            assert_eq!(view.conversations[0].scroll.viewport_bounds().bottom(), input.top());
+        });
         let message = cx.debug_bounds("chat-message-column").unwrap();
         assert_eq!(message.left(), composer.left());
         assert_eq!(message.size.width, composer.size.width);
@@ -1773,7 +1802,14 @@ mod tests {
             view.clone().into_any_element()
         });
         let activity = cx.debug_bounds("chat-activity").unwrap();
-        assert_eq!(activity.size.height, px(22.));
+        assert_eq!(activity.size.height, px(20.));
+        let input = cx.debug_bounds("chat-input-shell").unwrap();
+        assert_eq!(activity.bottom(), input.top());
+        let progress = cx.debug_bounds("chat-live-progress").unwrap();
+        view.read_with(cx, |view, _| {
+            assert_eq!(view.conversations[0].scroll.viewport_bounds().bottom(), progress.top());
+            assert_eq!(progress.bottom(), activity.top());
+        });
         let queue = cx.debug_bounds("chat-queue").unwrap();
         assert!(activity.bottom() <= queue.top());
         assert!(queue.size.height <= px(112.));
@@ -1820,6 +1856,63 @@ mod tests {
             assert!(list.viewport_bounds().size.height > px(100.));
             assert!(list.bounds_for_item(0).is_some());
         });
+    }
+
+    #[gpui::test]
+    fn connector_timeline_is_visible_while_running_and_expands(cx: &mut gpui::TestAppContext) {
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            let input = cx.new(TextInput::new);
+            let mut view = WorkspaceView::empty(cx.focus_handle(), input, cx);
+            view.status.clear();
+            let mut buffer = inferay_core::chat_protocol::ChatMessageBuffer::default();
+            buffer.apply_event(&serde_json::json!({"type":"inferay.tool","id":"live-tool","name":"mcp__github__list_issues","input":{"repo":"example"},"done":false}));
+            let chat = &mut view.conversations[0];
+            chat.loaded = true;
+            chat.running = true;
+            chat.run_status = "tool:mcp__github__list_issues".into();
+            chat.messages = buffer.messages().to_vec();
+            chat.rich = chat.messages.iter().map(|m| crate::rich_text::RichText::message(m, "vscode-black")).collect();
+            chat.scroll.splice(0..0, chat.messages.len());
+            view
+        });
+        cx.simulate_resize(size(px(800.), px(560.)));
+        cx.draw(point(px(0.), px(0.)), size(px(800.), px(560.)), |_, _| view.clone().into_any_element());
+        let row = cx.debug_bounds("tool-timeline-row").unwrap();
+        assert!(row.size.height >= px(24.));
+        assert!(cx.debug_bounds("tool-source").is_some());
+        cx.simulate_click(row.center(), Modifiers::default());
+        view.read_with(cx, |view, _| assert!(view.expanded.contains("live-tool")));
+    }
+
+    #[gpui::test]
+    fn sending_starts_timer_immediately_and_failure_restores_idle(cx: &mut gpui::TestAppContext) {
+        let profile = tempfile::tempdir().unwrap();
+        let backend = crate::backend::RUNTIME.block_on(crate::backend::Backend::connect(profile.path().to_owned())).unwrap();
+        let (commands, _receiver) = tokio::sync::mpsc::channel::<live::Command>(1);
+        let window = cx.add_window(|_, cx| {
+            let input = cx.new(TextInput::new);
+            let mut view = WorkspaceView::empty(cx.focus_handle(), input, cx);
+            view.backend = std::sync::Arc::new(tokio::sync::OnceCell::new_with(Some(backend)));
+            let chat = &mut view.conversations[0];
+            chat.pane = Some("missing-pane".into());
+            chat.commands = Some(commands);
+            chat.input.update(cx, |input, cx| input.set_content("hello", cx));
+            view.send_chat(0, false, cx);
+            let chat = &view.conversations[0];
+            assert!(chat.running);
+            assert!(chat.start_time.is_some());
+            assert_eq!(chat.run_status, "sending");
+            view
+        });
+        cx.run_until_parked();
+        window.update(cx, |view, _, cx| {
+            let chat = &view.conversations[0];
+            assert!(!chat.running);
+            assert!(chat.start_time.is_none());
+            assert_eq!(chat.run_status, "idle");
+            assert_eq!(chat.input.read(cx).content.as_ref(), "hello");
+            assert!(chat.error.is_some());
+        }).unwrap();
     }
 
     #[gpui::test]

@@ -466,6 +466,7 @@ async fn run_codex(
     state: &mut CodexProtocolState,
     emissions: &mpsc::Sender<ProtocolEmission>,
 ) -> String {
+    let _ = emissions.send(ProtocolEmission::Status { status: "Starting Codex…".into(), is_loading: true }).await;
     let mut child = match spawn_codex_app_server(run.binary, &run.invocation.cwd, run.env) {
         Ok(child) => child,
         Err(error) => {
@@ -500,6 +501,7 @@ async fn run_codex(
         )
         .await?;
         rpc.write(&json!({"method":"initialized"})).await?;
+        let _ = emissions.send(ProtocolEmission::Status { status: "Loading Codex configuration…".into(), is_loading: true }).await;
         let config = rpc
             .request(
                 "config/read",
@@ -510,6 +512,7 @@ async fn run_codex(
         let mut start_params = codex_thread_params(run.invocation);
         configure_codex_session(&mut start_params, &config["config"], run.env, run.invocation.mcp_servers.as_deref())?;
         start_params["dynamicTools"] = handle.tool_definitions();
+        let _ = emissions.send(ProtocolEmission::Status { status: "Opening Codex conversation…".into(), is_loading: true }).await;
         let thread_response = if let Some(thread_id) = &run.invocation.session_id {
             let mut params = codex_thread_params(run.invocation);
             configure_codex_session(&mut params, &config["config"], run.env, run.invocation.mcp_servers.as_deref())?;
@@ -548,6 +551,7 @@ async fn run_codex(
         flush_emissions(context, emissions).await;
         // Resolve MCP tools before the model snapshots its tool inventory.
         // Starting discovery after turn/start leaves slow servers out of that turn.
+        let _ = emissions.send(ProtocolEmission::Status { status: "Connecting tools…".into(), is_loading: true }).await;
         let mut cursor = Value::Null;
         loop {
             let page = rpc
@@ -564,6 +568,7 @@ async fn run_codex(
                 break;
             }
         }
+        let _ = emissions.send(ProtocolEmission::Status { status: "Starting response…".into(), is_loading: true }).await;
         let turn_params = codex_turn_params(&thread_id, run.prompt, run.invocation);
         let turn_response = rpc
             .request(
