@@ -38,8 +38,9 @@ impl RepositoryView {
                     .flex_shrink_0()
                     .flex()
                     .items_center()
-                    .text_size(px(10.))
-                    .text_color(rgba(0xebebeb80))
+                    .text_size(px(9.))
+                    .line_height(px(12.))
+                    .text_color(rgba(0xebebeb70))
                     .children(order.iter().map(|column| {
                         div()
                             .w(px(widths[column].as_f64().unwrap_or(100.) as f32))

@@ -20,6 +20,8 @@ impl AssetSource for Assets {
     fn load(&self, path: &str) -> anyhow::Result<Option<Cow<'static, [u8]>>> {
         let bytes: &'static [u8] = match path {
             "Settings" => include_bytes!("../assets/icons/Settings.svg"),
+            "Expand" => include_bytes!("../assets/icons/Expand.svg"),
+            "Collapse" => include_bytes!("../assets/icons/Collapse.svg"),
             "GitBranch" => include_bytes!("../assets/icons/GitBranch.svg"),
             "CommitGraph" => include_bytes!("../assets/icons/CommitGraph.svg"),
             "Workflow" => include_bytes!("../assets/icons/Workflow.svg"),
@@ -30,6 +32,7 @@ impl AssetSource for Assets {
             "PanelLeft" => include_bytes!("../assets/icons/PanelLeft.svg"),
             "Bookmark" => include_bytes!("../assets/icons/Bookmark.svg"),
             "Sparkles" => include_bytes!("../assets/icons/Sparkles.svg"),
+            "Minus" => include_bytes!("../assets/icons/Minus.svg"),
             "Plus" => include_bytes!("../assets/icons/Plus.svg"),
             "ChevronDown" => include_bytes!("../assets/icons/ChevronDown.svg"),
             "ChevronRight" => include_bytes!("../assets/icons/ChevronRight.svg"),
@@ -121,6 +124,9 @@ fn menu_surface(id: impl Into<ElementId>) -> Stateful<Div> {
         .border_1().border_color(rgba(0xebebeb20)).shadow_lg().occlude()
 }
 fn button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Stateful<Div> {
+    plain_button(id, label).hover(|s| s.bg(rgba(0xffffff0d)))
+}
+fn plain_button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Stateful<Div> {
     let label = label.into();
     div()
         .id(id)
@@ -135,6 +141,5 @@ fn button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Stateful<
         .rounded(px(6.))
         .text_size(px(colors::CHAT_SMALL))
         .cursor_pointer()
-        .hover(|s| s.bg(rgba(0xffffff0d)))
         .when(!label.is_empty(), |d| d.child(label))
 }

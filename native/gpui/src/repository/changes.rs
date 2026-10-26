@@ -186,7 +186,7 @@ impl RepositoryView {
                             d.child(
                                 button(
                                     SharedString::from(format!("stage-{staged}-{i}")),
-                                    if staged { "−" } else { "+" },
+                                    "",
                                 )
                                 .aria_label(format!(
                                     "{} {action_path}",
@@ -194,7 +194,8 @@ impl RepositoryView {
                                 ))
                                 .h(px(22.))
                                 .w(px(22.))
-                                .px(px(5.))
+                                .p(px(4.)).flex_shrink_0().justify_center()
+                                .child(icon(if staged { "Minus" } else { "Plus" }).size(px(14.)))
                                 .when(self.mutating, |d| d.opacity(0.4))
                                 .on_click(cx.listener(
                                     move |s, _, _, cx| {

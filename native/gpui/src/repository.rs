@@ -752,7 +752,7 @@ impl Render for RepositoryView {
             .child(
                 div()
                     .debug_selector(|| "repository-toolbar".into())
-                    .h(px(37.))
+                    .h(px(32.))
                     .flex_shrink_0()
                     .px(px(8.))
                     .flex()
@@ -768,7 +768,8 @@ impl Render for RepositoryView {
                         .child(icon("ChevronDown"))
                         .on_click(cx.listener(|s, _, _, cx| { s.repository_menu = !s.repository_menu; cx.notify(); })))
                     .child(
-                        div().text_size(px(11.)).text_color(rgba(0xebebeb80)).child(
+                        div().flex().items_center().gap(px(4.)).text_size(px(11.)).text_color(rgba(0xebebeb80))
+                            .child(icon("GitBranch").size(px(12.))).child(
                             self.status
                                 .as_ref()
                                 .map(|s| s.branch.clone())
@@ -777,8 +778,8 @@ impl Render for RepositoryView {
                     )
                     .child(div().flex_1())
                     .child(
-                        button("history", "History")
-                            .when(self.history, |d| d.bg(rgba(0xebebeb17)))
+                        crate::plain_button("history", "History")
+                            .hover(|s| s.text_color(rgb(0xffffff)))
                             .on_click(cx.listener(|s, _, _, cx| {
                                 if s.show_diff {
                                     s.show_diff = false;
@@ -795,8 +796,8 @@ impl Render for RepositoryView {
                             })),
                     )
                     .child(
-                        button("changes", "Changes")
-                            .when(self.changes, |d| d.bg(rgba(0xebebeb17)))
+                        crate::plain_button("changes", "Changes")
+                            .hover(|s| s.text_color(rgb(0xffffff)))
                             .on_click(cx.listener(|s, _, _, cx| {
                                 s.changes = !s.changes;
                                 if !s.changes {
@@ -814,8 +815,10 @@ impl Render for RepositoryView {
                             })),
                     )
                     .child(
-                        button("expand-git", "⤢")
-                            .aria_label("Expand repository panel")
+                        button("expand-git", "")
+                            .aria_label(if self.expanded { "Collapse repository panel" } else { "Expand repository panel" })
+                            .size(px(28.)).p(px(6.)).flex_shrink_0().justify_center()
+                            .child(icon(if self.expanded { "Collapse" } else { "Expand" }).size(px(16.)))
                             .on_click(cx.listener(|s, _, _, cx| {
                                 s.expanded = !s.expanded;
                                 cx.emit(RepositoryEvent::Expand);
@@ -885,7 +888,7 @@ impl Render for RepositoryView {
                         )
                     }),
             )
-            .when(self.repository_menu, |d| d.child(crate::menu_surface("repository-menu").debug_selector(|| "repository-menu".into()).top(px(37.)).left(px(8.)).w(px(260.))
+            .when(self.repository_menu, |d| d.child(crate::menu_surface("repository-menu").debug_selector(|| "repository-menu".into()).top(px(32.)).left(px(8.)).w(px(260.))
                 .on_mouse_down_out(cx.listener(|s, _, _, cx| { s.repository_menu = false; cx.notify(); }))
                 .children(self.repositories.iter().enumerate().map(|(i, (name, path))| {
                     let path = path.clone();
