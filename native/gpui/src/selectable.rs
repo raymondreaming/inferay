@@ -31,6 +31,11 @@ impl PreparedText {
         &self.content
     }
 
+    #[cfg(test)]
+    pub(crate) fn highlights(&self) -> &[(Range<usize>, HighlightStyle)] {
+        &self.highlights
+    }
+
     pub fn with_highlights(&self, highlights: Vec<(Range<usize>, HighlightStyle)>) -> Self {
         Self {
             highlights: highlights.into(),

@@ -1,7 +1,7 @@
 //! Own prepared rows and viewport publication together. Workers build immutable
 //! rows; UI publication preserves the reader's anchor and retained source identity.
 use crate::rich_text::RichText;
-use gpui::{FollowMode, ListAlignment, ListOffset, ListState, SharedString, px};
+use gpui::{FollowMode, ListAlignment, ListOffset, ListState, px};
 use inferay_core::chat_protocol::ChatTranscriptMessage;
 use std::sync::Arc;
 
@@ -9,7 +9,6 @@ use std::sync::Arc;
 pub struct Row {
     pub message: Arc<ChatTranscriptMessage>,
     pub rich: Arc<RichText>,
-    pub preview: SharedString,
 }
 
 pub struct PreparedTranscript {
@@ -28,42 +27,7 @@ impl PreparedTranscript {
             .into_iter()
             .map(|message| {
                 let rich = Arc::new(RichText::message(&message, theme));
-                let preview = if message.role != "tool" || message.id.starts_with("hook:") {
-                    "".into()
-                } else {
-                    let output = message
-                        .render
-                        .as_ref()
-                        .and_then(|r| r.output_start)
-                        .map(|start| {
-                            String::from_utf16_lossy(
-                                &message
-                                    .content
-                                    .encode_utf16()
-                                    .skip(start)
-                                    .collect::<Vec<_>>(),
-                            )
-                        })
-                        .unwrap_or_default();
-                    let output = output.trim();
-                    if output.starts_with('{') || output.starts_with('[') {
-                        "JSON result · expand to inspect".into()
-                    } else if output.is_empty() {
-                        "Structured input · expand to inspect".into()
-                    } else {
-                        let excerpt = output.lines().take(3).collect::<Vec<_>>().join("\n");
-                        let mut preview = excerpt.chars().take(360).collect::<String>();
-                        if preview.len() < output.len() {
-                            preview.push('…');
-                        }
-                        preview.into()
-                    }
-                };
-                Row {
-                    message,
-                    rich,
-                    preview,
-                }
+                Row { message, rich }
             })
             .collect();
         Self {
@@ -178,30 +142,6 @@ mod tests {
         Arc::new(
             serde_json::from_value(json!({"id":id,"role":"assistant","content":content})).unwrap(),
         )
-    }
-
-    #[test]
-    fn previews_keep_json_whole_in_details_and_hide_hook_noise() {
-        let mut buffer = inferay_core::chat_protocol::ChatMessageBuffer::default();
-        for (id, output) in [("json", "{\"status\":\"ok\"}"), ("hook:1", "completed")] {
-            buffer.apply_event(&json!({"type":"inferay.tool","id":id,"name":"exec_command","input":{"cmd":"echo café"},"output":output,"done":true}));
-        }
-        let prepared = PreparedTranscript::prepare(
-            0,
-            buffer.messages().iter().cloned().map(Arc::new),
-            "vscode-black",
-        );
-        assert_eq!(
-            prepared.rows[0].preview.as_ref(),
-            "JSON result · expand to inspect"
-        );
-        assert!(
-            prepared.rows[0]
-                .message
-                .content
-                .ends_with("{\"status\":\"ok\"}")
-        );
-        assert!(prepared.rows[1].preview.is_empty());
     }
 
     #[test]

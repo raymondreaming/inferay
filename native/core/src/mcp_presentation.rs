@@ -27,6 +27,7 @@ const VERBS: &[(&str, &str)] = &[
     ("assign", "Assigning"),
     ("authenticate", "Connecting"),
     ("build", "Building"),
+    ("browse", "Researching"),
     ("call", "Calling"),
     ("cancel", "Cancelling"),
     ("check", "Checking"),
@@ -48,15 +49,15 @@ const VERBS: &[(&str, &str)] = &[
     ("exec", "Running"),
     ("execute", "Running"),
     ("export", "Exporting"),
-    ("fetch", "Fetching"),
+    ("fetch", "Reading"),
     ("find", "Finding"),
     ("generate", "Generating"),
     ("get", "Reading"),
     ("import", "Importing"),
     ("insert", "Inserting"),
     ("invoke", "Running"),
-    ("list", "Listing"),
-    ("load", "Loading"),
+    ("list", "Reading"),
+    ("load", "Reading"),
     ("lookup", "Looking up"),
     ("make", "Creating"),
     ("merge", "Merging"),
@@ -67,7 +68,7 @@ const VERBS: &[(&str, &str)] = &[
     ("publish", "Publishing"),
     ("pull", "Pulling"),
     ("push", "Pushing"),
-    ("query", "Querying"),
+    ("query", "Reading"),
     ("read", "Reading"),
     ("recolor", "Recoloring"),
     ("remove", "Removing"),
@@ -80,6 +81,7 @@ const VERBS: &[(&str, &str)] = &[
     ("run", "Running"),
     ("save", "Saving"),
     ("search", "Searching"),
+    ("research", "Researching"),
     ("send", "Sending"),
     ("set", "Setting"),
     ("show", "Reading"),
@@ -261,38 +263,49 @@ fn phrases(parts: Vec<String>) -> Vec<String> {
     }
     joined
 }
-fn action(server_id: &str, tool: &str) -> String {
-    let parts = phrases(words(tool));
+pub(crate) fn action(server_id: &str, tool: &str) -> String {
+    // Providers use both snake_case and camelCase for the same behavior.
+    let chars = tool.chars().collect::<Vec<_>>();
+    let mut normalized = String::with_capacity(tool.len());
+    for (index, &ch) in chars.iter().enumerate() {
+        if ch.is_uppercase()
+            && index > 0
+            && (chars[index - 1].is_lowercase()
+                || (chars[index - 1].is_uppercase()
+                    && chars.get(index + 1).is_some_and(|c| c.is_lowercase())))
+        {
+            normalized.push('_');
+        }
+        normalized.extend(ch.to_lowercase());
+    }
+    let parts = phrases(words(&normalized));
     let verb = parts
         .iter()
         .take(NAMESPACE_DEPTH + 1)
         .position(|part| lookup(VERBS, part.as_str()).is_some());
     let Some(verb) = verb else {
-        // No action to name, so the tool reads as the noun it already is, minus
-        // any leading restatement of the server that owns it.
-        let elided = parts
-            .iter()
-            .enumerate()
-            .filter(|(index, part)| *index > 0 || !elides(server_id, part))
-            .map(|(_, part)| part.clone())
-            .collect::<Vec<_>>();
-        let rendered = join(if elided.is_empty() { &parts } else { &elided });
-        return rendered.split_once(' ').map_or_else(
-            || title_case(&rendered),
-            |(first, rest)| format!("{} {rest}", title_case(first)),
-        );
+        return if parts.iter().any(|part| part == "screenshot") {
+            "Capturing screenshot".into()
+        } else {
+            "Running action".into()
+        };
     };
     let gerund = lookup(VERBS, parts[verb].as_str()).unwrap_or_default();
     // Namespace segments qualify the object; the server's own name does not.
     let object = parts[..verb]
         .iter()
-        .filter(|part| !elides(server_id, part))
+        .filter(|part| !server_id.is_empty() && !elides(server_id, part))
         .chain(parts[verb + 1..].iter())
         .cloned()
         .collect::<Vec<_>>();
     let rendered = join(&object);
     if rendered.is_empty() {
-        gerund.into()
+        match gerund {
+            "Reading" => "Reading data".into(),
+            "Writing" => "Writing data".into(),
+            "Running" => "Running action".into(),
+            _ => gerund.into(),
+        }
     } else {
         format!("{gerund} {rendered}")
     }

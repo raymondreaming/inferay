@@ -102,11 +102,7 @@ impl RichText {
         fn recolor(blocks: &mut [Block], theme: &str) {
             for block in blocks {
                 match block {
-                    Block::Code {
-                        text,
-                        lang,
-                        tool: false,
-                    } => {
+                    Block::Code { text, lang, .. } => {
                         *text = text.with_highlights(crate::syntax::highlights(
                             text.content(),
                             lang,
@@ -126,7 +122,7 @@ impl RichText {
         message: &inferay_core::chat_protocol::ChatTranscriptMessage,
         theme: &str,
     ) -> Self {
-        if matches!(message.role.as_str(), "user" | "system") {
+        if message.role == "user" {
             return Self {
                 blocks: vec![Block::Plain(PreparedText::plain(message.content.clone()))],
             };
@@ -135,13 +131,13 @@ impl RichText {
             return Self::prepare(&message.content, theme);
         }
         let mut blocks = Vec::new();
-        let mut code = |label: &str, language: &str, content: String| {
+        let mut code = |language: &str, content: String| {
             if content.trim().is_empty() {
                 return;
             }
             let spans = crate::syntax::highlights(&content, language, theme);
             blocks.push(Block::Code {
-                lang: label.to_owned().into(),
+                lang: language.to_owned().into(),
                 text: PreparedText::new(content.into(), spans, vec![]),
                 tool: true,
             });
@@ -153,6 +149,11 @@ impl RichText {
             .filter(|result| result.as_ref().is_ok_and(|v| v.is_object()))
         {
             let output = message.content[parser.byte_offset()..].trim();
+            let output = if output.eq_ignore_ascii_case("completed") {
+                ""
+            } else {
+                output
+            };
             if let Some(command) = message
                 .render
                 .as_ref()
@@ -160,34 +161,102 @@ impl RichText {
                 .filter(|s| s.kind == "command")
                 .map(|s| s.value.as_str())
             {
-                code("Command · shell", "sh", command.to_owned());
+                code("sh", command.to_owned());
                 if let Some(cwd) = input["cwd"].as_str() {
-                    code("Working directory", "text", cwd.to_owned());
+                    code("text", cwd.to_owned());
                 }
             } else {
                 code(
-                    "Input · JSON",
                     "json",
                     serde_json::to_string_pretty(&input).unwrap_or_default(),
                 );
             }
             if let Ok(value) = serde_json::from_str::<serde_json::Value>(output) {
                 code(
-                    "Output · JSON",
                     "json",
                     serde_json::to_string_pretty(&value).unwrap_or_default(),
                 );
             } else {
-                code("Output", "text", output.to_owned());
+                // A command mentioning a file can return terminal logs rather
+                // than source. Only direct file-tool results inherit its grammar.
+                let language = message
+                    .render
+                    .as_ref()
+                    .and_then(|render| {
+                        if render.summary.as_ref().is_some_and(|s| s.kind == "command") {
+                            None
+                        } else {
+                            render.display.as_ref().and_then(|d| d.file.as_deref())
+                        }
+                    })
+                    .unwrap_or("text");
+                code(language, output.to_owned());
             }
         } else {
-            code("Output", "text", message.content.clone());
+            if !message.content.trim().eq_ignore_ascii_case("completed") {
+                code("text", message.content.clone());
+            }
         }
         Self { blocks }
     }
     pub fn render(&self, id: &str) -> AnyElement {
         if let [Block::Plain(text)] = self.blocks.as_slice() {
             return text.render(format!("message-text-{id}")).into_any_element();
+        }
+        if self
+            .blocks
+            .iter()
+            .any(|block| matches!(block, Block::Code { tool: true, .. }))
+        {
+            let copy = self
+                .blocks
+                .iter()
+                .filter_map(|block| match block {
+                    Block::Code { text, .. } => Some(text.content().clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            let selector = format!("tool-details-{id}");
+            return div()
+                .debug_selector(move || selector)
+                .relative()
+                .min_w_0()
+                .rounded(ui(4.))
+                .border_1()
+                .border_color(rgba(0xebebeb18))
+                .bg(rgba(0x181818dc))
+                .child(
+                    div()
+                        .id(SharedString::from(format!("tool-details-body-{id}")))
+                        .max_h(ui(320.))
+                        .overflow_y_scroll()
+                        .overflow_x_scroll()
+                        .pl(ui(8.))
+                        .pr(ui(28.))
+                        .py(ui(8.))
+                        .child(self.blocks(&self.blocks, id)),
+                )
+                .child(
+                    crate::button(SharedString::from(format!("copy-tool-{id}")), "")
+                        .debug_selector(|| "tool-details-copy".into())
+                        .aria_label("Copy tool details")
+                        .absolute()
+                        .right(ui(2.))
+                        .top(ui(2.))
+                        .size(ui(22.))
+                        .p(ui(4.))
+                        .justify_center()
+                        .child(crate::icon("Copy").size(ui(12.)))
+                        .on_click(move |_, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(
+                                copy.iter()
+                                    .map(|text| text.as_ref())
+                                    .collect::<Vec<_>>()
+                                    .join("\n\n"),
+                            ))
+                        }),
+                )
+                .into_any_element();
         }
         self.blocks(&self.blocks, id).into_any_element()
     }
@@ -201,6 +270,14 @@ impl RichText {
                 let id = format!("{id}-{index}");
                 match block {
                     Block::Code { lang, text, tool } => {
+                        if *tool {
+                            return div()
+                                .font_family("Menlo")
+                                .text_size(ui(crate::colors::CHAT_DETAIL))
+                                .line_height(ui(crate::colors::CHAT_DETAIL * 1.6))
+                                .child(text.render(format!("tool-text-{id}")))
+                                .into_any_element();
+                        }
                         let copy = text.content().clone();
                         let selector = format!("code-card-{id}");
                         div()
@@ -246,7 +323,6 @@ impl RichText {
                                 div()
                                     .id(SharedString::from(format!("code-{id}")))
                                     .overflow_x_scroll()
-                                    .when(*tool, |d| d.max_h(ui(320.)).overflow_y_scroll())
                                     .px(ui(8.))
                                     .pt(ui(2.))
                                     .pb(ui(6.))
@@ -254,11 +330,6 @@ impl RichText {
                                     .text_size(ui(crate::colors::CHAT_SMALL))
                                     .line_height(ui(crate::colors::CHAT_SMALL * 1.625))
                                     .whitespace_nowrap()
-                                    .when(*tool, |d| {
-                                        d.whitespace_normal()
-                                            .text_size(ui(crate::colors::CHAT_DETAIL))
-                                            .line_height(ui(crate::colors::CHAT_DETAIL * 1.6))
-                                    })
                                     .child(text.render(format!("code-text-{id}"))),
                             )
                             .into_any_element()
@@ -386,18 +457,13 @@ fn inline(tokens: &[MdInlineToken]) -> PreparedText {
 }
 pub fn edit_card(edit: &inferay_core::chat_protocol::ChatEdit) -> Div {
     div()
+        .debug_selector(|| "tool-edit-card".into())
         .rounded(ui(4.))
         .border_1()
         .border_color(rgba(0xebebeb18))
+        .bg(rgba(0x181818dc))
         .overflow_hidden()
         .mb(ui(8.))
-        .child(
-            div()
-                .px(ui(10.))
-                .py(ui(6.))
-                .text_size(ui(crate::colors::CHAT_SMALL))
-                .child(edit.file_path.clone()),
-        )
         .children(
             [
                 (&edit.old_string, 0xff686818, "−"),
@@ -675,6 +741,34 @@ mod tests {
             Some("Hello café 🦀")
         );
     }
+
+    #[gpui::test]
+    fn tool_details_use_one_card_and_copy_without_nested_labels(cx: &mut gpui::TestAppContext) {
+        struct Details(RichText);
+        impl Render for Details {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div().size_full().child(self.0.render("tool"))
+            }
+        }
+        let mut buffer = inferay_core::chat_protocol::ChatMessageBuffer::default();
+        buffer.apply_event(&serde_json::json!({"type":"inferay.tool","id":"tool","name":"exec_command","input":{"cmd":"echo café"},"output":"café 🌳","done":true}));
+        let rich = RichText::message(&buffer.messages()[0], "vscode-black");
+        let (view, cx) = cx.add_window_view(|_, _| Details(rich));
+        cx.draw(point(px(0.), px(0.)), size(px(600.), px(400.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        assert!(cx.debug_bounds("tool-details-tool").is_some());
+        assert!(cx.debug_bounds("code-card-tool-0").is_none());
+        assert!(cx.debug_bounds("code-card-tool-1").is_none());
+        let copy = cx.debug_bounds("tool-details-copy").unwrap();
+        cx.simulate_click(copy.center(), Modifiers::default());
+        assert_eq!(
+            cx.read_from_clipboard()
+                .and_then(|item| item.text())
+                .as_deref(),
+            Some("echo café\n\ncafé 🌳")
+        );
+    }
     #[test]
     fn restored_tools_show_commands_outputs_and_edit_payloads() {
         let mut buffer = inferay_core::chat_protocol::ChatMessageBuffer::default();
@@ -699,12 +793,12 @@ mod tests {
             panic!("tool code block")
         };
         assert_eq!(text.content().as_ref(), "cargo test");
-        assert_eq!(lang.as_ref(), "Command · shell");
+        assert_eq!(lang.as_ref(), "sh");
         let Block::Code { text, lang, .. } = &rich.blocks[1] else {
             panic!("separate output")
         };
         assert_eq!(text.content().as_ref(), "passed 🌳");
-        assert_eq!(lang.as_ref(), "Output");
+        assert_eq!(lang.as_ref(), "text");
         assert_eq!(
             buffer.messages()[1]
                 .render
@@ -725,6 +819,86 @@ mod tests {
             panic!("literal tool output")
         };
         assert_eq!(text.content().as_ref(), "output\n````\nmore");
+    }
+
+    #[test]
+    fn tool_cards_highlight_source_json_and_shell_and_follow_theme_changes() {
+        let mut buffer = inferay_core::chat_protocol::ChatMessageBuffer::default();
+        for event in [
+            serde_json::json!({"type":"inferay.tool","id":"read","name":"Read","input":{"file_path":"/src/App.tsx"},"output":"const title = \"café 🌳\";\nexport default function App() { return <h1>{title}</h1>; }","done":true}),
+            serde_json::json!({"type":"inferay.tool","id":"shell","name":"exec_command","input":{"cmd":"echo \"café\"","cwd":"/tmp"},"output":"{\"ok\":true,\"count\":2}","done":true}),
+        ] {
+            buffer.apply_event(&event);
+        }
+        for message in buffer.messages() {
+            let rich = RichText::message(message, "vscode-black");
+            let recolored = rich.retheme("contrast");
+            for (before, after) in rich.blocks.iter().zip(&recolored.blocks) {
+                let Block::Code { lang, text, .. } = before else {
+                    panic!("tool card")
+                };
+                let Block::Code { text: changed, .. } = after else {
+                    panic!("recolored tool card")
+                };
+                assert_eq!(text.content(), changed.content());
+                assert_eq!(
+                    text.highlights(),
+                    crate::syntax::highlights(text.content(), lang, "vscode-black")
+                );
+                assert_eq!(
+                    changed.highlights(),
+                    crate::syntax::highlights(text.content(), lang, "contrast")
+                );
+                if lang.as_ref() != "text" {
+                    assert!(!text.highlights().is_empty(), "{lang}");
+                    assert_ne!(text.highlights(), changed.highlights(), "{lang}");
+                }
+                if message.id == "read" && lang.as_ref() != "json" {
+                    assert_eq!(lang.as_ref(), "/src/App.tsx");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn command_logs_stay_literal_and_progress_notes_render_markdown() {
+        let mut buffer = inferay_core::chat_protocol::ChatMessageBuffer::default();
+        buffer.apply_event(&serde_json::json!({"type":"inferay.tool","id":"logs","name":"exec_command","input":{"cmd":"git diff --cached App.tsx; echo finished"},"output":"Formatted 670 files.\ncreate mode 100644 App.tsx","done":true}));
+        let rich = RichText::message(&buffer.messages()[0], "vscode-black");
+        let Block::Code { lang, text, .. } = &rich.blocks[1] else {
+            panic!("terminal output")
+        };
+        assert_eq!(lang.as_ref(), "text");
+        assert!(text.highlights().is_empty());
+        let note = serde_json::from_value(
+            serde_json::json!({"id":"note","role":"system","content":"**Checking file status**"}),
+        )
+        .unwrap();
+        let rich = RichText::message(&note, "vscode-black");
+        let Block::Text { text, .. } = &rich.blocks[0] else {
+            panic!("Markdown progress note")
+        };
+        assert_eq!(text.content().as_ref(), "Checking file status");
+        assert!(
+            text.highlights()
+                .iter()
+                .any(|(_, s)| s.font_weight == Some(FontWeight::SEMIBOLD))
+        );
+    }
+
+    #[test]
+    fn completion_filler_is_hidden_without_discarding_substantive_results() {
+        for (output, count) in [
+            ("completed", 1),
+            (" Completed\n", 1),
+            ("completed 3 files", 2),
+            ("{\"status\":\"completed\"}", 2),
+        ] {
+            let mut buffer = inferay_core::chat_protocol::ChatMessageBuffer::default();
+            buffer.apply_event(&serde_json::json!({"type":"inferay.tool","id":"hook","name":"stop hook","input":{"event":"stop"},"output":output,"done":true}));
+            let rich = RichText::message(&buffer.messages()[0], "vscode-black");
+            assert_eq!(rich.blocks.len(), count, "{output}");
+        }
     }
     #[test]
     fn preserves_rich_blocks_and_unicode_syntax_ranges() {

@@ -1,4 +1,4 @@
-//! Native interpretation of tool input; browser components only render the result.
+//! Interpret tool behavior once for native transcript titles and details.
 use crate::mcp_presentation::McpToolSource;
 use crate::{utf16_length as javascript_length, utf16_slice as javascript_slice};
 use serde::Serialize;
@@ -339,6 +339,23 @@ pub fn display(tool_name: Option<&str>, input: &Value) -> ToolDisplayInfo {
     if let Some(info) = memory_display(tool_name, input) {
         return info;
     }
+    if tool_name.is_some_and(|name| {
+        let name = name.to_ascii_lowercase();
+        name == "hook" || name.ends_with(" hook") || name.starts_with("hook:")
+    }) {
+        let event = input
+            .get("event")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        return label(match event.to_ascii_lowercase().as_str() {
+            "sessionstart" | "session_start" => "Starting session",
+            "userpromptsubmit" | "user_prompt_submit" => "Reading request",
+            "pretooluse" | "pre_tool_use" => "Preparing action",
+            "posttooluse" | "post_tool_use" => "Processing result",
+            "stop" => "Finishing response",
+            _ => "Processing action",
+        });
+    }
     // An MCP call names its own server, so it is branded before the generic
     // command and tool heuristics get a chance to describe it anonymously.
     if let Some((source, action)) = tool_name.and_then(crate::mcp_presentation::resolve) {
@@ -512,27 +529,51 @@ pub fn display(tool_name: Option<&str>, input: &Value) -> ToolDisplayInfo {
             file: None,
         };
     }
-    let name = tool_name.unwrap_or_default().trim().to_lowercase();
+    let name = tool_name
+        .unwrap_or_default()
+        .trim()
+        .rsplit(['.', ':', '/'])
+        .next()
+        .unwrap_or_default()
+        .to_lowercase();
     let file = match name.as_str() {
-        "read" | "read_file" | "view" | "patch" | "apply_patch" | "edit" | "multiedit"
-        | "write" | "notebookedit" | "notebook_edit" => file_target(input),
+        "read" | "read_file" | "readfile" | "read_text_file" | "view" | "view_file" | "patch"
+        | "apply_patch" | "edit" | "edit_file" | "multiedit" | "write" | "write_file"
+        | "writefile" | "create_file" | "save_file" | "notebookedit" | "notebook_edit" => {
+            file_target(input)
+        }
         _ => None,
     };
     ToolDisplayInfo {
         label: match name.as_str() {
-            "read" | "read_file" | "view" => {
+            "read" | "read_file" | "readfile" | "read_text_file" | "view" | "view_file" => {
                 if file.is_some() {
                     "Reading file".into()
                 } else {
-                    "Reading files".into()
+                    "Reading data".into()
                 }
             }
             "grep" | "glob" | "search" => "Searching code".into(),
-            "web_search" | "websearch" | "webfetch" => "Researching".into(),
-            "patch" | "apply_patch" | "edit" | "multiedit" | "write" => "Updating code".into(),
-            _ => tool_name
-                .filter(|s| !s.is_empty())
-                .map_or_else(|| "Running tool".into(), |name| format!("Using {name}")),
+            "web_search" | "websearch" | "webfetch" | "web_fetch" | "fetch_url" | "fetchurl"
+            | "open_url" | "read_url" | "browse_url" => "Researching URL".into(),
+            "write" | "write_file" | "writefile" | "create_file" | "save_file" => {
+                "Writing file".into()
+            }
+            "patch" | "apply_patch" | "edit" | "edit_file" | "multiedit" | "notebookedit"
+            | "notebook_edit" => "Editing files".into(),
+            "write_stdin" => if input
+                .get("chars")
+                .and_then(Value::as_str)
+                .is_some_and(|s| !s.is_empty())
+            {
+                "Sending input"
+            } else {
+                "Reading command output"
+            }
+            .into(),
+            "wait" | "wait_agent" => "Waiting for action".into(),
+            "parallel" | "multi_tool_use.parallel" => "Running actions".into(),
+            _ => crate::mcp_presentation::action("", tool_name.unwrap_or_default()),
         },
         detail: file.as_deref().map(basename).map(str::to_owned),
         source: None,
@@ -547,6 +588,75 @@ fn basename(path: &str) -> &str {
 mod tool_display_tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn tool_titles_describe_behavior_across_providers_and_name_styles() {
+        for (tool, input, expected) in [
+            ("Read", json!({"file_path":"src/main.rs"}), "Reading file"),
+            ("Read", json!({}), "Reading data"),
+            ("read_file", json!({"path":"data.csv"}), "Reading file"),
+            ("getData", json!({}), "Reading data"),
+            ("query_database", json!({}), "Reading database"),
+            ("Write", json!({"file_path":"notes.md"}), "Writing file"),
+            ("writeFile", json!({"path":"notes.md"}), "Writing file"),
+            ("Edit", json!({"file_path":"main.rs"}), "Editing files"),
+            (
+                "web_fetch",
+                json!({"url":"https://example.com"}),
+                "Researching URL",
+            ),
+            ("mcp__github__list_issues", json!({}), "Reading issues"),
+            ("mcp__database__getRecords", json!({}), "Reading records"),
+            ("functions.exec_command", json!({}), "Running command"),
+            (
+                "write_stdin",
+                json!({"session_id":1}),
+                "Reading command output",
+            ),
+            (
+                "write_stdin",
+                json!({"session_id":1,"chars":"yes"}),
+                "Sending input",
+            ),
+            (
+                "preToolUse hook",
+                json!({"event":"preToolUse"}),
+                "Preparing action",
+            ),
+            (
+                "postToolUse hook",
+                json!({"event":"postToolUse"}),
+                "Processing result",
+            ),
+            ("stop hook", json!({"event":"stop"}), "Finishing response"),
+            (
+                "sessionStart hook",
+                json!({"event":"sessionStart"}),
+                "Starting session",
+            ),
+            (
+                "userPromptSubmit hook",
+                json!({"event":"userPromptSubmit"}),
+                "Reading request",
+            ),
+            ("opaque_vendor_handler_v2", json!({}), "Running action"),
+        ] {
+            assert_eq!(display(Some(tool), &input).label, expected, "{tool}");
+        }
+        assert_eq!(
+            display(Some("mcp__github__list_issues"), &json!({}))
+                .source
+                .unwrap()
+                .server_id,
+            "github"
+        );
+        let webhook = display(
+            Some("mcp__github__createWebhook"),
+            &json!({"event":"postToolUse"}),
+        );
+        assert_eq!(webhook.label, "Creating webhook");
+        assert_eq!(webhook.source.unwrap().server_id, "github");
+    }
 
     #[test]
     fn memory_steps_read_as_memory_for_both_providers() {
@@ -601,7 +711,7 @@ mod tool_display_tests {
         assert_eq!(glob.file, None);
         assert_eq!(glob.detail, None);
         let read_without_path = display(Some("Read"), &json!({}));
-        assert_eq!(read_without_path.label, "Reading files");
+        assert_eq!(read_without_path.label, "Reading data");
         assert_eq!(read_without_path.file, None);
         assert_eq!(display(None, &json!({"command": "ls"})).file, None);
     }

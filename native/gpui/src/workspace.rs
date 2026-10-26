@@ -893,23 +893,66 @@ impl WorkspaceView {
             let open = self.expanded.contains(&id);
             let render = message.render.as_ref();
             let display = render.and_then(|r| r.display.as_ref());
-            let label = display
-                .map(|d| d.label.clone())
-                .or_else(|| message.tool_name.clone())
-                .unwrap_or_else(|| "Tool output".into());
+            let label = display.map(|d| d.label.clone()).unwrap_or_else(|| {
+                inferay_core::tool_presentation::display(
+                    message.tool_name.as_deref(),
+                    &serde_json::Value::Null,
+                )
+                .label
+            });
             div()
                 .relative()
+                .w_full()
                 .max_w(ui(544.))
                 .mx_auto()
                 .pl(ui(12.))
                 .pb(ui(if last_visible { 0. } else { 4. }))
-                .when(render.is_some_and(|render| render.continues_after), |d| {
-                    d.border_l_1().border_color(rgba(0xebebeb24))
+                .when(
+                    render.is_some_and(|r| {
+                        matches!(
+                            r.kind,
+                            inferay_core::chat_protocol::ChatRenderKind::ToolGroup
+                        ) && !r.group_leader
+                    }),
+                    |d| {
+                        d.child(
+                            div()
+                                .debug_selector({
+                                    let id = id.clone();
+                                    move || format!("tool-line-before-{id}")
+                                })
+                                .absolute()
+                                .left_0()
+                                .top_0()
+                                .w(ui(1.))
+                                .h(ui(12.))
+                                .bg(rgba(0xebebeb24)),
+                        )
+                    },
+                )
+                .when(render.is_some_and(|r| r.continues_after), |d| {
+                    d.child(
+                        div()
+                            .debug_selector({
+                                let id = id.clone();
+                                move || format!("tool-line-after-{id}")
+                            })
+                            .absolute()
+                            .left_0()
+                            .top(ui(12.))
+                            .bottom_0()
+                            .w(ui(1.))
+                            .bg(rgba(0xebebeb24)),
+                    )
                 })
                 .child(
                     div()
+                        .debug_selector({
+                            let id = id.clone();
+                            move || format!("tool-dot-{id}")
+                        })
                         .absolute()
-                        .left(ui(-3.))
+                        .left(ui(-2.5))
                         .top(ui(9.))
                         .size(ui(6.))
                         .rounded_full()
@@ -967,7 +1010,7 @@ impl WorkspaceView {
                             div()
                                 .min_w_0()
                                 .text_ellipsis()
-                                .font_weight(FontWeight::MEDIUM)
+                                .font_weight(FontWeight::SEMIBOLD)
                                 .child(label),
                         )
                         .when_some(display.and_then(|d| d.detail.clone()), |d, detail| {
@@ -996,31 +1039,17 @@ impl WorkspaceView {
                             cx.notify();
                         })),
                 )
-                .when(!open && !row.preview.is_empty(), |d| {
-                    d.child(
-                        div()
-                            .debug_selector(|| "tool-output-preview".into())
-                            .ml(ui(4.))
-                            .mb(ui(4.))
-                            .px(ui(8.))
-                            .py(ui(4.))
-                            .border_l_1()
-                            .border_color(rgba(0xebebeb20))
-                            .text_size(ui(colors::CHAT_DETAIL))
-                            .text_color(rgba(0xebebeb80))
-                            .font_family("Menlo")
-                            .child(row.preview.clone()),
-                    )
-                })
-                .when_some(render.and_then(|r| r.edit.as_ref()), |d, edit| {
-                    d.child(crate::rich_text::edit_card(edit))
-                })
                 .when(open, |d| {
                     d.child(
                         div()
                             .ml(ui(4.))
                             .py(ui(2.))
-                            .child(row.rich.render(&message.id)),
+                            .when_some(render.and_then(|r| r.edit.as_ref()), |d, edit| {
+                                d.child(crate::rich_text::edit_card(edit))
+                            })
+                            .when(render.and_then(|r| r.edit.as_ref()).is_none(), |d| {
+                                d.child(row.rich.render(&message.id))
+                            }),
                     )
                 })
                 .into_any_element()
@@ -1753,6 +1782,57 @@ impl Render for WorkspaceView {
 mod tests {
     use super::*;
     #[gpui::test]
+    fn tool_connectors_join_dot_centers_across_hidden_and_expanded_rows(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            let mut view = WorkspaceView::empty(cx.focus_handle(), cx.new(TextInput::new), cx);
+            view.status.clear();
+            let mut buffer = inferay_core::chat_protocol::ChatMessageBuffer::default();
+            buffer.replace_messages([
+                serde_json::json!({"id":"first","role":"tool","toolName":"exec_command","content":"{\"cmd\":\"echo one\"}\none"}),
+                serde_json::json!({"id":"hidden","role":"tool","toolName":"exec_command","content":"{\"cmd\":\"echo one\"}\none"}),
+                serde_json::json!({"id":"second","role":"tool","toolName":"Read","content":"{\"file_path\":\"main.rs\"}\nlet value = 1;"}),
+                serde_json::json!({"id":"note","role":"system","content":"**Next step**"}),
+                serde_json::json!({"id":"separate","role":"tool","toolName":"Read","content":"{\"file_path\":\"other.rs\"}\nlet value = 2;"}),
+            ].into_iter().map(|v| serde_json::from_value(v).unwrap()).collect());
+            assert!(buffer.messages()[1].render.as_ref().unwrap().hidden);
+            view.conversations[0].transcript.publish(PreparedTranscript::prepare(0, buffer.messages().iter().cloned().map(std::sync::Arc::new), "vscode-black"), None);
+            view
+        });
+        cx.simulate_resize(size(px(1100.), px(1000.)));
+        for zoom in ["100", "200"] {
+            for expanded in [false, true] {
+                view.update(cx, |view, cx| {
+                    view.zoom = crate::zoom::Zoom::restore(Some(zoom));
+                    if expanded {
+                        view.expanded.insert("first".into());
+                    } else {
+                        view.expanded.remove("first");
+                    }
+                    view.conversations[0].transcript.scroll.remeasure();
+                    cx.notify();
+                });
+                cx.draw(point(px(0.), px(0.)), size(px(1100.), px(1000.)), |_, _| {
+                    view.clone().into_any_element()
+                });
+                let first = cx.debug_bounds("tool-dot-first").unwrap();
+                let second = cx.debug_bounds("tool-dot-second").unwrap();
+                let outgoing = cx.debug_bounds("tool-line-after-first").unwrap();
+                let incoming = cx.debug_bounds("tool-line-before-second").unwrap();
+                assert!((first.center().x - second.center().x).abs() < px(1.));
+                assert!((outgoing.center().x - first.center().x).abs() < px(1.));
+                assert!((outgoing.top() - first.center().y).abs() < px(1.));
+                assert!((outgoing.bottom() - incoming.top()).abs() < px(1.));
+                assert!((incoming.bottom() - second.center().y).abs() < px(1.));
+                assert!(cx.debug_bounds("tool-line-before-first").is_none());
+                assert!(cx.debug_bounds("tool-dot-hidden").is_none());
+                assert!(cx.debug_bounds("tool-line-after-second").is_none());
+                assert!(cx.debug_bounds("tool-line-before-separate").is_none());
+            }
+        }
+    }
+    #[gpui::test]
     fn last_expanded_tool_card_clears_the_padded_composer_at_large_zoom(
         cx: &mut gpui::TestAppContext,
     ) {
@@ -1774,7 +1854,7 @@ mod tests {
         cx.draw(point(px(0.), px(0.)), size(px(1100.), px(700.)), |_, _| {
             view.clone().into_any_element()
         });
-        let output = cx.debug_bounds("code-card-last-tool-1").unwrap();
+        let output = cx.debug_bounds("tool-details-last-tool").unwrap();
         let composer = cx.debug_bounds("chat-composer").unwrap();
         let viewport = view.read_with(cx, |view, _| {
             view.conversations[0].transcript.scroll.viewport_bounds()
@@ -2076,9 +2156,61 @@ mod tests {
         let row = cx.debug_bounds("tool-timeline-row").unwrap();
         assert!(row.size.height >= px(24.));
         assert!(cx.debug_bounds("tool-source").is_some());
-        assert!(cx.debug_bounds("tool-output-preview").is_some());
+        assert!(row.size.height <= px(30.));
+        assert!(cx.debug_bounds("tool-details-live-tool").is_none());
         cx.simulate_click(row.center(), Modifiers::default());
         view.read_with(cx, |view, _| assert!(view.expanded.contains("live-tool")));
+        cx.draw(point(px(0.), px(0.)), size(px(800.), px(560.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        assert!(cx.debug_bounds("tool-details-live-tool").is_some());
+        let row = cx.debug_bounds("tool-timeline-row").unwrap();
+        cx.simulate_click(row.center(), Modifiers::default());
+        cx.draw(point(px(0.), px(0.)), size(px(800.), px(560.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        assert!(cx.debug_bounds("tool-details-live-tool").is_none());
+        view.update(cx, |view, cx| {
+            let mut buffer = inferay_core::chat_protocol::ChatMessageBuffer::default();
+            buffer.apply_event(&serde_json::json!({"type":"inferay.tool","id":"live-tool","name":"mcp__github__list_issues","input":{"repo":"example"},"output":"result line\n".repeat(3),"done":true}));
+            view.conversations[0].transcript.publish(PreparedTranscript::prepare(0, buffer.messages().iter().cloned().map(std::sync::Arc::new), "vscode-black"), None);
+            cx.notify();
+        });
+        cx.draw(point(px(0.), px(0.)), size(px(800.), px(560.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        assert!(cx.debug_bounds("tool-details-live-tool").is_none());
+        let row = cx.debug_bounds("tool-timeline-row").unwrap();
+        assert!(row.size.height <= px(30.));
+        cx.simulate_click(row.center(), Modifiers::default());
+        cx.draw(point(px(0.), px(0.)), size(px(800.), px(560.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        assert!(cx.debug_bounds("tool-details-live-tool").is_some());
+    }
+
+    #[gpui::test]
+    fn restored_edit_details_are_closed_until_clicked(cx: &mut gpui::TestAppContext) {
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            let mut view = WorkspaceView::empty(cx.focus_handle(), cx.new(TextInput::new), cx);
+            view.status.clear();
+            let mut buffer = inferay_core::chat_protocol::ChatMessageBuffer::default();
+            buffer.replace_messages(vec![serde_json::from_value(serde_json::json!({"id":"edit", "role":"tool", "toolName":"Edit", "content":"{\"file_path\":\"main.rs\",\"old_string\":\"old\",\"new_string\":\"new\"}"})).unwrap()]);
+            view.conversations[0].transcript.publish(PreparedTranscript::prepare(0, buffer.messages().iter().cloned().map(std::sync::Arc::new), "vscode-black"), None);
+            view
+        });
+        cx.simulate_resize(size(px(800.), px(560.)));
+        cx.draw(point(px(0.), px(0.)), size(px(800.), px(560.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        assert!(cx.debug_bounds("tool-edit-card").is_none());
+        assert!(cx.debug_bounds("tool-details-edit").is_none());
+        let row = cx.debug_bounds("tool-timeline-row").unwrap();
+        cx.simulate_click(row.center(), Modifiers::default());
+        cx.draw(point(px(0.), px(0.)), size(px(800.), px(560.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        assert!(cx.debug_bounds("tool-edit-card").is_some());
     }
 
     #[gpui::test]
