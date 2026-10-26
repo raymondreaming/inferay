@@ -1,4 +1,5 @@
 use crate::zoom::ui;
+mod attachments;
 mod lifecycle;
 mod live;
 mod settings;
@@ -1068,24 +1069,66 @@ impl WorkspaceView {
                 .child(row.rich.render(&message.id))
                 .into_any_element()
         } else if message.role == "user" {
+            let images = message.images.as_deref().unwrap_or_default();
+            let has_images = !images.is_empty();
             div()
                 .flex()
                 .justify_end()
                 .mb(ui(if last_visible { 0. } else { 8. }))
                 .child(
                     div()
+                        .debug_selector({
+                            let id = message.id.clone();
+                            move || format!("user-bubble-{id}")
+                        })
                         .max_w(relative(0.85))
+                        .when(has_images, |d| {
+                            d.flex()
+                                .flex_col()
+                                .items_end()
+                                .w_full()
+                                .min_w_0()
+                                .gap(ui(8.))
+                        })
                         .px(ui(10.))
                         .py(ui(6.))
                         .rounded(ui(8.))
                         .rounded_br(ui(2.))
-                        .children(message.images.iter().flatten().map(|path| {
-                            img(std::path::PathBuf::from(path))
-                                .w(ui(220.))
-                                .h(ui(150.))
-                                .object_fit(ObjectFit::Contain)
-                        }))
-                        .child(row.rich.render(&message.id)),
+                        .when(has_images, |d| {
+                            d.child(
+                                div()
+                                    .debug_selector({
+                                        let id = message.id.clone();
+                                        move || format!("user-images-{id}")
+                                    })
+                                    .w_full()
+                                    .min_w_0()
+                                    .flex()
+                                    .flex_wrap()
+                                    .justify_end()
+                                    .items_start()
+                                    .gap(ui(4.))
+                                    .flex_shrink_0()
+                                    .children(images.iter().enumerate().map(|(i, path)| {
+                                        attachments::photo(
+                                            path.into(),
+                                            format!("sent-photo-{}-{i}", message.id),
+                                            false,
+                                        )
+                                    })),
+                            )
+                        })
+                        .when(!message.content.is_empty(), |d| {
+                            d.child(
+                                div()
+                                    .debug_selector({
+                                        let id = message.id.clone();
+                                        move || format!("user-message-text-{id}")
+                                    })
+                                    .when(has_images, |d| d.w_full().min_w_0().flex_shrink_0())
+                                    .child(row.rich.render(&message.id)),
+                            )
+                        }),
                 )
                 .into_any_element()
         } else {
@@ -1358,10 +1401,10 @@ impl WorkspaceView {
             .find(|r| r.id == chat.config.reasoning_level)
             .map(|r| r.label.clone())
             .unwrap_or_else(|| chat.config.reasoning_level.clone());
-        div().debug_selector(|| "chat-composer".into()).relative().w_full().max_w(ui(624.)).mx_auto().px(ui(12.)).pt(ui(0.)).pb(ui(8.)).flex_shrink_0()
+        div().debug_selector(|| "chat-composer".into()).relative().w_full().max_w(ui(624.)).mx_auto().px(ui(12.)).pt(ui(0.)).pb(ui(8.)).flex_shrink_0().flex().flex_col()
             .when(!self.status.is_empty(), |d| d.child(div().px(ui(8.)).pb(ui(10.)).text_size(ui(11.)).text_color(rgba(0xebebeb80)).child(self.status.clone())))
             .when(chat.run.is_loading, |d| d.child(
-                div().debug_selector(|| "chat-activity".into()).flex().items_center().justify_between().h(ui(20.)).pb(ui(4.))
+                div().debug_selector(|| "chat-activity".into()).flex().items_center().h(ui(20.)).pb(ui(4.))
                     .child(div().h(ui(16.)).flex().items_center().when_some(chat.run.start_time, |d, start| d.child(
                         div().id(("activity-time", index)).flex().items_center().gap(ui(6.)).with_animation(
                             ("chat-activity", index), Animation::new(std::time::Duration::from_millis(1500)).repeat(),
@@ -1384,10 +1427,20 @@ impl WorkspaceView {
                             },
                         )
                     )))
-                    .child(button(("activity-stop", index), "").aria_label("Stop generation").size(ui(16.)).p(ui(0.)).justify_center().border_1().border_color(rgba(0xebebeb1a)).rounded(ui(4.)).child(icon("Stop").size(ui(12.)))
-                        .on_click(cx.listener(move |view, _, _, cx| view.send_chat(index, true, cx))))
             ))
-            .child(div().debug_selector(|| "chat-input-shell".into()).relative().rounded(ui(12.)).border_1().border_color(rgba(0xebebeb0f)).pt(ui(8.)).pb(ui(8.))
+            .when(!chat.images.is_empty(), |d| d.child(
+                div().id(("draft-attachments", index)).debug_selector(|| "draft-attachments".into())
+                    .flex().items_start().gap(ui(6.)).w_full().min_w_0().flex_shrink_0()
+                    .overflow_x_scroll().overflow_y_hidden().px(ui(4.)).pt(ui(4.)).pb(ui(8.))
+                    .children(chat.images.iter().enumerate().map(|(i, path)| {
+                        attachments::photo(path.clone(), format!("draft-photo-{index}-{i}"), true)
+                            .child(button(("remove-image", i), "").debug_selector(|| "remove-draft-image".into()).aria_label("Remove image")
+                                .absolute().top(ui(4.)).right_0().size(ui(18.)).p(ui(3.)).rounded_full()
+                                .bg(rgba(0x181818e8)).child(icon("X").size(ui(12.)))
+                                .on_click(cx.listener(move |s, _, _, cx| { s.conversations[index].images.remove(i); cx.notify(); })))
+                    }))
+            ))
+            .child(div().debug_selector(|| "chat-input-shell".into()).relative().flex().flex_col().flex_shrink_0().rounded(ui(12.)).border_1().border_color(rgba(0xebebeb0f)).pt(ui(8.)).pb(ui(8.))
                 .when(chat.run.is_loading || chat.input.focus_handle(cx).is_focused(window), |d| d.child(
                     div().absolute().inset_0().rounded(ui(12.)).overflow_hidden().with_animation(("composer-beam", index), Animation::new(std::time::Duration::from_millis(2500)).repeat(), |d, phase| d.child(
                         canvas(|_, _, _| (), move |bounds, _, window, _| {
@@ -1502,11 +1555,6 @@ impl WorkspaceView {
                                 })
                         }))
                 ))
-                .when(!chat.images.is_empty(), |d| d.child(div().flex().flex_wrap().gap(ui(6.)).p(ui(8.)).children(chat.images.iter().enumerate().map(|(i, path)| {
-                    let path = path.clone();
-                    div().relative().child(img(path).w(ui(72.)).h(ui(56.)).object_fit(ObjectFit::Contain).rounded(ui(6.)))
-                        .child(button(("remove-image", i), "×").aria_label("Remove image").absolute().top_0().right_0().w(ui(18.)).h(ui(18.)).px(ui(3.)).bg(rgb(0x222222)).on_click(cx.listener(move |s, _, _, cx| { s.conversations[index].images.remove(i); cx.notify(); })))
-                }))))
                 .child(div().debug_selector(|| "chat-input-row".into()).flex().items_end().gap(ui(4.)).pl(ui(4.)).pr(ui(12.)).py(ui(6.))
                     .child(div().flex().items_center().gap(ui(2.)).flex_shrink_0()
                         .children([("Plus", "Attach image"), ("Mic", "Start voice input")].into_iter().map(|(glyph, label)| {
@@ -1514,7 +1562,7 @@ impl WorkspaceView {
                                 .on_click(cx.listener(move |s, _, _, cx| { if glyph == "Plus" { s.pick_chat_images(index, cx); } else { s.status = format!("{label} is not connected in the native preview yet."); cx.notify(); } }))
                         })))
                     .child(div().flex_1().min_w_0().child(chat.input.clone()))
-                    .child(button(("send-chat", index), "").aria_label(if chat.run.is_loading { "Stop generating" } else { "Send message" })
+                    .child(button(("send-chat", index), "").debug_selector(|| "chat-submit".into()).aria_label(if chat.run.is_loading { "Stop generating" } else { "Send message" })
                         .w(ui(28.)).h(ui(28.)).px(ui(6.))
                         .opacity(if chat.commands.is_some() && !chat.sending { 1. } else { 0.4 })
                         .child(icon(if chat.run.is_loading { "Stop" } else { "Send" }).size(ui(16.)))
@@ -1781,6 +1829,127 @@ impl Render for WorkspaceView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn attachment_photos() -> (tempfile::TempDir, Vec<std::path::PathBuf>) {
+        let directory = tempfile::tempdir().unwrap();
+        let paths = [("portrait.png", 16, 512), ("landscape.png", 512, 16)]
+            .into_iter()
+            .map(|(name, width, height)| {
+                let path = directory.path().join(name);
+                image::RgbaImage::from_pixel(width, height, image::Rgba([145, 120, 190, 255]))
+                    .save(&path)
+                    .unwrap();
+                path
+            })
+            .collect();
+        (directory, paths)
+    }
+
+    #[gpui::test]
+    fn sent_photos_reserve_space_above_text_before_and_after_loading(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let (_directory, photos) = attachment_photos();
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            let mut view = WorkspaceView::empty(cx.focus_handle(), cx.new(TextInput::new), cx);
+            view.status.clear();
+            let mut buffer = inferay_core::chat_protocol::ChatMessageBuffer::default();
+            buffer.replace_messages(vec![
+                serde_json::from_value(serde_json::json!({"id":"photos", "role":"user", "images":photos, "content":"This text stays below the photos.\n".repeat(6)})).unwrap(),
+                serde_json::from_value(serde_json::json!({"id":"reply", "role":"assistant", "content":"A reply follows the complete message."})).unwrap(),
+                serde_json::from_value(serde_json::json!({"id":"plain", "role":"user", "content":"This ordinary message must use the available width."})).unwrap(),
+            ]);
+            view.conversations[0].transcript.publish(PreparedTranscript::prepare(0, buffer.messages().iter().cloned().map(std::sync::Arc::new), "vscode-black"), None);
+            view
+        });
+        cx.simulate_resize(size(px(900.), px(1000.)));
+        for zoom in ["50", "100", "200"] {
+            view.update(cx, |view, cx| {
+                view.zoom = crate::zoom::Zoom::restore(Some(zoom));
+                view.conversations[0].transcript.scroll.remeasure();
+                cx.notify();
+            });
+            for _ in 0..2 {
+                cx.draw(point(px(0.), px(0.)), size(px(900.), px(1000.)), |_, _| {
+                    view.clone().into_any_element()
+                });
+                let images = cx.debug_bounds("user-images-photos").unwrap();
+                let text = cx.debug_bounds("user-message-text-photos").unwrap();
+                let bubble = cx.debug_bounds("user-bubble-photos").unwrap();
+                let scale = zoom.parse::<f32>().unwrap() / 100.;
+                let plain = cx.debug_bounds("user-bubble-plain").unwrap();
+                assert!(
+                    plain.size.width >= px(100. * scale),
+                    "text-only bubble collapsed at {zoom}%: {plain:?}"
+                );
+                assert!(text.top() >= images.bottom() + px(8. * scale) - px(1.));
+                assert!(bubble.bottom() >= text.bottom());
+                for selector in ["sent-photo-photos-0", "sent-photo-photos-1"] {
+                    let photo = cx.debug_bounds(selector).unwrap();
+                    assert!((photo.size.height - px(124. * scale)).abs() < px(1.));
+                    assert!(photo.right() <= images.right() + px(1.));
+                    assert!(photo.bottom() <= images.bottom() + px(1.));
+                }
+                view.read_with(cx, |view, _| {
+                    let list = &view.conversations[0].transcript.scroll;
+                    assert!(list.bounds_for_item(1).unwrap().top() >= bubble.bottom());
+                });
+                cx.run_until_parked();
+            }
+        }
+    }
+
+    #[gpui::test]
+    fn draft_photos_stay_above_the_input_and_preserve_typing(cx: &mut gpui::TestAppContext) {
+        let (_directory, photos) = attachment_photos();
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            let mut view = WorkspaceView::empty(cx.focus_handle(), cx.new(TextInput::new), cx);
+            view.status.clear();
+            view
+        });
+        let input = view.read_with(cx, |view, _| view.conversations[0].input.clone());
+        cx.update(|_, cx| crate::input::bind(cx));
+        cx.focus(&input);
+        cx.simulate_input("Keep this draft");
+        view.update(cx, |view, cx| view.attach_images(0, photos.clone(), cx));
+        cx.simulate_resize(size(px(900.), px(800.)));
+        for zoom in ["50", "100", "200"] {
+            view.update(cx, |view, cx| {
+                view.zoom = crate::zoom::Zoom::restore(Some(zoom));
+                cx.notify();
+            });
+            cx.draw(point(px(0.), px(0.)), size(px(900.), px(800.)), |_, _| {
+                view.clone().into_any_element()
+            });
+            let strip = cx.debug_bounds("draft-attachments").unwrap();
+            let shell = cx.debug_bounds("chat-input-shell").unwrap();
+            assert!(strip.bottom() <= shell.top());
+            for selector in ["draft-photo-0-0", "draft-photo-0-1"] {
+                let photo = cx.debug_bounds(selector).unwrap();
+                assert!(photo.bottom() <= shell.top());
+            }
+        }
+        cx.simulate_input(" while attaching");
+        assert_eq!(
+            input.read_with(cx, |input, _| input.content.to_string()),
+            "Keep this draft while attaching"
+        );
+        for remaining in [1, 0] {
+            let remove = cx.debug_bounds("remove-draft-image").unwrap();
+            cx.simulate_click(remove.center(), Modifiers::default());
+            cx.draw(point(px(0.), px(0.)), size(px(900.), px(800.)), |_, _| {
+                view.clone().into_any_element()
+            });
+            view.read_with(cx, |view, _| {
+                assert_eq!(view.conversations[0].images.len(), remaining)
+            });
+        }
+        assert!(cx.debug_bounds("draft-attachments").is_none());
+        assert_eq!(
+            input.read_with(cx, |input, _| input.content.to_string()),
+            "Keep this draft while attaching"
+        );
+    }
     #[gpui::test]
     fn stop_hook_has_no_row_or_details_even_if_previously_expanded(cx: &mut gpui::TestAppContext) {
         let id = "hook:turn:stop";
@@ -2108,6 +2277,8 @@ mod tests {
         assert_eq!(activity.size.height, px(20.));
         let input = cx.debug_bounds("chat-input-shell").unwrap();
         assert_eq!(activity.bottom(), input.top());
+        let submit = cx.debug_bounds("chat-submit").unwrap();
+        assert!(submit.top() >= input.top() && submit.bottom() <= input.bottom());
         assert!(cx.debug_bounds("chat-live-progress").is_none());
         view.read_with(cx, |view, _| {
             assert_eq!(
