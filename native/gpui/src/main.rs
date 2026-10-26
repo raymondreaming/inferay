@@ -1,4 +1,5 @@
 mod backend;
+mod copy_button;
 mod input;
 #[cfg(test)]
 mod performance;

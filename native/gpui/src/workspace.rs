@@ -1146,19 +1146,16 @@ impl WorkspaceView {
                     |d| {
                         d.child(
                             div().flex().justify_end().mt(ui(4.)).child(
-                                button(SharedString::from(format!("copy-{}", message.id)), "")
-                                    .aria_label("Copy response")
-                                    .w(ui(24.))
-                                    .justify_center()
-                                    .h(ui(24.))
-                                    .px(ui(6.))
-                                    .text_color(rgba(0xebebeb80))
-                                    .child(icon("Copy").size(ui(12.)))
-                                    .on_click(move |_, _, cx| {
-                                        cx.write_to_clipboard(ClipboardItem::new_string(
-                                            content.content.clone(),
-                                        ))
-                                    }),
+                                crate::copy_button::copy_button(
+                                    button(SharedString::from(format!("copy-{}", message.id)), "")
+                                        .aria_label("Copy response")
+                                        .w(ui(24.))
+                                        .justify_center()
+                                        .h(ui(24.))
+                                        .px(ui(6.))
+                                        .text_color(rgba(0xebebeb80)),
+                                    move || content.content.clone(),
+                                ),
                             ),
                         )
                     },
@@ -1486,12 +1483,12 @@ impl WorkspaceView {
                 ))
                 .bg(match self.appearance { Appearance::Dark => rgba(0x2f2f2fff), _ => rgba(0x181818e0) })
                 .when(!chat.queue.is_empty(), |d| d.child(
-                    div().id(("chat-queue", index)).debug_selector(|| "chat-queue".into()).max_h(ui(112.)).overflow_y_scroll().p(ui(4.))
+                    div().id(("chat-queue", index)).debug_selector(|| "chat-queue".into()).max_h(ui(112.)).overflow_y_scroll().px(ui(4.)).py(ui(2.))
                         .border_b_1().border_color(rgba(0xebebeb0f))
                         .children(chat.queue.iter().enumerate().map(|(position, message)| {
                             let text = message["displayText"].as_str().filter(|s| !s.is_empty())
                                 .or_else(|| message["text"].as_str()).unwrap_or("").to_owned();
-                            div().flex().items_start().gap(ui(8.)).px(ui(8.)).py(ui(4.)).text_size(ui(12.))
+                            div().flex().items_center().gap(ui(6.)).px(ui(8.)).py(ui(2.)).text_size(ui(12.)).line_height(ui(20.))
                                 .child(div().flex_shrink_0().w(ui(20.)).text_color(rgba(0xebebeb80)).child((position + 1).to_string()))
                                 .child(div().flex_1().min_w_0().when_some(
                                     chat.queue_editor.as_ref().filter(|(id, _)| message["id"].as_str() == Some(id.as_str())),

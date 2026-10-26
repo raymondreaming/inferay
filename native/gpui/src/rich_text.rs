@@ -236,7 +236,7 @@ impl RichText {
                         .py(ui(8.))
                         .child(self.blocks(&self.blocks, id)),
                 )
-                .child(
+                .child(crate::copy_button::copy_button(
                     crate::button(SharedString::from(format!("copy-tool-{id}")), "")
                         .debug_selector(|| "tool-details-copy".into())
                         .aria_label("Copy tool details")
@@ -245,17 +245,14 @@ impl RichText {
                         .top(ui(2.))
                         .size(ui(22.))
                         .p(ui(4.))
-                        .justify_center()
-                        .child(crate::icon("Copy").size(ui(12.)))
-                        .on_click(move |_, _, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(
-                                copy.iter()
-                                    .map(|text| text.as_ref())
-                                    .collect::<Vec<_>>()
-                                    .join("\n\n"),
-                            ))
-                        }),
-                )
+                        .justify_center(),
+                    move || {
+                        copy.iter()
+                            .map(|text| text.as_ref())
+                            .collect::<Vec<_>>()
+                            .join("\n\n")
+                    },
+                ))
                 .into_any_element();
         }
         self.blocks(&self.blocks, id).into_any_element()
@@ -300,7 +297,7 @@ impl RichText {
                                     .font_weight(FontWeight::NORMAL)
                                     .text_color(rgba(0xebebeb70))
                                     .child(lang.clone())
-                                    .child(
+                                    .child(crate::copy_button::copy_button(
                                         crate::button(
                                             SharedString::from(format!("copy-code-{id}")),
                                             "",
@@ -308,16 +305,9 @@ impl RichText {
                                         .aria_label("Copy code")
                                         .size(ui(22.))
                                         .p(ui(4.))
-                                        .justify_center()
-                                        .child(crate::icon("Copy").size(ui(12.)))
-                                        .on_click(
-                                            move |_, _, cx| {
-                                                cx.write_to_clipboard(ClipboardItem::new_string(
-                                                    copy.to_string(),
-                                                ))
-                                            },
-                                        ),
-                                    ),
+                                        .justify_center(),
+                                        move || copy.to_string(),
+                                    )),
                             )
                             .child(
                                 div()
