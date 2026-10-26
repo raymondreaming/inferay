@@ -39,6 +39,8 @@ Native Inferay tools use the shared agent dispatcher. Codex receives dynamic too
 
 ## Chat runtime and storage
 
+`native/core/src/chat_status.rs` owns the shared activity value and transitions for local submission, provider acknowledgement, terminal events, reconnects, and failed submissions. The server, transcript replica, and GPUI use that value directly; JSON conversion happens at the transport. `native/gpui/src/transcript.rs` owns immutable prepared rows and viewport publication, while background tasks prepare or recolor content.
+
 The full storage model (files versus databases, every table, how writes and reads flow) is in [storage.md](storage.md). Settings → Database hosts the isolated `modules/database` reader backed by `server/database_explorer`; it introspects stores without initializing, migrating or mutating them. [API documentation](api.md) links generated schema and OpenAPI references.
 
 Everything lives in the profile directory, `~/Library/Application Support/Inferay` (`INFERAY_USER_DATA_DIR` overrides it).

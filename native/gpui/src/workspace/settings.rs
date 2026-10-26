@@ -1,3 +1,4 @@
+use crate::zoom::ui;
 mod database;
 mod panels;
 mod skills;
@@ -8,7 +9,13 @@ use serde_json::{Value, json};
 use std::{collections::HashMap, sync::Arc};
 
 const SECTIONS: &[(&str, &str, &str, &str, &str)] = &[
-    ("about", "App", "About & updates", "Sparkles", "Inferay version and software updates."),
+    (
+        "about",
+        "App",
+        "About & updates",
+        "Sparkles",
+        "Inferay version and software updates.",
+    ),
     (
         "database",
         "App",
@@ -141,9 +148,9 @@ impl State {
         div()
             .min_w_0()
             .flex_1()
-            .px(px(8.))
-            .py(px(5.))
-            .rounded(px(6.))
+            .px(ui(8.))
+            .py(ui(5.))
+            .rounded(ui(6.))
             .border_1()
             .border_color(rgba(0xebebeb18))
             .bg(rgba(0xffffff05))
@@ -256,9 +263,10 @@ impl WorkspaceView {
                                 cx,
                             );
                         }
-                        let checking = (page == "about" && value["status"]["status"] == "updating") || page == "mcp"
-                            && (value["claude"]["checking"] == true
-                                || value["codex"]["checking"] == true);
+                        let checking = (page == "about" && value["status"]["status"] == "updating")
+                            || page == "mcp"
+                                && (value["claude"]["checking"] == true
+                                    || value["codex"]["checking"] == true);
                         state.data.insert(page, value);
                         if checking {
                             state.poll = Some(cx.spawn(async |this, cx| {
@@ -266,7 +274,9 @@ impl WorkspaceView {
                                     .timer(std::time::Duration::from_secs(2))
                                     .await;
                                 let _ = this.update(cx, |s, cx| {
-                                    if s.settings && matches!(s.settings_state.page, "mcp" | "about") {
+                                    if s.settings
+                                        && matches!(s.settings_state.page, "mcp" | "about")
+                                    {
                                         s.load_settings(false, cx);
                                     }
                                 });
@@ -390,7 +400,9 @@ impl WorkspaceView {
                 image = image.blur(background.blur as f32);
             }
             let mut pixels = image.into_rgba8();
-            for pixel in pixels.pixels_mut() { pixel.0.swap(0, 2); }
+            for pixel in pixels.pixels_mut() {
+                pixel.0.swap(0, 2);
+            }
             Some(Arc::new(RenderImage::new(vec![image::Frame::new(pixels)])))
         });
         self.scene_task = Some(cx.spawn(async move |this, cx| {
@@ -425,7 +437,9 @@ impl WorkspaceView {
         let theme = data["theme"].as_str().unwrap_or("vscode-black");
         if theme != self.syntax_theme {
             self.syntax_theme = theme.into();
-            for index in 0..self.conversations.len() { self.refresh_chat_theme(index, cx); }
+            for index in 0..self.conversations.len() {
+                self.refresh_chat_theme(index, cx);
+            }
             for repo in self.repository_views.values() {
                 repo.update(cx, |repo, cx| {
                     repo.set_syntax_theme(self.syntax_theme.clone(), cx)
@@ -446,16 +460,13 @@ impl WorkspaceView {
             .flex()
             .flex_col()
             .child(
-                div()
-                    .h(px(38.))
-                    .flex_shrink_0()
-                    .flex()
-                    .items_center()
-                    .pl(px(86.))
-                    .pr(px(12.))
-                    .gap(px(10.))
+                crate::titlebar_surface()
+                    .debug_selector(|| "settings-titlebar".into())
+                    .pr(ui(12.))
+                    .gap(ui(10.))
                     .child(
                         button("back", "")
+                            .debug_selector(|| "settings-back".into())
                             .aria_label("Back")
                             .child(icon("ArrowLeft"))
                             .on_click(cx.listener(|s, _, window, cx| {
@@ -499,7 +510,7 @@ impl WorkspaceView {
                             }
                         },
                     ))
-                    .child(div().w(px(220.)).child(state.fields["search"].clone())),
+                    .child(div().w(ui(220.)).child(state.fields["search"].clone())),
             )
             .child(
                 div()
@@ -509,19 +520,19 @@ impl WorkspaceView {
                     .child(
                         div()
                             .id("settings-navigation")
-                            .w(px(220.))
-                            .p(px(8.))
-                            .pt(px(12.))
+                            .w(ui(220.))
+                            .p(ui(8.))
+                            .pt(ui(12.))
                             .flex_shrink_0()
                             .overflow_y_scroll()
                             .children(["App", "Agents", "Workspace"].into_iter().map(|group| {
                                 div()
-                                    .mb(px(20.))
+                                    .mb(ui(20.))
                                     .child(
                                         div()
-                                            .px(px(6.))
-                                            .py(px(6.))
-                                            .text_size(px(11.))
+                                            .px(ui(6.))
+                                            .py(ui(6.))
+                                            .text_size(ui(11.))
                                             .text_color(rgba(0xebebeb80))
                                             .child(group),
                                     )
@@ -541,8 +552,8 @@ impl WorkspaceView {
                                                 button(page, "")
                                                     .aria_label(label)
                                                     .w_full()
-                                                    .gap(px(8.))
-                                                    .text_size(px(13.))
+                                                    .gap(ui(8.))
+                                                    .text_size(ui(13.))
                                                     .when(state.page == page, |d| {
                                                         d.bg(rgba(0xebebeb17))
                                                     })
@@ -562,16 +573,16 @@ impl WorkspaceView {
                             .min_w_0()
                             .min_h_0()
                             .overflow_y_scroll()
-                            .mr(px(6.))
-                            .mb(px(6.))
-                            .rounded(px(12.))
+                            .mr(ui(6.))
+                            .mb(ui(6.))
+                            .rounded(ui(12.))
                             .border_1()
                             .border_color(rgba(0xebebeb0a))
                             .bg(canvas)
                             .child(
                                 div()
                                     .w_full()
-                                    .max_w(px(
+                                    .max_w(ui(
                                         if state.page == "database" || state.page == "skills" {
                                             1400.
                                         } else {
@@ -579,16 +590,16 @@ impl WorkspaceView {
                                         },
                                     ))
                                     .mx_auto()
-                                    .px(px(32.))
-                                    .pt(px(30.))
-                                    .pb(px(48.))
+                                    .px(ui(32.))
+                                    .pt(ui(30.))
+                                    .pb(ui(48.))
                                     .child(
                                         div()
                                             .flex()
                                             .items_center()
                                             .child(
                                                 div()
-                                                    .text_size(px(20.))
+                                                    .text_size(ui(20.))
                                                     .font_weight(FontWeight::SEMIBOLD)
                                                     .child(section.2),
                                             )
@@ -601,14 +612,14 @@ impl WorkspaceView {
                                     )
                                     .child(
                                         div()
-                                            .mt(px(6.))
+                                            .mt(ui(6.))
                                             .text_color(rgba(0xebebeb80))
                                             .child(section.4),
                                     )
                                     .when_some(state.error.clone(), |d, error| {
                                         d.child(
                                             div()
-                                                .my(px(12.))
+                                                .my(ui(12.))
                                                 .text_color(rgb(0xff8888))
                                                 .child(error),
                                         )
@@ -616,7 +627,7 @@ impl WorkspaceView {
                                     .when_some(state.notice.clone(), |d, notice| {
                                         d.child(
                                             div()
-                                                .my(px(12.))
+                                                .my(ui(12.))
                                                 .text_color(rgba(0xebebebb8))
                                                 .child(notice),
                                         )
@@ -626,14 +637,14 @@ impl WorkspaceView {
                                         |d| {
                                             d.child(
                                                 div()
-                                                    .mt(px(24.))
+                                                    .mt(ui(24.))
                                                     .text_color(rgba(0xebebeb80))
                                                     .child("Loading settings…"),
                                             )
                                         },
                                     )
                                     .when(state.data.contains_key(state.page), |d| {
-                                        d.child(div().mt(px(28.)).child(self.settings_panel(cx)))
+                                        d.child(div().mt(ui(28.)).child(self.settings_panel(cx)))
                                     }),
                             ),
                     ),
@@ -643,17 +654,17 @@ impl WorkspaceView {
 
 fn section(title: impl Into<SharedString>, description: impl Into<SharedString>) -> Div {
     div()
-        .mb(px(32.))
+        .mb(ui(32.))
         .child(
             div()
-                .text_size(px(14.))
+                .text_size(ui(14.))
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(title.into()),
         )
         .child(
             div()
-                .mt(px(4.))
-                .mb(px(12.))
+                .mt(ui(4.))
+                .mb(ui(12.))
                 .text_color(rgba(0xebebeb80))
                 .child(description.into()),
         )
@@ -662,8 +673,8 @@ fn row(label: impl Into<SharedString>) -> Div {
     div()
         .flex()
         .items_center()
-        .gap(px(12.))
-        .py(px(12.))
+        .gap(ui(12.))
+        .py(ui(12.))
         .border_b_1()
         .border_color(rgba(0xebebeb0f))
         .child(div().flex_1().min_w_0().child(label.into()))
@@ -672,7 +683,97 @@ fn row(label: impl Into<SharedString>) -> Div {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[gpui::test]
+    fn native_control_clearance_survives_minimum_zoom_in_workspace_and_settings(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            WorkspaceView::empty(cx.focus_handle(), cx.new(TextInput::new), cx)
+        });
+        cx.simulate_resize(size(px(1000.), px(720.)));
+        for percent in [50, 80, 100, 150, 200] {
+            for settings in [false, true] {
+                view.update(cx, |view, cx| {
+                    view.zoom = crate::zoom::Zoom::restore(Some(&percent.to_string()));
+                    view.settings = settings;
+                    cx.notify();
+                });
+                cx.draw(point(px(0.), px(0.)), size(px(1000.), px(720.)), |_, _| {
+                    view.clone().into_any_element()
+                });
+                let header = cx
+                    .debug_bounds(if settings {
+                        "settings-titlebar"
+                    } else {
+                        "workspace-titlebar"
+                    })
+                    .unwrap();
+                let first_control = cx
+                    .debug_bounds(if settings {
+                        "settings-back"
+                    } else {
+                        "sidebar-toggle"
+                    })
+                    .unwrap();
+                assert!(header.size.height >= px(42.), "zoom {percent}");
+                assert!(
+                    first_control.left() - header.left() >= px(96.),
+                    "zoom {percent}"
+                );
+                assert!(first_control.top() >= header.top());
+                assert!(first_control.bottom() <= header.bottom());
+            }
+        }
+    }
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn global_zoom_scales_layout_with_composer_and_settings_focus_and_persists(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let profile = tempfile::tempdir().unwrap();
+        cx.update(crate::zoom::bind);
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            let mut view = WorkspaceView::empty(cx.focus_handle(), cx.new(TextInput::new), cx);
+            view.profile = profile.path().into();
+            view.status.clear();
+            view
+        });
+        cx.simulate_resize(size(px(1400.), px(900.)));
+        cx.draw(point(px(0.), px(0.)), size(px(1400.), px(900.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        let original = cx.debug_bounds("chat-composer").unwrap();
+        let input = view.read_with(cx, |view, _| view.conversations[0].input.clone());
+        cx.focus(&input);
+        cx.simulate_keystrokes("cmd-=");
+        cx.draw(point(px(0.), px(0.)), size(px(1400.), px(900.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        let enlarged = cx.debug_bounds("chat-composer").unwrap();
+        assert!((enlarged.size.width - original.size.width * 1.1).abs() < px(1.));
+        assert!(enlarged.size.height > original.size.height);
+        assert_eq!(view.read_with(cx, |view, _| view.zoom.percent()), 110);
+        view.update(cx, |view, cx| {
+            view.settings = true;
+            cx.notify();
+        });
+        cx.draw(point(px(0.), px(0.)), size(px(1400.), px(900.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        let field = view.read_with(cx, |view, _| view.settings_state.fields["search"].clone());
+        cx.focus(&field);
+        cx.simulate_keystrokes("cmd--");
+        assert_eq!(view.read_with(cx, |view, _| view.zoom.percent()), 100);
+        cx.simulate_keystrokes("cmd-+");
+        assert_eq!(view.read_with(cx, |view, _| view.zoom.percent()), 110);
+        cx.run_until_parked();
+        assert_eq!(
+            crate::session::load(profile.path()).unwrap().zoom.percent(),
+            110
+        );
+        cx.simulate_keystrokes("cmd-0");
+        assert_eq!(view.read_with(cx, |view, _| view.zoom.percent()), 100);
+    }
     #[gpui::test]
     fn refreshing_settings_preserves_cleared_and_edited_instructions(cx: &mut TestAppContext) {
         let window = cx.add_window(|_, cx| {

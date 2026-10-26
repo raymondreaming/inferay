@@ -31,8 +31,19 @@ impl PreparedTranscript {
                 let preview = if message.role != "tool" || message.id.starts_with("hook:") {
                     "".into()
                 } else {
-                    let output = message.render.as_ref().and_then(|r| r.output_start)
-                        .map(|start| String::from_utf16_lossy(&message.content.encode_utf16().skip(start).collect::<Vec<_>>()))
+                    let output = message
+                        .render
+                        .as_ref()
+                        .and_then(|r| r.output_start)
+                        .map(|start| {
+                            String::from_utf16_lossy(
+                                &message
+                                    .content
+                                    .encode_utf16()
+                                    .skip(start)
+                                    .collect::<Vec<_>>(),
+                            )
+                        })
                         .unwrap_or_default();
                     let output = output.trim();
                     if output.starts_with('{') || output.starts_with('[') {
@@ -42,7 +53,9 @@ impl PreparedTranscript {
                     } else {
                         let excerpt = output.lines().take(3).collect::<Vec<_>>().join("\n");
                         let mut preview = excerpt.chars().take(360).collect::<String>();
-                        if preview.len() < output.len() { preview.push('…'); }
+                        if preview.len() < output.len() {
+                            preview.push('…');
+                        }
                         preview.into()
                     }
                 };
@@ -173,9 +186,21 @@ mod tests {
         for (id, output) in [("json", "{\"status\":\"ok\"}"), ("hook:1", "completed")] {
             buffer.apply_event(&json!({"type":"inferay.tool","id":id,"name":"exec_command","input":{"cmd":"echo café"},"output":output,"done":true}));
         }
-        let prepared = PreparedTranscript::prepare(0, buffer.messages().iter().cloned().map(Arc::new), "vscode-black");
-        assert_eq!(prepared.rows[0].preview.as_ref(), "JSON result · expand to inspect");
-        assert!(prepared.rows[0].message.content.ends_with("{\"status\":\"ok\"}"));
+        let prepared = PreparedTranscript::prepare(
+            0,
+            buffer.messages().iter().cloned().map(Arc::new),
+            "vscode-black",
+        );
+        assert_eq!(
+            prepared.rows[0].preview.as_ref(),
+            "JSON result · expand to inspect"
+        );
+        assert!(
+            prepared.rows[0]
+                .message
+                .content
+                .ends_with("{\"status\":\"ok\"}")
+        );
         assert!(prepared.rows[1].preview.is_empty());
     }
 

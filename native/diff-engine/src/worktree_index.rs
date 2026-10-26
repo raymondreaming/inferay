@@ -1,7 +1,7 @@
 // A disposable index lets Git count new files and detect unstaged renames
 // without staging anything in the user's index. Git retains ownership of text,
 // binary, symlink and attribute semantics.
-use super::{git_exec, run_git, GitFileEntry};
+use super::{GitFileEntry, git_exec, run_git};
 use std::time::Duration;
 
 pub(super) struct WorktreeIndex {
@@ -136,8 +136,8 @@ impl WorktreeIndex {
 #[cfg(test)]
 mod tests {
     use crate::{
-        get_git_change_summary, get_git_hunk_diff, get_git_status, stage_git, unstage_git,
-        GitChangeSummary,
+        GitChangeSummary, get_git_change_summary, get_git_hunk_diff, get_git_status, stage_git,
+        unstage_git,
     };
     use inferay_core::path_security::AllowedPaths;
     use std::path::Path;
@@ -458,20 +458,24 @@ mod tests {
         assert!(stage_git(cwd, Some(destinations[0])));
         let status = get_git_status(cwd).unwrap();
         assert_eq!(status.files.len(), 19 + padding);
-        assert!(status
-            .files
-            .iter()
-            .any(|file| file.path == destinations[0] && file.staged && file.status == "R"));
+        assert!(
+            status
+                .files
+                .iter()
+                .any(|file| file.path == destinations[0] && file.staged && file.status == "R")
+        );
         let diff = get_git_hunk_diff(&allowed, cwd, destinations[0], true);
         assert!(!diff.is_new);
         assert!(!diff.old_lines.is_empty());
         assert!(unstage_git(cwd, Some(destinations[0])));
         assert_eq!(get_git_status(cwd).unwrap().files.len(), 19 + padding);
-        assert!(get_git_status(cwd)
-            .unwrap()
-            .files
-            .iter()
-            .any(|file| file.path == "file18.txt" && file.staged));
+        assert!(
+            get_git_status(cwd)
+                .unwrap()
+                .files
+                .iter()
+                .any(|file| file.path == "file18.txt" && file.staged)
+        );
         for destination in &destinations[1..] {
             assert!(stage_git(cwd, Some(destination)));
             assert_eq!(get_git_status(cwd).unwrap().files.len(), 19 + padding);
@@ -496,13 +500,17 @@ mod tests {
         std::fs::write(root.path().join("unrelated.txt"), "entirely different\n").unwrap();
         let status = get_git_status(cwd).unwrap();
         assert_eq!(status.files.len(), 20 + padding);
-        assert!(status
-            .files
-            .iter()
-            .any(|file| file.path == "unrelated.txt" && file.status == "?"));
-        assert!(status
-            .files
-            .iter()
-            .any(|file| file.path == "file17.txt" && file.status == "D"));
+        assert!(
+            status
+                .files
+                .iter()
+                .any(|file| file.path == "unrelated.txt" && file.status == "?")
+        );
+        assert!(
+            status
+                .files
+                .iter()
+                .any(|file| file.path == "file17.txt" && file.status == "D")
+        );
     }
 }

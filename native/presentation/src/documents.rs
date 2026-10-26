@@ -21,7 +21,6 @@ pub struct DocumentReplica {
 }
 
 impl DocumentReplica {
-
     pub fn new(
         paths: &str,
         active_path: Option<String>,

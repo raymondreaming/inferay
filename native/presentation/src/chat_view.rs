@@ -114,7 +114,6 @@ pub struct ChatViewport {
 }
 
 impl ChatViewport {
-
     pub fn new() -> Self {
         Self::default()
     }

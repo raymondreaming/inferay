@@ -9,6 +9,7 @@ mod session;
 mod syntax;
 mod transcript;
 mod workspace;
+mod zoom;
 
 use gpui::{prelude::*, *};
 use std::borrow::Cow;
@@ -73,6 +74,7 @@ fn main() {
                 .expect("bundled Geist fonts");
             cx.set_window_appearance(Some(WindowAppearance::Dark));
             input::bind(cx);
+            zoom::bind(cx);
             cx.bind_keys([
                 KeyBinding::new("cmd-q", Quit, None),
                 KeyBinding::new("cmd-b", ToggleSidebar, None),
@@ -82,6 +84,11 @@ fn main() {
             cx.on_action(|_: &Quit, cx| cx.quit());
             cx.set_menus(vec![
                 Menu::new("Inferay").items([MenuItem::action("Quit Inferay", Quit)]),
+                Menu::new("View").items([
+                    MenuItem::action("Zoom In", zoom::ZoomIn),
+                    MenuItem::action("Zoom Out", zoom::ZoomOut),
+                    MenuItem::action("Actual Size", zoom::ResetZoom),
+                ]),
             ]);
             let bounds = Bounds::centered(None, size(px(1280.), px(820.)), cx);
             cx.open_window(
@@ -108,20 +115,41 @@ fn main() {
                 }
             })
             .detach();
-
         });
 }
 fn icon(name: &'static str) -> Svg {
     svg()
         .path(name)
-        .size(px(15.))
+        .size(crate::zoom::ui(15.))
         .flex_shrink_0()
         .text_color(rgba(0xebebebb8))
 }
 fn menu_surface(id: impl Into<ElementId>) -> Stateful<Div> {
-    div().id(id).absolute().flex().flex_col().max_h(px(300.)).overflow_y_scroll()
-        .p(px(4.)).rounded(px(8.)).bg(rgb(colors::SHELL))
-        .border_1().border_color(rgba(0xebebeb20)).shadow_lg().occlude()
+    div()
+        .id(id)
+        .absolute()
+        .flex()
+        .flex_col()
+        .max_h(crate::zoom::ui(300.))
+        .overflow_y_scroll()
+        .p(crate::zoom::ui(4.))
+        .rounded(crate::zoom::ui(8.))
+        .bg(rgb(colors::SHELL))
+        .border_1()
+        .border_color(rgba(0xebebeb20))
+        .shadow_lg()
+        .occlude()
+}
+
+fn titlebar_surface() -> Div {
+    // macOS controls retain their physical size at every application zoom level.
+    div()
+        .flex()
+        .items_center()
+        .flex_shrink_0()
+        .h(zoom::ui(zoom::TITLEBAR_HEIGHT))
+        .min_h(px(zoom::NATIVE_TITLEBAR_MIN_HEIGHT))
+        .pl(px(96.))
 }
 fn button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Stateful<Div> {
     plain_button(id, label).hover(|s| s.bg(rgba(0xffffff0d)))
@@ -135,11 +163,11 @@ fn plain_button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Sta
         .tab_index(0)
         .flex()
         .items_center()
-        .gap(px(6.))
-        .px(px(9.))
-        .h(px(28.))
-        .rounded(px(6.))
-        .text_size(px(colors::CHAT_SMALL))
+        .gap(crate::zoom::ui(6.))
+        .px(crate::zoom::ui(9.))
+        .h(crate::zoom::ui(28.))
+        .rounded(crate::zoom::ui(6.))
+        .text_size(crate::zoom::ui(colors::CHAT_SMALL))
         .cursor_pointer()
         .when(!label.is_empty(), |d| d.child(label))
 }

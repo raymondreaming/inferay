@@ -150,26 +150,68 @@ fn codex_connector_calls_are_visible_before_completion_and_keep_their_results() 
     let a = json!({"id":"a","type":"mcpToolCall","server":"github","tool":"list_issues","arguments":{"repo":"example"}});
     let b = json!({"id":"b","type":"dynamicToolCall","tool":"inspect_project","arguments":{}});
     for item in [&a, &b] {
-        state.handle_notification(&mut context, "item/started", &json!({"item":item}), &ProtocolFiles::default());
+        state.handle_notification(
+            &mut context,
+            "item/started",
+            &json!({"item":item}),
+            &ProtocolFiles::default(),
+        );
         for emission in context.take_emissions() {
-            if let ProtocolEmission::Chat(event) = emission { transcript.apply_event(&event); }
+            if let ProtocolEmission::Chat(event) = emission {
+                transcript.apply_event(&event);
+            }
         }
     }
     assert_eq!(transcript.messages().len(), 2);
-    assert!(transcript.messages().iter().all(|m| m.is_streaming == Some(true)));
-    assert_eq!(transcript.messages()[0].render.as_ref().unwrap().display.as_ref().unwrap().source.as_ref().unwrap().server_id, "github");
+    assert!(
+        transcript
+            .messages()
+            .iter()
+            .all(|m| m.is_streaming == Some(true))
+    );
+    assert_eq!(
+        transcript.messages()[0]
+            .render
+            .as_ref()
+            .unwrap()
+            .display
+            .as_ref()
+            .unwrap()
+            .source
+            .as_ref()
+            .unwrap()
+            .server_id,
+        "github"
+    );
     let mut completed = a;
     completed["result"] = json!({"content":[{"type":"text","text":"Found three issues"}],"structuredContent":{"count":3}});
-    state.handle_notification(&mut context, "item/completed", &json!({"item":completed}), &ProtocolFiles::default());
+    state.handle_notification(
+        &mut context,
+        "item/completed",
+        &json!({"item":completed}),
+        &ProtocolFiles::default(),
+    );
     for emission in context.take_emissions() {
-        if let ProtocolEmission::Chat(event) = emission { transcript.apply_event(&event); }
+        if let ProtocolEmission::Chat(event) = emission {
+            transcript.apply_event(&event);
+        }
     }
     assert_eq!(transcript.messages().len(), 2);
     assert_eq!(transcript.messages()[0].is_streaming, Some(false));
-    assert!(transcript.messages()[0].content.contains("Found three issues"));
+    assert!(
+        transcript.messages()[0]
+            .content
+            .contains("Found three issues")
+    );
     assert!(transcript.messages()[0].content.contains("\"count\": 3"));
     assert_eq!(transcript.messages()[1].is_streaming, Some(true));
-    assert!(transcript.messages()[0].render.as_ref().unwrap().continues_after);
+    assert!(
+        transcript.messages()[0]
+            .render
+            .as_ref()
+            .unwrap()
+            .continues_after
+    );
 }
 
 #[test]
@@ -178,14 +220,28 @@ fn codex_progress_summaries_and_plans_update_visible_transcript_rows() {
     let mut context = AgentProtocolContext::new("/repo");
     let mut buffer = inferay_core::chat_protocol::ChatMessageBuffer::default();
     for (method, params) in [
-        ("item/reasoning/summaryTextDelta", json!({"turnId":"t","itemId":"r","summaryIndex":0,"delta":"Checking "})),
-        ("item/reasoning/summaryTextDelta", json!({"turnId":"t","itemId":"r","summaryIndex":0,"delta":"repository changes."})),
-        ("turn/plan/updated", json!({"turnId":"t","plan":[{"step":"Inspect changes","status":"inProgress"}]})),
-        ("turn/plan/updated", json!({"turnId":"t","plan":[{"step":"Inspect changes","status":"completed"}]})),
+        (
+            "item/reasoning/summaryTextDelta",
+            json!({"turnId":"t","itemId":"r","summaryIndex":0,"delta":"Checking "}),
+        ),
+        (
+            "item/reasoning/summaryTextDelta",
+            json!({"turnId":"t","itemId":"r","summaryIndex":0,"delta":"repository changes."}),
+        ),
+        (
+            "turn/plan/updated",
+            json!({"turnId":"t","plan":[{"step":"Inspect changes","status":"inProgress"}]}),
+        ),
+        (
+            "turn/plan/updated",
+            json!({"turnId":"t","plan":[{"step":"Inspect changes","status":"completed"}]}),
+        ),
     ] {
         protocol.handle_notification(&mut context, method, &params, &ProtocolFiles::default());
         for emission in context.take_emissions() {
-            if let ProtocolEmission::Chat(event) = emission { buffer.apply_event(&event); }
+            if let ProtocolEmission::Chat(event) = emission {
+                buffer.apply_event(&event);
+            }
         }
     }
     let messages = buffer.messages();
@@ -220,9 +276,16 @@ fn codex_raw_tool_calls_and_outputs_share_one_visible_row() {
         json!({"type":"function_call","call_id":"code-1","name":"exec","arguments":"pwd"}),
         json!({"type":"function_call_output","call_id":"code-1","output":"/repo"}),
     ] {
-        state.handle_notification(&mut context, "rawResponseItem/completed", &json!({"item":item}), &ProtocolFiles::default());
+        state.handle_notification(
+            &mut context,
+            "rawResponseItem/completed",
+            &json!({"item":item}),
+            &ProtocolFiles::default(),
+        );
         for event in context.take_emissions() {
-            if let ProtocolEmission::Chat(event) = event { buffer.apply_event(&event); }
+            if let ProtocolEmission::Chat(event) = event {
+                buffer.apply_event(&event);
+            }
         }
     }
     assert_eq!(buffer.messages().len(), 1);
@@ -239,10 +302,15 @@ fn provider_hooks_are_visible_until_completion() {
     for method in ["hook/started", "hook/completed"] {
         state.handle_notification(&mut context, method, &json!({"turnId":"turn","run":{"id":"hook","eventName":"sessionStart","sourcePath":"/hooks.json","status":if method.ends_with("started") {"running"} else {"completed"},"entries":[]}}), &ProtocolFiles::default());
         for event in context.take_emissions() {
-            if let ProtocolEmission::Chat(event) = event { buffer.apply_event(&event); }
+            if let ProtocolEmission::Chat(event) = event {
+                buffer.apply_event(&event);
+            }
         }
         assert_eq!(buffer.messages().len(), 1);
-        assert_eq!(buffer.messages()[0].is_streaming, Some(method.ends_with("started")));
+        assert_eq!(
+            buffer.messages()[0].is_streaming,
+            Some(method.ends_with("started"))
+        );
     }
     assert!(buffer.messages()[0].content.contains("completed"));
 }

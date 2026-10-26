@@ -1,4 +1,5 @@
 use super::*;
+use crate::zoom::ui;
 
 impl RepositoryView {
     pub(super) fn file_entries(&self) -> Vec<(String, String, usize, usize, bool)> {
@@ -53,6 +54,24 @@ impl RepositoryView {
         }
         self.mutating = true;
         let target = self.selected_worktree.clone();
+        let selected = (self.file.clone(), self.selected_staged);
+        let changed_path = path.clone();
+        let next_selection =
+            if path.is_some() && path == self.file && staged == self.selected_staged {
+                let files: Vec<_> = self
+                    .file_entries()
+                    .into_iter()
+                    .map(|file| json!({"path":file.0,"staged":file.4}))
+                    .collect();
+                let next = inferay_presentation::workbench::selection_after_toggle(&json!({
+                    "files":files,"selected":{"path":path,"staged":staged}
+                }));
+                next["path"]
+                    .as_str()
+                    .map(|path| (path.to_owned(), next["staged"].as_bool().unwrap_or(false)))
+            } else {
+                None
+            };
         let cwd = self.selected_worktree.as_ref().unwrap_or(&self.cwd).clone();
         let work = cx.background_executor().spawn(async move {
             if staged {
@@ -69,9 +88,19 @@ impl RepositoryView {
                     s.task = None;
                     s.loading = false;
                     if s.selected.is_none() && s.selected_worktree == target {
-                        s.clear_diff();
-                        s.file = None;
-                        s.show_diff = false;
+                        if (s.file.clone(), s.selected_staged) == selected {
+                            s.clear_diff();
+                            s.file = None;
+                            s.show_diff = false;
+                            if let Some((path, staged)) = next_selection {
+                                s.open_file(path, staged, cx);
+                            }
+                        } else if let Some(current) = s.file.clone()
+                            && (changed_path.is_none() || changed_path.as_ref() == Some(&current))
+                        {
+                            s.clear_diff();
+                            s.open_file(current, s.selected_staged, cx);
+                        }
                     }
                     s.refresh(cx);
                 } else {
@@ -110,8 +139,8 @@ impl RepositoryView {
             .when(files.is_empty(), |d| {
                 d.child(
                     div()
-                        .p(px(16.))
-                        .text_size(px(12.))
+                        .p(ui(16.))
+                        .text_size(ui(12.))
                         .text_color(rgba(0xebebeb80))
                         .child(if self.selected.is_some() && self.details.is_none() {
                             "Loading commit…"
@@ -137,37 +166,58 @@ impl RepositoryView {
                         let mut prefix = String::new();
                         let parts: Vec<_> = path.split('/').collect();
                         for part in &parts[..parts.len().saturating_sub(1)] {
-                            if !prefix.is_empty() { prefix.push('/'); }
+                            if !prefix.is_empty() {
+                                prefix.push('/');
+                            }
                             prefix.push_str(part);
                             if seen_directories.insert(prefix.clone()) && !hidden {
                                 let directory = prefix.clone();
                                 let collapsed = self.collapsed_directories.contains(&directory);
-                                directories.push(button(SharedString::from(format!("directory-{staged}-{directory}")), *part)
-                                    .h(px(26.)).pl(px(12. + depth as f32 * 14.))
-                                    .child(icon(if collapsed { "ChevronRight" } else { "ChevronDown" }))
+                                directories.push(
+                                    button(
+                                        SharedString::from(format!(
+                                            "directory-{staged}-{directory}"
+                                        )),
+                                        *part,
+                                    )
+                                    .h(ui(26.))
+                                    .pl(ui(12. + depth as f32 * 14.))
+                                    .child(icon(if collapsed {
+                                        "ChevronRight"
+                                    } else {
+                                        "ChevronDown"
+                                    }))
                                     .on_click(cx.listener(move |view, _, _, cx| {
-                                        if !view.collapsed_directories.remove(&directory) { view.collapsed_directories.insert(directory.clone()); }
+                                        if !view.collapsed_directories.remove(&directory) {
+                                            view.collapsed_directories.insert(directory.clone());
+                                        }
                                         cx.notify();
-                                    })).into_any_element());
+                                    }))
+                                    .into_any_element(),
+                                );
                             }
                             hidden |= self.collapsed_directories.contains(&prefix);
                             depth += 1;
                         }
                     }
-                    let label = if self.tree_files { path.rsplit('/').next().unwrap_or(&path).to_owned() } else { path.clone() };
+                    let label = if self.tree_files {
+                        path.rsplit('/').next().unwrap_or(&path).to_owned()
+                    } else {
+                        path.clone()
+                    };
                     let action_path = path.clone();
                     let row = div()
                         .id(SharedString::from(format!("changed-file-{staged}-{i}")))
                         .role(Role::Button)
                         .aria_label(label.clone())
-                        .h(px(26.))
+                        .h(ui(26.))
                         .flex()
                         .items_center()
-                        .gap(px(8.))
-                        .px(px(12.))
-                        .pl(px(12. + depth as f32 * 14.))
+                        .gap(ui(8.))
+                        .px(ui(12.))
+                        .pl(ui(12. + depth as f32 * 14.))
                         .cursor_pointer()
-                        .text_size(px(11.))
+                        .text_size(ui(11.))
                         .when(selected, |d| d.bg(rgba(0xebebeb17)))
                         .hover(|d| d.bg(rgba(0xebebeb0d)))
                         .child(div().text_color(rgb(tint)).child(status))
@@ -184,25 +234,24 @@ impl RepositoryView {
                         )
                         .when(self.selected.is_none(), |d| {
                             d.child(
-                                button(
-                                    SharedString::from(format!("stage-{staged}-{i}")),
-                                    "",
-                                )
-                                .aria_label(format!(
-                                    "{} {action_path}",
-                                    if staged { "Unstage" } else { "Stage" }
-                                ))
-                                .h(px(22.))
-                                .w(px(22.))
-                                .p(px(4.)).flex_shrink_0().justify_center()
-                                .child(icon(if staged { "Minus" } else { "Plus" }).size(px(14.)))
-                                .when(self.mutating, |d| d.opacity(0.4))
-                                .on_click(cx.listener(
-                                    move |s, _, _, cx| {
+                                button(SharedString::from(format!("stage-{staged}-{i}")), "")
+                                    .aria_label(format!(
+                                        "{} {action_path}",
+                                        if staged { "Unstage" } else { "Stage" }
+                                    ))
+                                    .h(ui(22.))
+                                    .w(ui(22.))
+                                    .p(ui(4.))
+                                    .flex_shrink_0()
+                                    .justify_center()
+                                    .child(
+                                        icon(if staged { "Minus" } else { "Plus" }).size(ui(14.)),
+                                    )
+                                    .when(self.mutating, |d| d.opacity(0.4))
+                                    .on_click(cx.listener(move |s, _, _, cx| {
                                         cx.stop_propagation();
                                         s.stage(Some(action_path.clone()), staged, cx);
-                                    },
-                                )),
+                                    })),
                             )
                         })
                         .on_click(
@@ -223,22 +272,48 @@ impl RepositoryView {
                 div()
                     .flex()
                     .items_center()
-                    .h(px(32.))
+                    .h(ui(32.))
                     .flex_shrink_0()
-                    .px(px(8.))
+                    .px(ui(8.))
                     .border_b_1()
                     .border_color(rgba(0xebebeb0f))
-                    .children([(false, "Path"), (true, "Tree")].into_iter().map(|(tree, label)| {
-                        button(label, label).h(px(26.)).when(self.tree_files == tree, |d| d.bg(rgba(0xebebeb17)))
-                            .on_click(cx.listener(move |view, _, _, cx| { view.tree_files = tree; cx.notify(); }))
-                    }))
+                    .children(
+                        [(false, "Path"), (true, "Tree")]
+                            .into_iter()
+                            .map(|(tree, label)| {
+                                button(label, label)
+                                    .h(ui(26.))
+                                    .when(self.tree_files == tree, |d| d.bg(rgba(0xebebeb17)))
+                                    .on_click(cx.listener(move |view, _, _, cx| {
+                                        view.tree_files = tree;
+                                        cx.notify();
+                                    }))
+                            }),
+                    )
                     .child(div().flex_1())
-                    .child(div().text_size(px(11.)).text_color(rgb(colors::ADDED)).child(format!("+{}", self.file_entries().iter().map(|f| f.2).sum::<usize>())))
-                    .child(div().ml(px(8.)).text_size(px(11.)).text_color(rgb(colors::DELETED)).child(format!("−{}", self.file_entries().iter().map(|f| f.3).sum::<usize>())))
+                    .child(
+                        div()
+                            .text_size(ui(11.))
+                            .text_color(rgb(colors::ADDED))
+                            .child(format!(
+                                "+{}",
+                                self.file_entries().iter().map(|f| f.2).sum::<usize>()
+                            )),
+                    )
+                    .child(
+                        div()
+                            .ml(ui(8.))
+                            .text_size(ui(11.))
+                            .text_color(rgb(colors::DELETED))
+                            .child(format!(
+                                "−{}",
+                                self.file_entries().iter().map(|f| f.3).sum::<usize>()
+                            )),
+                    )
                     .when(historical, |d| {
                         d.child(
                             div()
-                                .text_size(px(colors::CHAT_DETAIL))
+                                .text_size(ui(colors::CHAT_DETAIL))
                                 .text_color(rgba(0xebebeb80))
                                 .child(
                                     self.selected
@@ -269,15 +344,15 @@ impl RepositoryView {
                                     d.max_h(relative(0.4)).w_full().border_b_1()
                                 })
                                 .border_color(rgba(0xebebeb0f))
-                                .p(px(12.))
-                                .text_size(px(colors::CHAT_SMALL))
+                                .p(ui(12.))
+                                .text_size(ui(colors::CHAT_SMALL))
                                 .when_some(self.details.as_ref(), |d, details| {
                                     d.child(
                                         div()
                                             .flex()
                                             .items_center()
-                                            .gap(px(8.))
-                                            .mb(px(10.))
+                                            .gap(ui(8.))
+                                            .mb(ui(10.))
                                             .child(self.author_avatar(
                                                 &details.hash,
                                                 &details.author_email,
@@ -290,7 +365,7 @@ impl RepositoryView {
                                                     .child(details.author.clone())
                                                     .child(
                                                     div()
-                                                        .text_size(px(colors::CHAT_DETAIL))
+                                                        .text_size(ui(colors::CHAT_DETAIL))
                                                         .text_color(rgba(0xebebeb80))
                                                         .child(
                                                             chrono::DateTime::parse_from_rfc3339(
@@ -313,7 +388,7 @@ impl RepositoryView {
                                     .child(
                                         div()
                                             .font_weight(FontWeight::MEDIUM)
-                                            .mb(px(6.))
+                                            .mb(ui(6.))
                                             .child(details.message.clone()),
                                     )
                                     .child(
@@ -345,10 +420,10 @@ impl RepositoryView {
                                     div()
                                         .flex()
                                         .items_center()
-                                        .h(px(28.))
+                                        .h(ui(28.))
                                         .flex_shrink_0()
-                                        .px(px(8.))
-                                        .text_size(px(colors::CHAT_SMALL))
+                                        .px(ui(8.))
+                                        .text_size(ui(colors::CHAT_SMALL))
                                         .child(format!(
                                             "{} ({count})",
                                             if staged { "Staged" } else { "Unstaged" }
@@ -368,8 +443,8 @@ impl RepositoryView {
                                                         "Stage all"
                                                     },
                                                 )
-                                                .h(px(22.))
-                                                .text_size(px(colors::CHAT_DETAIL))
+                                                .h(ui(22.))
+                                                .text_size(ui(colors::CHAT_DETAIL))
                                                 .on_click(cx.listener(move |s, _, _, cx| {
                                                     s.stage(None, staged, cx)
                                                 })),

@@ -25,6 +25,7 @@ pub struct Session {
     pub selected_project: usize,
     pub selected_pane: Option<String>,
     pub sidebar_width: f32,
+    pub zoom: crate::zoom::Zoom,
     pub sidebar_collapsed: bool,
     pub drafts: HashMap<String, String>,
     pub chat_settings: HashMap<String, inferay_core::provider_config::ProviderSettings>,
@@ -188,7 +189,9 @@ pub fn load(root: &Path) -> Result<Session> {
         .collect();
     if !unassigned.is_empty() || projects.is_empty() {
         let group = workspace_json["groups"].as_array().and_then(|groups| {
-            groups.iter().find(|g| g["id"] == workspace_json["selectedGroupId"])
+            groups
+                .iter()
+                .find(|g| g["id"] == workspace_json["selectedGroupId"])
                 .or_else(|| groups.first())
         });
         let group_id = group.and_then(|g| g["id"].as_str()).unwrap_or("default");
@@ -207,9 +210,14 @@ pub fn load(root: &Path) -> Result<Session> {
             panes: unassigned,
         });
     }
-    let selected_project = projects.iter().position(|project| {
-        selected.as_deref().is_some_and(|selected| project.id.as_deref().unwrap_or_default() == selected)
-    }).unwrap_or(0);
+    let selected_project = projects
+        .iter()
+        .position(|project| {
+            selected
+                .as_deref()
+                .is_some_and(|selected| project.id.as_deref().unwrap_or_default() == selected)
+        })
+        .unwrap_or(0);
     let defaults: serde_json::Value = value("inferay-default-chat-settings")?
         .map(|v| serde_json::from_str(&v))
         .transpose()?
@@ -239,6 +247,7 @@ pub fn load(root: &Path) -> Result<Session> {
             &serde_json::json!({"stored": value("main-sidebar-width")?}),
         )
         .width as f32,
+        zoom: crate::zoom::Zoom::restore(value("inferay-ui-zoom-percent")?.as_deref()),
         sidebar_collapsed: value("sidebar-collapsed")?.as_deref() == Some("true"),
         drafts,
         chat_settings,
@@ -309,13 +318,20 @@ mod tests {
         let prefs = Connection::open(root.path().join("client-storage.sqlite3"))?;
         prefs.execute_batch("CREATE TABLE entries(key TEXT PRIMARY KEY,value TEXT);")?;
         let dock = json!({"tree":{"type":"panel","id":"p"},"preset":["grid",2]});
-        prefs.execute("INSERT INTO entries VALUES(?,?)", rusqlite::params![
-            "native-workspace-dock:[\"g\",\"\"]", json!(dock.to_string()).to_string()
-        ])?;
+        prefs.execute(
+            "INSERT INTO entries VALUES(?,?)",
+            rusqlite::params![
+                "native-workspace-dock:[\"g\",\"\"]",
+                json!(dock.to_string()).to_string()
+            ],
+        )?;
         let session = load(root.path())?;
         assert_eq!(session.projects[0].id, None);
         assert_eq!(session.projects[0].dock, dock);
-        assert_eq!(session.projects[0].dock_workspace, Some((json!(["g", ""]).to_string(), "g".into())));
+        assert_eq!(
+            session.projects[0].dock_workspace,
+            Some((json!(["g", ""]).to_string(), "g".into()))
+        );
         Ok(())
     }
 

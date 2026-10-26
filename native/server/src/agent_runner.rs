@@ -466,7 +466,12 @@ async fn run_codex(
     state: &mut CodexProtocolState,
     emissions: &mpsc::Sender<ProtocolEmission>,
 ) -> String {
-    let _ = emissions.send(ProtocolEmission::Status { status: "Starting Codex…".into(), is_loading: true }).await;
+    let _ = emissions
+        .send(ProtocolEmission::Status {
+            status: "Starting Codex…".into(),
+            is_loading: true,
+        })
+        .await;
     let mut child = match spawn_codex_app_server(run.binary, &run.invocation.cwd, run.env) {
         Ok(child) => child,
         Err(error) => {

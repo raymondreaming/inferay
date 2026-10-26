@@ -1,4 +1,5 @@
 use super::*;
+use crate::zoom::ui;
 
 impl WorkspaceView {
     pub(super) fn settings_panel(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -29,7 +30,7 @@ impl WorkspaceView {
                     "settings":data["catalog"]["defaults"],"statuses":data["accounts"]["providers"],"loading":state.loading
                 }))).unwrap();
                 div().child(section("New chats", "The provider, model, and reasoning level used by default.")
-                    .child(row("Provider").child(div().flex().gap(px(4.)).children(view["providers"].as_array().into_iter().flatten().map(|provider| {
+                    .child(row("Provider").child(div().flex().gap(ui(4.)).children(view["providers"].as_array().into_iter().flatten().map(|provider| {
                         let kind = provider["kind"].as_str().unwrap_or("codex").to_owned();
                         let model = provider["model"].clone();
                         let disabled = provider["disabled"] == true;
@@ -43,7 +44,7 @@ impl WorkspaceView {
                                 s.save_settings(Method::POST, "/api/native/provider-config".into(), config, cx);
                             }))
                     }))))
-                    .child(div().py(px(6.)).text_size(px(11.)).text_color(rgba(0xebebeb80)).child(view["statusLabel"].as_str().unwrap_or("").to_owned()))
+                    .child(div().py(ui(6.)).text_size(ui(11.)).text_color(rgba(0xebebeb80)).child(view["statusLabel"].as_str().unwrap_or("").to_owned()))
                     .children(view["fields"].as_array().into_iter().flatten().map(|field| {
                         let key = match field["key"].as_str() { Some("model") => "model", _ => "reasoningLevel" };
                         row(field["label"].as_str().unwrap_or("").to_owned()).child(self.settings_choice(key, field["value"].as_str().unwrap_or(""),
@@ -51,7 +52,7 @@ impl WorkspaceView {
                     })))
                     .child(section("Global agent instructions", "Your default AGENTS.md. Every new chat inherits these instructions.")
                         .child(state.field("instructions"))
-                        .child(div().flex().justify_end().mt(px(8.)).child(button("save-instructions", if state.busy { "Saving…" } else { "Save" })
+                        .child(div().flex().justify_end().mt(ui(8.)).child(button("save-instructions", if state.busy { "Saving…" } else { "Save" })
                             .on_click(cx.listener(|s, _, _, cx| {
                                 let instructions = s.settings_state.text("instructions", cx);
                                 s.save_settings(Method::PUT, "/api/agent-context".into(), json!({"scope":"global","paneId":"global-settings","instructions":instructions,"mode":"inherit"}), cx);
@@ -84,7 +85,7 @@ impl WorkspaceView {
                         let name = server["name"].as_str().unwrap_or("").to_owned();
                         let disabled = server["status"] == "Disabled";
                         let connect_name = name.clone();
-                        row(name.clone()).child(div().text_size(px(11.)).text_color(rgba(0xebebeb80)).child(format!("{}{}",server["status"].as_str().unwrap_or("Unknown"),server["toolCount"].as_u64().map(|n| format!(" · {n} tools")).unwrap_or_default())))
+                        row(name.clone()).child(div().text_size(ui(11.)).text_color(rgba(0xebebeb80)).child(format!("{}{}",server["status"].as_str().unwrap_or("Unknown"),server["toolCount"].as_u64().map(|n| format!(" · {n} tools")).unwrap_or_default())))
                             .when(server["canToggle"] == true, |d| d
                                 .child(button(SharedString::from(format!("connect-mcp-{provider}-{index}")), if disabled { "Enable" } else { "Connect" }).on_click(cx.listener(move |s, _, _, cx| {
                                     s.save_settings(Method::POST, "/api/agents/mcp-action".into(), json!({"provider":provider,"name":connect_name,"action":"connect"}), cx);
@@ -100,7 +101,7 @@ impl WorkspaceView {
                     .children(data["accounts"].as_array().into_iter().flatten().map(|account| row(account["login"].as_str().unwrap_or("").to_owned())
                         .child(div().text_color(rgba(0xebebeb80)).child(account["host"].as_str().unwrap_or("github.com").to_owned()))
                         .when(account["active"] == true, |d| d.child(div().text_color(rgb(0x55d68b)).child("Active")))))
-                    .child(div().mt(px(8.)).child(button("connect-github", "Connect GitHub").on_click(cx.listener(|s, _, _, cx| {
+                    .child(div().mt(ui(8.)).child(button("connect-github", "Connect GitHub").on_click(cx.listener(|s, _, _, cx| {
                         s.save_settings(Method::POST, "/api/forge/connect".into(), json!({"provider":"github"}), cx);
                     })))))
                     .child(section("Repositories", "Find repositories from your connected account and clone them locally.")
@@ -109,11 +110,11 @@ impl WorkspaceView {
                         .children(data["repos"].as_array().into_iter().flatten().filter(|repo| repo["full_name"].as_str().unwrap_or("").to_lowercase().contains(&needle)).enumerate().map(|(index, repo)| {
                             let url = repo["html_url"].as_str().unwrap_or("").to_owned();
                             let clone_url = url.clone();
-                            div().py(px(12.)).border_b_1().border_color(rgba(0xebebeb0f))
+                            div().py(ui(12.)).border_b_1().border_color(rgba(0xebebeb0f))
                                 .child(div().flex().items_center().child(div().flex_1().child(repo["full_name"].as_str().unwrap_or("").to_owned()))
                                     .child(button(("open-github", index), "Open").on_click(move |_, _, cx| cx.open_url(&url)))
                                     .child(button(("clone-github", index), "Clone").on_click(cx.listener(move |s, _, _, cx| s.pick_settings_folder(Some(clone_url.clone()), cx)))))
-                                .child(div().text_color(rgba(0xebebeb80)).text_size(px(11.)).child(repo["description"].as_str().unwrap_or("").to_owned()))
+                                .child(div().text_color(rgba(0xebebeb80)).text_size(ui(11.)).child(repo["description"].as_str().unwrap_or("").to_owned()))
                         })))
                     .into_any_element()
             }
@@ -155,8 +156,8 @@ impl WorkspaceView {
                 d.child(
                     crate::menu_surface(SharedString::from(format!("settings-menu-{key}")))
                         .right_0()
-                        .top(px(30.))
-                        .w(px(240.))
+                        .top(ui(30.))
+                        .w(ui(240.))
                         .on_mouse_down_out(cx.listener(|s, _, _, cx| {
                             s.settings_state.menu = None;
                             cx.notify();
@@ -234,8 +235,8 @@ impl WorkspaceView {
                     row("Style").child(
                         div()
                             .flex()
-                            .p(px(3.))
-                            .rounded(px(6.))
+                            .p(ui(3.))
+                            .rounded(ui(6.))
                             .bg(rgba(0xffffff08))
                             .children(
                                 [("solid", "Solid"), ("scene", "Scene"), ("glass", "Glass")]
@@ -251,21 +252,21 @@ impl WorkspaceView {
                     ),
                 )
                 .when(current_mode == "scene", |d| {
-                    d.child(div().flex().flex_wrap().gap(px(8.)).py(px(12.)).children(
+                    d.child(div().flex().flex_wrap().gap(ui(8.)).py(ui(12.)).children(
                         catalog.backgrounds.into_iter().map(|scene| {
                             let id = serde_json::to_value(scene.id).unwrap();
                             button(SharedString::from(format!("scene-{}", scene.name)), "")
                                 .aria_label(scene.name.clone())
-                                .w(px(150.))
+                                .w(ui(150.))
                                 .h_auto()
-                                .p(px(6.))
+                                .p(ui(6.))
                                 .flex_col()
                                 .child(
                                     img(id.as_str().unwrap_or("").to_owned())
                                         .w_full()
-                                        .h(px(80.))
+                                        .h(ui(80.))
                                         .object_fit(ObjectFit::Cover)
-                                        .rounded(px(4.)),
+                                        .rounded(ui(4.)),
                                 )
                                 .child(scene.name)
                                 .when(background["id"] == id, |d| d.bg(rgba(0xffffff17)))

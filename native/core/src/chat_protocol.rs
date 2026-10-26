@@ -285,33 +285,51 @@ impl ChatMessageBuffer {
         };
         match event_type {
             "inferay.progress" => {
-                let Some(id) = event["id"].as_str().filter(|id| !id.is_empty()) else { return; };
+                let Some(id) = event["id"].as_str().filter(|id| !id.is_empty()) else {
+                    return;
+                };
                 let replacement = event["text"].as_str();
                 let delta = event["delta"].as_str().unwrap_or_default();
                 if let Some(index) = self.messages.iter().position(|message| message.id == id) {
                     let message = &mut self.messages[index];
                     if let Some(text) = replacement {
-                        message.content = truncate_chat_content(text, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
+                        message.content =
+                            truncate_chat_content(text, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
                     } else {
-                        append_bounded_chat_content(&mut message.content, delta, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
+                        append_bounded_chat_content(
+                            &mut message.content,
+                            delta,
+                            CHAT_SINGLE_MESSAGE_CHAR_LIMIT,
+                        );
                     }
                     message.render = None;
                     self.replaced_content.insert(id.to_owned());
                     self.mark_changed(index);
                 } else if replacement.is_some() || !delta.is_empty() {
-                    let mut message = ChatTranscriptMessage::new("system", &truncate_chat_content(replacement.unwrap_or(delta), CHAT_SINGLE_MESSAGE_CHAR_LIMIT));
+                    let mut message = ChatTranscriptMessage::new(
+                        "system",
+                        &truncate_chat_content(
+                            replacement.unwrap_or(delta),
+                            CHAT_SINGLE_MESSAGE_CHAR_LIMIT,
+                        ),
+                    );
                     message.id = id.to_owned();
                     self.push(message);
                 }
             }
             "inferay.tool" => {
-                let Some(id) = event["id"].as_str().filter(|id| !id.is_empty()) else { return; };
+                let Some(id) = event["id"].as_str().filter(|id| !id.is_empty()) else {
+                    return;
+                };
                 let done = event["done"] == true;
                 let mut content = stringify_tool_input(event.get("input"));
                 if done && !event["output"].is_null() {
                     content.push('\n');
                     let output = &event["output"];
-                    let parts = output.get("content").and_then(Value::as_array).or_else(|| output.as_array());
+                    let parts = output
+                        .get("content")
+                        .and_then(Value::as_array)
+                        .or_else(|| output.as_array());
                     if let Some(parts) = parts {
                         for part in parts {
                             if let Some(text) = part["text"].as_str() {
@@ -321,13 +339,18 @@ impl ChatMessageBuffer {
                                 if part["type"] == "image" || part["type"] == "inputImage" {
                                     content.push_str("[Image result]\n");
                                 } else {
-                                    content.push_str(&serde_json::to_string_pretty(part).unwrap_or_default());
+                                    content.push_str(
+                                        &serde_json::to_string_pretty(part).unwrap_or_default(),
+                                    );
                                     content.push('\n');
                                 }
                             }
                         }
                         if !output["structuredContent"].is_null() {
-                            content.push_str(&serde_json::to_string_pretty(&output["structuredContent"]).unwrap_or_default());
+                            content.push_str(
+                                &serde_json::to_string_pretty(&output["structuredContent"])
+                                    .unwrap_or_default(),
+                            );
                         }
                     } else if let Some(text) = output.as_str() {
                         content.push_str(text);
@@ -354,22 +377,44 @@ impl ChatMessageBuffer {
             "user" => {
                 if let Some(blocks) = event.pointer("/message/content").and_then(Value::as_array) {
                     for block in blocks.iter().filter(|block| block["type"] == "tool_result") {
-                        let Some(call_id) = block["tool_use_id"].as_str() else { continue; };
+                        let Some(call_id) = block["tool_use_id"].as_str() else {
+                            continue;
+                        };
                         let id = format!("tool-call:{call_id}");
                         let output = match &block["content"] {
                             Value::String(text) => text.clone(),
-                            Value::Array(parts) => parts.iter().filter_map(|part| part["text"].as_str()).collect::<Vec<_>>().join("\n"),
+                            Value::Array(parts) => parts
+                                .iter()
+                                .filter_map(|part| part["text"].as_str())
+                                .collect::<Vec<_>>()
+                                .join("\n"),
                             value => serde_json::to_string_pretty(value).unwrap_or_default(),
                         };
-                        let output = format!("\n\n{}\n{output}", if block["is_error"] == true { "Error" } else { "Result" });
-                        if let Some(index) = self.messages.iter().position(|message| message.id == id) {
+                        let output = format!(
+                            "\n\n{}\n{output}",
+                            if block["is_error"] == true {
+                                "Error"
+                            } else {
+                                "Result"
+                            }
+                        );
+                        if let Some(index) =
+                            self.messages.iter().position(|message| message.id == id)
+                        {
                             let message = &mut self.messages[index];
-                            append_bounded_chat_content(&mut message.content, &output, CHAT_SINGLE_MESSAGE_CHAR_LIMIT);
+                            append_bounded_chat_content(
+                                &mut message.content,
+                                &output,
+                                CHAT_SINGLE_MESSAGE_CHAR_LIMIT,
+                            );
                             message.is_streaming = Some(false);
                             message.render = None;
                             self.mark_changed(index);
                         } else {
-                            let mut message = ChatTranscriptMessage::new("tool", &truncate_chat_content(&output, CHAT_SINGLE_MESSAGE_CHAR_LIMIT));
+                            let mut message = ChatTranscriptMessage::new(
+                                "tool",
+                                &truncate_chat_content(&output, CHAT_SINGLE_MESSAGE_CHAR_LIMIT),
+                            );
                             message.id = id;
                             message.tool_name = Some("Tool result".into());
                             message.is_streaming = Some(false);
@@ -759,7 +804,11 @@ impl ChatMessageBuffer {
                         .get("name")
                         .and_then(Value::as_str)
                         .unwrap_or_default();
-                    self.append_tool(name, &stringify_tool_input(block.get("input")), block["id"].as_str());
+                    self.append_tool(
+                        name,
+                        &stringify_tool_input(block.get("input")),
+                        block["id"].as_str(),
+                    );
                 }
                 _ => {}
             }
@@ -784,7 +833,11 @@ impl ChatMessageBuffer {
                     .get("name")
                     .and_then(Value::as_str)
                     .unwrap_or_default();
-                self.append_tool(name, &stringify_tool_input(block.get("input")), block["id"].as_str());
+                self.append_tool(
+                    name,
+                    &stringify_tool_input(block.get("input")),
+                    block["id"].as_str(),
+                );
             }
             _ => {}
         }
@@ -857,7 +910,9 @@ impl ChatMessageBuffer {
         self.current_tool_index = Some(self.messages.len());
         let mut message = ChatTranscriptMessage::new("tool", content);
         message.tool_name = Some(name.to_string());
-        if let Some(id) = call_id.filter(|id| !id.is_empty()) { message.id = format!("tool-call:{id}"); }
+        if let Some(id) = call_id.filter(|id| !id.is_empty()) {
+            message.id = format!("tool-call:{id}");
+        }
         message.is_streaming = Some(true);
         self.push(message);
     }

@@ -16,7 +16,13 @@ pub(super) struct PreferenceSave {
 impl WorkspaceView {
     pub(super) fn close_chat(&mut self, index: usize, cx: &mut Context<Self>) {
         let chat = &self.conversations[index];
-        if chat.closed || chat.close_task.is_some() || (chat.loading && chat.pane.is_none()) || chat.sending { return; }
+        if chat.closed
+            || chat.close_task.is_some()
+            || (chat.loading && chat.pane.is_none())
+            || chat.sending
+        {
+            return;
+        }
         let Some(pane) = chat.pane.clone() else {
             self.finish_close_chat(index, None, cx);
             return;
@@ -25,8 +31,16 @@ impl WorkspaceView {
         let profile = self.profile.clone();
         let work = cx.background_executor().spawn(async move {
             RUNTIME.block_on(async move {
-                let backend = backend.get_or_try_init(|| Backend::connect(profile)).await?;
-                backend.request(Method::POST, "/api/chat/close", Some(json!({"paneId":pane}))).await
+                let backend = backend
+                    .get_or_try_init(|| Backend::connect(profile))
+                    .await?;
+                backend
+                    .request(
+                        Method::POST,
+                        "/api/chat/close",
+                        Some(json!({"paneId":pane})),
+                    )
+                    .await
             })
         });
         self.conversations[index].close_task = Some(cx.spawn(async move |this, cx| {
@@ -35,25 +49,43 @@ impl WorkspaceView {
                 view.conversations[index].close_task = None;
                 match result {
                     Ok(response) => {
-                        let replacement = serde_json::from_value::<Workspace>(response["state"].clone()).ok()
-                            .and_then(|workspace| workspace.panes().find(|pane|
-                                !view.conversations.iter().any(|chat| chat.pane.as_deref() == Some(&pane.id)))
-                                .map(|pane| pane.id.clone()));
+                        let replacement =
+                            serde_json::from_value::<Workspace>(response["state"].clone())
+                                .ok()
+                                .and_then(|workspace| {
+                                    workspace
+                                        .panes()
+                                        .find(|pane| {
+                                            !view
+                                                .conversations
+                                                .iter()
+                                                .any(|chat| chat.pane.as_deref() == Some(&pane.id))
+                                        })
+                                        .map(|pane| pane.id.clone())
+                                });
                         view.finish_close_chat(index, replacement, cx);
-                    },
-                    Err(error) => view.conversations[index].error = Some(format!("Could not close chat: {error:#}")),
+                    }
+                    Err(error) => {
+                        view.conversations[index].error =
+                            Some(format!("Could not close chat: {error:#}"))
+                    }
                 }
                 cx.notify();
             });
         }));
     }
 
-    fn finish_close_chat(&mut self, index: usize, replacement: Option<String>, cx: &mut Context<Self>) {
+    fn finish_close_chat(
+        &mut self,
+        index: usize,
+        replacement: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         // Keep indices stable for other chats' subscriptions and pending requests.
         let chat = &mut self.conversations[index];
         let project = chat.project;
         chat.closed = true;
-        chat.running = false;
+        chat.run = ChatRunStatus::default();
         chat.task = None;
         chat.live_task = None;
         chat.metadata_task = None;
@@ -68,11 +100,20 @@ impl WorkspaceView {
         chat.theme_task = None;
         chat.transcript = crate::transcript::Transcript::new();
         chat.images.clear();
-        if let Some(next) = self.conversations.iter().enumerate()
+        if let Some(next) = self
+            .conversations
+            .iter()
+            .enumerate()
             .filter(|(_, chat)| !chat.closed && chat.project == project)
-            .min_by_key(|(i, _)| i.abs_diff(index)).map(|(i, _)| i) {
-            if self.projects[project].selected == index { self.projects[project].selected = next; }
-            if self.selected == index { self.selected = next; }
+            .min_by_key(|(i, _)| i.abs_diff(index))
+            .map(|(i, _)| i)
+        {
+            if self.projects[project].selected == index {
+                self.projects[project].selected = next;
+            }
+            if self.selected == index {
+                self.selected = next;
+            }
         } else {
             let active_project = self.project;
             let active_selected = self.selected;
@@ -89,7 +130,11 @@ impl WorkspaceView {
         cx.notify();
     }
 
-    pub(super) fn persist_workspace_preferences(&mut self, dock: Option<serde_json::Value>, cx: &mut Context<Self>) {
+    pub(super) fn persist_workspace_preferences(
+        &mut self,
+        dock: Option<serde_json::Value>,
+        cx: &mut Context<Self>,
+    ) {
         if self.preference_updates.is_none() {
             let (sender, mut updates) = tokio::sync::mpsc::unbounded_channel::<PreferenceSave>();
             self.preference_updates = Some(sender);
@@ -99,25 +144,45 @@ impl WorkspaceView {
                 while let Some(selection) = updates.recv().await {
                     let backend = backend.clone();
                     let profile = profile.clone();
-                    let result: anyhow::Result<()> = cx.background_executor().spawn(async move {
-                        RUNTIME.block_on(async move {
-                            let backend = backend.get_or_try_init(|| Backend::connect(profile)).await?;
-                            backend.request(Method::POST, "/api/client-storage", Some(json!({
-                                "entries":selection.entries
-                            }))).await?;
-                            if let Some(pane_id) = selection.pane {
-                                let action = AgentWorkspaceAction::SelectPane { pane_id };
-                                backend.request(Method::POST, "/api/agent/state/workspace-action", Some(json!({"action":action}))).await?;
-                            }
-                            if let Some(dock) = selection.dock {
-                                backend.request(Method::POST, "/api/workspace/dock", Some(dock)).await?;
-                            }
-                            Ok(())
+                    let result: anyhow::Result<()> = cx
+                        .background_executor()
+                        .spawn(async move {
+                            RUNTIME.block_on(async move {
+                                let backend = backend
+                                    .get_or_try_init(|| Backend::connect(profile))
+                                    .await?;
+                                backend
+                                    .request(
+                                        Method::POST,
+                                        "/api/client-storage",
+                                        Some(json!({
+                                            "entries":selection.entries
+                                        })),
+                                    )
+                                    .await?;
+                                if let Some(pane_id) = selection.pane {
+                                    let action = AgentWorkspaceAction::SelectPane { pane_id };
+                                    backend
+                                        .request(
+                                            Method::POST,
+                                            "/api/agent/state/workspace-action",
+                                            Some(json!({"action":action})),
+                                        )
+                                        .await?;
+                                }
+                                if let Some(dock) = selection.dock {
+                                    backend
+                                        .request(Method::POST, "/api/workspace/dock", Some(dock))
+                                        .await?;
+                                }
+                                Ok(())
+                            })
                         })
-                    }).await;
+                        .await;
                     if let Err(error) = result {
                         let _ = this.update(cx, |view, cx| {
-                            view.status = format!("Could not save workspace preferences: {error:#}");
+                            view.status =
+                                format!("Could not save workspace preferences: {error:#}");
                             cx.notify();
                         });
                     }
@@ -130,9 +195,15 @@ impl WorkspaceView {
             "inferay-selected-project-id":project,
             "sidebar-collapsed":(!self.sidebar).to_string(),
             "main-sidebar-width":self.sidebar_width.to_string(),
+            "inferay-ui-zoom-percent":self.zoom.percent().to_string(),
         });
-        if let Some(sender) = &self.preference_updates { let _ = sender.send(PreferenceSave { entries, pane, dock }); }
-
+        if let Some(sender) = &self.preference_updates {
+            let _ = sender.send(PreferenceSave {
+                entries,
+                pane,
+                dock,
+            });
+        }
     }
 
     pub(super) fn refresh_chat_title(&mut self, index: usize, cx: &mut Context<Self>) {
@@ -268,10 +339,22 @@ impl WorkspaceView {
                     if let Some(project_id) = &project {
                         let action = AgentWorkspaceAction::DirectorySelected {
                             pane_id: pane.clone(),
-                            path: Some(profile.join("projects").join(project_id).to_string_lossy().into_owned()),
+                            path: Some(
+                                profile
+                                    .join("projects")
+                                    .join(project_id)
+                                    .to_string_lossy()
+                                    .into_owned(),
+                            ),
                             reference_paths: None,
                         };
-                        backend.request(Method::POST, "/api/agent/state/workspace-action", Some(json!({"action":action}))).await?;
+                        backend
+                            .request(
+                                Method::POST,
+                                "/api/agent/state/workspace-action",
+                                Some(json!({"action":action})),
+                            )
+                            .await?;
                     }
                     pane
                 } else {
@@ -366,12 +449,26 @@ mod tests {
         let profile = tempfile::tempdir().unwrap();
         let mut workspace = Workspace::new("codex");
         let first = workspace.selected_pane_id().unwrap().to_owned();
-        workspace.apply_action(&AgentWorkspaceAction::AddPane {
-            group_id: None, agent_kind: None, cwd: None, reference_paths: None,
-        }, "codex").unwrap();
+        workspace
+            .apply_action(
+                &AgentWorkspaceAction::AddPane {
+                    group_id: None,
+                    agent_kind: None,
+                    cwd: None,
+                    reference_paths: None,
+                },
+                "codex",
+            )
+            .unwrap();
         let second = workspace.selected_pane_id().unwrap().to_owned();
-        std::fs::write(profile.path().join("agent-state.json"), serde_json::to_vec(&workspace).unwrap()).unwrap();
-        let backend = RUNTIME.block_on(Backend::connect(profile.path().to_owned())).unwrap();
+        std::fs::write(
+            profile.path().join("agent-state.json"),
+            serde_json::to_vec(&workspace).unwrap(),
+        )
+        .unwrap();
+        let backend = RUNTIME
+            .block_on(Backend::connect(profile.path().to_owned()))
+            .unwrap();
         let services = backend.clone();
         let window = cx.add_window(|_, cx| {
             let input = cx.new(TextInput::new);
@@ -380,26 +477,44 @@ mod tests {
             view.backend = std::sync::Arc::new(tokio::sync::OnceCell::new_with(Some(backend)));
             view.conversations[0].pane = Some(first.clone());
             let other_input = cx.new(TextInput::new);
-            let mut other = WorkspaceView::empty(cx.focus_handle(), other_input, cx).conversations.pop().unwrap();
+            let mut other = WorkspaceView::empty(cx.focus_handle(), other_input, cx)
+                .conversations
+                .pop()
+                .unwrap();
             other.pane = Some(second.clone());
             view.conversations.push(other);
             view
         });
         cx.run_until_parked();
-        window.update(cx, |view, _, cx| {
-            assert_eq!(view.conversations[0].pane.as_deref(), Some(first.as_str()));
-            view.conversations[1].input.update(cx, |input, cx| input.set_content("keep draft", cx));
-            view.close_chat(0, cx);
-        }).unwrap();
+        window
+            .update(cx, |view, _, cx| {
+                assert_eq!(view.conversations[0].pane.as_deref(), Some(first.as_str()));
+                view.conversations[1]
+                    .input
+                    .update(cx, |input, cx| input.set_content("keep draft", cx));
+                view.close_chat(0, cx);
+            })
+            .unwrap();
         cx.run_until_parked();
-        window.update(cx, |view, _, cx| {
-            assert!(view.conversations[0].closed, "{:?}", view.conversations[0].error);
-            assert!(view.conversations[0].live_task.is_none());
-            assert!(!view.conversations[1].closed);
-            assert_eq!(view.conversations[1].pane.as_deref(), Some(second.as_str()));
-            assert_eq!(view.conversations[1].input.read(cx).content.as_ref(), "keep draft");
-        }).unwrap();
-        let state = RUNTIME.block_on(services.request(Method::GET, "/api/agent/state", None)).unwrap();
+        window
+            .update(cx, |view, _, cx| {
+                assert!(
+                    view.conversations[0].closed,
+                    "{:?}",
+                    view.conversations[0].error
+                );
+                assert!(view.conversations[0].live_task.is_none());
+                assert!(!view.conversations[1].closed);
+                assert_eq!(view.conversations[1].pane.as_deref(), Some(second.as_str()));
+                assert_eq!(
+                    view.conversations[1].input.read(cx).content.as_ref(),
+                    "keep draft"
+                );
+            })
+            .unwrap();
+        let state = RUNTIME
+            .block_on(services.request(Method::GET, "/api/agent/state", None))
+            .unwrap();
         let saved: Workspace = serde_json::from_value(state).unwrap();
         assert!(saved.pane(&first).is_none());
         assert!(saved.pane(&second).is_some());
@@ -430,9 +545,18 @@ mod tests {
         let profile = tempfile::tempdir().unwrap();
         let workspace = Workspace::new("codex");
         let serialized = serde_json::to_value(&workspace).unwrap();
-        let pane = serialized["groups"][0]["panes"][0]["id"].as_str().unwrap().to_owned();
-        std::fs::write(profile.path().join("agent-state.json"), serialized.to_string()).unwrap();
-        let backend = RUNTIME.block_on(Backend::connect(profile.path().to_owned())).unwrap();
+        let pane = serialized["groups"][0]["panes"][0]["id"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        std::fs::write(
+            profile.path().join("agent-state.json"),
+            serialized.to_string(),
+        )
+        .unwrap();
+        let backend = RUNTIME
+            .block_on(Backend::connect(profile.path().to_owned()))
+            .unwrap();
         let services = backend.clone();
         let window = cx.add_window(|_, cx| {
             let input = cx.new(TextInput::new);
@@ -448,25 +572,39 @@ mod tests {
             view
         });
         cx.run_until_parked();
-        let state = RUNTIME.block_on(services.request(Method::GET, "/api/agent/state", None)).unwrap();
+        let state = RUNTIME
+            .block_on(services.request(Method::GET, "/api/agent/state", None))
+            .unwrap();
         let saved: Workspace = serde_json::from_value(state).unwrap();
         assert_eq!(saved.selected_pane_id(), Some(pane.as_str()));
-        let storage = RUNTIME.block_on(services.request(Method::GET, "/api/client-storage", None)).unwrap();
-        assert_eq!(storage["entries"]["inferay-selected-project-id"], "latest", "{storage}");
+        let storage = RUNTIME
+            .block_on(services.request(Method::GET, "/api/client-storage", None))
+            .unwrap();
+        assert_eq!(
+            storage["entries"]["inferay-selected-project-id"], "latest",
+            "{storage}"
+        );
         assert_eq!(storage["entries"]["sidebar-collapsed"], "true");
         assert_eq!(storage["entries"]["main-sidebar-width"], "280");
         let restored = crate::session::load(profile.path()).unwrap();
         assert!(restored.sidebar_collapsed);
         assert_eq!(restored.sidebar_width, 280.);
-        window.update(cx, |view, _, _| assert!(!view.status.starts_with("Could not save"))).unwrap();
+        window
+            .update(cx, |view, _, _| {
+                assert!(!view.status.starts_with("Could not save"))
+            })
+            .unwrap();
     }
 
     #[gpui::test]
     fn dock_resizes_persist_in_order_without_resetting_columns(cx: &mut gpui::TestAppContext) {
         let profile = tempfile::tempdir().unwrap();
-        let backend = RUNTIME.block_on(Backend::connect(profile.path().to_owned())).unwrap();
+        let backend = RUNTIME
+            .block_on(Backend::connect(profile.path().to_owned()))
+            .unwrap();
         let services = backend.clone();
-        let request = json!({"workspaceId":"layout-test","ids":["a","b"],"columns":2,"visibleColumns":2});
+        let request =
+            json!({"workspaceId":"layout-test","ids":["a","b"],"columns":2,"visibleColumns":2});
         let window = cx.add_window(|_, cx| {
             let input = cx.new(TextInput::new);
             let mut view = WorkspaceView::empty(cx.focus_handle(), input, cx);
@@ -479,57 +617,106 @@ mod tests {
             view
         });
         cx.run_until_parked();
-        let restored = RUNTIME.block_on(services.request(Method::POST, "/api/workspace/dock", Some(request))).unwrap();
-        assert_eq!(restored["saved"]["preset"], json!(["grid",2]));
+        let restored = RUNTIME
+            .block_on(services.request(Method::POST, "/api/workspace/dock", Some(request)))
+            .unwrap();
+        assert_eq!(restored["saved"]["preset"], json!(["grid", 2]));
         assert_eq!(restored["saved"]["tree"]["ratio"], 0.7, "{restored}");
-        window.update(cx, |view, _, _| assert!(!view.status.starts_with("Could not save"), "{}", view.status)).unwrap();
+        window
+            .update(cx, |view, _, _| {
+                assert!(
+                    !view.status.starts_with("Could not save"),
+                    "{}",
+                    view.status
+                )
+            })
+            .unwrap();
     }
 
     #[gpui::test]
     fn queue_removal_persists_and_preserves_newer_items(cx: &mut gpui::TestAppContext) {
         let profile = tempfile::tempdir().unwrap();
-        let store = inferay_server::chat_persistence::ChatPersistence::new(profile.path().to_owned());
-        let queued = json!({"id":"remove-me","text":"waiting","displayText":"waiting","images":null});
-        RUNTIME.block_on(store.enqueue_runtime("queue-pane", serde_json::from_value(queued.clone()).unwrap())).unwrap();
-        let backend = RUNTIME.block_on(Backend::connect(profile.path().to_owned())).unwrap();
+        let store =
+            inferay_server::chat_persistence::ChatPersistence::new(profile.path().to_owned());
+        let queued =
+            json!({"id":"remove-me","text":"waiting","displayText":"waiting","images":null});
+        RUNTIME
+            .block_on(store.enqueue_runtime(
+                "queue-pane",
+                serde_json::from_value(queued.clone()).unwrap(),
+            ))
+            .unwrap();
+        let backend = RUNTIME
+            .block_on(Backend::connect(profile.path().to_owned()))
+            .unwrap();
         let window = cx.add_window(|_, cx| {
             let input = cx.new(TextInput::new);
             let mut view = WorkspaceView::empty(cx.focus_handle(), input, cx);
             view.backend = std::sync::Arc::new(tokio::sync::OnceCell::new_with(Some(backend)));
             let chat = &mut view.conversations[0];
             chat.pane = Some("queue-pane".into());
-            chat.queue = vec![queued, json!({"id":"steering","text":"live steer","transient":true})];
+            chat.queue = vec![
+                queued,
+                json!({"id":"steering","text":"live steer","transient":true}),
+            ];
             view.update_queued_message(0, "steering".into(), None, cx);
             assert!(view.conversations[0].queue_task.is_none());
             view.update_queued_message(0, "remove-me".into(), None, cx);
             // A newer socket update arriving before the HTTP response must survive.
-            view.conversations[0].queue.push(json!({"id":"newer","text":"new follow-up"}));
+            view.conversations[0]
+                .queue
+                .push(json!({"id":"newer","text":"new follow-up"}));
             view
         });
         cx.run_until_parked();
-        window.update(cx, |view, _, _| {
-            let chat = &view.conversations[0];
-            assert!(chat.queue_task.is_none());
-            assert!(chat.error.is_none(), "{:?}", chat.error);
-            assert_eq!(chat.queue.iter().map(|m| m["id"].as_str().unwrap()).collect::<Vec<_>>(), ["steering", "newer"]);
-        }).unwrap();
-        assert!(RUNTIME.block_on(store.read_queue("queue-pane")).unwrap().is_empty());
+        window
+            .update(cx, |view, _, _| {
+                let chat = &view.conversations[0];
+                assert!(chat.queue_task.is_none());
+                assert!(chat.error.is_none(), "{:?}", chat.error);
+                assert_eq!(
+                    chat.queue
+                        .iter()
+                        .map(|m| m["id"].as_str().unwrap())
+                        .collect::<Vec<_>>(),
+                    ["steering", "newer"]
+                );
+            })
+            .unwrap();
+        assert!(
+            RUNTIME
+                .block_on(store.read_queue("queue-pane"))
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[gpui::test]
     fn queue_edit_persists_without_overwriting_newer_text(cx: &mut gpui::TestAppContext) {
         let profile = tempfile::tempdir().unwrap();
-        let store = inferay_server::chat_persistence::ChatPersistence::new(profile.path().to_owned());
-        let queued = json!({"id":"remove-me","text":"waiting","displayText":"waiting","images":null});
-        RUNTIME.block_on(store.enqueue_runtime("queue-pane", serde_json::from_value(queued.clone()).unwrap())).unwrap();
-        let backend = RUNTIME.block_on(Backend::connect(profile.path().to_owned())).unwrap();
+        let store =
+            inferay_server::chat_persistence::ChatPersistence::new(profile.path().to_owned());
+        let queued =
+            json!({"id":"remove-me","text":"waiting","displayText":"waiting","images":null});
+        RUNTIME
+            .block_on(store.enqueue_runtime(
+                "queue-pane",
+                serde_json::from_value(queued.clone()).unwrap(),
+            ))
+            .unwrap();
+        let backend = RUNTIME
+            .block_on(Backend::connect(profile.path().to_owned()))
+            .unwrap();
         let window = cx.add_window(|_, cx| {
             let input = cx.new(TextInput::new);
             let mut view = WorkspaceView::empty(cx.focus_handle(), input, cx);
             view.backend = std::sync::Arc::new(tokio::sync::OnceCell::new_with(Some(backend)));
             let chat = &mut view.conversations[0];
             chat.pane = Some("queue-pane".into());
-            chat.queue = vec![queued, json!({"id":"steering","text":"live steer","transient":true})];
+            chat.queue = vec![
+                queued,
+                json!({"id":"steering","text":"live steer","transient":true}),
+            ];
             let editor = cx.new(TextInput::new);
             editor.update(cx, |input, cx| input.set_content("edited message", cx));
             view.conversations[0].queue_editor = Some(("remove-me".into(), editor.clone()));
@@ -541,14 +728,28 @@ mod tests {
             view
         });
         cx.run_until_parked();
-        window.update(cx, |view, _, cx| {
-            let chat = &view.conversations[0];
-            assert!(chat.queue_task.is_none());
-            assert!(chat.error.is_none(), "{:?}", chat.error);
-            assert_eq!(chat.queue[0]["text"], "newer socket text");
-            assert_eq!(chat.queue_editor.as_ref().unwrap().1.read(cx).content.as_ref(), "still typing");
-        }).unwrap();
-        assert_eq!(RUNTIME.block_on(store.read_queue("queue-pane")).unwrap()[0].text, "edited message");
+        window
+            .update(cx, |view, _, cx| {
+                let chat = &view.conversations[0];
+                assert!(chat.queue_task.is_none());
+                assert!(chat.error.is_none(), "{:?}", chat.error);
+                assert_eq!(chat.queue[0]["text"], "newer socket text");
+                assert_eq!(
+                    chat.queue_editor
+                        .as_ref()
+                        .unwrap()
+                        .1
+                        .read(cx)
+                        .content
+                        .as_ref(),
+                    "still typing"
+                );
+            })
+            .unwrap();
+        assert_eq!(
+            RUNTIME.block_on(store.read_queue("queue-pane")).unwrap()[0].text,
+            "edited message"
+        );
     }
 
     #[gpui::test]
@@ -585,7 +786,7 @@ mod tests {
             let chat = &mut view.conversations[0];
             chat.pane = Some(pane);
             chat.commands = Some(commands);
-            chat.running = true;
+            chat.run.is_loading = true;
             chat.input
                 .update(cx, |input, cx| input.set_content("follow up", cx));
             view.track_draft(0, false, cx);
@@ -603,7 +804,7 @@ mod tests {
         window
             .update(cx, |view, _, cx| {
                 let chat = &view.conversations[0];
-                assert!(chat.running);
+                assert!(chat.run.is_loading);
                 assert!(!chat.sending);
                 assert!(chat.error.is_none(), "{:?}", chat.error);
                 assert!(chat.input.read(cx).content.is_empty());

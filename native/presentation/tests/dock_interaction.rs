@@ -212,7 +212,7 @@ fn row_resizing_preserves_the_minimum_chat_height_during_preview_and_after_save(
 fn measured_chat_width_reflows_columns_and_restores_saved_layout() {
     use inferay_presentation::dock::{project, responsive_columns};
     let full = project(&json!({"ids":["a","b","c"],"columns":3})).unwrap();
-    for (width, expected) in [(1000.,3), (700.,2), (450.,1), (1000.,3)] {
+    for (width, expected) in [(1000., 3), (700., 2), (450., 1), (1000., 3)] {
         let visible = responsive_columns(&json!({"width":width,"columns":3}));
         assert_eq!(visible.as_u64(), Some(expected));
         let layout = project(&json!({"ids":["a","b","c"],"columns":3,"visibleColumns":visible,"saved":full["saved"]})).unwrap();

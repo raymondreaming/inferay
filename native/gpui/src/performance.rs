@@ -2,7 +2,10 @@
 use std::time::Instant;
 
 pub fn compare(workload: &str, mut run: impl FnMut(bool)) {
-    assert!(!std::hint::black_box(cfg!(debug_assertions)), "run benchmarks with --release");
+    assert!(
+        !std::hint::black_box(cfg!(debug_assertions)),
+        "run benchmarks with --release"
+    );
     for _ in 0..2 {
         run(false);
         run(true);

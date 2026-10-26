@@ -1,5 +1,5 @@
 //! Native read models consumed directly by diff cards and repository viewers.
-use super::{diff_operations, DiffOperation, GitDiffLine, GitDiffLineType};
+use super::{DiffOperation, GitDiffLine, GitDiffLineType, diff_operations};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize, ts_rs::TS)]

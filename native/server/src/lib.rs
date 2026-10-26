@@ -491,8 +491,16 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
     }
     if path == "/" {
         return response_with_headers(
-            if head_only { Body::empty() } else { Body::from("{\"app\":\"inferay\",\"ui\":\"gpui\"}") },
-            "application/json", "no-store", true, &request_headers, &state.auth_token,
+            if head_only {
+                Body::empty()
+            } else {
+                Body::from("{\"app\":\"inferay\",\"ui\":\"gpui\"}")
+            },
+            "application/json",
+            "no-store",
+            true,
+            &request_headers,
+            &state.auth_token,
         );
     }
     text_response(StatusCode::NOT_FOUND, "Not found")
@@ -569,12 +577,22 @@ async fn dispatch_api(state: &ServerState, path: &str, request: Request) -> ApiR
         ("/api/chat/close", "POST") => {
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]
-            struct CloseChat { pane_id: String }
+            struct CloseChat {
+                pane_id: String,
+            }
             let body: CloseChat = api_body(request).await?;
             state.chat_runtime.stop_generation(&body.pane_id).await;
             let default_kind = default_chat_kind(state).await;
-            state.agent_state_store.lock().expect("agent state lock poisoned")
-                .apply_workspace_action(&inferay_core::workspace_action::AgentWorkspaceAction::RemovePane { pane_id: body.pane_id }, default_kind)
+            state
+                .agent_state_store
+                .lock()
+                .expect("agent state lock poisoned")
+                .apply_workspace_action(
+                    &inferay_core::workspace_action::AgentWorkspaceAction::RemovePane {
+                        pane_id: body.pane_id,
+                    },
+                    default_kind,
+                )
                 .map(|value| json!({"state": value}))
                 .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error))
         }
@@ -3082,12 +3100,27 @@ mod file_http_tests {
         let origin = format!("http://{}", server.local_addr());
         let response = client.get(&origin).send().await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        assert!(response.headers()[SET_COOKIE].to_str().unwrap().contains(&auth));
-        assert_eq!(serde_json::from_slice::<Value>(&response.bytes().await.unwrap()).unwrap()["ui"], "gpui");
-        assert_eq!(client.get(format!("{origin}/index.html")).send().await.unwrap().status(), StatusCode::NOT_FOUND);
+        assert!(
+            response.headers()[SET_COOKIE]
+                .to_str()
+                .unwrap()
+                .contains(&auth)
+        );
+        assert_eq!(
+            serde_json::from_slice::<Value>(&response.bytes().await.unwrap()).unwrap()["ui"],
+            "gpui"
+        );
+        assert_eq!(
+            client
+                .get(format!("{origin}/index.html"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::NOT_FOUND
+        );
         server.shutdown();
     }
-
 
     #[tokio::test]
     async fn working_tree_diff_validators_follow_content_and_preserve_errors() {

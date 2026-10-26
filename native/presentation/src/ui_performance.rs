@@ -106,7 +106,6 @@ pub struct UiTimingRecorder {
 }
 
 impl UiTimingRecorder {
-
     pub fn new() -> Self {
         Self::default()
     }

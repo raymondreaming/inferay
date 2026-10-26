@@ -1,11 +1,13 @@
+use crate::zoom::ui;
 mod lifecycle;
 mod live;
 mod settings;
+use crate::transcript::PreparedTranscript;
 use crate::{Back, Settings, ToggleSidebar, button, colors, icon, input::TextInput};
 use gpui::{prelude::*, *};
 #[cfg(test)]
 use inferay_core::chat_protocol::ChatTranscriptMessage;
-use crate::transcript::PreparedTranscript;
+use inferay_core::chat_status::ChatRunStatus;
 use std::collections::HashSet;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -37,9 +39,7 @@ struct Conversation {
     commands: Option<tokio::sync::mpsc::Sender<live::Command>>,
     command_task: Option<Task<()>>,
     sending: bool,
-    running: bool,
-    start_time: Option<f64>,
-    run_status: String,
+    run: ChatRunStatus,
     queue: Vec<serde_json::Value>,
     queue_task: Option<Task<()>>,
     queue_editor: Option<(String, Entity<TextInput>)>,
@@ -77,9 +77,7 @@ impl Conversation {
             commands: None,
             command_task: None,
             sending: false,
-            running: false,
-            start_time: None,
-            run_status: "idle".into(),
+            run: ChatRunStatus::default(),
             queue: vec![],
             queue_task: None,
             queue_editor: None,
@@ -113,6 +111,7 @@ pub struct WorkspaceView {
     project: usize,
     sidebar: bool,
     sidebar_width: f32,
+    zoom: crate::zoom::Zoom,
     sidebar_resize: Option<(Pixels, f32)>,
     repositories_collapsed: bool,
     chat_width: f32,
@@ -189,27 +188,45 @@ impl WorkspaceView {
                 loop {
                     let backend = backend.clone();
                     let profile = profile.clone();
-                    let result = cx.background_executor().spawn(async move {
-                        crate::backend::RUNTIME.block_on(async {
-                            backend.get_or_try_init(|| crate::backend::Backend::connect(profile)).await?
-                                .request(reqwest::Method::GET, "/api/app-info", None).await
+                    let result = cx
+                        .background_executor()
+                        .spawn(async move {
+                            crate::backend::RUNTIME.block_on(async {
+                                backend
+                                    .get_or_try_init(|| crate::backend::Backend::connect(profile))
+                                    .await?
+                                    .request(reqwest::Method::GET, "/api/app-info", None)
+                                    .await
+                            })
                         })
-                    }).await;
-                    if this.update(cx, |view, cx| {
-                        if let Ok(info) = result {
-                            view.update_available = info["production"] == true && info["update"]["available"] == true;
-                            cx.notify();
-                        }
-                    }).is_err() { break; }
-                    cx.background_executor().timer(std::time::Duration::from_secs(900)).await;
+                        .await;
+                    if this
+                        .update(cx, |view, cx| {
+                            if let Ok(info) = result {
+                                view.update_available = info["production"] == true
+                                    && info["update"]["available"] == true;
+                                cx.notify();
+                            }
+                        })
+                        .is_err()
+                    {
+                        break;
+                    }
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_secs(900))
+                        .await;
                 }
             }));
         }
         view
     }
     fn reveal_startup(&mut self, cx: &mut Context<Self>) {
-        if !self.restored || self.scene_task.is_some() { return; }
-        let Some(handle) = self.startup_window.take() else { return; };
+        if !self.restored || self.scene_task.is_some() {
+            return;
+        }
+        let Some(handle) = self.startup_window.take() else {
+            return;
+        };
         cx.defer(move |cx| {
             let _ = handle.update(cx, |_, window, cx| {
                 window.refresh();
@@ -250,6 +267,7 @@ impl WorkspaceView {
             project: 0,
             sidebar: true,
             sidebar_width: 212.,
+            zoom: crate::zoom::Zoom::default(),
             sidebar_resize: None,
             repositories_collapsed: false,
             chat_width: 1000.,
@@ -284,6 +302,7 @@ impl WorkspaceView {
         self.default_config = session.default_config;
         self.sidebar = !session.sidebar_collapsed;
         self.sidebar_width = session.sidebar_width;
+        self.zoom = session.zoom;
         self.set_background(&session.background, cx);
         self.graph_preferences = session.graph_preferences;
         self.syntax_theme = session.syntax_theme;
@@ -335,7 +354,9 @@ impl WorkspaceView {
                     });
                 let mut chat = Conversation::new(project, input, config);
                 chat.pane = Some(pane.id);
-                chat.title = pane.summary.filter(|s| !s.is_empty())
+                chat.title = pane
+                    .summary
+                    .filter(|s| !s.is_empty())
                     .unwrap_or_else(|| format!("{} chat", pane.agent_kind));
                 self.conversations.push(chat);
             }
@@ -358,7 +379,16 @@ impl WorkspaceView {
         self.status.clear();
         self.repository_view = None;
         self.repository_subscription = None;
-        if let Some(path) = self.projects[index].selected_repository.clone().or_else(|| self.projects[index].repositories.first().map(|(_, path)| path.clone())) {
+        if let Some(path) = self.projects[index]
+            .selected_repository
+            .clone()
+            .or_else(|| {
+                self.projects[index]
+                    .repositories
+                    .first()
+                    .map(|(_, path)| path.clone())
+            })
+        {
             self.open_repository(path, cx);
         }
         self.refresh_repository_stats(cx);
@@ -378,23 +408,59 @@ impl WorkspaceView {
         cx.notify();
     }
     fn refresh_repository_stats(&mut self, cx: &mut Context<Self>) {
-        let paths = self.projects[self.project].repositories.iter().map(|(_, path)| path.clone()).collect::<Vec<_>>();
+        let paths = self.projects[self.project]
+            .repositories
+            .iter()
+            .map(|(_, path)| path.clone())
+            .collect::<Vec<_>>();
         self.repository_stats_task = Some(cx.spawn(async move |this, cx| {
             loop {
                 let paths = paths.clone();
-                let stats = cx.background_executor().spawn(async move {
-                    paths.into_iter().filter_map(|path| inferay_native_diff::get_git_status(&path).map(|status| (path, status.change_summary()))).collect()
-                }).await;
-                if this.update(cx, |s, cx| { if s.repository_stats != stats { s.repository_stats = stats; cx.notify(); } }).is_err() { break; }
-                cx.background_executor().timer(std::time::Duration::from_secs(5)).await;
+                let stats = cx
+                    .background_executor()
+                    .spawn(async move {
+                        paths
+                            .into_iter()
+                            .filter_map(|path| {
+                                inferay_native_diff::get_git_status(&path)
+                                    .map(|status| (path, status.change_summary()))
+                            })
+                            .collect()
+                    })
+                    .await;
+                if this
+                    .update(cx, |s, cx| {
+                        if s.repository_stats != stats {
+                            s.repository_stats = stats;
+                            cx.notify();
+                        }
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+                cx.background_executor()
+                    .timer(std::time::Duration::from_secs(5))
+                    .await;
             }
         }));
     }
     fn add_repository(&mut self, cx: &mut Context<Self>) {
-        if self.repository_add_task.is_some() { return; }
-        let Some(project_id) = self.projects[self.project].id.clone() else { return; };
-        let Some(backend) = self.backend.get().cloned() else { return; };
-        let selected = cx.prompt_for_paths(PathPromptOptions { files: false, directories: true, multiple: false, prompt: Some("Add repository to workspace".into()) });
+        if self.repository_add_task.is_some() {
+            return;
+        }
+        let Some(project_id) = self.projects[self.project].id.clone() else {
+            return;
+        };
+        let Some(backend) = self.backend.get().cloned() else {
+            return;
+        };
+        let selected = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some("Add repository to workspace".into()),
+        });
         self.repository_add_task = Some(cx.spawn(async move |this, cx| {
             let result = async {
                 let paths = selected.await??;
@@ -434,9 +500,19 @@ impl WorkspaceView {
             view.update(cx, |view, cx| view.refresh(cx));
             view
         } else {
-            let view = cx.new(|cx| crate::repository::RepositoryView::new(
-                path.clone(), self.graph_preferences.clone(), self.syntax_theme.clone(),
-                if self.appearance == Appearance::Glass { 0x0d0d0d } else { colors::CANVAS }, cx));
+            let view = cx.new(|cx| {
+                crate::repository::RepositoryView::new(
+                    path.clone(),
+                    self.graph_preferences.clone(),
+                    self.syntax_theme.clone(),
+                    if self.appearance == Appearance::Glass {
+                        0x0d0d0d
+                    } else {
+                        colors::CANVAS
+                    },
+                    cx,
+                )
+            });
             self.repository_views.insert(path, view.clone());
             view
         };
@@ -448,8 +524,12 @@ impl WorkspaceView {
             &view,
             |s, _, event: &crate::repository::RepositoryEvent, cx| {
                 match event {
-                    crate::repository::RepositoryEvent::Expand => s.repository_expanded = !s.repository_expanded,
-                    crate::repository::RepositoryEvent::Select(path) => s.open_repository(path.clone(), cx),
+                    crate::repository::RepositoryEvent::Expand => {
+                        s.repository_expanded = !s.repository_expanded
+                    }
+                    crate::repository::RepositoryEvent::Select(path) => {
+                        s.open_repository(path.clone(), cx)
+                    }
                     crate::repository::RepositoryEvent::Add => s.add_repository(cx),
                 }
                 cx.notify();
@@ -472,12 +552,21 @@ impl WorkspaceView {
         let theme = self.syntax_theme.clone();
         let work = cx.background_executor().spawn(async move {
             crate::session::transcript(&profile, &pane, limit).map(|(total, messages)| {
-                (total, PreparedTranscript::prepare(0, messages.into_iter().map(std::sync::Arc::new), &theme))
+                (
+                    total,
+                    PreparedTranscript::prepare(
+                        0,
+                        messages.into_iter().map(std::sync::Arc::new),
+                        &theme,
+                    ),
+                )
             })
         });
         chat.task = Some(cx.spawn(async move |this, cx| {
             let result = match work.await {
-                Ok((total, prepared)) => Self::prepare_for_current_theme(&this, prepared, cx).await.map(|prepared| (total, prepared)),
+                Ok((total, prepared)) => Self::prepare_for_current_theme(&this, prepared, cx)
+                    .await
+                    .map(|prepared| (total, prepared)),
                 Err(error) => Err(error),
             };
             let _ = this.update(cx, |view, cx| {
@@ -497,40 +586,72 @@ impl WorkspaceView {
     }
     // Revalidate after background work: a theme change must not publish stale styles.
     async fn prepare_for_current_theme(
-        this: &WeakEntity<Self>, mut prepared: PreparedTranscript, cx: &mut AsyncApp,
+        this: &WeakEntity<Self>,
+        mut prepared: PreparedTranscript,
+        cx: &mut AsyncApp,
     ) -> anyhow::Result<PreparedTranscript> {
         loop {
             let theme = this.read_with(cx, |view, _| view.syntax_theme.clone())?;
-            if theme == prepared.theme { return Ok(prepared); }
-            prepared = cx.background_executor().spawn(async move { prepared.retheme(&theme) }).await;
+            if theme == prepared.theme {
+                return Ok(prepared);
+            }
+            prepared = cx
+                .background_executor()
+                .spawn(async move { prepared.retheme(&theme) })
+                .await;
         }
     }
 
     fn refresh_chat_theme(&mut self, index: usize, cx: &mut Context<Self>) {
         let chat = &mut self.conversations[index];
-        if chat.closed { return; }
+        if chat.closed {
+            return;
+        }
         let snapshot = chat.transcript.snapshot();
         let theme = self.syntax_theme.clone();
-        let work = cx.background_executor().spawn(async move { snapshot.retheme(&theme) });
+        let work = cx
+            .background_executor()
+            .spawn(async move { snapshot.retheme(&theme) });
         chat.theme_task = Some(cx.spawn(async move |this, cx| {
             let prepared = work.await;
             let _ = this.update(cx, |view, cx| {
-                if view.syntax_theme != prepared.theme || view.conversations[index].closed { return; }
+                if view.syntax_theme != prepared.theme || view.conversations[index].closed {
+                    return;
+                }
                 view.conversations[index].transcript.publish_theme(prepared);
                 cx.notify();
             });
         }));
     }
 
+    fn set_zoom(&mut self, zoom: crate::zoom::Zoom, window: &mut Window, cx: &mut Context<Self>) {
+        if self.zoom == zoom {
+            return;
+        }
+        self.zoom = zoom;
+        zoom.apply(window);
+        for chat in &self.conversations {
+            chat.transcript.scroll.remeasure();
+        }
+        self.persist_workspace_preferences(None, cx);
+        window.refresh();
+        cx.notify();
+    }
+
     fn new_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.add_chat(cx);
         self.create_chat(self.selected, cx);
-        window.focus(&self.conversations[self.selected].input.focus_handle(cx), cx);
+        window.focus(
+            &self.conversations[self.selected].input.focus_handle(cx),
+            cx,
+        );
     }
     fn add_chat(&mut self, cx: &mut Context<Self>) {
         let input = cx.new(TextInput::new);
         self.conversations.push(Conversation::new(
-            self.project, input, self.default_config.clone(),
+            self.project,
+            input,
+            self.default_config.clone(),
         ));
         self.selected = self.conversations.len() - 1;
         self.projects[self.project].selected = self.selected;
@@ -538,16 +659,13 @@ impl WorkspaceView {
         cx.notify();
     }
     fn titlebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .flex()
-            .items_center()
-            .h(px(38.))
-            .flex_shrink_0()
-            .pl(px(76.))
-            .pr(px(8.))
-            .gap(px(4.))
+        crate::titlebar_surface()
+            .debug_selector(|| "workspace-titlebar".into())
+            .pr(ui(8.))
+            .gap(ui(4.))
             .child(
                 button("sidebar", "")
+                    .debug_selector(|| "sidebar-toggle".into())
                     .aria_label("Toggle sidebar")
                     .child(icon("PanelLeft"))
                     .on_click(cx.listener(|s, _, _, cx| {
@@ -575,14 +693,14 @@ impl WorkspaceView {
                             .role(Role::Tab)
                             .aria_selected(self.project == i)
                             .aria_label(name.clone())
-                            .h(px(30.))
+                            .h(ui(30.))
                             .flex_shrink_0()
-                            .px(px(12.))
+                            .px(ui(12.))
                             .flex()
                             .items_center()
-                            .gap(px(7.))
-                            .rounded(px(7.))
-                            .text_size(px(colors::CHAT_SMALL))
+                            .gap(ui(7.))
+                            .rounded(ui(7.))
+                            .text_size(ui(colors::CHAT_SMALL))
                             .font_weight(FontWeight::MEDIUM)
                             .cursor_pointer()
                             .when(self.project == i, |d| d.bg(rgba(0xebebeb17)))
@@ -594,7 +712,7 @@ impl WorkspaceView {
                                 s.persist_workspace_preferences(None, cx);
                             }))
                     }))
-                    .child(div().flex_1().h_full().min_w(px(16.)).on_mouse_down(
+                    .child(div().flex_1().h_full().min_w(ui(16.)).on_mouse_down(
                         MouseButton::Left,
                         |event, window, _| {
                             if event.click_count == 2 {
@@ -616,31 +734,31 @@ impl WorkspaceView {
             )
     }
     fn sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        div().id("sidebar").relative().w(px(self.sidebar_width)).h_full().flex_shrink_0().flex().flex_col().overflow_y_scroll().px(px(8.)).pt(px(8.))
+        div().id("sidebar").relative().w(ui(self.sidebar_width)).h_full().flex_shrink_0().flex().flex_col().overflow_y_scroll().px(ui(8.)).pt(ui(8.))
             .children([("Bookmark", "Memory"), ("Sparkles", "Plugins"), ("Workflow", "Automations")].into_iter().map(|(glyph, name)| {
-                button(name, "").aria_label(name).h(px(32.)).gap(px(10.)).text_size(px(colors::CHAT_SMALL)).child(icon(glyph)).child(name)
+                button(name, "").aria_label(name).h(ui(32.)).gap(ui(10.)).text_size(ui(colors::CHAT_SMALL)).child(icon(glyph)).child(name)
                     .on_click(cx.listener(move |s, _, _, cx| { s.status = format!("{name} is available in the current Inferay app. This preview covers the workspace and appearance."); cx.notify(); }))
             }))
-            .child(button("repositories-toggle", "").h(px(32.)).gap(px(10.)).text_size(px(colors::CHAT_SMALL)).text_color(rgba(0xebebeb80)).child(icon("GitBranch")).child("Repositories").child(div().flex_1()).child(icon(if self.repositories_collapsed { "ChevronRight" } else { "ChevronDown" }))
+            .child(button("repositories-toggle", "").h(ui(32.)).gap(ui(10.)).text_size(ui(colors::CHAT_SMALL)).text_color(rgba(0xebebeb80)).child(icon("GitBranch")).child("Repositories").child(div().flex_1()).child(icon(if self.repositories_collapsed { "ChevronRight" } else { "ChevronDown" }))
                 .on_click(cx.listener(|s, _, _, cx| { s.repositories_collapsed = !s.repositories_collapsed; cx.notify(); })))
             .children(self.projects[self.project].repositories.iter().enumerate().filter(|_| !self.repositories_collapsed).map(|(i, (name, path))| {
                 let path = path.clone();
-                button(("repo", i), "").aria_label(name.clone()).h(px(32.)).pl(px(26.)).text_size(px(colors::CHAT_SMALL)).child(icon("GitBranch")).child(div().flex_1().min_w_0().text_ellipsis().child(name.clone()))
+                button(("repo", i), "").aria_label(name.clone()).h(ui(32.)).pl(ui(26.)).text_size(ui(colors::CHAT_SMALL)).child(icon("GitBranch")).child(div().flex_1().min_w_0().text_ellipsis().child(name.clone()))
                     .when_some(self.repository_stats.get(&path), |d, stats| d
-                        .child(div().text_size(px(11.)).text_color(rgb(0x4fbd83)).child(format!("+{}", stats.additions)))
-                        .child(div().text_size(px(11.)).text_color(rgb(0xdf6464)).child(format!("−{}", stats.deletions))))
+                        .child(div().text_size(ui(11.)).text_color(rgb(0x4fbd83)).child(format!("+{}", stats.additions)))
+                        .child(div().text_size(ui(11.)).text_color(rgb(0xdf6464)).child(format!("−{}", stats.deletions))))
                     .on_click(cx.listener(move |s, _, _, cx| { s.repository = true; s.open_repository(path.clone(), cx); cx.notify(); }))
             }))
-            .child(div().h(px(1.)).bg(rgba(0xebebeb0f)).my(px(14.)))
-            .child(div().flex().items_center().justify_between().px(px(9.)).mb(px(10.)).text_color(rgba(0xebebeb80)).text_size(px(colors::CHAT_SMALL)).child("Chats")
+            .child(div().h(ui(1.)).bg(rgba(0xebebeb0f)).my(ui(14.)))
+            .child(div().flex().items_center().justify_between().px(ui(9.)).mb(ui(10.)).text_color(rgba(0xebebeb80)).text_size(ui(colors::CHAT_SMALL)).child("Chats")
                 .child(button("new-chat", "New chat").child(icon("Plus")).on_click(cx.listener(|s, _, w, cx| s.new_chat(w, cx)))))
             .children(self.conversations.iter().enumerate().filter(|(_, chat)| !chat.closed && chat.project == self.project).map(|(i, chat)| {
-                div().id(("chat", i)).role(Role::Button).aria_label(chat.title.clone()).flex().items_center().gap(px(8.)).px(px(9.)).h(px(36.)).mb(px(3.)).rounded(px(6.))
+                div().id(("chat", i)).role(Role::Button).aria_label(chat.title.clone()).flex().items_center().gap(ui(8.)).px(ui(9.)).h(ui(36.)).mb(ui(3.)).rounded(ui(6.))
                     .border_1().border_color(if i == self.selected { rgba(0xebebeb0f) } else { rgba(0) })
                     .when(i == self.selected, |d| d.bg(rgba(0xebebeb17))).hover(|s| s.bg(rgba(0xebebeb0d))).cursor_pointer()
-                    .child(icon("codex")).child(div().flex_1().min_w_0().text_size(px(colors::CHAT_SMALL)).overflow_hidden().text_ellipsis().child(chat.title.clone()))
+                    .child(icon("codex")).child(div().flex_1().min_w_0().text_size(ui(colors::CHAT_SMALL)).overflow_hidden().text_ellipsis().child(chat.title.clone()))
                     .child(button(("close-chat", i), "").aria_label("Close chat and stop agent").debug_selector(|| "close-chat".into())
-                        .child(icon("X").size(px(12.)))
+                        .child(icon("X").size(ui(12.)))
                         .on_click(cx.listener(move |s, _, _, cx| { cx.stop_propagation(); s.close_chat(i, cx); })))
                     .on_click(cx.listener(move |s, _, _, cx| { s.selected = i; s.projects[s.project].selected = i; s.persist_workspace_preferences(None, cx); s.settings = false; if !s.conversations[i].loaded && !s.conversations[i].loading { s.load_transcript(200, cx); } cx.notify(); }))
             }))
@@ -650,7 +768,7 @@ impl WorkspaceView {
                 s.set_settings(true, window, cx);
                 s.settings_page("about", cx);
             }))))
-            .child(div().id("sidebar-resize").absolute().right(px(-2.)).top_0().w(px(5.)).h_full().cursor_col_resize().on_mouse_down(MouseButton::Left, cx.listener(|s, e: &MouseDownEvent, _, cx| { s.sidebar_resize = Some((e.position.x, s.sidebar_width)); cx.stop_propagation(); })))
+            .child(div().id("sidebar-resize").absolute().right(ui(-2.)).top_0().w(ui(5.)).h_full().cursor_col_resize().on_mouse_down(MouseButton::Left, cx.listener(|s, e: &MouseDownEvent, _, cx| { s.sidebar_resize = Some((e.position.x, s.sidebar_width)); cx.stop_propagation(); })))
     }
     fn transcript(&self, index: usize, cx: &mut Context<Self>) -> impl IntoElement {
         let chat = &self.conversations[index];
@@ -661,14 +779,14 @@ impl WorkspaceView {
             .min_h_0()
             .flex()
             .flex_col()
-            .px(px(0.))
-            .pt(px(0.))
-            .pb(px(0.))
+            .px(ui(0.))
+            .pt(ui(8.))
+            .pb(ui(8.))
             .child(
                 div()
                     .w_full()
-                    .max_w(px(624.))
-                    .px(px(12.))
+                    .max_w(ui(624.))
+                    .px(ui(12.))
                     .mx_auto()
                     .when(chat.loading && !chat.loaded, |d| {
                         d.child(div().child("Loading saved messages…"))
@@ -677,17 +795,21 @@ impl WorkspaceView {
                         chat.error.clone().or_else(|| chat.connection_error.clone()),
                         |d, error| d.child(div().child(error)),
                     )
-                    .when(chat.transcript.total() > chat.transcript.rows().len(), |d| {
-                        d.child(
-                            button(("older-messages", index), "Load older messages").on_click(
-                                cx.listener(move |s, _, _, cx| {
-                                    let limit = s.conversations[index].transcript.rows().len() + 200;
-                                    s.load_chat(index, limit, cx);
-                                    cx.notify();
-                                }),
-                            ),
-                        )
-                    })
+                    .when(
+                        chat.transcript.total() > chat.transcript.rows().len(),
+                        |d| {
+                            d.child(
+                                button(("older-messages", index), "Load older messages").on_click(
+                                    cx.listener(move |s, _, _, cx| {
+                                        let limit =
+                                            s.conversations[index].transcript.rows().len() + 200;
+                                        s.load_chat(index, limit, cx);
+                                        cx.notify();
+                                    }),
+                                ),
+                            )
+                        },
+                    )
                     .when(
                         chat.transcript.rows().is_empty() && !chat.loading && chat.error.is_none(),
                         |d| {
@@ -697,17 +819,17 @@ impl WorkspaceView {
                                     .flex_col()
                                     .justify_center()
                                     .items_center()
-                                    .h(px(300.))
-                                    .gap(px(12.))
-                                    .child(icon("codex").size(px(28.)))
+                                    .h(ui(300.))
+                                    .gap(ui(12.))
+                                    .child(icon("codex").size(ui(28.)))
                                     .child(
                                         div()
-                                            .text_size(px(18.))
+                                            .text_size(ui(18.))
                                             .child("What would you like to work on?"),
                                     )
                                     .child(
                                         div()
-                                            .text_size(px(colors::CHAT_SMALL))
+                                            .text_size(ui(colors::CHAT_SMALL))
                                             .text_color(rgba(0xebebeb80))
                                             .child("Start a conversation below."),
                                     ),
@@ -724,18 +846,6 @@ impl WorkspaceView {
                 .min_h_0()
                 .w_full(),
             )
-            .when(chat.running, |d| d.child(
-                div().debug_selector(|| "chat-live-progress".into()).w_full().max_w(px(624.)).mx_auto().px(px(12.)).py(px(4.))
-                    .text_size(px(colors::CHAT_SMALL)).text_color(rgba(0xebebeb80))
-                    .child(match chat.run_status.as_str() {
-                        "sending" => "Sending message…".to_owned(),
-                        "thinking" => "Thinking…".to_owned(),
-                        "responding" => "Writing response…".to_owned(),
-                        status if status.starts_with("tool:") => inferay_core::tool_presentation::display(Some(&status[5..]), &serde_json::Value::Null).label,
-                        "idle" | "" => "Working…".to_owned(),
-                        status => status.to_owned(),
-                    })
-            ))
             .when(
                 !chat.transcript.rows().is_empty() && !chat.transcript.scroll.is_following_tail(),
                 |d| {
@@ -744,19 +854,20 @@ impl WorkspaceView {
                             .debug_selector(|| "latest-message".into())
                             .aria_label("Scroll to latest message")
                             .absolute()
-                            .right(px(8.))
-                            .bottom(px(8.))
-                            .w(px(24.))
-                            .h(px(24.))
-                            .px(px(5.))
+                            .right(ui(8.))
+                            .bottom(ui(8.))
+                            .w(ui(24.))
+                            .h(ui(24.))
+                            .px(ui(5.))
                             .rounded_full()
                             .border_1()
                             .border_color(rgba(0xebebeb26))
                             .bg(rgb(0x202020))
-                            .child(icon("ChevronDown").size(px(12.)))
+                            .child(icon("ChevronDown").size(ui(12.)))
                             .on_click(cx.listener(move |view, _, _, cx| {
                                 view.conversations[index]
-                                    .transcript.scroll
+                                    .transcript
+                                    .scroll
                                     .set_follow_mode(FollowMode::Tail);
                                 cx.notify();
                             })),
@@ -774,11 +885,10 @@ impl WorkspaceView {
         let row = &chat.transcript.rows()[message_index];
         let message = &row.message;
         if message.render.as_ref().is_some_and(|r| r.hidden) {
-            return div().h(px(0.)).into_any_element();
+            return div().h(ui(0.)).into_any_element();
         }
         let last_visible = chat.transcript.last_visible() == Some(message_index);
         let id = message.id.clone();
-        let content = message.clone();
         let row = if message.role == "tool" {
             let open = self.expanded.contains(&id);
             let render = message.render.as_ref();
@@ -789,28 +899,42 @@ impl WorkspaceView {
                 .unwrap_or_else(|| "Tool output".into());
             div()
                 .relative()
-                .max_w(px(544.))
+                .max_w(ui(544.))
                 .mx_auto()
-                .pl(px(12.))
-                .pb(px(if last_visible { 0. } else { 4. }))
-                .when(
-                    render.is_some_and(|render| render.continues_after),
-                    |d| d.border_l_1().border_color(rgba(0xebebeb24)),
-                )
+                .pl(ui(12.))
+                .pb(ui(if last_visible { 0. } else { 4. }))
+                .when(render.is_some_and(|render| render.continues_after), |d| {
+                    d.border_l_1().border_color(rgba(0xebebeb24))
+                })
                 .child(
                     div()
                         .absolute()
-                        .left(px(-3.))
-                        .top(px(9.))
-                        .size(px(6.))
+                        .left(ui(-3.))
+                        .top(ui(9.))
+                        .size(ui(6.))
                         .rounded_full()
                         .bg(rgb(0x202020))
                         .border_1()
                         .border_color(rgba(0xebebeb40))
-                        .when(message.is_streaming == Some(true), |dot| dot.child(
-                            div().absolute().inset_0().rounded_full().bg(rgb(0x8ab4f8))
-                                .with_animation(SharedString::from(format!("tool-active-{id}")), Animation::new(std::time::Duration::from_millis(1200)).repeat(),
-                                    |dot, phase| dot.opacity(0.45 + 0.55 * (phase * std::f32::consts::PI).sin())))),
+                        .when(message.is_streaming == Some(true), |dot| {
+                            dot.child(
+                                div()
+                                    .absolute()
+                                    .inset_0()
+                                    .rounded_full()
+                                    .bg(rgb(0x8ab4f8))
+                                    .with_animation(
+                                        SharedString::from(format!("tool-active-{id}")),
+                                        Animation::new(std::time::Duration::from_millis(1200))
+                                            .repeat(),
+                                        |dot, phase| {
+                                            dot.opacity(
+                                                0.45 + 0.55 * (phase * std::f32::consts::PI).sin(),
+                                            )
+                                        },
+                                    ),
+                            )
+                        }),
                 )
                 .child(
                     div()
@@ -820,15 +944,25 @@ impl WorkspaceView {
                         .aria_label(label.clone())
                         .flex()
                         .items_center()
-                        .gap(px(6.))
-                        .min_h(px(24.))
-                        .px(px(4.))
+                        .gap(ui(6.))
+                        .min_h(ui(24.))
+                        .px(ui(4.))
                         .cursor_pointer()
-                        .text_size(px(colors::CHAT_SMALL))
+                        .text_size(ui(colors::CHAT_SMALL))
                         .text_color(rgba(0xebebebb8))
-                        .when_some(display.and_then(|display| display.source.as_ref()), |d, source| d.child(
-                            div().debug_selector(|| "tool-source".into()).flex_shrink_0().text_size(px(colors::CHAT_DETAIL)).text_color(rgb(0x8ab4f8))
-                                .child(source.server_label.clone())))
+                        .when_some(
+                            display.and_then(|display| display.source.as_ref()),
+                            |d, source| {
+                                d.child(
+                                    div()
+                                        .debug_selector(|| "tool-source".into())
+                                        .flex_shrink_0()
+                                        .text_size(ui(colors::CHAT_DETAIL))
+                                        .text_color(rgb(0x8ab4f8))
+                                        .child(source.server_label.clone()),
+                                )
+                            },
+                        )
                         .child(
                             div()
                                 .min_w_0()
@@ -842,29 +976,41 @@ impl WorkspaceView {
                                     .text_color(rgba(0xebebeb70))
                                     .max_w(relative(0.42))
                                     .font_family("Menlo")
-                                    .text_size(px(colors::CHAT_DETAIL))
+                                    .text_size(ui(colors::CHAT_DETAIL))
                                     .text_ellipsis()
                                     .child(detail.split_whitespace().collect::<Vec<_>>().join(" ")),
                             )
                         })
                         .child(div().flex_1())
                         .child(
-                            icon(if open { "ChevronDown" } else { "ChevronRight" }).size(px(12.)),
+                            icon(if open { "ChevronDown" } else { "ChevronRight" }).size(ui(12.)),
                         )
                         .on_click(cx.listener(move |s, _, _, cx| {
                             if !s.expanded.remove(&id) {
                                 s.expanded.insert(id.clone());
                             }
                             s.conversations[index]
-                                .transcript.scroll
+                                .transcript
+                                .scroll
                                 .remeasure_items(message_index..message_index + 1);
                             cx.notify();
                         })),
                 )
                 .when(!open && !row.preview.is_empty(), |d| {
-                    d.child(div().debug_selector(|| "tool-output-preview".into()).ml(px(4.)).mb(px(4.)).px(px(8.)).py(px(4.))
-                        .border_l_1().border_color(rgba(0xebebeb20)).text_size(px(colors::CHAT_DETAIL))
-                        .text_color(rgba(0xebebeb80)).font_family("Menlo").child(row.preview.clone()))
+                    d.child(
+                        div()
+                            .debug_selector(|| "tool-output-preview".into())
+                            .ml(ui(4.))
+                            .mb(ui(4.))
+                            .px(ui(8.))
+                            .py(ui(4.))
+                            .border_l_1()
+                            .border_color(rgba(0xebebeb20))
+                            .text_size(ui(colors::CHAT_DETAIL))
+                            .text_color(rgba(0xebebeb80))
+                            .font_family("Menlo")
+                            .child(row.preview.clone()),
+                    )
                 })
                 .when_some(render.and_then(|r| r.edit.as_ref()), |d, edit| {
                     d.child(crate::rich_text::edit_card(edit))
@@ -872,19 +1018,9 @@ impl WorkspaceView {
                 .when(open, |d| {
                     d.child(
                         div()
-                            .ml(px(4.))
-                            .py(px(2.))
-                            .rounded(px(6.))
-                            .bg(rgba(0xffffff06))
-                            .font_family("Menlo")
-                            .text_size(px(colors::CHAT_DETAIL))
-                            .child(row.rich.render(&message.id))
-                            .child(div().flex().justify_end().child(
-                                button(SharedString::from(format!("copy-tool-{}", message.id)), "")
-                                    .aria_label("Copy output").w(px(24.)).p(px(4.)).justify_center().child(icon("Copy").size(px(12.)))
-                                    .h(px(24.)).on_click({ let content = content.clone(); move |_, _, cx| {
-                                        cx.write_to_clipboard(ClipboardItem::new_string(content.content.clone()));
-                                    }}))),
+                            .ml(ui(4.))
+                            .py(ui(2.))
+                            .child(row.rich.render(&message.id)),
                     )
                 })
                 .into_any_element()
@@ -896,8 +1032,9 @@ impl WorkspaceView {
             card
         } else if message.role == "system" {
             div()
-                .mt(px(4.)).mb(px(if last_visible { 0. } else { 4. }))
-                .text_size(px(colors::CHAT_SMALL))
+                .mt(ui(4.))
+                .mb(ui(if last_visible { 0. } else { 4. }))
+                .text_size(ui(colors::CHAT_SMALL))
                 .text_color(rgba(0xebebeb80))
                 .child(row.rich.render(&message.id))
                 .into_any_element()
@@ -905,40 +1042,55 @@ impl WorkspaceView {
             div()
                 .flex()
                 .justify_end()
-                .mb(px(if last_visible { 0. } else { 8. }))
+                .mb(ui(if last_visible { 0. } else { 8. }))
                 .child(
                     div()
                         .max_w(relative(0.85))
-                        .px(px(10.))
-                        .py(px(6.))
-                        .rounded(px(8.))
-                        .rounded_br(px(2.))
-                        .children(message.images.iter().flatten().map(|path| img(std::path::PathBuf::from(path)).w(px(220.)).h(px(150.)).object_fit(ObjectFit::Contain)))
+                        .px(ui(10.))
+                        .py(ui(6.))
+                        .rounded(ui(8.))
+                        .rounded_br(ui(2.))
+                        .children(message.images.iter().flatten().map(|path| {
+                            img(std::path::PathBuf::from(path))
+                                .w(ui(220.))
+                                .h(ui(150.))
+                                .object_fit(ObjectFit::Contain)
+                        }))
                         .child(row.rich.render(&message.id)),
                 )
                 .into_any_element()
         } else {
+            let content = message.clone();
             div()
-                .mb(px(if last_visible { 0. } else { 8. }))
+                .mb(ui(if last_visible { 0. } else { 8. }))
                 .child(
                     div()
-                        .line_height(px(colors::CHAT_BODY * 1.6))
+                        .line_height(ui(colors::CHAT_BODY * 1.6))
                         .text_color(rgba(0xebebebb8))
                         .child(row.rich.render(&message.id)),
                 )
-                .when(message.is_streaming != Some(true) && !content.content.trim().is_empty(), |d| d.child(
-                    div().flex().justify_end().mt(px(4.)).child(
-                        button(SharedString::from(format!("copy-{}", message.id)), "")
-                            .aria_label("Copy response").w(px(24.)).justify_center()
-                            .h(px(24.))
-                            .px(px(6.))
-                            .text_color(rgba(0xebebeb80))
-                            .child(icon("Copy").size(px(12.)))
-                            .on_click(move |_, _, cx| {
-                                cx.write_to_clipboard(ClipboardItem::new_string(content.content.clone()))
-                            }),
-                    ),
-                ))
+                .when(
+                    message.is_streaming != Some(true) && !content.content.trim().is_empty(),
+                    |d| {
+                        d.child(
+                            div().flex().justify_end().mt(ui(4.)).child(
+                                button(SharedString::from(format!("copy-{}", message.id)), "")
+                                    .aria_label("Copy response")
+                                    .w(ui(24.))
+                                    .justify_center()
+                                    .h(ui(24.))
+                                    .px(ui(6.))
+                                    .text_color(rgba(0xebebeb80))
+                                    .child(icon("Copy").size(ui(12.)))
+                                    .on_click(move |_, _, cx| {
+                                        cx.write_to_clipboard(ClipboardItem::new_string(
+                                            content.content.clone(),
+                                        ))
+                                    }),
+                            ),
+                        )
+                    },
+                )
                 .into_any_element()
         };
         div()
@@ -949,8 +1101,8 @@ impl WorkspaceView {
                 div()
                     .debug_selector(|| "chat-message-column".into())
                     .w_full()
-                    .max_w(px(624.))
-                    .px(px(12.))
+                    .max_w(ui(624.))
+                    .px(ui(12.))
                     .child(row),
             )
             .into_any_element()
@@ -991,8 +1143,8 @@ impl WorkspaceView {
             .h_full()
             .child(
                 canvas(
-                    cx.processor(|s, bounds: Bounds<Pixels>, _, cx| {
-                        let width: f32 = bounds.size.width.into();
+                    cx.processor(|s, bounds: Bounds<Pixels>, window, cx| {
+                        let width = f32::from(bounds.size.width) / crate::zoom::factor(window);
                         if (s.chat_width - width).abs() > 1. {
                             s.chat_width = width;
                             let entity = cx.entity_id();
@@ -1013,9 +1165,15 @@ impl WorkspaceView {
                     .child(
                         div()
                             .h(relative(height))
-                            .min_h(px(min_height))
+                            .min_h(ui(min_height))
                             .w(relative(width))
-                            .child(self.dock_branch(&layout["tree"], &layout["tree"], vec![], window, cx)),
+                            .child(self.dock_branch(
+                                &layout["tree"],
+                                &layout["tree"],
+                                vec![],
+                                window,
+                                cx,
+                            )),
                     ),
             )
             .into_any_element()
@@ -1052,7 +1210,7 @@ impl WorkspaceView {
                 .when(tree["direction"] == "vertical", |d| d.flex_col())
                 .child(
                     div()
-                        .flex_basis(px(0.))
+                        .flex_basis(ui(0.))
                         .flex_grow(ratio)
                         .min_w_0()
                         .min_h_0()
@@ -1083,19 +1241,19 @@ impl WorkspaceView {
                             div()
                                 .absolute()
                                 .bg(rgba(0xebebeb18))
-                                .when(horizontal, |d| d.left(px(2.)).w(px(1.)).h_full())
-                                .when(!horizontal, |d| d.top(px(2.)).h(px(1.)).w_full()),
+                                .when(horizontal, |d| d.left(ui(2.)).w(ui(1.)).h_full())
+                                .when(!horizontal, |d| d.top(ui(2.)).h(ui(1.)).w_full()),
                         )
                         .when(tree["direction"] == "horizontal", |d| {
-                            d.w(px(5.)).mx(px(-2.)).h_full().cursor_col_resize()
+                            d.w(ui(5.)).mx(ui(-2.)).h_full().cursor_col_resize()
                         })
                         .when(tree["direction"] == "vertical", |d| {
-                            d.h(px(5.)).my(px(-2.)).w_full().cursor_row_resize()
+                            d.h(ui(5.)).my(ui(-2.)).w_full().cursor_row_resize()
                         }),
                 )
                 .child(
                     div()
-                        .flex_basis(px(0.))
+                        .flex_basis(ui(0.))
                         .flex_grow(1. - ratio)
                         .min_w_0()
                         .min_h_0()
@@ -1122,7 +1280,9 @@ impl WorkspaceView {
         div()
             .id(("chat-pane", index))
             .debug_selector(|| "chat-pane".into())
-            .on_drop(cx.listener(move |s, paths: &ExternalPaths, _, cx| s.attach_images(index, paths.paths().to_vec(), cx)))
+            .on_drop(cx.listener(move |s, paths: &ExternalPaths, _, cx| {
+                s.attach_images(index, paths.paths().to_vec(), cx)
+            }))
             .size_full()
             .flex()
             .flex_col()
@@ -1143,7 +1303,12 @@ impl WorkspaceView {
             .child(self.composer(index, window, cx))
             .into_any_element()
     }
-    fn composer(&self, index: usize, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn composer(
+        &self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let chat = &self.conversations[index];
         let catalog =
             inferay_core::provider_config::renderer_catalog(&serde_json::Value::Null, &[]);
@@ -1164,18 +1329,18 @@ impl WorkspaceView {
             .find(|r| r.id == chat.config.reasoning_level)
             .map(|r| r.label.clone())
             .unwrap_or_else(|| chat.config.reasoning_level.clone());
-        div().debug_selector(|| "chat-composer".into()).relative().w_full().max_w(px(624.)).mx_auto().px(px(12.)).pt(px(0.)).pb(px(8.)).flex_shrink_0()
-            .when(!self.status.is_empty(), |d| d.child(div().px(px(8.)).pb(px(10.)).text_size(px(11.)).text_color(rgba(0xebebeb80)).child(self.status.clone())))
-            .when(chat.running, |d| d.child(
-                div().debug_selector(|| "chat-activity".into()).flex().items_center().justify_between().h(px(20.)).pb(px(4.))
-                    .child(div().h(px(16.)).flex().items_center().when_some(chat.start_time, |d, start| d.child(
-                        div().id(("activity-time", index)).flex().items_center().gap(px(6.)).with_animation(
+        div().debug_selector(|| "chat-composer".into()).relative().w_full().max_w(ui(624.)).mx_auto().px(ui(12.)).pt(ui(0.)).pb(ui(8.)).flex_shrink_0()
+            .when(!self.status.is_empty(), |d| d.child(div().px(ui(8.)).pb(ui(10.)).text_size(ui(11.)).text_color(rgba(0xebebeb80)).child(self.status.clone())))
+            .when(chat.run.is_loading, |d| d.child(
+                div().debug_selector(|| "chat-activity".into()).flex().items_center().justify_between().h(ui(20.)).pb(ui(4.))
+                    .child(div().h(ui(16.)).flex().items_center().when_some(chat.run.start_time, |d, start| d.child(
+                        div().id(("activity-time", index)).flex().items_center().gap(ui(6.)).with_animation(
                             ("chat-activity", index), Animation::new(std::time::Duration::from_millis(1500)).repeat(),
                             move |d, phase| {
-                                let seconds = ((std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs_f64() * 1000. - start).max(0.) / 1000.) as u64;
+                                let seconds = ((std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs_f64() * 1000. - start as f64).max(0.) / 1000.) as u64;
                                 let elapsed = if seconds < 60 { format!("{seconds}s") } else if seconds < 3600 { format!("{}m {}s", seconds / 60, seconds % 60) } else { format!("{}h {}m", seconds / 3600, seconds / 60 % 60) };
                                 d.aria_label(format!("Agent active, {elapsed} elapsed"))
-                                    .child(div().relative().size(px(14.)).children((0..25).map(|i| {
+                                    .child(div().relative().size(ui(14.)).children((0..25).map(|i| {
                                         let row = i / 5;
                                         let column = i % 5;
                                         let ring = (2_i32 - row).abs() + (2_i32 - column).abs();
@@ -1184,22 +1349,22 @@ impl WorkspaceView {
                                         let stops = [(0., 0.1), (0.28, 0.98), (0.56, 0.32), (0.78, 0.78), (1., 0.1)];
                                         let pair = stops.windows(2).find(|pair| t <= pair[1].0).unwrap();
                                         let opacity = pair[0].1 + (pair[1].1 - pair[0].1) * (t - pair[0].0) / (pair[1].0 - pair[0].0);
-                                        div().absolute().left(px(column as f32 * 3.)).top(px(row as f32 * 3.)).size(px(2.)).rounded(px(1.)).bg(rgba(0xebebebb3)).opacity(opacity)
+                                        div().absolute().left(ui(column as f32 * 3.)).top(ui(row as f32 * 3.)).size(ui(2.)).rounded(ui(1.)).bg(rgba(0xebebebb3)).opacity(opacity)
                                     })))
-                                    .child(div().font_family("Menlo").text_size(px(10.)).text_color(rgba(0xebebeb80)).child(elapsed))
+                                    .child(div().font_family("Menlo").text_size(ui(10.)).text_color(rgba(0xebebeb80)).child(elapsed))
                             },
                         )
                     )))
-                    .child(button(("activity-stop", index), "").aria_label("Stop generation").size(px(16.)).p(px(0.)).justify_center().border_1().border_color(rgba(0xebebeb1a)).rounded(px(4.)).child(icon("Stop").size(px(12.)))
+                    .child(button(("activity-stop", index), "").aria_label("Stop generation").size(ui(16.)).p(ui(0.)).justify_center().border_1().border_color(rgba(0xebebeb1a)).rounded(ui(4.)).child(icon("Stop").size(ui(12.)))
                         .on_click(cx.listener(move |view, _, _, cx| view.send_chat(index, true, cx))))
             ))
-            .child(div().debug_selector(|| "chat-input-shell".into()).relative().rounded(px(12.)).border_1().border_color(rgba(0xebebeb0f))
-                .when(chat.running || chat.input.focus_handle(cx).is_focused(window), |d| d.child(
-                    div().absolute().inset_0().rounded(px(12.)).overflow_hidden().with_animation(("composer-beam", index), Animation::new(std::time::Duration::from_millis(2500)).repeat(), |d, phase| d.child(
+            .child(div().debug_selector(|| "chat-input-shell".into()).relative().rounded(ui(12.)).border_1().border_color(rgba(0xebebeb0f)).pt(ui(8.)).pb(ui(8.))
+                .when(chat.run.is_loading || chat.input.focus_handle(cx).is_focused(window), |d| d.child(
+                    div().absolute().inset_0().rounded(ui(12.)).overflow_hidden().with_animation(("composer-beam", index), Animation::new(std::time::Duration::from_millis(2500)).repeat(), |d, phase| d.child(
                         canvas(|_, _, _| (), move |bounds, _, window, _| {
                             let width = f32::from(bounds.size.width);
                             let height = f32::from(bounds.size.height);
-                            let radius = 11_f32.min(width / 2.).min(height / 2.);
+                            let radius = (11. * crate::zoom::factor(window)).min(width / 2.).min(height / 2.);
                             let horizontal = width - radius * 2.;
                             let vertical = height - radius * 2.;
                             let arc = std::f32::consts::FRAC_PI_2 * radius;
@@ -1228,7 +1393,7 @@ impl WorkspaceView {
                                 let alpha = (1. - ((tail - 0.66) / 0.14).abs()).max(0.);
                                 if alpha == 0. { continue; }
                                 for (stroke, opacity) in [(36., 0.015), (20., 0.025), (10., 0.04), (5., 0.08), (2., 0.2), (1., 0.65)] {
-                                    let mut path = PathBuilder::stroke(px(stroke));
+                                    let mut path = PathBuilder::stroke(crate::zoom::pixels(stroke, window));
                                     path.move_to(position(progress * perimeter));
                                     path.line_to(position((segment + 1) as f32 / 240. * perimeter));
                                     if let Ok(path) = path.build() { window.paint_path(path, hsla((progress + phase * 0.1) % 1., 0.8, 0.65, alpha * opacity)); }
@@ -1239,13 +1404,13 @@ impl WorkspaceView {
                 ))
                 .bg(match self.appearance { Appearance::Dark => rgba(0x2f2f2fff), _ => rgba(0x181818e0) })
                 .when(!chat.queue.is_empty(), |d| d.child(
-                    div().id(("chat-queue", index)).debug_selector(|| "chat-queue".into()).max_h(px(112.)).overflow_y_scroll().p(px(4.))
+                    div().id(("chat-queue", index)).debug_selector(|| "chat-queue".into()).max_h(ui(112.)).overflow_y_scroll().p(ui(4.))
                         .border_b_1().border_color(rgba(0xebebeb0f))
                         .children(chat.queue.iter().enumerate().map(|(position, message)| {
                             let text = message["displayText"].as_str().filter(|s| !s.is_empty())
                                 .or_else(|| message["text"].as_str()).unwrap_or("").to_owned();
-                            div().flex().items_start().gap(px(8.)).px(px(8.)).py(px(4.)).text_size(px(12.))
-                                .child(div().flex_shrink_0().w(px(20.)).text_color(rgba(0xebebeb80)).child((position + 1).to_string()))
+                            div().flex().items_start().gap(ui(8.)).px(ui(8.)).py(ui(4.)).text_size(ui(12.))
+                                .child(div().flex_shrink_0().w(ui(20.)).text_color(rgba(0xebebeb80)).child((position + 1).to_string()))
                                 .child(div().flex_1().min_w_0().when_some(
                                     chat.queue_editor.as_ref().filter(|(id, _)| message["id"].as_str() == Some(id.as_str())),
                                     |d, (_, input)| d.child(input.clone()).capture_key_down(cx.listener(move |view, event: &gpui::KeyDownEvent, window, cx| {
@@ -1265,7 +1430,7 @@ impl WorkspaceView {
                                     let edit_id = id.clone();
                                     let editing = chat.queue_editor.as_ref().is_some_and(|(id, _)| id == &edit_id);
                                     d.child(button(("edit-queued", position), "").debug_selector(|| "edit-queued".into())
-                                        .w(px(20.)).h(px(20.)).px(px(3.)).child(icon(if editing { "Check" } else { "Pencil" }).size(px(14.)))
+                                        .w(ui(20.)).h(ui(20.)).px(ui(3.)).child(icon(if editing { "Check" } else { "Pencil" }).size(ui(14.)))
                                         .aria_label(if editing { "Save queued message" } else { "Edit queued message" })
                                         .on_click(cx.listener(move |view, _, window, cx| {
                                             let chat = &mut view.conversations[index];
@@ -1293,7 +1458,7 @@ impl WorkspaceView {
                                             }
                                         })))
                                     .when(editing, |d| d.child(button(("cancel-queued", position), "")
-                                        .w(px(20.)).h(px(20.)).px(px(3.)).child(icon("X").size(px(14.)))
+                                        .w(ui(20.)).h(ui(20.)).px(ui(3.)).child(icon("X").size(ui(14.)))
                                         .aria_label("Cancel queued message edit")
                                         .on_click(cx.listener(move |view, _, window, cx| {
                                             view.conversations[index].queue_editor = None;
@@ -1302,34 +1467,34 @@ impl WorkspaceView {
                                             cx.notify();
                                         }))))
                                     .when(!editing, |d| d.child(button(("remove-queued", position), "").aria_label("Remove from queue")
-                                        .w(px(20.)).h(px(20.)).px(px(3.)).child(icon("Trash").size(px(14.)))
+                                        .w(ui(20.)).h(ui(20.)).px(ui(3.)).child(icon("Trash").size(ui(14.)))
                                         .opacity(if chat.queue_task.is_some() { 0.4 } else { 1. })
                                         .on_click(cx.listener(move |view, _, _, cx| view.update_queued_message(index, id.clone(), None, cx)))))
                                 })
                         }))
                 ))
-                .when(!chat.images.is_empty(), |d| d.child(div().flex().flex_wrap().gap(px(6.)).p(px(8.)).children(chat.images.iter().enumerate().map(|(i, path)| {
+                .when(!chat.images.is_empty(), |d| d.child(div().flex().flex_wrap().gap(ui(6.)).p(ui(8.)).children(chat.images.iter().enumerate().map(|(i, path)| {
                     let path = path.clone();
-                    div().relative().child(img(path).w(px(72.)).h(px(56.)).object_fit(ObjectFit::Contain).rounded(px(6.)))
-                        .child(button(("remove-image", i), "×").aria_label("Remove image").absolute().top_0().right_0().w(px(18.)).h(px(18.)).px(px(3.)).bg(rgb(0x222222)).on_click(cx.listener(move |s, _, _, cx| { s.conversations[index].images.remove(i); cx.notify(); })))
+                    div().relative().child(img(path).w(ui(72.)).h(ui(56.)).object_fit(ObjectFit::Contain).rounded(ui(6.)))
+                        .child(button(("remove-image", i), "×").aria_label("Remove image").absolute().top_0().right_0().w(ui(18.)).h(ui(18.)).px(ui(3.)).bg(rgb(0x222222)).on_click(cx.listener(move |s, _, _, cx| { s.conversations[index].images.remove(i); cx.notify(); })))
                 }))))
-                .child(div().flex().items_end().gap(px(4.)).pl(px(4.)).pr(px(12.)).py(px(6.))
-                    .child(div().flex().items_center().gap(px(2.)).flex_shrink_0()
+                .child(div().debug_selector(|| "chat-input-row".into()).flex().items_end().gap(ui(4.)).pl(ui(4.)).pr(ui(12.)).py(ui(6.))
+                    .child(div().flex().items_center().gap(ui(2.)).flex_shrink_0()
                         .children([("Plus", "Attach image"), ("Mic", "Start voice input")].into_iter().map(|(glyph, label)| {
-                            button((label, index), "").aria_label(label).w(px(28.)).h(px(28.)).px(px(6.)).child(icon(glyph).size(px(16.)))
+                            button((label, index), "").aria_label(label).w(ui(28.)).h(ui(28.)).px(ui(6.)).child(icon(glyph).size(ui(16.)))
                                 .on_click(cx.listener(move |s, _, _, cx| { if glyph == "Plus" { s.pick_chat_images(index, cx); } else { s.status = format!("{label} is not connected in the native preview yet."); cx.notify(); } }))
                         })))
                     .child(div().flex_1().min_w_0().child(chat.input.clone()))
-                    .child(button(("send-chat", index), "").aria_label(if chat.running { "Stop generating" } else { "Send message" })
-                        .w(px(28.)).h(px(28.)).px(px(6.))
+                    .child(button(("send-chat", index), "").aria_label(if chat.run.is_loading { "Stop generating" } else { "Send message" })
+                        .w(ui(28.)).h(ui(28.)).px(ui(6.))
                         .opacity(if chat.commands.is_some() && !chat.sending { 1. } else { 0.4 })
-                        .child(icon(if chat.running { "Stop" } else { "Send" }).size(px(16.)))
-                        .on_click(cx.listener(move |view, _, _, cx| view.send_chat(index, view.conversations[index].running, cx)))))
-                .child(div().flex().flex_wrap().items_center().px(px(8.)).pb(px(4.)).gap(px(4.))
+                        .child(icon(if chat.run.is_loading { "Stop" } else { "Send" }).size(ui(16.)))
+                        .on_click(cx.listener(move |view, _, _, cx| view.send_chat(index, view.conversations[index].run.is_loading, cx)))))
+                .child(div().debug_selector(|| "chat-input-options".into()).flex().flex_wrap().items_center().px(ui(8.)).pb(ui(4.)).gap(ui(4.))
                     .children([("provider", definition.label), ("model", model), ("reasoning", reasoning)].into_iter().map(|(name, value)| {
-                        button((name, index), "").aria_label(format!("{name}: {value}")).h(px(24.)).px(px(4.)).gap(px(4.)).text_size(px(10.)).flex_shrink_0()
-                            .when(name == "provider", |d| d.child(icon(if chat.config.agent_kind.as_str() == "codex" { "codex" } else { "Sparkles" }).size(px(10.))))
-                            .child(value).child(icon("ChevronDown").size(px(9.)))
+                        button((name, index), "").aria_label(format!("{name}: {value}")).h(ui(24.)).px(ui(4.)).gap(ui(4.)).text_size(ui(10.)).flex_shrink_0()
+                            .when(name == "provider", |d| d.child(icon(if chat.config.agent_kind.as_str() == "codex" { "codex" } else { "Sparkles" }).size(ui(10.))))
+                            .child(value).child(icon("ChevronDown").size(ui(9.)))
                             .on_click(cx.listener(move |s, _, _, cx| { s.selected = index; s.menu = if s.menu == Some((index, name)) { None } else { Some((index, name)) }; cx.notify(); }))
                     }))))
             .when_some(self.menu.filter(|(pane, _)| *pane == index), |d, (_, name)| d.child(self.popup(index, name, cx)))
@@ -1363,9 +1528,9 @@ impl WorkspaceView {
             .collect(),
         };
         crate::menu_surface(("composer-menu", index))
-            .bottom(px(38.))
-            .left(px(12.))
-            .w(px(180.))
+            .bottom(ui(46.))
+            .left(ui(12.))
+            .w(ui(180.))
             .on_mouse_down_out(cx.listener(|s, _, _, cx| {
                 s.menu = None;
                 cx.notify();
@@ -1397,6 +1562,9 @@ impl WorkspaceView {
 }
 impl Render for WorkspaceView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if window.rem_size() != self.zoom.rem_size() {
+            self.zoom.apply(window);
+        }
         let shell = match self.appearance {
             Appearance::Dark => rgba((colors::SHELL << 8) | 255),
             Appearance::Glass => rgba((self.glass_opacity * 255.) as u32),
@@ -1411,18 +1579,18 @@ impl Render for WorkspaceView {
             .relative()
             .size_full()
             .font_family(self.font)
-            .text_size(px(colors::CHAT_BODY))
+            .text_size(ui(colors::CHAT_BODY))
             .text_color(rgb(colors::TEXT))
             .bg(shell)
             .track_focus(&self.focus)
-            .on_mouse_move(cx.listener(|s, event: &MouseMoveEvent, _, cx| {
+            .on_mouse_move(cx.listener(|s, event: &MouseMoveEvent, window, cx| {
                 if let Some((start, width)) = s.repository_resize {
-                    s.repository_width = (width + f32::from(start - event.position.x)).max(280.);
+                    s.repository_width = (width + f32::from(start - event.position.x) / crate::zoom::factor(window)).max(280.);
                     cx.notify();
                 }
                 if let Some((start, width)) = s.sidebar_resize {
                     s.sidebar_width =
-                        (width + f32::from(event.position.x - start)).clamp(188., 340.);
+                        (width + f32::from(event.position.x - start) / crate::zoom::factor(window)).clamp(188., 340.);
                     cx.notify();
                 }
                 if let Some((path, bounds, horizontal, tree)) = &s.dock_resize {
@@ -1465,6 +1633,9 @@ impl Render for WorkspaceView {
                     }
                 }),
             )
+            .on_action(cx.listener(|s, _: &crate::zoom::ZoomIn, window, cx| s.set_zoom(s.zoom.step(1), window, cx)))
+            .on_action(cx.listener(|s, _: &crate::zoom::ZoomOut, window, cx| s.set_zoom(s.zoom.step(-1), window, cx)))
+            .on_action(cx.listener(|s, _: &crate::zoom::ResetZoom, window, cx| s.set_zoom(crate::zoom::Zoom::default(), window, cx)))
             .on_action(cx.listener(|s, _: &ToggleSidebar, _, cx| {
                 s.sidebar = !s.sidebar;
                         s.persist_workspace_preferences(None, cx);
@@ -1514,15 +1685,15 @@ impl Render for WorkspaceView {
                                 .flex()
                                 .flex_1()
                                 .min_h_0()
-                                .pr(px(6.))
-                                .pb(px(6.))
+                                .pr(ui(6.))
+                                .pb(ui(6.))
                                 .when(self.sidebar, |d| d.child(self.sidebar(cx)))
                                 .child(
                                     div()
                                         .flex()
                                         .flex_1()
                                         .min_w_0()
-                                        .rounded(px(12.))
+                                        .rounded(ui(12.))
                                         .overflow_hidden()
                                         .border_1()
                                         .border_color(rgba(0xebebeb0a))
@@ -1549,7 +1720,7 @@ impl Render for WorkspaceView {
                                                                     .when(
                                                                         !self.repository_expanded,
                                                                         |d| {
-                                                                            d.w(px(self.repository_width))
+                                                                            d.w(ui(self.repository_width))
                                                                                 .max_w(relative(
                                                                                     0.65,
                                                                                 ))
@@ -1559,7 +1730,7 @@ impl Render for WorkspaceView {
                                                                     .relative()
                                                                     .child(view)
                                                                     .when(!self.repository_expanded, |d| d.child(
-                                                                        div().id("resize-repository").absolute().left_0().top_0().w(px(6.)).h_full().cursor_col_resize()
+                                                                        div().id("resize-repository").absolute().left_0().top_0().w(ui(6.)).h_full().cursor_col_resize()
                                                                             .on_mouse_down(MouseButton::Left, cx.listener(|view, event: &MouseDownEvent, _, cx| {
                                                                                 view.repository_resize = Some((event.position.x, view.repository_width));
                                                                                 cx.stop_propagation();
@@ -1581,6 +1752,37 @@ impl Render for WorkspaceView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[gpui::test]
+    fn last_expanded_tool_card_clears_the_padded_composer_at_large_zoom(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            let mut view = WorkspaceView::empty(cx.focus_handle(), cx.new(TextInput::new), cx);
+            view.status.clear();
+            view.zoom = crate::zoom::Zoom::restore(Some("200"));
+            let mut buffer = inferay_core::chat_protocol::ChatMessageBuffer::default();
+            buffer.apply_event(&serde_json::json!({"type":"inferay.tool","id":"last-tool","name":"exec_command","input":{"cmd":"echo output"},"output": "readable output\n".repeat(200), "done":true}));
+            view.conversations[0].transcript.publish(PreparedTranscript::prepare(0, buffer.messages().iter().cloned().map(std::sync::Arc::new), "vscode-black"), None);
+            view
+        });
+        cx.simulate_resize(size(px(1100.), px(700.)));
+        cx.draw(point(px(0.), px(0.)), size(px(1100.), px(700.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        let tool = cx.debug_bounds("tool-timeline-row").unwrap();
+        cx.simulate_click(tool.center(), Modifiers::default());
+        cx.draw(point(px(0.), px(0.)), size(px(1100.), px(700.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        let output = cx.debug_bounds("code-card-last-tool-1").unwrap();
+        let composer = cx.debug_bounds("chat-composer").unwrap();
+        let viewport = view.read_with(cx, |view, _| {
+            view.conversations[0].transcript.scroll.viewport_bounds()
+        });
+        assert!(output.bottom() <= viewport.bottom());
+        assert!(output.bottom() > viewport.bottom() - px(24.));
+        assert!(output.bottom() + px(16.) <= composer.top());
+    }
     use core::prelude::v1::test;
     #[gpui::test]
     fn startup_waits_for_decoded_background(cx: &mut gpui::TestAppContext) {
@@ -1589,20 +1791,27 @@ mod tests {
             WorkspaceView::empty(cx.focus_handle(), input, cx)
         });
         cx.run_until_parked();
-        window.update(cx, |view, _, cx| {
-            assert!(view.startup_window.is_none());
-            view.restored = true;
-            view.set_background(&serde_json::json!({"mode":"scene","id":"city","blur":0}), cx);
-            assert!(view.scene.is_none());
-            assert!(view.scene_task.is_some());
-            assert!(!view.restored || view.scene_task.is_some());
-            cx.notify();
-        }).unwrap();
+        window
+            .update(cx, |view, _, cx| {
+                assert!(view.startup_window.is_none());
+                view.restored = true;
+                view.set_background(
+                    &serde_json::json!({"mode":"scene","id":"city","blur":0}),
+                    cx,
+                );
+                assert!(view.scene.is_none());
+                assert!(view.scene_task.is_some());
+                assert!(!view.restored || view.scene_task.is_some());
+                cx.notify();
+            })
+            .unwrap();
         cx.run_until_parked();
-        window.update(cx, |view, _, _| {
-            assert!(view.scene.is_some());
-            assert!(view.scene_task.is_none());
-        }).unwrap();
+        window
+            .update(cx, |view, _, _| {
+                assert!(view.scene.is_some());
+                assert!(view.scene_task.is_none());
+            })
+            .unwrap();
     }
 
     #[gpui::test]
@@ -1613,22 +1822,39 @@ mod tests {
             let input = cx.new(TextInput::new);
             WorkspaceView::empty(cx.focus_handle(), input, cx)
         });
-        window.update(cx, |view, _, cx| {
-            let first = first.path().to_string_lossy().into_owned();
-            let second = second.path().to_string_lossy().into_owned();
-            view.projects[0].repositories = vec![("First".into(), first.clone()), ("Second".into(), second.clone())];
-            view.open_repository(first.clone(), cx);
-            let original = view.repository_view.clone().unwrap();
-            original.update(cx, |repo, _| repo.expanded = true);
-            view.open_repository(second.clone(), cx);
-            assert_ne!(view.repository_view.as_ref().unwrap().entity_id(), original.entity_id());
-            view.open_repository(first.clone(), cx);
-            assert_eq!(view.repository_view.as_ref().unwrap().entity_id(), original.entity_id());
-            assert!(view.repository_expanded);
-            view.select_project(0, cx);
-            assert_eq!(view.repository_view.as_ref().unwrap().entity_id(), original.entity_id());
-            assert_eq!(view.projects[0].selected_repository.as_deref(), Some(first.as_str()));
-        }).unwrap();
+        window
+            .update(cx, |view, _, cx| {
+                let first = first.path().to_string_lossy().into_owned();
+                let second = second.path().to_string_lossy().into_owned();
+                view.projects[0].repositories = vec![
+                    ("First".into(), first.clone()),
+                    ("Second".into(), second.clone()),
+                ];
+                view.open_repository(first.clone(), cx);
+                let original = view.repository_view.clone().unwrap();
+                original.update(cx, |repo, _| repo.expanded = true);
+                view.open_repository(second.clone(), cx);
+                assert_ne!(
+                    view.repository_view.as_ref().unwrap().entity_id(),
+                    original.entity_id()
+                );
+                view.open_repository(first.clone(), cx);
+                assert_eq!(
+                    view.repository_view.as_ref().unwrap().entity_id(),
+                    original.entity_id()
+                );
+                assert!(view.repository_expanded);
+                view.select_project(0, cx);
+                assert_eq!(
+                    view.repository_view.as_ref().unwrap().entity_id(),
+                    original.entity_id()
+                );
+                assert_eq!(
+                    view.projects[0].selected_repository.as_deref(),
+                    Some(first.as_str())
+                );
+            })
+            .unwrap();
     }
 
     #[gpui::test]
@@ -1638,19 +1864,26 @@ mod tests {
             let mut view = WorkspaceView::empty(cx.focus_handle(), input, cx);
             view.status.clear();
             view.conversations[0].loaded = true;
-            view.conversations[0].queue = vec![serde_json::json!({"id":"queued", "text":"original"})];
-            view.conversations[0].input.update(cx, |input, cx| input.set_content("main draft", cx));
+            view.conversations[0].queue =
+                vec![serde_json::json!({"id":"queued", "text":"original"})];
+            view.conversations[0]
+                .input
+                .update(cx, |input, cx| input.set_content("main draft", cx));
             view
         });
         cx.simulate_resize(size(px(1024.), px(768.)));
-        cx.draw(point(px(0.), px(0.)), size(px(1024.), px(768.)), |_, _| view.clone().into_any_element());
+        cx.draw(point(px(0.), px(0.)), size(px(1024.), px(768.)), |_, _| {
+            view.clone().into_any_element()
+        });
         let edit = cx.debug_bounds("edit-queued").unwrap();
         cx.simulate_click(edit.center(), Modifiers::default());
         view.read_with(cx, |view, cx| {
             let editor = &view.conversations[0].queue_editor.as_ref().unwrap().1;
             assert!(editor.read(cx).submit_on_enter);
         });
-        cx.draw(point(px(0.), px(0.)), size(px(1024.), px(768.)), |_, _| view.clone().into_any_element());
+        cx.draw(point(px(0.), px(0.)), size(px(1024.), px(768.)), |_, _| {
+            view.clone().into_any_element()
+        });
         cx.simulate_keystrokes("escape");
         view.read_with(cx, |view, cx| {
             let chat = &view.conversations[0];
@@ -1703,10 +1936,21 @@ mod tests {
         assert!(
             ((composer.left() - pane.left()) - (pane.right() - composer.right())).abs() < px(1.)
         );
-        assert_eq!(composer.size.height, px(78.));
+        assert_eq!(composer.size.height, px(94.));
         let input = cx.debug_bounds("chat-input-shell").unwrap();
+        let controls = cx.debug_bounds("chat-input-row").unwrap();
+        let options = cx.debug_bounds("chat-input-options").unwrap();
+        assert!(controls.top() - input.top() >= px(8.));
+        assert!(input.bottom() - options.bottom() >= px(8.));
         view.read_with(cx, |view, _| {
-            assert_eq!(view.conversations[0].transcript.scroll.viewport_bounds().bottom(), input.top());
+            assert_eq!(
+                view.conversations[0]
+                    .transcript
+                    .scroll
+                    .viewport_bounds()
+                    .bottom(),
+                input.top() - px(8.)
+            );
         });
         let message = cx.debug_bounds("chat-message-column").unwrap();
         assert_eq!(message.left(), composer.left());
@@ -1739,8 +1983,8 @@ mod tests {
             assert!(view.conversations[0].transcript.scroll.is_following_tail())
         });
         view.update(cx, |view, cx| {
-            view.conversations[0].running = true;
-            view.conversations[0].start_time = Some(1.);
+            view.conversations[0].run.is_loading = true;
+            view.conversations[0].run.start_time = Some(1);
             view.conversations[0].queue = (0..20).map(|i| serde_json::json!({
                 "id":format!("queued-{i}"), "text":"A follow-up message waiting for the active response.",
                 "transient":i == 19
@@ -1754,10 +1998,16 @@ mod tests {
         assert_eq!(activity.size.height, px(20.));
         let input = cx.debug_bounds("chat-input-shell").unwrap();
         assert_eq!(activity.bottom(), input.top());
-        let progress = cx.debug_bounds("chat-live-progress").unwrap();
+        assert!(cx.debug_bounds("chat-live-progress").is_none());
         view.read_with(cx, |view, _| {
-            assert_eq!(view.conversations[0].transcript.scroll.viewport_bounds().bottom(), progress.top());
-            assert_eq!(progress.bottom(), activity.top());
+            assert_eq!(
+                view.conversations[0]
+                    .transcript
+                    .scroll
+                    .viewport_bounds()
+                    .bottom(),
+                activity.top() - px(8.)
+            );
         });
         let queue = cx.debug_bounds("chat-queue").unwrap();
         assert!(activity.bottom() <= queue.top());
@@ -1787,7 +2037,10 @@ mod tests {
                 serde_json::json!({"id":"help", "role":"system", "content":"Available commands"}),
             )
             .unwrap();
-            chat.transcript.publish(PreparedTranscript::prepare(0, [std::sync::Arc::new(message)], "vscode-black"), None);
+            chat.transcript.publish(
+                PreparedTranscript::prepare(0, [std::sync::Arc::new(message)], "vscode-black"),
+                None,
+            );
             cx.notify();
         });
         cx.simulate_resize(size(px(1024.), px(768.)));
@@ -1811,13 +2064,15 @@ mod tests {
             buffer.apply_event(&serde_json::json!({"type":"inferay.tool","id":"live-tool","name":"mcp__github__list_issues","input":{"repo":"example"},"done":false}));
             let chat = &mut view.conversations[0];
             chat.loaded = true;
-            chat.running = true;
-            chat.run_status = "tool:mcp__github__list_issues".into();
+            chat.run.is_loading = true;
+            chat.run.status = "tool:mcp__github__list_issues".into();
             chat.transcript.publish(PreparedTranscript::prepare(0, buffer.messages().iter().cloned().map(std::sync::Arc::new), "vscode-black"), None);
             view
         });
         cx.simulate_resize(size(px(800.), px(560.)));
-        cx.draw(point(px(0.), px(0.)), size(px(800.), px(560.)), |_, _| view.clone().into_any_element());
+        cx.draw(point(px(0.), px(0.)), size(px(800.), px(560.)), |_, _| {
+            view.clone().into_any_element()
+        });
         let row = cx.debug_bounds("tool-timeline-row").unwrap();
         assert!(row.size.height >= px(24.));
         assert!(cx.debug_bounds("tool-source").is_some());
@@ -1829,7 +2084,9 @@ mod tests {
     #[gpui::test]
     fn sending_starts_timer_immediately_and_failure_restores_idle(cx: &mut gpui::TestAppContext) {
         let profile = tempfile::tempdir().unwrap();
-        let backend = crate::backend::RUNTIME.block_on(crate::backend::Backend::connect(profile.path().to_owned())).unwrap();
+        let backend = crate::backend::RUNTIME
+            .block_on(crate::backend::Backend::connect(profile.path().to_owned()))
+            .unwrap();
         let (commands, _receiver) = tokio::sync::mpsc::channel::<live::Command>(1);
         let window = cx.add_window(|_, cx| {
             let input = cx.new(TextInput::new);
@@ -1838,23 +2095,26 @@ mod tests {
             let chat = &mut view.conversations[0];
             chat.pane = Some("missing-pane".into());
             chat.commands = Some(commands);
-            chat.input.update(cx, |input, cx| input.set_content("hello", cx));
+            chat.input
+                .update(cx, |input, cx| input.set_content("hello", cx));
             view.send_chat(0, false, cx);
             let chat = &view.conversations[0];
-            assert!(chat.running);
-            assert!(chat.start_time.is_some());
-            assert_eq!(chat.run_status, "sending");
+            assert!(chat.run.is_loading);
+            assert!(chat.run.start_time.is_some());
+            assert_eq!(chat.run.status, "sending");
             view
         });
         cx.run_until_parked();
-        window.update(cx, |view, _, cx| {
-            let chat = &view.conversations[0];
-            assert!(!chat.running);
-            assert!(chat.start_time.is_none());
-            assert_eq!(chat.run_status, "idle");
-            assert_eq!(chat.input.read(cx).content.as_ref(), "hello");
-            assert!(chat.error.is_some());
-        }).unwrap();
+        window
+            .update(cx, |view, _, cx| {
+                let chat = &view.conversations[0];
+                assert!(!chat.run.is_loading);
+                assert!(chat.run.start_time.is_none());
+                assert_eq!(chat.run.status, "idle");
+                assert_eq!(chat.input.read(cx).content.as_ref(), "hello");
+                assert!(chat.error.is_some());
+            })
+            .unwrap();
     }
 
     #[gpui::test]
@@ -1885,7 +2145,7 @@ mod tests {
             let chat = &mut view.conversations[0];
             chat.pane = Some("test-running-pane".into());
             chat.commands = Some(commands);
-            chat.running = true;
+            chat.run.is_loading = true;
             chat.input
                 .update(cx, |input, cx| input.set_content("next message draft", cx));
             view.send_chat(0, true, cx);
@@ -1941,6 +2201,7 @@ mod tests {
             .update(cx, |view, window, cx| {
                 view.restore(
                     crate::session::Session {
+                        zoom: crate::zoom::Zoom::default(),
                         default_config: inferay_core::provider_config::resolve(&serde_json::json!(
                             {}
                         )),
@@ -1951,7 +2212,7 @@ mod tests {
                                 repositories: vec![],
                                 panes: vec![],
                                 dock: serde_json::Value::Null,
-                dock_workspace: None,
+                                dock_workspace: None,
                             },
                             crate::session::Project {
                                 id: None,
@@ -1959,7 +2220,7 @@ mod tests {
                                 repositories: vec![],
                                 panes: vec![],
                                 dock: serde_json::Value::Null,
-                dock_workspace: None,
+                                dock_workspace: None,
                             },
                         ],
                         sidebar_width: 212.,

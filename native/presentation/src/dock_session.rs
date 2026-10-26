@@ -30,7 +30,6 @@ pub struct DockSession {
 }
 
 impl DockSession {
-
     pub fn new() -> Self {
         Self::default()
     }

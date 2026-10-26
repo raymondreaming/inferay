@@ -1,3 +1,4 @@
+use crate::zoom::ui;
 mod changes;
 mod graph;
 use crate::{button, colors, icon};
@@ -15,47 +16,85 @@ struct PreparedDiff {
     patch: Arc<[SharedString]>,
 }
 impl PreparedDiff {
-    fn classify(lines: &[GitDiffLine], path: &str, theme: &str) -> Vec<Vec<(std::ops::Range<usize>, HighlightStyle)>> {
-        let extension = std::path::Path::new(path).extension().and_then(|s| s.to_str()).unwrap_or("text");
-        let source: Vec<_> = lines.iter().map(|line| {
-            if matches!(line.line_type, GitDiffLineType::Hunk | GitDiffLineType::Spacer) { "" } else { line.content.as_str() }
-        }).collect();
+    fn classify(
+        lines: &[GitDiffLine],
+        path: &str,
+        theme: &str,
+    ) -> Vec<Vec<(std::ops::Range<usize>, HighlightStyle)>> {
+        let extension = std::path::Path::new(path)
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("text");
+        let source: Vec<_> = lines
+            .iter()
+            .map(|line| {
+                if matches!(
+                    line.line_type,
+                    GitDiffLineType::Hunk | GitDiffLineType::Spacer
+                ) {
+                    ""
+                } else {
+                    line.content.as_str()
+                }
+            })
+            .collect();
         let text = source.join("\n");
         let spans = crate::syntax::highlights(&text, extension, theme);
         let mut offset = 0;
         let mut cursor = 0;
-        source.iter().map(|line| {
-            let end = offset + line.len();
-            let mut runs = Vec::new();
-            while cursor < spans.len() && spans[cursor].0.start < end {
-                let (range, style) = &spans[cursor];
-                if range.end > offset {
-                    runs.push((range.start.max(offset) - offset..range.end.min(end) - offset, *style));
+        source
+            .iter()
+            .map(|line| {
+                let end = offset + line.len();
+                let mut runs = Vec::new();
+                while cursor < spans.len() && spans[cursor].0.start < end {
+                    let (range, style) = &spans[cursor];
+                    if range.end > offset {
+                        runs.push((
+                            range.start.max(offset) - offset..range.end.min(end) - offset,
+                            *style,
+                        ));
+                    }
+                    cursor += 1;
                 }
-                cursor += 1;
-            }
-            offset = end + 1;
-            runs
-        }).collect()
+                offset = end + 1;
+                runs
+            })
+            .collect()
     }
     fn new(diff: GitHunkDiff, path: &str, theme: &str) -> Self {
         Self {
             old: Self::classify(&diff.old_lines, path, theme),
             new: Self::classify(&diff.new_lines, path, theme),
-            patch: diff.raw_patch.as_deref().unwrap_or("").lines().map(SharedString::from).collect(),
-            diff: Arc::new(diff), path: path.to_owned().into(), theme: theme.into(),
+            patch: diff
+                .raw_patch
+                .as_deref()
+                .unwrap_or("")
+                .lines()
+                .map(SharedString::from)
+                .collect(),
+            diff: Arc::new(diff),
+            path: path.to_owned().into(),
+            theme: theme.into(),
         }
     }
     fn retheme(&self, theme: &str) -> Self {
         Self {
             old: Self::classify(&self.diff.old_lines, &self.path, theme),
             new: Self::classify(&self.diff.new_lines, &self.path, theme),
-            diff: self.diff.clone(), path: self.path.clone(), patch: self.patch.clone(), theme: theme.into(),
+            diff: self.diff.clone(),
+            path: self.path.clone(),
+            patch: self.patch.clone(),
+            theme: theme.into(),
         }
     }
 }
 
-pub enum RepositoryEvent { Expand, Select(String), Add }
+pub enum RepositoryEvent {
+    Expand,
+    Select(String),
+    Add,
+}
 impl EventEmitter<RepositoryEvent> for RepositoryView {}
 
 /// Repository reads and staging use the shared Git engine.
@@ -110,16 +149,24 @@ pub struct RepositoryView {
 }
 impl RepositoryView {
     pub fn set_syntax_theme(&mut self, theme: String, cx: &mut Context<Self>) {
-        if self.syntax_theme == theme { return; }
+        if self.syntax_theme == theme {
+            return;
+        }
         self.syntax_theme = theme.clone();
         self.theme_task = None;
         if let Some(diff) = self.diff.clone() {
-            let work = cx.background_executor().spawn(async move { Arc::new(diff.retheme(&theme)) });
+            let work = cx
+                .background_executor()
+                .spawn(async move { Arc::new(diff.retheme(&theme)) });
             self.theme_task = Some(cx.spawn(async move |this, cx| {
                 let prepared = work.await;
                 let _ = this.update(cx, |view, cx| {
                     if view.syntax_theme == prepared.theme
-                        && view.diff.as_ref().is_some_and(|current| Arc::ptr_eq(&current.diff, &prepared.diff)) {
+                        && view
+                            .diff
+                            .as_ref()
+                            .is_some_and(|current| Arc::ptr_eq(&current.diff, &prepared.diff))
+                    {
                         view.diff = Some(prepared);
                         cx.notify();
                     }
@@ -251,6 +298,11 @@ impl RepositoryView {
                 self.changes = true;
                 self.keyboard_scope = "sidebar";
             }
+            Some("toggle") => {
+                if let Some(path) = self.file.clone() {
+                    self.stage(Some(path), self.selected_staged, cx);
+                }
+            }
             Some("cycle") => self.navigate_file(action["direction"].as_i64().unwrap() as i32, cx),
             Some("enterSidebar" | "open") => {
                 self.keyboard_scope = "sidebar";
@@ -324,14 +376,14 @@ impl RepositoryView {
         let work = cx.background_executor().spawn(async move {
             let started = std::time::Instant::now();
             let input = inferay_native_diff::prepare_git_graph(&cwd);
-            let status = input.worktrees.iter().find(|tree| tree.is_current).and_then(|tree| tree.status.clone());
+            let status = input
+                .worktrees
+                .iter()
+                .find(|tree| tree.is_current)
+                .and_then(|tree| tree.status.clone());
             let prepared = started.elapsed();
-            let graph = inferay_native_diff::get_git_graph_snapshot_with_query(
-                &cwd,
-                limit,
-                input,
-                "",
-            );
+            let graph =
+                inferay_native_diff::get_git_graph_snapshot_with_query(&cwd, limit, input, "");
             let strings = |key: &str| -> Vec<String> {
                 preferences[key]
                     .as_array()
@@ -354,15 +406,28 @@ impl RepositoryView {
             let display = inferay_presentation::graph::layout(&layout)["displayColumns"].clone();
             let history = started.elapsed();
             let images = graph::images(&graph, &display, background, &previous_images);
-            let rendered = images.iter().enumerate().map(|(index, image)| {
-                if previous_images.get(index).is_some_and(|old| Arc::ptr_eq(old, image)) {
-                    previous_render_images.get(index).cloned().flatten()
-                } else {
-                    image.to_image_data(renderer.clone()).ok()
-                }
-            }).collect();
+            let rendered = images
+                .iter()
+                .enumerate()
+                .map(|(index, image)| {
+                    if previous_images
+                        .get(index)
+                        .is_some_and(|old| Arc::ptr_eq(old, image))
+                    {
+                        previous_render_images.get(index).cloned().flatten()
+                    } else {
+                        image.to_image_data(renderer.clone()).ok()
+                    }
+                })
+                .collect();
             if std::env::var_os("INFERAY_PROFILE_GIT").is_some() {
-                eprintln!("[gpui-git] prepare={prepared:?} history={:?} images={:?} total={:?} rows={}", history - prepared, started.elapsed() - history, started.elapsed(), graph.commits.len());
+                eprintln!(
+                    "[gpui-git] prepare={prepared:?} history={:?} images={:?} total={:?} rows={}",
+                    history - prepared,
+                    started.elapsed() - history,
+                    started.elapsed(),
+                    graph.commits.len()
+                );
             }
             (status, graph, images, rendered, presentation)
         });
@@ -433,14 +498,14 @@ impl RepositoryView {
             .get(&email.trim().to_lowercase())
             .or_else(|| self.avatars.get(hash));
         div()
-            .size(px(diameter))
+            .size(ui(diameter))
             .rounded_full()
             .overflow_hidden()
             .flex_shrink_0()
             .flex()
             .items_center()
             .justify_center()
-            .text_size(px(diameter * 0.28))
+            .text_size(ui(diameter * 0.28))
             .font_weight(FontWeight::MEDIUM)
             .when_some(image.cloned(), |d, image| {
                 d.child(
@@ -548,9 +613,18 @@ impl RepositoryView {
         self.diff_task = Some(cx.spawn(async move |this, cx| {
             let mut diff = work.await;
             while let Some(prepared) = diff.take() {
-                let Ok(theme) = this.read_with(cx, |view, _| view.syntax_theme.clone()) else { return; };
-                if prepared.theme == theme { diff = Some(prepared); break; }
-                diff = Some(cx.background_executor().spawn(async move { Arc::new(prepared.retheme(&theme)) }).await);
+                let Ok(theme) = this.read_with(cx, |view, _| view.syntax_theme.clone()) else {
+                    return;
+                };
+                if prepared.theme == theme {
+                    diff = Some(prepared);
+                    break;
+                }
+                diff = Some(
+                    cx.background_executor()
+                        .spawn(async move { Arc::new(prepared.retheme(&theme)) })
+                        .await,
+                );
             }
             let _ = this.update(cx, |view, cx| {
                 view.error = diff.is_none().then(|| "Could not load this diff.".into());
@@ -581,12 +655,12 @@ impl RepositoryView {
             .flex_col()
             .child(
                 div()
-                    .h(px(32.))
+                    .h(ui(32.))
                     .flex_shrink_0()
                     .flex()
                     .items_center()
-                    .gap(px(8.))
-                    .px(px(8.))
+                    .gap(ui(8.))
+                    .px(ui(8.))
                     .child(button("close-diff", "← Graph").on_click(cx.listener(
                         |s, _, window, cx| {
                             s.show_diff = false;
@@ -601,7 +675,7 @@ impl RepositoryView {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .text_size(px(11.))
+                            .text_size(ui(11.))
                             .text_ellipsis()
                             .child(self.file.clone().unwrap_or_default()),
                     )
@@ -615,7 +689,7 @@ impl RepositoryView {
                     ),
             )
             .when(diff.as_ref().is_some_and(|d| d.diff.is_binary), |d| {
-                d.child(div().p(px(12.)).child("Binary file"))
+                d.child(div().p(ui(12.)).child("Binary file"))
             })
             .child(
                 uniform_list("diff-lines", count, move |range, _, _| {
@@ -628,11 +702,11 @@ impl RepositoryView {
                             let row = div()
                                 .w_full()
                                 .overflow_hidden()
-                                .h(px(colors::DIFF_ROW))
+                                .h(ui(colors::DIFF_ROW))
                                 .flex()
                                 .font_family("Menlo")
-                                .line_height(px(colors::DIFF_ROW))
-                                .text_size(px(colors::DIFF_TEXT));
+                                .line_height(ui(colors::DIFF_ROW))
+                                .text_size(ui(colors::DIFF_TEXT));
                             if split {
                                 row.children(
                                     [diff.old_lines.get(i), diff.new_lines.get(i)]
@@ -652,13 +726,13 @@ impl RepositoryView {
                                                 .overflow_hidden()
                                                 .bg(rgba(tint))
                                                 .flex()
-                                                .gap(px(8.))
+                                                .gap(ui(8.))
                                                 .border_r_1()
                                                 .border_color(rgba(0xebebeb0f))
                                                 .child(
                                                     div()
-                                                        .w(px(colors::DIFF_GUTTER))
-                                                        .text_size(px(colors::DIFF_NUMBER))
+                                                        .w(ui(colors::DIFF_GUTTER))
+                                                        .text_size(ui(colors::DIFF_NUMBER))
                                                         .text_right()
                                                         .flex_shrink_0()
                                                         .text_color(rgba(0xebebeb60))
@@ -679,7 +753,10 @@ impl RepositoryView {
                                                         } else {
                                                             &data.new
                                                         }
-                                                        .get(i).into_iter().flatten().cloned(),
+                                                        .get(i)
+                                                        .into_iter()
+                                                        .flatten()
+                                                        .cloned(),
                                                     ),
                                                 )
                                         }),
@@ -714,24 +791,33 @@ impl Render for RepositoryView {
                 MouseButton::Left,
                 cx.listener(|s, _, window, cx| window.focus(&s.focus, cx)),
             )
-            .on_mouse_move(cx.listener(|view, event: &MouseMoveEvent, _, cx| {
+            .on_mouse_move(cx.listener(|view, event: &MouseMoveEvent, window, cx| {
                 if let Some((start, size)) = view.changes_resize {
                     if view.expanded {
-                        view.changes_width = (size + f32::from(start.x - event.position.x)).clamp(180., (view.available_width - 180.).max(180.));
+                        view.changes_width = (size
+                            + f32::from(start.x - event.position.x) / crate::zoom::factor(window))
+                        .clamp(180., (view.available_width - 180.).max(180.));
                     } else {
-                        view.changes_height = (size + f32::from(start.y - event.position.y)).max(100.);
+                        view.changes_height = (size
+                            + f32::from(start.y - event.position.y) / crate::zoom::factor(window))
+                        .max(100.);
                     }
                     cx.notify();
                 }
             }))
-            .on_mouse_up(MouseButton::Left, cx.listener(|view, _, _, _| { view.changes_resize = None; }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|view, _, _, _| {
+                    view.changes_resize = None;
+                }),
+            )
             .on_key_down(cx.listener(Self::navigate))
             .relative()
             .child(
                 canvas(
-                    move |bounds, _, cx| {
+                    move |bounds, window, cx| {
+                        let width = f32::from(bounds.size.width) / crate::zoom::factor(window);
                         let _ = entity.update(cx, |s, cx| {
-                            let width: f32 = bounds.size.width.into();
                             if (s.available_width - width).abs() > 1. {
                                 s.available_width = width;
                                 cx.notify();
@@ -752,29 +838,51 @@ impl Render for RepositoryView {
             .child(
                 div()
                     .debug_selector(|| "repository-toolbar".into())
-                    .h(px(32.))
+                    .h(ui(32.))
                     .flex_shrink_0()
-                    .px(px(8.))
+                    .px(ui(8.))
                     .flex()
                     .items_center()
-                    .gap(px(4.))
+                    .gap(ui(4.))
                     .border_b_1()
                     .border_color(rgba(0xebebeb0f))
-                    .child(button("repository-picker", "")
-                        .aria_label("Choose workspace repository")
-                        .child(icon("Folder"))
-                        .child(div().text_size(px(12.)).max_w(px(140.)).text_ellipsis().child(
-                            std::path::Path::new(&self.cwd).file_name().unwrap_or_default().to_string_lossy().into_owned()))
-                        .child(icon("ChevronDown"))
-                        .on_click(cx.listener(|s, _, _, cx| { s.repository_menu = !s.repository_menu; cx.notify(); })))
                     .child(
-                        div().flex().items_center().gap(px(4.)).text_size(px(11.)).text_color(rgba(0xebebeb80))
-                            .child(icon("GitBranch").size(px(12.))).child(
-                            self.status
-                                .as_ref()
-                                .map(|s| s.branch.clone())
-                                .unwrap_or_default(),
-                        ),
+                        button("repository-picker", "")
+                            .aria_label("Choose workspace repository")
+                            .child(icon("Folder"))
+                            .child(
+                                div()
+                                    .text_size(ui(12.))
+                                    .max_w(ui(140.))
+                                    .text_ellipsis()
+                                    .child(
+                                        std::path::Path::new(&self.cwd)
+                                            .file_name()
+                                            .unwrap_or_default()
+                                            .to_string_lossy()
+                                            .into_owned(),
+                                    ),
+                            )
+                            .child(icon("ChevronDown"))
+                            .on_click(cx.listener(|s, _, _, cx| {
+                                s.repository_menu = !s.repository_menu;
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(ui(4.))
+                            .text_size(ui(11.))
+                            .text_color(rgba(0xebebeb80))
+                            .child(icon("GitBranch").size(ui(12.)))
+                            .child(
+                                self.status
+                                    .as_ref()
+                                    .map(|s| s.branch.clone())
+                                    .unwrap_or_default(),
+                            ),
                     )
                     .child(div().flex_1())
                     .child(
@@ -816,9 +924,19 @@ impl Render for RepositoryView {
                     )
                     .child(
                         button("expand-git", "")
-                            .aria_label(if self.expanded { "Collapse repository panel" } else { "Expand repository panel" })
-                            .size(px(28.)).p(px(6.)).flex_shrink_0().justify_center()
-                            .child(icon(if self.expanded { "Collapse" } else { "Expand" }).size(px(16.)))
+                            .aria_label(if self.expanded {
+                                "Collapse repository panel"
+                            } else {
+                                "Expand repository panel"
+                            })
+                            .size(ui(24.))
+                            .p(ui(5.))
+                            .flex_shrink_0()
+                            .justify_center()
+                            .child(
+                                icon(if self.expanded { "Collapse" } else { "Expand" })
+                                    .size(ui(14.)),
+                            )
                             .on_click(cx.listener(|s, _, _, cx| {
                                 s.expanded = !s.expanded;
                                 cx.emit(RepositoryEvent::Expand);
@@ -829,13 +947,13 @@ impl Render for RepositoryView {
             .when(self.loading && self.graph.commits.is_empty(), |d| {
                 d.child(
                     div()
-                        .px(px(12.))
-                        .text_size(px(11.))
+                        .px(ui(12.))
+                        .text_size(ui(11.))
                         .child("Reading repository…"),
                 )
             })
             .when_some(self.error.clone(), |d, error| {
-                d.child(div().p(px(12.)).text_size(px(11.)).child(error))
+                d.child(div().p(ui(12.)).text_size(ui(11.)).child(error))
             })
             .child(
                 div()
@@ -868,54 +986,220 @@ impl Render for RepositoryView {
                                 .flex_shrink_0()
                                 .when(!self.history && !self.show_diff, |d| d.size_full())
                                 .when((self.history || self.show_diff) && self.expanded, |d| {
-                                    d.w(px(self.changes_width)).h_full().border_l_1()
+                                    d.w(ui(self.changes_width)).h_full().border_l_1()
                                 })
                                 .when((self.history || self.show_diff) && !self.expanded, |d| {
-                                    d.h(px(self.changes_height)).max_h(relative(0.8)).w_full().border_t_1()
+                                    d.h(ui(self.changes_height))
+                                        .max_h(relative(0.8))
+                                        .w_full()
+                                        .border_t_1()
                                 })
                                 .border_color(rgba(0xebebeb0f))
                                 .relative()
                                 .child(self.changes_panel(cx))
-                                .when(self.history || self.show_diff, |d| d.child(
-                                    div().id("resize-changes").absolute().top_0().left_0()
-                                        .when(self.expanded, |d| d.w(px(6.)).h_full().cursor_col_resize())
-                                        .when(!self.expanded, |d| d.h(px(6.)).w_full().cursor_row_resize())
-                                        .on_mouse_down(MouseButton::Left, cx.listener(|view, event: &MouseDownEvent, _, cx| {
-                                            view.changes_resize = Some((event.position, if view.expanded { view.changes_width } else { view.changes_height }));
-                                            cx.stop_propagation();
-                                        }))
-                                )),
+                                .when(self.history || self.show_diff, |d| {
+                                    d.child(
+                                        div()
+                                            .id("resize-changes")
+                                            .absolute()
+                                            .top_0()
+                                            .left_0()
+                                            .when(self.expanded, |d| {
+                                                d.w(ui(6.)).h_full().cursor_col_resize()
+                                            })
+                                            .when(!self.expanded, |d| {
+                                                d.h(ui(6.)).w_full().cursor_row_resize()
+                                            })
+                                            .on_mouse_down(
+                                                MouseButton::Left,
+                                                cx.listener(
+                                                    |view, event: &MouseDownEvent, _, cx| {
+                                                        view.changes_resize = Some((
+                                                            event.position,
+                                                            if view.expanded {
+                                                                view.changes_width
+                                                            } else {
+                                                                view.changes_height
+                                                            },
+                                                        ));
+                                                        cx.stop_propagation();
+                                                    },
+                                                ),
+                                            ),
+                                    )
+                                }),
                         )
                     }),
             )
-            .when(self.repository_menu, |d| d.child(crate::menu_surface("repository-menu").debug_selector(|| "repository-menu".into()).top(px(32.)).left(px(8.)).w(px(260.))
-                .on_mouse_down_out(cx.listener(|s, _, _, cx| { s.repository_menu = false; cx.notify(); }))
-                .children(self.repositories.iter().enumerate().map(|(i, (name, path))| {
-                    let path = path.clone();
-                    button(("workspace-repository", i), name.clone()).w_full()
-                        .when(path == self.cwd, |d| d.bg(rgba(0xebebeb17)))
-                        .on_click(cx.listener(move |s, _, _, cx| { s.repository_menu = false; cx.emit(RepositoryEvent::Select(path.clone())); cx.notify(); }))
-                }))
-                .child(button("add-workspace-repository", "Add repository…").child(icon("Plus")).on_click(cx.listener(|s, _, _, cx| { s.repository_menu = false; cx.emit(RepositoryEvent::Add); cx.notify(); })))))
-
+            .when(self.repository_menu, |d| {
+                d.child(
+                    crate::menu_surface("repository-menu")
+                        .debug_selector(|| "repository-menu".into())
+                        .top(ui(32.))
+                        .left(ui(8.))
+                        .w(ui(260.))
+                        .on_mouse_down_out(cx.listener(|s, _, _, cx| {
+                            s.repository_menu = false;
+                            cx.notify();
+                        }))
+                        .children(
+                            self.repositories
+                                .iter()
+                                .enumerate()
+                                .map(|(i, (name, path))| {
+                                    let path = path.clone();
+                                    button(("workspace-repository", i), name.clone())
+                                        .w_full()
+                                        .when(path == self.cwd, |d| d.bg(rgba(0xebebeb17)))
+                                        .on_click(cx.listener(move |s, _, _, cx| {
+                                            s.repository_menu = false;
+                                            cx.emit(RepositoryEvent::Select(path.clone()));
+                                            cx.notify();
+                                        }))
+                                }),
+                        )
+                        .child(
+                            button("add-workspace-repository", "Add repository…")
+                                .child(icon("Plus"))
+                                .on_click(cx.listener(|s, _, _, cx| {
+                                    s.repository_menu = false;
+                                    cx.emit(RepositoryEvent::Add);
+                                    cx.notify();
+                                })),
+                        ),
+                )
+            })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[gpui::test]
+    fn repository_geometry_uses_global_zoom_and_logical_viewport_width(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let directory = tempfile::tempdir().unwrap();
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            RepositoryView::new(
+                directory.path().to_string_lossy().into_owned(),
+                Value::Null,
+                "vscode-black".into(),
+                0,
+                cx,
+            )
+        });
+        view.update(cx, |view, _| {
+            view.task = None;
+            view.loading = false;
+        });
+        cx.simulate_resize(size(px(600.), px(600.)));
+        cx.draw(point(px(0.), px(0.)), size(px(600.), px(600.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        let before = cx.debug_bounds("repository-toolbar").unwrap();
+        cx.update(|window, _| window.set_rem_size(px(24.)));
+        cx.draw(point(px(0.), px(0.)), size(px(600.), px(600.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        let after = cx.debug_bounds("repository-toolbar").unwrap();
+        assert_eq!(after.size.height, before.size.height * 1.5);
+        let expected = f32::from(after.size.width) / 1.5;
+        assert!((view.read_with(cx, |view, _| view.available_width) - expected).abs() < 1.);
+    }
+
+    #[test]
+    fn recoloring_shares_source_and_unified_patch_without_rereading_git() {
+        let line = GitDiffLine {
+            number: Some(1),
+            content: "const value = 1;".into(),
+            line_type: GitDiffLineType::Context,
+        };
+        let prepared = PreparedDiff::new(
+            GitHunkDiff {
+                old_lines: vec![line.clone()],
+                new_lines: vec![line],
+                raw_patch: Some(" const value = 1;".into()),
+                ..Default::default()
+            },
+            "example.js",
+            "vscode-black",
+        );
+        let recolored = prepared.retheme("vitesse");
+        assert!(Arc::ptr_eq(&prepared.diff, &recolored.diff));
+        assert!(Arc::ptr_eq(&prepared.patch, &recolored.patch));
+        assert_ne!(prepared.new, recolored.new);
+    }
+
+    #[gpui::test]
+    fn latest_theme_recolors_retained_diff_without_resetting_file_selection(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let directory = tempfile::tempdir().unwrap();
+        let source = Arc::new(PreparedDiff::new(
+            GitHunkDiff::default(),
+            "example.rs",
+            "vscode-black",
+        ));
+        let window = cx.add_window(|_, cx| {
+            let mut view = RepositoryView::new(
+                directory.path().to_string_lossy().into_owned(),
+                Value::Null,
+                "vscode-black".into(),
+                0,
+                cx,
+            );
+            view.task = None;
+            view.loading = false;
+            view.file = Some("example.rs".into());
+            view.diff = Some(source.clone());
+            view.set_syntax_theme("slack".into(), cx);
+            view.set_syntax_theme("vitesse".into(), cx);
+            view
+        });
+        cx.run_until_parked();
+        window
+            .update(cx, |view, _, _| {
+                assert_eq!(view.file.as_deref(), Some("example.rs"));
+                let current = view.diff.as_ref().unwrap();
+                assert_eq!(current.theme, "vitesse");
+                assert!(Arc::ptr_eq(&source.diff, &current.diff));
+            })
+            .unwrap();
+    }
     use core::prelude::v1::test;
 
     #[gpui::test]
     fn repository_menu_overlays_without_moving_toolbar(cx: &mut TestAppContext) {
         let directory = tempfile::tempdir().unwrap();
-        let (view, cx) = cx.add_window_view(|_, cx| RepositoryView::new(
-            directory.path().to_string_lossy().into_owned(), Value::Null, "vscode-black".into(), 0, cx));
-        view.update(cx, |view, _| { view.task = None; view.loading = false; view.repositories = vec![("First".into(), "/first".into()), ("Second".into(), "/second".into())]; });
-        cx.draw(point(px(0.), px(0.)), size(px(600.), px(600.)), |_, _| view.clone().into_any_element());
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            RepositoryView::new(
+                directory.path().to_string_lossy().into_owned(),
+                Value::Null,
+                "vscode-black".into(),
+                0,
+                cx,
+            )
+        });
+        view.update(cx, |view, _| {
+            view.task = None;
+            view.loading = false;
+            view.repositories = vec![
+                ("First".into(), "/first".into()),
+                ("Second".into(), "/second".into()),
+            ];
+        });
+        cx.draw(point(px(0.), px(0.)), size(px(600.), px(600.)), |_, _| {
+            view.clone().into_any_element()
+        });
         let toolbar = cx.debug_bounds("repository-toolbar").unwrap();
-        view.update(cx, |view, cx| { view.repository_menu = true; cx.notify(); });
-        cx.draw(point(px(0.), px(0.)), size(px(600.), px(600.)), |_, _| view.clone().into_any_element());
+        view.update(cx, |view, cx| {
+            view.repository_menu = true;
+            cx.notify();
+        });
+        cx.draw(point(px(0.), px(0.)), size(px(600.), px(600.)), |_, _| {
+            view.clone().into_any_element()
+        });
         assert_eq!(cx.debug_bounds("repository-toolbar").unwrap(), toolbar);
         let menu = cx.debug_bounds("repository-menu").unwrap();
         assert_eq!(menu.top(), toolbar.bottom());
@@ -971,7 +1255,7 @@ mod tests {
         }).unwrap();
     }
     #[gpui::test]
-    fn worktree_selection_and_staging_keep_repository_identity(cx: &mut gpui::TestAppContext) {
+    fn enter_toggles_staging_in_the_selected_worktree(cx: &mut gpui::TestAppContext) {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().canonicalize().unwrap().join("main");
         let other = directory.path().canonicalize().unwrap().join("other");
@@ -1008,7 +1292,7 @@ mod tests {
             RepositoryView::new(root.clone(), Value::Null, "vscode-black".into(), 0, cx)
         });
         window
-            .update(cx, |view, _, cx| {
+            .update(cx, |view, window, cx| {
                 view.task = None;
                 view.loading = false;
                 view.history = false;
@@ -1040,18 +1324,48 @@ mod tests {
                 assert!(entries.iter().all(|f| f.0 == "file.txt"));
                 assert!(entries.iter().any(|f| f.4));
                 assert!(entries.iter().any(|f| !f.4));
-                view.stage(Some("file.txt".into()), false, cx);
+                view.keyboard_scope = "sidebar";
+                view.open_file("file.txt".into(), false, cx);
+                view.navigate(
+                    &KeyDownEvent {
+                        keystroke: Keystroke::parse("enter").unwrap(),
+                        is_held: false,
+                        prefer_character_input: false,
+                    },
+                    window,
+                    cx,
+                );
             })
             .unwrap();
         cx.run_until_parked();
         window
-            .update(cx, |view, _, cx| {
+            .update(cx, |view, window, cx| {
                 assert!(!view.mutating);
                 assert!(view.error.is_none(), "{:?}", view.error);
                 assert_eq!(view.cwd, root);
                 assert_eq!(view.file_entries().len(), 1);
                 assert!(view.file_entries()[0].4);
-                view.stage(None, true, cx);
+                assert_eq!(view.file.as_deref(), Some("file.txt"));
+                assert!(view.selected_staged);
+                view.navigate(
+                    &KeyDownEvent {
+                        keystroke: Keystroke::parse("enter").unwrap(),
+                        is_held: true,
+                        prefer_character_input: false,
+                    },
+                    window,
+                    cx,
+                );
+                assert!(!view.mutating);
+                view.navigate(
+                    &KeyDownEvent {
+                        keystroke: Keystroke::parse("enter").unwrap(),
+                        is_held: false,
+                        prefer_character_input: false,
+                    },
+                    window,
+                    cx,
+                );
             })
             .unwrap();
         cx.run_until_parked();
@@ -1061,6 +1375,8 @@ mod tests {
                 assert!(view.error.is_none(), "{:?}", view.error);
                 assert_eq!(view.file_entries().len(), 1);
                 assert!(!view.file_entries()[0].4);
+                assert_eq!(view.file.as_deref(), Some("file.txt"));
+                assert!(!view.selected_staged);
                 assert_eq!(view.cwd, root);
             })
             .unwrap();

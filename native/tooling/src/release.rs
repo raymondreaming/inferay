@@ -570,8 +570,15 @@ pub fn run(args: &[String]) -> Result<(), String> {
     )?;
     run_command(
         &paths.root,
-        &command(&["cargo", "check", "--manifest-path", "native/gpui/Cargo.toml"]),
-        None, false, false,
+        &command(&[
+            "cargo",
+            "check",
+            "--manifest-path",
+            "native/gpui/Cargo.toml",
+        ]),
+        None,
+        false,
+        false,
     )?;
     build_artifacts(&paths, &next)?;
     commit_and_tag(&paths, &next)?;

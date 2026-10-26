@@ -13,7 +13,6 @@ pub struct ChatSessionRetention {
 }
 
 impl ChatSessionRetention {
-
     pub fn new(max_entries: u32, max_weight: f64) -> Self {
         Self {
             entries: HashMap::new(),
@@ -89,7 +88,6 @@ pub struct ChatViewportRetention {
 }
 
 impl ChatViewportRetention {
-
     pub fn new(max_entries: u32) -> Self {
         Self {
             entries: HashSet::new(),

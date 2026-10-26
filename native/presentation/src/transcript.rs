@@ -1,6 +1,8 @@
 //! Transcript admission and reconnect state, independent of transport and rendering.
 //! Retain IDs and revisions here; message bodies remain with their native owner.
 use crate::{array, string};
+use inferay_core::chat_status::ChatRunStatus;
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 #[derive(Default)]
@@ -21,19 +23,11 @@ pub enum TranscriptAdmission {
     },
 }
 
-#[derive(serde::Deserialize, serde::Serialize, ts_rs::TS)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatLoadingState {
-    is_loading: bool,
-    status: String,
-    start_time: Option<f64>,
-}
-
 #[derive(Default)]
 pub struct ChatEventPlan {
     pub admission: TranscriptAdmission,
     pub control: Option<String>,
-    pub status: Option<ChatLoadingState>,
+    pub status: Option<ChatRunStatus>,
     pub pending_steers: Vec<usize>,
     pub stage_steer: bool,
     pub resolve_steer: Option<String>,
@@ -68,7 +62,12 @@ impl ChatReplica {
         self.reconnecting = true;
         json!({"type":"chat:reconnect", "paneId":pane, "epoch":self.epoch, "revision":self.revision})
     }
-    pub fn event(&mut self, message: &Value, pane: &str, current: &Value) -> Option<ChatEventPlan> {
+    pub fn event(
+        &mut self,
+        message: &Value,
+        pane: &str,
+        current: &ChatRunStatus,
+    ) -> Option<ChatEventPlan> {
         let kind = string(&message["type"]);
         if message["paneId"] != pane
             || !(kind.starts_with("chat:") || kind.starts_with("checkpoint:"))
@@ -104,17 +103,22 @@ impl ChatReplica {
             .then(|| message["messageId"].as_str().map(str::to_owned))
             .flatten();
         plan.queue = kind == "chat:queue" && message["queue"].is_array();
-        let status = if message["runStatus"].is_object() {
-            run_status(
-                &json!({"current":current,"incoming":message["runStatus"],"terminal":matches!(kind,"chat:done"|"chat:error")}),
-            )
+        let incoming = if message["runStatus"].is_object() {
+            ChatRunStatus::deserialize(&message["runStatus"]).ok()
         } else if kind == "chat:error" {
-            json!({"isLoading":false,"status":"error","startTime":null})
+            Some(ChatRunStatus {
+                status: "error".into(),
+                ..Default::default()
+            })
         } else {
-            Value::Null
+            None
         };
-        if !status.is_null() && status != *current {
-            plan.status = serde_json::from_value(status).ok();
+        if let Some(incoming) = incoming {
+            let mut status = current.clone();
+            status.admit(incoming, matches!(kind, "chat:done" | "chat:error"));
+            if status != *current {
+                plan.status = Some(status);
+            }
         }
         plan.notice = match kind {
             "chat:error" if message["modelVersion"] != 1 => {
@@ -241,35 +245,6 @@ impl ChatReplica {
     }
 }
 
-/// Local submission starts activity immediately; provider acknowledgement keeps
-/// that start time. A reconnect's old idle snapshot cannot cancel a pending send.
-pub fn run_status(input: &serde_json::Value) -> serde_json::Value {
-    use serde_json::json;
-    let current = &input["current"];
-    if input["begin"] == true {
-        return if current["isLoading"] == true {
-            current.clone()
-        } else {
-            json!({"isLoading":true,"status":"sending","startTime":input["now"]})
-        };
-    }
-    let mut next = input["incoming"].clone();
-    if current["status"] == "sending" && next["status"] == "idle" && input["terminal"] != true {
-        return current.clone();
-    }
-    if next["isLoading"] == true
-        && current["isLoading"] == true
-        && let Some(start) = current["startTime"].as_u64()
-    {
-        next["startTime"] = json!(
-            next["startTime"]
-                .as_u64()
-                .map_or(start, |native| native.min(start))
-        );
-    }
-    next
-}
-
 #[cfg(test)]
 mod reconnect_tests {
     use super::*;
@@ -278,7 +253,7 @@ mod reconnect_tests {
     #[test]
     fn event_plan_rejects_wrong_panes_and_stale_sync_side_effects() {
         let mut replica = ChatReplica::default();
-        let idle = json!({"isLoading":false,"status":"idle","startTime":null});
+        let idle = ChatRunStatus::default();
         assert!(
             replica
                 .event(&json!({"type":"chat:done","paneId":"other"}), "pane", &idle)

@@ -4,6 +4,7 @@ use crate::prompt_store::PromptStore;
 use crate::unix_millis as now_millis;
 use inferay_core::agent_kind::AgentKind;
 use inferay_core::agent_protocol::{AgentProtocolContext, CodexInvocationContext};
+use inferay_core::chat_status::ChatRunStatus;
 use inferay_core::utf16_slice as javascript_slice;
 
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
@@ -150,7 +151,7 @@ struct ChatSession {
     clients: HashMap<ClientId, broadcast::Sender<axum::extract::ws::Utf8Bytes>>,
     current_handle: Option<AgentProcessHandle>,
     turn_active: bool,
-    run_status: Value,
+    run_status: ChatRunStatus,
     summary_started: bool,
     cwd: PathBuf,
     reference_paths: Vec<PathBuf>,
@@ -1011,7 +1012,7 @@ impl ChatRuntime {
                 .collect(),
             current_handle: None,
             turn_active: false,
-            run_status: json!({"isLoading":false,"status":"idle","startTime":null}),
+            run_status: ChatRunStatus::default(),
             summary_started: false,
             cwd,
             reference_paths: input.reference_paths.clone(),
@@ -1061,7 +1062,9 @@ impl ChatRuntime {
             .await
             .message_buffer
             .messages()
-            .iter().rev().find(|m| !m.id.starts_with("hook:"))
+            .iter()
+            .rev()
+            .find(|m| !m.id.starts_with("hook:"))
             .is_some_and(|m| m.role == "tool");
         if !goal_run && last_is_tool && !session.lock().await.cancelled {
             result = self
@@ -1617,16 +1620,8 @@ impl ChatRuntime {
                 _ => None,
             };
             if let Some((status, loading)) = status {
-                state.run_status["status"] = json!(status);
-                if let Some(loading) = loading {
-                    state.run_status["isLoading"] = json!(loading);
-                    if !loading {
-                        state.run_status["startTime"] = Value::Null;
-                    } else if state.run_status["startTime"].is_null() {
-                        state.run_status["startTime"] = json!(now_millis());
-                    }
-                }
-                message["runStatus"] = state.run_status.clone();
+                state.run_status.observe(status, loading, now_millis());
+                message["runStatus"] = json!(&state.run_status);
             }
             if matches!(
                 message["type"].as_str(),
@@ -1914,7 +1909,10 @@ fn status_message(pane: &str, status: &str, is_loading: bool) -> Value {
 }
 fn needs_fallback_summary(messages: &[ChatTranscriptMessage], changed: usize) -> bool {
     // Provider lifecycle hooks can arrive after a complete assistant response.
-    let last = messages.iter().rev().find(|message| !message.id.starts_with("hook:"));
+    let last = messages
+        .iter()
+        .rev()
+        .find(|message| !message.id.starts_with("hook:"));
     !last.is_some_and(|m| m.role == "assistant" && !m.content.trim().is_empty())
         && (changed > 0 || last.is_some_and(|m| m.role == "tool"))
 }
@@ -2005,11 +2003,17 @@ mod tests {
     fn lifecycle_hooks_do_not_trigger_a_missing_summary_after_a_final_answer() {
         use inferay_core::chat_protocol::ChatTranscriptMessage;
         let answer: ChatTranscriptMessage = serde_json::from_value(serde_json::json!({"id":"answer", "role":"assistant", "content":"The repository is up to date."})).unwrap();
-        let mut hook: ChatTranscriptMessage = serde_json::from_value(serde_json::json!({"id":"hook", "role":"tool", "content":"completed"})).unwrap();
+        let mut hook: ChatTranscriptMessage = serde_json::from_value(
+            serde_json::json!({"id":"hook", "role":"tool", "content":"completed"}),
+        )
+        .unwrap();
         hook.id = "hook:turn:stop".into();
         assert!(!super::needs_fallback_summary(&[answer, hook.clone()], 0));
         assert!(!super::needs_fallback_summary(&[hook.clone()], 0));
-        let command: ChatTranscriptMessage = serde_json::from_value(serde_json::json!({"id":"command", "role":"tool", "content":"command output"})).unwrap();
+        let command: ChatTranscriptMessage = serde_json::from_value(
+            serde_json::json!({"id":"command", "role":"tool", "content":"command output"}),
+        )
+        .unwrap();
         assert!(super::needs_fallback_summary(&[command, hook], 0));
     }
 

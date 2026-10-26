@@ -1,4 +1,5 @@
 use super::*;
+use crate::zoom::ui;
 
 impl RepositoryView {
     pub(super) fn graph_table(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -32,19 +33,19 @@ impl RepositoryView {
             .flex_col()
             .child(
                 div()
-                    .w(px(width))
+                    .w(ui(width))
                     .ml(self.graph_scroll.0.borrow().base_handle.offset().x)
-                    .h(px(23.))
+                    .h(ui(23.))
                     .flex_shrink_0()
                     .flex()
                     .items_center()
-                    .text_size(px(9.))
-                    .line_height(px(12.))
+                    .text_size(ui(9.))
+                    .line_height(ui(12.))
                     .text_color(rgba(0xebebeb70))
                     .children(order.iter().map(|column| {
                         div()
-                            .w(px(widths[column].as_f64().unwrap_or(100.) as f32))
-                            .px(px(8.))
+                            .w(ui(widths[column].as_f64().unwrap_or(100.) as f32))
+                            .px(ui(8.))
                             .flex_shrink_0()
                             .child(match column.as_str() {
                                 "refs" => "BRANCH".into(),
@@ -104,11 +105,11 @@ impl RepositoryView {
                                     .role(Role::Button)
                                     .aria_label(if commit.item_kind == GitGraphItemKind::WorktreeWip { format!("{} — {}", commit.message, commit.worktree_path.as_deref().unwrap_or("")) } else { commit.message.clone() })
                                     .relative()
-                                    .w(px(width))
-                                    .h(px(23.))
+                                    .w(ui(width))
+                                    .h(ui(23.))
                                     .flex()
                                     .items_center()
-                                    .text_size(px(colors::CHAT_SMALL))
+                                    .text_size(ui(colors::CHAT_SMALL))
                                     .cursor_pointer()
                                     .when(
                                         commit.item_kind != GitGraphItemKind::WorktreeWip
@@ -117,10 +118,10 @@ impl RepositoryView {
                                             d.child(
                                                 div()
                                                     .absolute()
-                                                    .left(px(graph_left + center))
+                                                    .left(ui(graph_left + center))
                                                     .top_0()
-                                                    .h(px(23.))
-                                                    .w(px(if active {
+                                                    .h(ui(23.))
+                                                    .w(ui(if active {
                                                         width - graph_left - center
                                                     } else {
                                                         graph_width - center
@@ -141,8 +142,8 @@ impl RepositoryView {
                                         let w = widths[column].as_f64().unwrap_or(100.) as f32;
                                         let cell = div()
                                             .relative()
-                                            .w(px(w))
-                                            .h(px(23.))
+                                            .w(ui(w))
+                                            .h(ui(23.))
                                             .flex_shrink_0()
                                             .flex()
                                             .items_center();
@@ -154,30 +155,30 @@ impl RepositoryView {
                                                         div()
                                                             .absolute()
                                                             .left_0()
-                                                            .top(px(11.))
-                                                            .w(px(center))
-                                                            .h(px(1.))
+                                                            .top(ui(11.))
+                                                            .w(ui(center))
+                                                            .h(ui(1.))
                                                             .child(connector(tint, dashed)),
                                                     )
                                                 })
                                                 .child(
                                                     div().when_some(s.graph_render_images.get(index).cloned().flatten(), |d, image| d.child(img(image).size_full()))
-                                                        .w(px(image_width))
-                                                        .h(px(23.))
+                                                        .w(ui(image_width))
+                                                        .h(ui(23.))
                                                         .flex_shrink_0(),
                                                 )
                                                 .when(
                                                     commit.item_kind == GitGraphItemKind::Commit
                                                         && commit.parents.len() <= 1,
                                                     |d| {
-                                                        d.child(div().absolute().left(px(center - 7.)).top(px(4.5))
+                                                        d.child(div().absolute().left(ui(center - 7.)).top(ui(4.5))
                                                             .child(s.author_avatar(&commit.hash, &commit.author_email, &commit.author, 14.)))
                                                     },
                                                 )
                                                 .into_any_element(),
                                             "refs" => cell
                                                 .overflow_hidden()
-                                                .px(px(8.))
+                                                .px(ui(8.))
                                                 .when_some(refs.first().copied(), |d, primary| {
                                                     let companion = refs
                                                         .iter()
@@ -194,13 +195,13 @@ impl RepositoryView {
                                                         div()
                                                             .flex()
                                                             .items_center()
-                                                            .gap(px(4.))
+                                                            .gap(ui(4.))
                                                             .min_w_0()
                                                             .max_w_full()
                                                             .overflow_hidden()
-                                                            .px(px(6.))
-                                                            .h(px(17.))
-                                                            .rounded(px(2.))
+                                                            .px(ui(6.))
+                                                            .h(ui(17.))
+                                                            .rounded(ui(2.))
                                                             .bg(rgba(
                                                                 (tint << 8)
                                                                     | if primary.is_head
@@ -218,7 +219,7 @@ impl RepositoryView {
                                                                     0xffffff80
                                                                 },
                                                             ))
-                                                            .text_size(px(colors::CHAT_DETAIL))
+                                                            .text_size(ui(colors::CHAT_DETAIL))
                                                             .when(ghost_visible, |d| d.opacity(0.36))
                                                             .child(
                                                                 div()
@@ -230,7 +231,7 @@ impl RepositoryView {
                                                     .when(extra > 0, |d| {
                                                         d.child(
                                                             div()
-                                                                .px(px(4.))
+                                                                .px(ui(4.))
                                                                 .text_color(rgba(0xebebebb8))
                                                                 .child(format!("+{extra}")),
                                                         )
@@ -243,9 +244,9 @@ impl RepositoryView {
                                                             .max_w(relative(1.))
                                                             .overflow_hidden()
                                                             .text_ellipsis()
-                                                            .text_size(px(10.))
-                                                            .px(px(6.))
-                                                            .h(px(17.))
+                                                            .text_size(ui(10.))
+                                                            .px(ui(6.))
+                                                            .h(ui(17.))
                                                             .bg(rgba((tint << 8) | 64))
                                                             .child(
                                                                 s.graph
@@ -266,24 +267,24 @@ impl RepositoryView {
                                                     d.child(
                                                         div()
                                                             .flex_1()
-                                                            .min_w(px(4.))
-                                                            .h(px(1.))
-                                                            .mr(px(-8.))
+                                                            .min_w(ui(4.))
+                                                            .h(ui(1.))
+                                                            .mr(ui(-8.))
                                                             .child(connector(tint, dashed)),
                                                     )
                                                 })
                                                 .into_any_element(),
-                                            "message" => cell.px(px(12.)).gap(px(8.)).overflow_hidden()
-                                                .child(div().min_w_0().max_w(relative(if commit.body.is_empty() {1.} else {0.64})).text_size(px(11.)).text_ellipsis().child(
+                                            "message" => cell.px(ui(12.)).gap(ui(8.)).overflow_hidden()
+                                                .child(div().min_w_0().max_w(relative(if commit.body.is_empty() {1.} else {0.64})).text_size(ui(11.)).text_ellipsis().child(
                                                     if commit.item_kind == GitGraphItemKind::WorktreeWip {
                                                         format!("WIP · {} files · {}", commit.change_summary.as_ref().map_or(0, |summary| summary.files), s.graph.worktrees.iter().find(|w| Some(&w.path) == commit.worktree_path.as_ref()).and_then(|w| w.branch.as_deref()).unwrap_or("detached HEAD"))
                                                     } else { commit.message.clone() }))
-                                                .when(!commit.body.is_empty() && commit.item_kind != GitGraphItemKind::WorktreeWip, |d| d.child(div().min_w_0().flex_1().text_size(px(colors::CHAT_SMALL)).text_color(rgba(0xebebeb80)).text_ellipsis().child(format!("— {}", commit.body.split_whitespace().collect::<Vec<_>>().join(" ")))))
+                                                .when(!commit.body.is_empty() && commit.item_kind != GitGraphItemKind::WorktreeWip, |d| d.child(div().min_w_0().flex_1().text_size(ui(colors::CHAT_SMALL)).text_color(rgba(0xebebeb80)).text_ellipsis().child(format!("— {}", commit.body.split_whitespace().collect::<Vec<_>>().join(" ")))))
                                                 .into_any_element(),
                                             _ => cell
                                                 .text_color(rgba(0xebebeb80))
-                                                .text_size(px(colors::CHAT_DETAIL))
-                                                .px(px(8.))
+                                                .text_size(ui(colors::CHAT_DETAIL))
+                                                .px(ui(8.))
                                                 .child(div().text_ellipsis().child(
                                                     match column.as_str() {
                                                         "date" => if commit.item_kind == GitGraphItemKind::WorktreeWip { String::new() } else {
@@ -373,12 +374,21 @@ fn connector(tint: u32, dashed: bool) -> impl IntoElement {
     canvas(
         |_, _, _| (),
         move |bounds, _, window, _| {
-            let mut path = PathBuilder::stroke(px(1.));
+            let mut path = PathBuilder::stroke(crate::zoom::pixels(1., window));
             if dashed {
-                path = path.dash_array(&[px(2.), px(1.)]);
+                path = path.dash_array(&[
+                    crate::zoom::pixels(2., window),
+                    crate::zoom::pixels(1., window),
+                ]);
             }
-            path.move_to(point(bounds.left(), bounds.top() + px(0.5)));
-            path.line_to(point(bounds.right(), bounds.top() + px(0.5)));
+            path.move_to(point(
+                bounds.left(),
+                bounds.top() + crate::zoom::pixels(0.5, window),
+            ));
+            path.line_to(point(
+                bounds.right(),
+                bounds.top() + crate::zoom::pixels(0.5, window),
+            ));
             if let Ok(path) = path.build() {
                 window.paint_path(path, rgb(tint));
             }
@@ -457,7 +467,12 @@ mod tests {
         let display = json!([1, 0]);
         let pictures = images(&graph, &display, 0x0d0d0d, &[]);
         let refreshed = images(&graph, &display, 0x0d0d0d, &pictures);
-        assert!(pictures.iter().zip(&refreshed).all(|(a, b)| Arc::ptr_eq(a, b)));
+        assert!(
+            pictures
+                .iter()
+                .zip(&refreshed)
+                .all(|(a, b)| Arc::ptr_eq(a, b))
+        );
         let svg: Vec<_> = pictures
             .iter()
             .map(|p| std::str::from_utf8(&p.bytes).unwrap())

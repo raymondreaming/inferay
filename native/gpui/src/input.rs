@@ -57,6 +57,7 @@ pub struct TextInput {
     marked_range: Option<Range<usize>>,
     lines: Vec<WrappedLine>,
     scroll_y: Pixels,
+    line_height: Pixels,
     last_bounds: Option<Bounds<Pixels>>,
     is_selecting: bool,
     undo: Vec<EditState>,
@@ -113,7 +114,7 @@ impl TextInput {
         };
         let position = self.position_for_index(self.cursor_offset());
         let x = self.preferred_x.unwrap_or(position.x);
-        let y = position.y + px(crate::colors::INPUT_LINE_HEIGHT) * if down { 1.5 } else { -0.5 };
+        let y = position.y + self.line_height * if down { 1.5 } else { -0.5 };
         let index = if y < px(0.) {
             0
         } else {
@@ -286,11 +287,11 @@ impl TextInput {
         let mut y = position.y - bounds.top() + self.scroll_y;
         let mut base = 0;
         for line in &self.lines {
-            let height = line.size(px(crate::colors::INPUT_LINE_HEIGHT)).height;
+            let height = line.size(self.line_height).height;
             if y < height {
                 let index = line.closest_index_for_position(
                     point(position.x - bounds.left(), y.max(px(0.))),
-                    px(crate::colors::INPUT_LINE_HEIGHT),
+                    self.line_height,
                 );
                 return (base + index.unwrap_or_else(|index| index)).min(self.content.len());
             }
@@ -301,7 +302,7 @@ impl TextInput {
     }
 
     fn position_for_index(&self, index: usize) -> Point<Pixels> {
-        text_position(&self.lines, index)
+        text_position(&self.lines, index, self.line_height)
     }
 
     fn select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
@@ -513,7 +514,7 @@ impl EntityInputHandler for TextInput {
                 } else {
                     px(1.)
                 },
-                px(crate::colors::INPUT_LINE_HEIGHT),
+                self.line_height,
             ),
         ))
     }
@@ -533,24 +534,25 @@ struct TextElement {
     input: Entity<TextInput>,
 }
 
-fn text_position(lines: &[WrappedLine], index: usize) -> Point<Pixels> {
+fn text_position(lines: &[WrappedLine], index: usize, line_height: Pixels) -> Point<Pixels> {
     let mut base = 0;
     let mut y = px(0.);
     for line in lines {
         if index <= base + line.len() {
             return line
-                .position_for_index(index - base, px(crate::colors::INPUT_LINE_HEIGHT))
+                .position_for_index(index - base, line_height)
                 .unwrap_or_default()
                 + point(px(0.), y);
         }
         base += line.len() + 1;
-        y += line.size(px(crate::colors::INPUT_LINE_HEIGHT)).height;
+        y += line.size(line_height).height;
     }
     point(px(0.), y)
 }
 struct PrepaintState {
     lines: Vec<WrappedLine>,
     scroll_y: Pixels,
+    line_height: Pixels,
 }
 impl IntoElement for TextElement {
     type Element = Self;
@@ -595,7 +597,7 @@ impl Element for TextElement {
                 .text_system()
                 .shape_text(
                     content.clone(),
-                    px(crate::colors::INPUT_TEXT),
+                    crate::zoom::pixels(crate::colors::INPUT_TEXT, window),
                     &[run],
                     width,
                     None,
@@ -603,11 +605,25 @@ impl Element for TextElement {
                 .map(|lines| {
                     lines
                         .iter()
-                        .map(|l| l.size(px(crate::colors::INPUT_LINE_HEIGHT)).height)
+                        .map(|l| {
+                            l.size(crate::zoom::pixels(
+                                crate::colors::INPUT_LINE_HEIGHT,
+                                window,
+                            ))
+                            .height
+                        })
                         .fold(px(0.), |a, b| a + b)
                 })
-                .unwrap_or(px(crate::colors::INPUT_LINE_HEIGHT));
-            size(width.unwrap_or(px(200.)), height.max(px(20.)).min(px(120.)))
+                .unwrap_or(crate::zoom::pixels(
+                    crate::colors::INPUT_LINE_HEIGHT,
+                    window,
+                ));
+            size(
+                width.unwrap_or(crate::zoom::pixels(200., window)),
+                height
+                    .max(crate::zoom::pixels(20., window))
+                    .min(crate::zoom::pixels(120., window)),
+            )
         });
         (layout, ())
     }
@@ -620,6 +636,7 @@ impl Element for TextElement {
         window: &mut Window,
         cx: &mut App,
     ) -> PrepaintState {
+        let line_height = crate::zoom::pixels(crate::colors::INPUT_LINE_HEIGHT, window);
         let input = self.input.read(cx);
         let text = if input.content.is_empty() {
             input.placeholder.clone()
@@ -666,24 +683,25 @@ impl Element for TextElement {
             .text_system()
             .shape_text(
                 text,
-                px(crate::colors::INPUT_TEXT),
+                crate::zoom::pixels(crate::colors::INPUT_TEXT, window),
                 &runs,
                 Some(bounds.size.width),
                 input.content.is_empty().then_some(1),
             )
             .unwrap_or_default();
-        let cursor = text_position(&lines, input.cursor_offset());
+        let cursor = text_position(&lines, input.cursor_offset(), line_height);
         let scroll_y = if cursor.y < input.scroll_y {
             cursor.y
         } else {
             input
                 .scroll_y
-                .max(cursor.y + px(crate::colors::INPUT_LINE_HEIGHT) - bounds.size.height)
+                .max(cursor.y + line_height - bounds.size.height)
         }
         .max(px(0.));
         PrepaintState {
             lines: lines.into_vec(),
             scroll_y,
+            line_height,
         }
     }
     fn paint(
@@ -710,7 +728,7 @@ impl Element for TextElement {
             for line in &state.lines {
                 let _ = line.paint_background(
                     origin,
-                    px(crate::colors::INPUT_LINE_HEIGHT),
+                    state.line_height,
                     gpui::TextAlign::Left,
                     None,
                     window,
@@ -718,20 +736,20 @@ impl Element for TextElement {
                 );
                 let _ = line.paint(
                     origin,
-                    px(crate::colors::INPUT_LINE_HEIGHT),
+                    state.line_height,
                     gpui::TextAlign::Left,
                     None,
                     window,
                     cx,
                 );
-                origin.y += line.size(px(crate::colors::INPUT_LINE_HEIGHT)).height;
+                origin.y += line.size(state.line_height).height;
             }
             if focus.is_focused(window) && selection_empty {
                 window.paint_quad(fill(
                     Bounds::new(
-                        bounds.origin + text_position(&state.lines, cursor)
+                        bounds.origin + text_position(&state.lines, cursor, state.line_height)
                             - point(px(0.), state.scroll_y),
-                        size(px(1.), px(crate::colors::INPUT_LINE_HEIGHT)),
+                        size(px(1.), state.line_height),
                     ),
                     rgb(0xebebeb),
                 ));
@@ -741,6 +759,7 @@ impl Element for TextElement {
             input.lines = std::mem::take(&mut state.lines);
             input.last_bounds = Some(bounds);
             input.scroll_y = state.scroll_y;
+            input.line_height = state.line_height;
         });
     }
 }
@@ -785,8 +804,8 @@ impl Render for TextInput {
             .w_full()
             .min_w_0()
             .overflow_hidden()
-            .line_height(px(crate::colors::INPUT_LINE_HEIGHT))
-            .text_size(px(crate::colors::INPUT_TEXT))
+            .line_height(crate::zoom::ui(crate::colors::INPUT_LINE_HEIGHT))
+            .text_size(crate::zoom::ui(crate::colors::INPUT_TEXT))
             .child(TextElement { input: cx.entity() })
     }
 }
@@ -809,6 +828,7 @@ impl TextInput {
             marked_range: None,
             lines: Vec::new(),
             scroll_y: px(0.),
+            line_height: px(crate::colors::INPUT_LINE_HEIGHT),
             last_bounds: None,
             is_selecting: false,
             undo: vec![],
@@ -846,6 +866,45 @@ pub fn bind(cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[gpui::test]
+    fn zoom_keeps_multiline_layout_hit_testing_and_clipboard_in_the_same_units(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        struct InputHost(Entity<TextInput>);
+        impl Render for InputHost {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div().size_full().flex().flex_col().child(self.0.clone())
+            }
+        }
+        let (host, cx) = cx.add_window_view(|_, cx| InputHost(cx.new(TextInput::new)));
+        let input = host.read_with(cx, |host, _| host.0.clone());
+        cx.simulate_resize(size(px(624.), px(200.)));
+        cx.update(|_, cx| bind(cx));
+        input.update(cx, |input, cx| {
+            input.set_content("first café 🦀\nsecond", cx)
+        });
+        cx.draw(point(px(0.), px(0.)), size(px(624.), px(200.)), |_, _| {
+            host.clone().into_any_element()
+        });
+        let before = input.read_with(cx, |input, _| input.last_bounds.unwrap().size.height);
+        cx.update(|window, _| window.set_rem_size(px(24.)));
+        cx.draw(point(px(0.), px(0.)), size(px(624.), px(200.)), |_, _| {
+            host.clone().into_any_element()
+        });
+        input.read_with(cx, |input, _| {
+            assert_eq!(input.line_height, px(30.));
+            assert_eq!(input.position_for_index(input.content.len()).y, px(30.));
+            assert_eq!(input.last_bounds.unwrap().size.height, before * 1.5);
+        });
+        cx.focus(&input);
+        cx.simulate_keystrokes("cmd-a cmd-c");
+        assert_eq!(
+            cx.read_from_clipboard()
+                .and_then(|item| item.text())
+                .as_deref(),
+            Some("first café 🦀\nsecond")
+        );
+    }
     use core::prelude::v1::test;
     #[gpui::test]
     fn editing_preserves_unicode_and_multiline_selection(cx: &mut gpui::TestAppContext) {

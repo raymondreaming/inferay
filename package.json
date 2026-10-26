@@ -17,6 +17,8 @@
 		"dmg": "bash scripts/build-dmg.sh",
 		"release": "cargo run -p inferay-tooling -- release",
 		"release:resume": "cargo run -p inferay-tooling -- release --resume",
+		"format": "cargo fmt --all && cargo fmt --manifest-path native/gpui/Cargo.toml",
+		"format:check": "cargo fmt --all -- --check && cargo fmt --manifest-path native/gpui/Cargo.toml -- --check",
 		"check": "bash scripts/check-architecture.sh",
 		"check:architecture": "bash scripts/check-architecture.sh",
 		"check:native": "cargo check --manifest-path native/gpui/Cargo.toml",
@@ -24,6 +26,8 @@
 		"generate:api": "cargo run -p inferay-tooling --bin export-api-reference"
 	},
 	"lint-staged": {
+		"native/!(gpui)/**/*.rs": "rustfmt --config skip_children=true",
+		"native/gpui/src/**/*.rs": "rustfmt --config skip_children=true",
 		"*.{js,jsx,mjs,cjs,ts,tsx,mts,cts}": [
 			"oxlint --deny-warnings --no-error-on-unmatched-pattern",
 			"biome check --write --no-errors-on-unmatched",

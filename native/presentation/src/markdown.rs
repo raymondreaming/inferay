@@ -41,7 +41,6 @@ pub struct MarkdownCursor {
 }
 
 impl MarkdownCursor {
-
     pub fn new() -> Self {
         Self::default()
     }

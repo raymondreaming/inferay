@@ -12,6 +12,7 @@ pub mod git_actions;
 pub mod graph;
 pub mod graph_response;
 pub mod image;
+mod json_wire;
 pub mod markdown;
 pub mod memory_graph;
 pub mod onboarding;
@@ -21,7 +22,6 @@ pub mod shortcuts;
 pub mod skills;
 pub mod transcript;
 pub mod ui_performance;
-mod json_wire;
 pub mod workbench;
 pub mod workspace_session;
 
@@ -123,7 +123,6 @@ pub fn project(operation: &str, input: &Value) -> Result<Value, String> {
         "diffRequest" => diff::diff_request(input),
         "resizeDockSplit" => dock::resize_preview(input)?,
         "retainedWorkspaces" => workbench::retained_workspaces(input),
-        "chatRunStatus" => transcript::run_status(input),
         "chatScrollState" => chat_view::scroll_state(input),
         "chatScrollRestore" => json!(chat_view::restore_scroll(input)),
         "uiTimingSummaries" => ui_performance::summaries(input),

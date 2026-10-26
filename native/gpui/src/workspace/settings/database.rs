@@ -1,4 +1,5 @@
 use super::*;
+use crate::zoom::ui;
 
 impl WorkspaceView {
     pub(super) fn load_database(&mut self, schema: bool, cx: &mut Context<Self>) {
@@ -102,7 +103,7 @@ impl WorkspaceView {
     }
     pub(super) fn database_settings(&self, cx: &mut Context<Self>) -> AnyElement {
         let state = &self.settings_state;
-        let databases = div().flex().flex_wrap().gap(px(6.)).children(
+        let databases = div().flex().flex_wrap().gap(ui(6.)).children(
             state
                 .data
                 .get("database")
@@ -131,9 +132,9 @@ impl WorkspaceView {
         );
         let tables = div()
             .id("database-tables")
-            .w(px(180.))
+            .w(ui(180.))
             .flex_shrink_0()
-            .max_h(px(520.))
+            .max_h(ui(520.))
             .overflow_y_scroll()
             .children(
                 state.schema["objects"]
@@ -153,7 +154,7 @@ impl WorkspaceView {
                             }))
                     }),
             );
-        let tabs = div().flex().gap(px(8.)).mb(px(12.)).children(
+        let tabs = div().flex().gap(ui(8.)).mb(ui(12.)).children(
             [("rows", "Records"), ("schema", "Schema")]
                 .into_iter()
                 .map(|(tab, label)| {
@@ -174,19 +175,19 @@ impl WorkspaceView {
             .bg(rgba(0xffffff08))
             .children(columns.iter().map(|column| {
                 div()
-                    .w(px(180.))
+                    .w(ui(180.))
                     .flex_shrink_0()
-                    .p(px(8.))
+                    .p(ui(8.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(column.as_str().unwrap_or("").to_owned())
             }));
         let grid = div()
             .id("database-grid")
-            .max_h(px(420.))
+            .max_h(ui(420.))
             .overflow_scroll()
             .child(
                 div()
-                    .min_w(px(columns.len().max(1) as f32 * 180.))
+                    .min_w(ui(columns.len().max(1) as f32 * 180.))
                     .child(header)
                     .children(
                         state.rows["rows"]
@@ -221,7 +222,7 @@ impl WorkspaceView {
                                                     )),
                                                     preview.clone(),
                                                 )
-                                                .w(px(180.))
+                                                .w(ui(180.))
                                                 .flex_shrink_0()
                                                 .overflow_hidden()
                                                 .on_click(cx.listener(move |s, _, _, cx| {
@@ -240,8 +241,8 @@ impl WorkspaceView {
         let pager = div()
             .flex()
             .items_center()
-            .gap(px(12.))
-            .mt(px(12.))
+            .gap(ui(12.))
+            .mt(ui(12.))
             .child(
                 button("previous-records", "Previous")
                     .when(state.offset == 0, |d| d.opacity(0.4))
@@ -303,7 +304,7 @@ impl WorkspaceView {
                 section("Definition", "SQL schema").child(
                     div()
                         .font_family("Menlo")
-                        .text_size(px(11.))
+                        .text_size(ui(11.))
                         .child(object["sql"].as_str().unwrap_or("").to_owned()),
                 ),
             )
@@ -346,8 +347,8 @@ impl WorkspaceView {
                     div()
                         .flex()
                         .items_center()
-                        .gap(px(8.))
-                        .mb(px(12.))
+                        .gap(ui(8.))
+                        .mb(ui(12.))
                         .child(state.field("db-filter"))
                         .child(button("apply-db-filter", "Filter first column").on_click(
                             cx.listener(|s, _, _, cx| {
@@ -367,7 +368,7 @@ impl WorkspaceView {
                                     cx.notify();
                                 },
                             )))
-                            .child(div().font_family("Menlo").text_size(px(11.)).child(text)),
+                            .child(div().font_family("Menlo").text_size(ui(11.)).child(text)),
                     )
                 })
             });
@@ -376,8 +377,8 @@ impl WorkspaceView {
             .child(
                 div()
                     .flex()
-                    .gap(px(16.))
-                    .mt(px(20.))
+                    .gap(ui(16.))
+                    .mt(ui(20.))
                     .child(tables)
                     .child(detail),
             )

@@ -26,7 +26,6 @@ pub struct WorkspaceReplica {
 }
 
 impl WorkspaceReplica {
-
     pub fn new() -> Self {
         Self::default()
     }

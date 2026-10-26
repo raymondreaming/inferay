@@ -19,6 +19,12 @@ Prefer the smallest coherent implementation that solves the real problem. These 
 
 When choices are comparable, prefer fewer concepts, fewer execution paths, fewer representations, and fewer indirect calls. The surrounding code should be easier to trace, modify, and delete after the change.
 
+## Formatting
+
+Rust formatting is owned by `rustfmt.toml`. Run `bun run format` for both the shared Rust workspace and the separate GPUI crate; vendored dependencies are excluded. Use the standard formatter output instead of manually compressing code or adding formatting skips. Repository editor settings enable Rust format-on-save with rust-analyzer. The commit hook formats staged first-party Rust files without following their child modules, preserving lint-staged's handling of partially staged files. `bun run format:check` is the read-only gate and runs first in `bun run check`.
+
+JavaScript, TypeScript, JSON, and CSS retain the existing Bun formatter and lint-staged configuration.
+
 ## Architecture
 
 GPUI (`native/gpui`) is Inferay's only desktop UI. The Solid renderer and webview host were removed at the GPUI-only cutover. Implement future features, fixes, and performance work in GPUI and the existing shared Rust owners. Known feature gaps are tracked in `native/gpui/README.md`; validate changes incrementally without recreating a second UI.

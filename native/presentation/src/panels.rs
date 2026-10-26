@@ -595,7 +595,6 @@ impl PanelPending {
 }
 
 impl PanelReplica {
-
     pub fn new() -> Self {
         Self::default()
     }

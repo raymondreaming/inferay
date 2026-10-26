@@ -1,6 +1,6 @@
 mod prepared_diff;
 pub use prepared_diff::{
-    prepare_conflict_lines, prepare_edit_diff, PreparedEditDiff, SequentialEdit,
+    PreparedEditDiff, SequentialEdit, prepare_conflict_lines, prepare_edit_diff,
 };
 mod git_exec;
 mod worktree_index;
@@ -11,7 +11,7 @@ mod path_access;
 mod pull_tests;
 
 use git_exec::{run_git, run_git_timed};
-use inferay_core::path_security::{is_safe_relative_path, AllowedPaths};
+use inferay_core::path_security::{AllowedPaths, is_safe_relative_path};
 use inferay_core::url_encode;
 use path_access::resolve_real_allowed_local_path;
 use std::collections::{HashMap, HashSet};
@@ -2846,11 +2846,12 @@ pub fn get_git_graph_snapshot_with_query(
         } else {
             let Some(index) = semantic_commits
                 .iter()
-                .position(|commit| commit.hash == worktree.head) else {
-                    // The linked worktree belongs beside its HEAD, not above
-                    // unrelated newer history when that HEAD is not loaded.
-                    continue;
-                };
+                .position(|commit| commit.hash == worktree.head)
+            else {
+                // The linked worktree belongs beside its HEAD, not above
+                // unrelated newer history when that HEAD is not loaded.
+                continue;
+            };
             index
         };
         let identity = if worktree.is_current {
@@ -3320,10 +3321,12 @@ mod graph_layout_tests {
                 .files,
             details.files
         );
-        assert!(get_git_commit_details_for_parent(cwd, &merge, Some(&head))
-            .unwrap()
-            .files
-            .is_empty());
+        assert!(
+            get_git_commit_details_for_parent(cwd, &merge, Some(&head))
+                .unwrap()
+                .files
+                .is_empty()
+        );
         assert_eq!(
             get_git_commit_details_for_parent(cwd, &merge, Some("not-a-parent"))
                 .unwrap()
@@ -3460,9 +3463,21 @@ mod graph_layout_tests {
         git(&["add", "file.txt"]);
         git(&["commit", "-m", "Newer main commit"]);
         let page = get_git_graph_snapshot_with_query(cwd, 1, prepare_git_graph(cwd), "");
-        assert!(!page.commits.iter().any(|commit| commit.item_kind == GitGraphItemKind::WorktreeWip && commit.id != "wip"));
+        assert!(
+            !page
+                .commits
+                .iter()
+                .any(|commit| commit.item_kind == GitGraphItemKind::WorktreeWip
+                    && commit.id != "wip")
+        );
         let full = get_git_graph_snapshot_with_query(cwd, 100, prepare_git_graph(cwd), "");
-        let wip = full.commits.iter().position(|commit| commit.item_kind == GitGraphItemKind::WorktreeWip && commit.id != "wip").unwrap();
+        let wip = full
+            .commits
+            .iter()
+            .position(|commit| {
+                commit.item_kind == GitGraphItemKind::WorktreeWip && commit.id != "wip"
+            })
+            .unwrap();
         assert_eq!(full.commits[wip + 1].hash, head);
     }
 
@@ -3521,14 +3536,18 @@ mod graph_layout_tests {
                 assert!(row.rails.iter().any(|rail| rail.column == 0 && rail.dashed));
             }
             assert!(snapshot.rows[1].rails.iter().all(|rail| rail.dashed));
-            assert!(snapshot.rows[2]
-                .rails
-                .iter()
-                .any(|rail| rail.column == 1 && rail.dashed && rail.ends_at_node));
-            assert!(snapshot.rows[3]
-                .rails
-                .iter()
-                .any(|rail| rail.column == 1 && !rail.dashed));
+            assert!(
+                snapshot.rows[2]
+                    .rails
+                    .iter()
+                    .any(|rail| rail.column == 1 && rail.dashed && rail.ends_at_node)
+            );
+            assert!(
+                snapshot.rows[3]
+                    .rails
+                    .iter()
+                    .any(|rail| rail.column == 1 && !rail.dashed)
+            );
             assert!(commits[4].refs.iter().any(|reference| reference.is_head));
         }
     }
@@ -3846,22 +3865,28 @@ mod file_mode_tests {
                 build_hunk_diff_from_versions(String::new(), "", content, true, false, None);
             assert!(added.is_new && added.old_lines.is_empty());
             assert_eq!(added.new_lines.len(), count, "{content:?}");
-            assert!(added
-                .new_lines
-                .iter()
-                .all(|line| line.line_type == GitDiffLineType::Add));
+            assert!(
+                added
+                    .new_lines
+                    .iter()
+                    .all(|line| line.line_type == GitDiffLineType::Add)
+            );
             let deleted =
                 build_hunk_diff_from_versions(String::new(), content, "", false, true, None);
             assert_eq!(deleted.old_lines.len(), added.new_lines.len());
             assert_eq!(deleted.old_lines.len(), deleted.new_lines.len());
-            assert!(deleted
-                .old_lines
-                .iter()
-                .all(|line| line.line_type == GitDiffLineType::Remove));
-            assert!(deleted
-                .new_lines
-                .iter()
-                .all(|line| line.line_type == GitDiffLineType::Spacer && line.number.is_none()));
+            assert!(
+                deleted
+                    .old_lines
+                    .iter()
+                    .all(|line| line.line_type == GitDiffLineType::Remove)
+            );
+            assert!(
+                deleted
+                    .new_lines
+                    .iter()
+                    .all(|line| line.line_type == GitDiffLineType::Spacer && line.number.is_none())
+            );
         }
     }
 }

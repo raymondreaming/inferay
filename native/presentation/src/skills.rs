@@ -89,7 +89,6 @@ pub struct SkillDialogReplica {
 }
 
 impl SkillDialogReplica {
-
     pub fn new(target: &str) -> Result<Self, String> {
         Ok(Self {
             target: Some(serde_json::from_str(target).map_err(error)?),

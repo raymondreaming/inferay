@@ -179,7 +179,10 @@ impl CodexProtocolState {
             }
             ("turn/plan/updated", _) => {
                 let mut text = String::from("Plan\n");
-                if let Some(explanation) = params["explanation"].as_str().filter(|text| !text.is_empty()) {
+                if let Some(explanation) = params["explanation"]
+                    .as_str()
+                    .filter(|text| !text.is_empty())
+                {
                     text.push_str(explanation);
                     text.push('\n');
                 }
@@ -190,7 +193,7 @@ impl CodexProtocolState {
                             Some("inProgress") => "●",
                             _ => "○",
                         };
-                        text.push_str(&format!("{mark} {}\n", string_field(step,"step")));
+                        text.push_str(&format!("{mark} {}\n", string_field(step, "step")));
                     }
                 }
                 context.emissions.push(ProtocolEmission::Chat(json!({
@@ -218,10 +221,17 @@ impl CodexProtocolState {
             ("turn/started", _) => {
                 self.emit_status(context, "thinking", true);
             }
-            (method @ ("item/started" | "item/completed"), "mcpToolCall" | "dynamicToolCall" | "webSearch") => {
+            (
+                method @ ("item/started" | "item/completed"),
+                "mcpToolCall" | "dynamicToolCall" | "webSearch",
+            ) => {
                 let done = method == "item/completed";
                 let name = match item_type {
-                    "mcpToolCall" => format!("mcp__{}__{}", string_field(item, "server"), string_field(item, "tool")),
+                    "mcpToolCall" => format!(
+                        "mcp__{}__{}",
+                        string_field(item, "server"),
+                        string_field(item, "tool")
+                    ),
                     "webSearch" => "WebSearch".to_owned(),
                     _ => string_field(item, "tool").to_owned(),
                 };
@@ -229,11 +239,20 @@ impl CodexProtocolState {
                     close_block(context, &mut self.assistant_open);
                     self.emit_status(context, &format!("tool:{name}"), true);
                 }
-                let input = if item_type == "webSearch" { json!({"query":item["query"]}) } else { item["arguments"].clone() };
-                let output = if !item["error"].is_null() { item["error"].clone() }
-                    else if item_type == "dynamicToolCall" { item["contentItems"].clone() }
-                    else if item_type == "webSearch" { item["results"].clone() }
-                    else { item["result"].clone() };
+                let input = if item_type == "webSearch" {
+                    json!({"query":item["query"]})
+                } else {
+                    item["arguments"].clone()
+                };
+                let output = if !item["error"].is_null() {
+                    item["error"].clone()
+                } else if item_type == "dynamicToolCall" {
+                    item["contentItems"].clone()
+                } else if item_type == "webSearch" {
+                    item["results"].clone()
+                } else {
+                    item["result"].clone()
+                };
                 context.emissions.push(ProtocolEmission::Chat(json!({
                     "type":"inferay.tool", "id":format!("codex-tool:{}", string_field(item,"id")),
                     "name":name,"input":input,"output":output,"done":done
@@ -291,13 +310,19 @@ impl CodexProtocolState {
                 close_block(context, &mut self.assistant_open);
                 let name = string_field(item, "name");
                 self.emit_status(context, &format!("tool:{name}"), true);
-                let input = item.get("arguments").or_else(|| item.get("input")).cloned().unwrap_or(Value::Null);
+                let input = item
+                    .get("arguments")
+                    .or_else(|| item.get("input"))
+                    .cloned()
+                    .unwrap_or(Value::Null);
                 context.emissions.push(ProtocolEmission::Chat(json!({
                     "type":"content_block_start", "content_block":{
                         "type":"tool_use", "id":item["call_id"], "name":name, "input":input
                     }
                 })));
-                context.emissions.push(ProtocolEmission::Chat(json!({"type":"content_block_stop"})));
+                context
+                    .emissions
+                    .push(ProtocolEmission::Chat(json!({"type":"content_block_stop"})));
             }
             ("rawResponseItem/completed", "custom_tool_call_output" | "function_call_output") => {
                 context.emissions.push(ProtocolEmission::Chat(json!({

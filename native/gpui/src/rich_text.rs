@@ -1,5 +1,6 @@
 //! Prepared native text: Markdown interpretation and style allocation happen off the UI thread.
 use crate::selectable::PreparedText;
+use crate::zoom::ui;
 use gpui::{prelude::*, *};
 use inferay_server::{MdBlock, MdInlineToken};
 use std::ops::Range;
@@ -194,16 +195,18 @@ impl RichText {
         div()
             .flex()
             .flex_col()
-            .gap(px(4.))
+            .gap(ui(4.))
             .min_w_0()
             .children(blocks.iter().enumerate().map(|(index, block)| {
                 let id = format!("{id}-{index}");
                 match block {
                     Block::Code { lang, text, tool } => {
                         let copy = text.content().clone();
+                        let selector = format!("code-card-{id}");
                         div()
+                            .debug_selector(move || selector)
                             .min_w_0()
-                            .rounded(px(4.))
+                            .rounded(ui(4.))
                             .border_1()
                             .border_color(rgba(0xebebeb18))
                             .bg(rgba(0x181818dc))
@@ -212,10 +215,10 @@ impl RichText {
                                     .flex()
                                     .justify_between()
                                     .items_center()
-                                    .px(px(8.))
-                                    .py(px(1.))
-                                    .text_size(px(9.))
-                                    .line_height(px(12.))
+                                    .px(ui(8.))
+                                    .py(ui(1.))
+                                    .text_size(ui(9.))
+                                    .line_height(ui(12.))
                                     .font_family(".SystemUIFont")
                                     .font_weight(FontWeight::NORMAL)
                                     .text_color(rgba(0xebebeb70))
@@ -226,8 +229,10 @@ impl RichText {
                                             "",
                                         )
                                         .aria_label("Copy code")
-                                        .size(px(22.)).p(px(4.)).justify_center()
-                                        .child(crate::icon("Copy").size(px(12.)))
+                                        .size(ui(22.))
+                                        .p(ui(4.))
+                                        .justify_center()
+                                        .child(crate::icon("Copy").size(ui(12.)))
                                         .on_click(
                                             move |_, _, cx| {
                                                 cx.write_to_clipboard(ClipboardItem::new_string(
@@ -241,29 +246,30 @@ impl RichText {
                                 div()
                                     .id(SharedString::from(format!("code-{id}")))
                                     .overflow_x_scroll()
-                                    .when(*tool, |d| d.max_h(px(320.)).overflow_y_scroll())
-                                    .px(px(8.))
-                                    .pt(px(2.)).pb(px(6.))
+                                    .when(*tool, |d| d.max_h(ui(320.)).overflow_y_scroll())
+                                    .px(ui(8.))
+                                    .pt(ui(2.))
+                                    .pb(ui(6.))
                                     .font_family("Menlo")
-                                    .text_size(px(crate::colors::CHAT_SMALL))
-                                    .line_height(px(crate::colors::CHAT_SMALL * 1.625))
+                                    .text_size(ui(crate::colors::CHAT_SMALL))
+                                    .line_height(ui(crate::colors::CHAT_SMALL * 1.625))
                                     .whitespace_nowrap()
                                     .when(*tool, |d| {
                                         d.whitespace_normal()
-                                            .text_size(px(crate::colors::CHAT_DETAIL))
-                                            .line_height(px(crate::colors::CHAT_DETAIL * 1.6))
+                                            .text_size(ui(crate::colors::CHAT_DETAIL))
+                                            .line_height(ui(crate::colors::CHAT_DETAIL * 1.6))
                                     })
                                     .child(text.render(format!("code-text-{id}"))),
                             )
                             .into_any_element()
                     }
                     Block::Rule => div()
-                        .my(px(8.))
-                        .h(px(1.))
+                        .my(ui(8.))
+                        .h(ui(1.))
                         .bg(rgba(0xebebeb18))
                         .into_any_element(),
                     Block::Quote(children) => div()
-                        .pl(px(crate::colors::CHAT_SMALL))
+                        .pl(ui(crate::colors::CHAT_SMALL))
                         .border_l_2()
                         .border_color(rgba(0xebebeb40))
                         .child(self.blocks(children, &id))
@@ -276,10 +282,10 @@ impl RichText {
                                 .flex()
                                 .children(cells.iter().enumerate().map(|(col, text)| {
                                     div()
-                                        .w(px(180.))
+                                        .w(ui(180.))
                                         .flex_shrink_0()
-                                        .px(px(10.))
-                                        .py(px(6.))
+                                        .px(ui(10.))
+                                        .py(ui(6.))
                                         .border_b_1()
                                         .border_color(rgba(0xebebeb18))
                                         .when(row == 0, |d| {
@@ -295,9 +301,9 @@ impl RichText {
                         .children(items.iter().enumerate().map(|(i, item)| {
                             div()
                                 .flex()
-                                .gap(px(8.))
-                                .pl(px(item.indent as f32 * 4.))
-                                .child(div().w(px(20.)).flex_shrink_0().child(item.bullet.clone()))
+                                .gap(ui(8.))
+                                .pl(ui(item.indent as f32 * 4.))
+                                .child(div().w(ui(20.)).flex_shrink_0().child(item.bullet.clone()))
                                 .child(
                                     div()
                                         .flex_1()
@@ -308,12 +314,12 @@ impl RichText {
                         .into_any_element(),
                     Block::Plain(text) => text.render(id).into_any_element(),
                     Block::Text { heading, text } => div()
-                        .line_height(px(crate::colors::CHAT_BODY * 1.6))
-                        .text_size(px(crate::colors::CHAT_BODY))
+                        .line_height(ui(crate::colors::CHAT_BODY * 1.6))
+                        .text_size(ui(crate::colors::CHAT_BODY))
                         .when(*heading, |d| {
                             d.font_weight(FontWeight::SEMIBOLD)
                                 .text_color(rgb(0xebebeb))
-                                .mt(px(8.))
+                                .mt(ui(8.))
                         })
                         .child(text.render(format!("inline-{id}")))
                         .into_any_element(),
@@ -380,16 +386,16 @@ fn inline(tokens: &[MdInlineToken]) -> PreparedText {
 }
 pub fn edit_card(edit: &inferay_core::chat_protocol::ChatEdit) -> Div {
     div()
-        .rounded(px(4.))
+        .rounded(ui(4.))
         .border_1()
         .border_color(rgba(0xebebeb18))
         .overflow_hidden()
-        .mb(px(8.))
+        .mb(ui(8.))
         .child(
             div()
-                .px(px(10.))
-                .py(px(6.))
-                .text_size(px(crate::colors::CHAT_SMALL))
+                .px(ui(10.))
+                .py(ui(6.))
+                .text_size(ui(crate::colors::CHAT_SMALL))
                 .child(edit.file_path.clone()),
         )
         .children(
@@ -402,10 +408,10 @@ pub fn edit_card(edit: &inferay_core::chat_protocol::ChatEdit) -> Div {
             .map(|(text, bg, sign)| {
                 div()
                     .bg(rgba(bg))
-                    .px(px(8.))
-                    .py(px(4.))
+                    .px(ui(8.))
+                    .py(ui(4.))
                     .font_family("Menlo")
-                    .text_size(px(crate::colors::CHAT_SMALL))
+                    .text_size(ui(crate::colors::CHAT_SMALL))
                     .child(format!("{sign} {text}"))
             }),
         )
@@ -502,19 +508,19 @@ pub fn system_card(render: &inferay_core::chat_protocol::NativeChatRender) -> Op
     Some(
         div()
             .flex()
-            .gap(px(8.))
-            .my(px(4.))
-            .py(px(8.))
-            .px(px(10.))
-            .rounded(px(6.))
+            .gap(ui(8.))
+            .my(ui(4.))
+            .py(ui(8.))
+            .px(ui(10.))
+            .rounded(ui(6.))
             .border_1()
             .border_color(rgba((accent << 8) | 0x40))
             .bg(rgba(0xffffff05))
             .child(
                 div()
-                    .size(px(24.))
+                    .size(ui(24.))
                     .flex_shrink_0()
-                    .rounded(px(4.))
+                    .rounded(ui(4.))
                     .bg(rgba(0xffffff08))
                     .text_color(rgb(accent))
                     .flex()
@@ -530,15 +536,15 @@ pub fn system_card(render: &inferay_core::chat_protocol::NativeChatRender) -> Op
                         div()
                             .flex()
                             .items_center()
-                            .gap(px(8.))
-                            .text_size(px(crate::colors::CHAT_SMALL))
+                            .gap(ui(8.))
+                            .text_size(ui(crate::colors::CHAT_SMALL))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(title)
                             .child(div().flex_1())
                             .when_some(turns, |d, turns| {
                                 d.child(
                                     div()
-                                        .text_size(px(crate::colors::CHAT_DETAIL))
+                                        .text_size(ui(crate::colors::CHAT_DETAIL))
                                         .font_family("Menlo")
                                         .text_color(rgba(0xebebeb80))
                                         .child(turns),
@@ -548,8 +554,8 @@ pub fn system_card(render: &inferay_core::chat_protocol::NativeChatRender) -> Op
                     .when_some(objective, |d, objective| {
                         d.child(
                             div()
-                                .mt(px(2.))
-                                .text_size(px(crate::colors::CHAT_BODY))
+                                .mt(ui(2.))
+                                .text_size(ui(crate::colors::CHAT_BODY))
                                 .line_height(relative(1.45))
                                 .text_color(if command {
                                     rgb(accent)
@@ -565,8 +571,8 @@ pub fn system_card(render: &inferay_core::chat_protocol::NativeChatRender) -> Op
                     .when_some(detail, |d, detail| {
                         d.child(
                             div()
-                                .mt(px(2.))
-                                .text_size(px(crate::colors::CHAT_SMALL))
+                                .mt(ui(2.))
+                                .text_size(ui(crate::colors::CHAT_SMALL))
                                 .text_color(rgba(0xebebeb80))
                                 .child(detail),
                         )
@@ -592,7 +598,7 @@ mod tests {
             let prepared = inline(&tokens);
             assert_eq!(
                 prepared.content().as_ref(),
-                "café and 🦀 with code ".repeat(words).trim_end()
+                "café and 🦀 with code ".repeat(words)
             );
             crate::performance::compare(&format!("inline_projection_{words}"), |retained| {
                 black_box(if retained {
@@ -630,6 +636,7 @@ mod tests {
             prepared,
             retained: false,
         });
+        cx.simulate_resize(size(px(624.), px(600.)));
         crate::performance::compare("gpui_retained_text_frame_512", |retained| {
             view.update(cx, |view, cx| {
                 view.retained = retained;

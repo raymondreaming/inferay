@@ -1,4 +1,5 @@
 use super::*;
+use crate::zoom::ui;
 
 impl WorkspaceView {
     pub(super) fn skills_settings(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -12,18 +13,18 @@ impl WorkspaceView {
             .flatten()
             .find(|p| p["_id"].as_str() == state.skill.as_deref());
         let builtin = selected.is_some_and(|p| p["isBuiltIn"] == true);
-        div().flex().gap(px(24.))
-            .child(div().id("skill-library").w(px(250.)).flex_shrink_0().max_h(px(560.)).overflow_y_scroll()
+        div().flex().gap(ui(24.))
+            .child(div().id("skill-library").w(ui(250.)).flex_shrink_0().max_h(ui(560.)).overflow_y_scroll()
                 .child(state.field("skill-search"))
-                .child(button("new-skill", "New skill").mt(px(12.)).w_full().on_click(cx.listener(|s, _, _, cx| s.select_skill(Some(String::new()), cx))))
+                .child(button("new-skill", "New skill").mt(ui(12.)).w_full().on_click(cx.listener(|s, _, _, cx| s.select_skill(Some(String::new()), cx))))
                 .children(state.data.get("skills").and_then(Value::as_array).into_iter().flatten()
                     .filter(|p| format!("{} {} {}",p["name"],p["command"],p["description"]).to_lowercase().contains(&needle))
                     .map(|skill| {
                         let id = skill["_id"].as_str().unwrap_or("").to_owned();
-                        button(SharedString::from(id.clone()), "").aria_label(skill["name"].as_str().unwrap_or("").to_owned()).w_full().h_auto().py(px(8.)).mt(px(4.)).flex_col().items_start().gap(px(2.))
+                        button(SharedString::from(id.clone()), "").aria_label(skill["name"].as_str().unwrap_or("").to_owned()).w_full().h_auto().py(ui(8.)).mt(ui(4.)).flex_col().items_start().gap(ui(2.))
                             .when(state.skill.as_ref() == Some(&id), |d| d.bg(rgba(0xffffff17)))
                             .child(skill["name"].as_str().unwrap_or("").to_owned())
-                            .child(div().text_size(px(11.)).text_color(rgba(0xebebeb80)).child(format!("/{}{}",skill["command"].as_str().unwrap_or(""),if skill["isBuiltIn"] == true { " · Built in" } else { "" })))
+                            .child(div().text_size(ui(11.)).text_color(rgba(0xebebeb80)).child(format!("/{}{}",skill["command"].as_str().unwrap_or(""),if skill["isBuiltIn"] == true { " · Built in" } else { "" })))
                             .on_click(cx.listener(move |s, _, _, cx| s.select_skill(Some(id.clone()), cx)))
                     })))
             .child(div().flex_1().min_w_0().when(state.skill.is_none(), |d| d.child("Select a skill to view its instructions."))
@@ -33,7 +34,7 @@ impl WorkspaceView {
                             div().text_color(rgba(0xebebebb8)).child(state.text(field,cx)).into_any_element()
                         } else { state.field(field).into_any_element() })
                     }))
-                    .child(div().flex().gap(px(8.))
+                    .child(div().flex().gap(ui(8.))
                         .when(builtin, |d| d.child(button("duplicate-skill","Duplicate").on_click(cx.listener(|s,_,_,cx| {
                             s.settings_state.skill = Some(String::new());
                             let name = format!("{} copy",s.settings_state.text("skill-name",cx));
