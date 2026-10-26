@@ -33,7 +33,7 @@ impl PreparedDiff {
                 })
                 .collect();
             let text = source.join("\n");
-            let spans = crate::rich_text::syntax(&text, extension, theme);
+            let spans = crate::syntax::highlights(&text, extension, theme);
             let mut offset = 0;
             let mut cursor = 0;
             source

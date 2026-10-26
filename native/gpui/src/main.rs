@@ -4,6 +4,7 @@ mod repository;
 mod rich_text;
 mod selectable;
 mod session;
+mod syntax;
 mod workspace;
 
 use gpui::{prelude::*, *};

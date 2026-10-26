@@ -33,7 +33,7 @@ impl RichText {
                 if matches!(block.kind, "code" | "mermaid") {
                     code.insert(
                         block.content.clone(),
-                        syntax(
+                        crate::syntax::highlights(
                             &block.content,
                             block.lang.as_deref().unwrap_or("text"),
                             theme,
@@ -297,89 +297,6 @@ fn inline(tokens: &[MdInlineToken], id: &str) -> crate::selectable::SelectableTe
     crate::selectable::SelectableText { id: format!("inline-{id}").into(), text, highlights, links }
 
 }
-pub(crate) fn syntax(
-    text: &str,
-    language: &str,
-    theme: &str,
-) -> Vec<(Range<usize>, HighlightStyle)> {
-    let extension = match language.to_ascii_lowercase().as_str() {
-        "rust" => "rs",
-        "javascript" => "js",
-        "typescript" => "ts",
-        "python" => "py",
-        "shell" | "bash" | "zsh" | "sh" => "sh",
-        "ruby" => "rb",
-        "csharp" | "c#" => "cs",
-        "cpp" | "c++" => "cpp",
-        "yaml" => "yml",
-        "markdown" => "md",
-        "golang" => "go",
-        _ => language,
-    };
-    let Some(classified) = inferay_server::classify_syntax(extension, text) else {
-        return vec![];
-    };
-    let css = include_str!("../assets/syntax-themes.css");
-    let base = css.split_once('}').unwrap().0;
-    let selector = format!("[data-inferay-syntax-theme=\"{theme}\"] {{");
-    let palette = css
-        .split_once(&selector)
-        .and_then(|(_, tail)| tail.split_once('}'))
-        .map_or(base, |(block, _)| block);
-    let mut highlights = Vec::new();
-    let mut offset = 0;
-    for (line, runs) in text.split_inclusive('\n').zip(classified.lines) {
-        let mut chars = line.char_indices().peekable();
-        for run in runs.chunks_exact(2) {
-            let start = chars.peek().map_or(line.len(), |(i, _)| *i);
-            let mut units = 0;
-            while units < run[0].as_u64().unwrap_or(0) as usize {
-                let Some((_, c)) = chars.next() else {
-                    break;
-                };
-                units += c.len_utf16();
-            }
-            let end = chars.peek().map_or(line.len(), |(i, _)| *i);
-            let kind = run[1].as_str().unwrap_or("plain");
-            let kind = if kind == "attribute" { "attr" } else { kind };
-            let color_for = |kind: &str| {
-                let key = format!("--color-syntax-{kind}: #");
-                palette
-                    .split_once(&key)
-                    .or_else(|| base.split_once(&key))
-                    .and_then(|(_, tail)| tail.split_once(';'))
-                    .and_then(|(hex, _)| {
-                        u32::from_str_radix(hex, 16).ok().map(|value| {
-                            if hex.len() == 8 {
-                                rgba(value).into()
-                            } else {
-                                rgb(value).into()
-                            }
-                        })
-                    })
-            };
-            let color = color_for(kind)
-                .or_else(|| {
-                    color_for(match kind {
-                        "control" => "keyword",
-                        "variable" => "plain",
-                        _ => "plain",
-                    })
-                })
-                .unwrap_or_else(|| rgb(0xf0f3f6).into());
-            highlights.push((
-                offset + start..offset + end,
-                HighlightStyle {
-                    color: Some(color),
-                    font_style: (kind == "comment").then_some(FontStyle::Italic),
-                    ..Default::default()
-                },
-            ));
-        }
-        offset += line.len();
-    }
-    highlights
-}
 pub fn edit_card(edit: &inferay_core::chat_protocol::ChatEdit) -> Div {
     div()
         .rounded(px(4.))
@@ -592,8 +509,8 @@ mod tests {
     #[test]
     fn selected_palette_preserves_control_variables_comments_and_alpha() {
         let code = "const value = \"hello\";\nif (value) { return value; } // comment\n";
-        let black = syntax(code, "js", "vscode-black");
-        let contrast = syntax(code, "js", "contrast");
+        let black = crate::syntax::highlights(code, "js", "vscode-black");
+        let contrast = crate::syntax::highlights(code, "js", "contrast");
         for color in [0xc586c0, 0x9cdcfe, 0xce9178] {
             assert!(
                 black
@@ -617,7 +534,7 @@ mod tests {
                 .iter()
                 .any(|(_, style)| style.color == Some(rgb(0xc586c0).into()))
         );
-        let vitesse = syntax("let value = 1;", "js", "vitesse");
+        let vitesse = crate::syntax::highlights("let value = 1;", "js", "vitesse");
         assert!(
             vitesse
                 .iter()

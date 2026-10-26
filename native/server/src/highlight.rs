@@ -120,11 +120,33 @@ fn kind(stack: &ScopeStack) -> SyntaxKind {
 pub struct Classified {
     pub version: u8,
     pub language: String,
-    /// One entry per line, each a flat `[length, kind, length, kind, …]` run
-    /// list. Lengths are UTF-16 code units so the renderer slices the string it
-    /// already holds instead of re-encoding it.
+    /// Native callers use typed runs. Only HTTP serialization flattens each
+    /// line to `[length, kind, …]`, with lengths in UTF-16 code units.
+    #[serde(serialize_with = "serialize_lines")]
     #[ts(type = "Array<Array<number | string>>")]
-    pub lines: Vec<Vec<serde_json::Value>>,
+    pub lines: Vec<Vec<SyntaxRun>>,
+}
+
+#[derive(Clone, Copy)]
+pub struct SyntaxRun {
+    pub utf16_len: usize,
+    pub kind: SyntaxKind,
+}
+
+fn serialize_lines<S: serde::Serializer>(lines: &[Vec<SyntaxRun>], serializer: S) -> Result<S::Ok, S::Error> {
+    struct Line<'a>(&'a [SyntaxRun]);
+    impl Serialize for Line<'_> {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            use serde::ser::SerializeSeq;
+            let mut sequence = serializer.serialize_seq(Some(self.0.len() * 2))?;
+            for run in self.0 {
+                sequence.serialize_element(&run.utf16_len)?;
+                sequence.serialize_element(&run.kind)?;
+            }
+            sequence.end()
+        }
+    }
+    serializer.collect_seq(lines.iter().map(|runs| Line(runs)))
 }
 
 fn units(text: &str) -> usize {
@@ -143,14 +165,13 @@ pub fn classify(path: &str, text: &str) -> Option<Classified> {
     let set = syntaxes();
     let mut state = ParseState::new(syntax);
     let mut stack = ScopeStack::new();
-    let mut lines: Vec<Vec<serde_json::Value>> = Vec::new();
+    let mut lines = Vec::new();
     for line in text.split_inclusive('\n') {
         if lines.len() >= MAX_LINES {
             return None;
         }
         let ops = state.parse_line(line, set).ok()?;
-        let mut runs: Vec<serde_json::Value> = Vec::new();
-        let mut open: Option<(SyntaxKind, usize)> = None;
+        let mut runs: Vec<SyntaxRun> = Vec::new();
         for (piece, op) in ScopeRegionIterator::new(&ops, line) {
             stack.apply(op).ok()?;
             let piece = piece.trim_end_matches('\n');
@@ -158,21 +179,10 @@ pub fn classify(path: &str, text: &str) -> Option<Classified> {
                 continue;
             }
             let current = kind(&stack);
-            match open {
-                Some((kind, length)) if kind == current => {
-                    open = Some((kind, length + units(piece)))
-                }
-                Some((kind, length)) => {
-                    runs.push(serde_json::json!(length));
-                    runs.push(serde_json::json!(kind));
-                    open = Some((current, units(piece)));
-                }
-                None => open = Some((current, units(piece))),
+            match runs.last_mut() {
+                Some(run) if run.kind == current => run.utf16_len += units(piece),
+                _ => runs.push(SyntaxRun { utf16_len: units(piece), kind: current }),
             }
-        }
-        if let Some((kind, length)) = open {
-            runs.push(serde_json::json!(length));
-            runs.push(serde_json::json!(kind));
         }
         lines.push(runs);
     }
