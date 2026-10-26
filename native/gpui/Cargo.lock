@@ -2979,7 +2979,7 @@ dependencies = [
 
 [[package]]
 name = "inferay-gpui"
-version = "0.1.113"
+version = "0.1.114"
 dependencies = [
  "anyhow",
  "chrono",
