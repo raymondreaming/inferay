@@ -79,6 +79,8 @@ fn main() {
             let bounds = Bounds::centered(None, size(px(1280.), px(820.)), cx);
             cx.open_window(
                 WindowOptions {
+                    show: false,
+                    focus: false,
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     titlebar: Some(TitlebarOptions {
                         title: Some("Inferay".into()),
@@ -99,7 +101,7 @@ fn main() {
                 }
             })
             .detach();
-            cx.activate(true);
+
         });
 }
 fn icon(name: &'static str) -> Svg {

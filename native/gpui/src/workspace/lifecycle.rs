@@ -14,6 +14,81 @@ pub(super) struct PreferenceSave {
 }
 
 impl WorkspaceView {
+    pub(super) fn close_chat(&mut self, index: usize, cx: &mut Context<Self>) {
+        let chat = &self.conversations[index];
+        if chat.closed || chat.close_task.is_some() || (chat.loading && chat.pane.is_none()) || chat.sending { return; }
+        let Some(pane) = chat.pane.clone() else {
+            self.finish_close_chat(index, None, cx);
+            return;
+        };
+        let backend = self.backend.clone();
+        let profile = self.profile.clone();
+        let work = cx.background_executor().spawn(async move {
+            RUNTIME.block_on(async move {
+                let backend = backend.get_or_try_init(|| Backend::connect(profile)).await?;
+                backend.request(Method::POST, "/api/chat/close", Some(json!({"paneId":pane}))).await
+            })
+        });
+        self.conversations[index].close_task = Some(cx.spawn(async move |this, cx| {
+            let result = work.await;
+            let _ = this.update(cx, |view, cx| {
+                view.conversations[index].close_task = None;
+                match result {
+                    Ok(response) => {
+                        let replacement = serde_json::from_value::<Workspace>(response["state"].clone()).ok()
+                            .and_then(|workspace| workspace.panes().find(|pane|
+                                !view.conversations.iter().any(|chat| chat.pane.as_deref() == Some(&pane.id)))
+                                .map(|pane| pane.id.clone()));
+                        view.finish_close_chat(index, replacement, cx);
+                    },
+                    Err(error) => view.conversations[index].error = Some(format!("Could not close chat: {error:#}")),
+                }
+                cx.notify();
+            });
+        }));
+    }
+
+    fn finish_close_chat(&mut self, index: usize, replacement: Option<String>, cx: &mut Context<Self>) {
+        // Keep indices stable for other chats' subscriptions and pending requests.
+        let chat = &mut self.conversations[index];
+        let project = chat.project;
+        chat.closed = true;
+        chat.running = false;
+        chat.task = None;
+        chat.live_task = None;
+        chat.metadata_task = None;
+        chat.commands = None;
+        chat.command_task = None;
+        chat.queue_task = None;
+        chat.queue_editor = None;
+        chat.queue_submit = None;
+        chat.submit_subscription = None;
+        chat.draft_subscription = None;
+        chat.draft_task = None;
+        chat.messages.clear();
+        chat.rich.clear();
+        chat.images.clear();
+        if let Some(next) = self.conversations.iter().enumerate()
+            .filter(|(_, chat)| !chat.closed && chat.project == project)
+            .min_by_key(|(i, _)| i.abs_diff(index)).map(|(i, _)| i) {
+            if self.projects[project].selected == index { self.projects[project].selected = next; }
+            if self.selected == index { self.selected = next; }
+        } else {
+            let active_project = self.project;
+            let active_selected = self.selected;
+            self.project = project;
+            self.add_chat(cx);
+            self.conversations[self.selected].pane = replacement;
+            self.create_chat(self.selected, cx);
+            if active_project != project {
+                self.project = active_project;
+                self.selected = active_selected;
+            }
+        }
+        self.persist_workspace_preferences(None, cx);
+        cx.notify();
+    }
+
     pub(super) fn persist_workspace_preferences(&mut self, dock: Option<serde_json::Value>, cx: &mut Context<Self>) {
         if self.preference_updates.is_none() {
             let (sender, mut updates) = tokio::sync::mpsc::unbounded_channel::<PreferenceSave>();
@@ -179,6 +254,7 @@ impl WorkspaceView {
         let profile = self.profile.clone();
         let project = self.projects[self.conversations[index].project].id.clone();
         let config = self.conversations[index].config.clone();
+        let existing = self.conversations[index].pane.clone();
         self.conversations[index].loading = true;
         let work = cx.background_executor().spawn(async move {
             RUNTIME.block_on(async move {
@@ -188,32 +264,44 @@ impl WorkspaceView {
                 backend
                     .request(Method::POST, "/api/agent/state/initialize", Some(json!({})))
                     .await?;
-                let action = AgentWorkspaceAction::AddPane {
-                    group_id: None,
-                    agent_kind: Some(config.agent_kind.clone()),
-                    cwd: project.as_ref().map(|id| {
-                        profile
-                            .join("projects")
-                            .join(id)
-                            .to_string_lossy()
-                            .into_owned()
-                    }),
-                    reference_paths: None,
+                let pane = if let Some(pane) = existing {
+                    if let Some(project_id) = &project {
+                        let action = AgentWorkspaceAction::DirectorySelected {
+                            pane_id: pane.clone(),
+                            path: Some(profile.join("projects").join(project_id).to_string_lossy().into_owned()),
+                            reference_paths: None,
+                        };
+                        backend.request(Method::POST, "/api/agent/state/workspace-action", Some(json!({"action":action}))).await?;
+                    }
+                    pane
+                } else {
+                    let action = AgentWorkspaceAction::AddPane {
+                        group_id: None,
+                        agent_kind: Some(config.agent_kind.clone()),
+                        cwd: project.as_ref().map(|id| {
+                            profile
+                                .join("projects")
+                                .join(id)
+                                .to_string_lossy()
+                                .into_owned()
+                        }),
+                        reference_paths: None,
+                    };
+                    let response = backend
+                        .request(
+                            Method::POST,
+                            "/api/agent/state/workspace-action",
+                            Some(json!({"action":action})),
+                        )
+                        .await?;
+                    let workspace: Workspace = serde_json::from_value(response["state"].clone())?;
+                    workspace
+                        .selected_pane_id()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("New chat was not returned by Inferay services")
+                        })?
+                        .to_owned()
                 };
-                let response = backend
-                    .request(
-                        Method::POST,
-                        "/api/agent/state/workspace-action",
-                        Some(json!({"action":action})),
-                    )
-                    .await?;
-                let workspace: Workspace = serde_json::from_value(response["state"].clone())?;
-                let pane = workspace
-                    .selected_pane_id()
-                    .ok_or_else(|| {
-                        anyhow::anyhow!("New chat was not returned by Inferay services")
-                    })?
-                    .to_owned();
                 // Retain the created identity even if a subsequent settings/association write fails.
                 let setup = async {
                     if let Some(project_id) = project {
@@ -272,6 +360,70 @@ impl WorkspaceView {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn closing_chat_removes_saved_pane_and_keeps_other_indices(cx: &mut gpui::TestAppContext) {
+        let profile = tempfile::tempdir().unwrap();
+        let mut workspace = Workspace::new("codex");
+        let first = workspace.selected_pane_id().unwrap().to_owned();
+        workspace.apply_action(&AgentWorkspaceAction::AddPane {
+            group_id: None, agent_kind: None, cwd: None, reference_paths: None,
+        }, "codex").unwrap();
+        let second = workspace.selected_pane_id().unwrap().to_owned();
+        std::fs::write(profile.path().join("agent-state.json"), serde_json::to_vec(&workspace).unwrap()).unwrap();
+        let backend = RUNTIME.block_on(Backend::connect(profile.path().to_owned())).unwrap();
+        let services = backend.clone();
+        let window = cx.add_window(|_, cx| {
+            let input = cx.new(TextInput::new);
+            let mut view = WorkspaceView::empty(cx.focus_handle(), input, cx);
+            view.profile = profile.path().to_owned();
+            view.backend = std::sync::Arc::new(tokio::sync::OnceCell::new_with(Some(backend)));
+            view.conversations[0].pane = Some(first.clone());
+            let other_input = cx.new(TextInput::new);
+            let mut other = WorkspaceView::empty(cx.focus_handle(), other_input, cx).conversations.pop().unwrap();
+            other.pane = Some(second.clone());
+            view.conversations.push(other);
+            view
+        });
+        cx.run_until_parked();
+        window.update(cx, |view, _, cx| {
+            assert_eq!(view.conversations[0].pane.as_deref(), Some(first.as_str()));
+            view.conversations[1].input.update(cx, |input, cx| input.set_content("keep draft", cx));
+            view.close_chat(0, cx);
+        }).unwrap();
+        cx.run_until_parked();
+        window.update(cx, |view, _, cx| {
+            assert!(view.conversations[0].closed, "{:?}", view.conversations[0].error);
+            assert!(view.conversations[0].live_task.is_none());
+            assert!(!view.conversations[1].closed);
+            assert_eq!(view.conversations[1].pane.as_deref(), Some(second.as_str()));
+            assert_eq!(view.conversations[1].input.read(cx).content.as_ref(), "keep draft");
+        }).unwrap();
+        let state = RUNTIME.block_on(services.request(Method::GET, "/api/agent/state", None)).unwrap();
+        let saved: Workspace = serde_json::from_value(state).unwrap();
+        assert!(saved.pane(&first).is_none());
+        assert!(saved.pane(&second).is_some());
+    }
+
+    #[gpui::test]
+    fn closing_last_chat_selects_a_new_draft(cx: &mut gpui::TestAppContext) {
+        cx.add_window(|_, cx| {
+            let input = cx.new(TextInput::new);
+            let mut view = WorkspaceView::empty(cx.focus_handle(), input, cx);
+            view.finish_close_chat(0, None, cx);
+            assert!(view.conversations[0].closed);
+            assert_eq!(view.selected, 1);
+            assert_eq!(view.projects[0].selected, 1);
+            let replacement = &mut view.conversations[1];
+            assert!(!replacement.closed);
+            assert!(replacement.loading);
+            assert!(replacement.input.read(cx).content.is_empty());
+            // This test covers immediate selection; persistence is exercised above.
+            replacement.task = None;
+            view.preference_task = None;
+            view
+        });
+    }
 
     #[gpui::test]
     fn latest_selection_is_saved_through_workspace_services(cx: &mut gpui::TestAppContext) {

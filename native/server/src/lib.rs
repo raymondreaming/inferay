@@ -566,6 +566,18 @@ async fn dispatch_api(state: &ServerState, path: &str, request: Request) -> ApiR
         ("/api/agent-context", "PUT") => update_agent_context(state, request).await,
         ("/api/agent/state/initialize", "POST") => initialize_agent_state(state, request).await,
         ("/api/agent/state", "GET") => return get_agent_state(state, request).await,
+        ("/api/chat/close", "POST") => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct CloseChat { pane_id: String }
+            let body: CloseChat = api_body(request).await?;
+            state.chat_runtime.stop_generation(&body.pane_id).await;
+            let default_kind = default_chat_kind(state).await;
+            state.agent_state_store.lock().expect("agent state lock poisoned")
+                .apply_workspace_action(&inferay_core::workspace_action::AgentWorkspaceAction::RemovePane { pane_id: body.pane_id }, default_kind)
+                .map(|value| json!({"state": value}))
+                .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error))
+        }
         ("/api/agent/state/workspace-action", "POST") => {
             apply_agent_workspace_action(state, request).await
         }

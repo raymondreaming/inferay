@@ -389,17 +389,16 @@ impl WorkspaceView {
             if background.blur > 0. {
                 image = image.blur(background.blur as f32);
             }
-            let mut output = std::io::Cursor::new(Vec::new());
-            image.write_to(&mut output, image::ImageFormat::Png).ok()?;
-            Some(Arc::new(Image::from_bytes(
-                ImageFormat::Png,
-                output.into_inner(),
-            )))
+            let mut pixels = image.into_rgba8();
+            for pixel in pixels.pixels_mut() { pixel.0.swap(0, 2); }
+            Some(Arc::new(RenderImage::new(vec![image::Frame::new(pixels)])))
         });
         self.scene_task = Some(cx.spawn(async move |this, cx| {
             let image = work.await;
             let _ = this.update(cx, |s, cx| {
                 s.scene = image;
+                s.scene_task = None;
+                s.reveal_startup(cx);
                 cx.notify();
             });
         }));

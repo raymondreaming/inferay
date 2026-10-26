@@ -80,13 +80,32 @@ impl WorkspaceView {
         cx.notify();
     }
 
+    pub(super) fn attach_images(&mut self, index: usize, paths: Vec<std::path::PathBuf>, cx: &mut Context<Self>) {
+        let chat = &mut self.conversations[index];
+        for path in paths {
+            if !matches!(path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase().as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif") {
+                chat.error = Some("Choose PNG, JPEG, WebP, or GIF images.".into());
+                continue;
+            }
+            if !chat.images.contains(&path) { chat.images.push(path); }
+        }
+        cx.notify();
+    }
+    pub(super) fn pick_chat_images(&mut self, index: usize, cx: &mut Context<Self>) {
+        let picked = cx.prompt_for_paths(PathPromptOptions { files: true, directories: false, multiple: true, prompt: Some("Attach images".into()) });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = picked.await {
+                let _ = this.update(cx, |s, cx| s.attach_images(index, paths, cx));
+            }
+        }).detach();
+    }
     pub(super) fn send_chat(&mut self, index: usize, stop: bool, cx: &mut Context<Self>) {
         let chat = &mut self.conversations[index];
         if chat.sending {
             return;
         }
         let text = chat.input.read(cx).content.to_string();
-        if !stop && text.trim().is_empty() {
+        if !stop && text.trim().is_empty() && chat.images.is_empty() {
             return;
         }
         let (Some(commands), Some(pane), Some(backend)) = (
@@ -103,6 +122,8 @@ impl WorkspaceView {
         chat.sending = true;
         chat.error = None;
         let sent_text = text.clone();
+        let sent_images = chat.images.clone();
+        let images = sent_images.clone();
         let work = cx.background_executor().spawn(async move {
             RUNTIME.block_on(async move {
                 let message = if stop {
@@ -121,7 +142,9 @@ impl WorkspaceView {
                     let mut preferences = serde_json::to_value(&config)?;
                     preferences["paneId"] = pane.clone().into();
                     backend.request(reqwest::Method::POST, "/api/native/provider-config", Some(preferences)).await?;
-                    let mut message = json!({"type":"chat:send", "paneId":pane, "text":text,
+                    let mut uploaded = Vec::new();
+                    for path in images { uploaded.push(backend.upload_image(path, "/api/upload-temp").await?["path"].as_str().ok_or_else(|| anyhow::anyhow!("Image upload returned no path"))?.to_owned()); }
+                    let mut message = json!({"images":uploaded,"type":"chat:send", "paneId":pane, "text":text,
                         "agentKind":config.agent_kind, "model":config.model, "reasoningLevel":config.reasoning_level});
                     if let Some(cwd) = &saved.cwd { message["cwd"] = cwd.clone().into(); }
                     message["referencePaths"] = serde_json::to_value(&saved.reference_paths)?;
@@ -145,6 +168,7 @@ impl WorkspaceView {
                         if chat.input.read(cx).content.as_ref() == sent_text {
                             chat.input.update(cx, |input, cx| input.set_content("", cx));
                         }
+                        chat.images.retain(|path| !sent_images.contains(path));
                         chat.scroll.scroll_to_end();
                     }
                     Ok(()) => {}

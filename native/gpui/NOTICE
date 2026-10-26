@@ -14,7 +14,9 @@ application code is included. The remainder is the upstream registry source.
 
 vendor/gpui-pre-macos is gpui-pre-macos 0.3.9 from crates.io (Zed Industries,
 Apache-2.0). The preview retains the native UnderWindowBackground material
-instead of stripping its tint and saturation, matching Inferay desktop-host.
+instead of stripping its tint and saturation, matching the original Inferay host.
+It also loads CFBundleIconFile into NSApplication at launch so rebuilt bundles
+show their app icon in the Dock without relying on cached registration.
 
 assets/fonts/Geist-{Regular,Medium,SemiBold}.ttf are the Geist faces used by
 Inferay's index.html, downloaded from Google Fonts (fonts.gstatic.com/geist/v5).

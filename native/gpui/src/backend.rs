@@ -117,6 +117,9 @@ impl Backend {
         Ok(socket)
     }
     pub async fn upload_background(&self, path: PathBuf) -> Result<Value> {
+        self.upload_image(path, "/api/config/background-image").await
+    }
+    pub async fn upload_image(&self, path: PathBuf, endpoint: &str) -> Result<Value> {
         let mime = match path
             .extension()
             .and_then(|s| s.to_str())
@@ -138,7 +141,7 @@ impl Backend {
             .mime_str(mime)?;
         let response = self
             .client
-            .post(format!("{}/api/config/background-image", self.origin))
+            .post(format!("{}{endpoint}", self.origin))
             .header(header::ORIGIN, &self.origin)
             .header("x-inferay-auth", self.auth.clone())
             .multipart(reqwest::multipart::Form::new().part("file", file))
@@ -191,6 +194,25 @@ impl Backend {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn chat_image_upload_preserves_bytes_and_rejects_unsupported_files() {
+        let fixture = tempfile::tempdir().unwrap();
+        let mut config = inferay_server::ServerConfig::new("127.0.0.1:0".parse().unwrap(), fixture.path().into());
+        config.user_data_dir = fixture.path().join("profile");
+        let auth = header::HeaderValue::from_str(&config.auth_token).unwrap();
+        let server = inferay_server::ServerHandle::start(config).unwrap();
+        let origin = format!("http://{}", server.local_addr());
+        let source = fixture.path().join("attached.png");
+        let pixels = image::RgbaImage::new(2, 2);
+        pixels.save(&source).unwrap();
+        RUNTIME.block_on(async {
+            let backend = Backend { _server: Some(server), client: Client::builder().no_proxy().build().unwrap(), origin, auth };
+            let result = backend.upload_image(source.clone(), "/api/upload-temp").await.unwrap();
+            assert_eq!(std::fs::read(result["path"].as_str().unwrap()).unwrap(), std::fs::read(source).unwrap());
+            assert!(backend.upload_image(fixture.path().join("invalid.txt"), "/api/upload-temp").await.is_err());
+        });
+    }
 
     #[test]
     fn settings_persist_through_authenticated_application_services() {

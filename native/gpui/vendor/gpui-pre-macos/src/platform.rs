@@ -1308,6 +1308,23 @@ extern "C" fn did_finish_launching(this: &mut Object, _: Sel, _: id) {
         let policy = get_mac_platform(this).0.lock().activation_policy;
         app.setActivationPolicy_(native_activation_policy(policy));
 
+        // Load the running application's Dock icon directly from its bundle.
+        // Launch Services can retain a placeholder for locally rebuilt bundles.
+        let bundle: id = NSBundle::mainBundle();
+        let icon_name: id = msg_send![bundle, objectForInfoDictionaryKey: ns_string("CFBundleIconFile")];
+        if !icon_name.is_null() {
+            let resource: id = msg_send![icon_name, stringByDeletingPathExtension];
+            let path: id = msg_send![bundle, pathForResource: resource ofType: ns_string("icns")];
+            if !path.is_null() {
+                let image: id = msg_send![class!(NSImage), alloc];
+                let image: id = msg_send![image, initWithContentsOfFile: path];
+                if !image.is_null() {
+                    let _: () = msg_send![app, setApplicationIconImage: image];
+                    let _: () = msg_send![image, release];
+                }
+            }
+        }
+
         let notification_center: *mut Object =
             msg_send![class!(NSNotificationCenter), defaultCenter];
         let name = ns_string("NSTextInputContextKeyboardSelectionDidChangeNotification");

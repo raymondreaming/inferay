@@ -11,6 +11,7 @@
 		"/api/agents/mcp-action": ["POST"],
 		"/api/agents/mcp-status": ["GET"],
 		"/api/app-info": ["GET"],
+		"/api/chat/close": ["POST"],
 		"/api/client-storage": ["GET", "POST", "PUT"],
 		"/api/config/background-image": ["GET", "POST"],
 		"/api/config/pick-folder": ["POST"],

@@ -31,6 +31,9 @@ if [[ -n "${INFERAY_EXTERNAL_BACKEND_ADDR:-}" ]]; then
     /usr/libexec/PlistBuddy -c "Add :LSEnvironment:INFERAY_EXTERNAL_BACKEND_ADDR string ${INFERAY_EXTERNAL_BACKEND_ADDR}" "$app/Contents/Info.plist"
 fi
 codesign --force --sign - "$app"
+# Refresh Launch Services after replacing an existing development bundle.
+touch "$app"
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app"
 if [[ "${1:-}" != "--build-only" ]]; then
     open "$app"
 fi

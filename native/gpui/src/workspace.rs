@@ -22,6 +22,9 @@ struct Project {
     dock_workspace: Option<(String, String)>,
 }
 struct Conversation {
+    closed: bool,
+    close_task: Option<Task<()>>,
+    images: Vec<std::path::PathBuf>,
     project: usize,
     pane: Option<String>,
     total_messages: usize,
@@ -58,6 +61,8 @@ pub struct WorkspaceView {
     projects: Vec<Project>,
     profile: std::path::PathBuf,
     load_task: Option<Task<()>>,
+    startup_window: Option<AnyWindowHandle>,
+    restored: bool,
     update_task: Option<Task<()>>,
     update_available: bool,
     preference_updates: Option<tokio::sync::mpsc::UnboundedSender<lifecycle::PreferenceSave>>,
@@ -89,7 +94,7 @@ pub struct WorkspaceView {
     settings_focus: Option<FocusHandle>,
     settings_state: settings::State,
     appearance: Appearance,
-    scene: Option<std::sync::Arc<Image>>,
+    scene: Option<std::sync::Arc<RenderImage>>,
     scene_task: Option<Task<()>>,
     scene_dim: f32,
     menu: Option<(usize, &'static str)>,
@@ -102,6 +107,7 @@ impl WorkspaceView {
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
         let mut view = Self::empty(focus, input, cx);
+        view.startup_window = Some(window.window_handle());
         let profile = view.profile.clone();
         let backend = view.backend.clone();
         let work = cx.background_executor().spawn(async move {
@@ -126,10 +132,12 @@ impl WorkspaceView {
         view.load_task = Some(cx.spawn(async move |this, cx| {
             let result = work.await;
             let _ = this.update(cx, |view, cx| {
+                view.restored = true;
                 match result {
                     Ok(session) => view.restore(session, cx),
                     Err(error) => view.status = format!("Could not load Inferay: {error:#}"),
                 }
+                view.reveal_startup(cx);
                 cx.notify();
             });
         }));
@@ -158,6 +166,18 @@ impl WorkspaceView {
         }
         view
     }
+    fn reveal_startup(&mut self, cx: &mut Context<Self>) {
+        if !self.restored || self.scene_task.is_some() { return; }
+        let Some(handle) = self.startup_window.take() else { return; };
+        cx.defer(move |cx| {
+            let _ = handle.update(cx, |_, window, cx| {
+                window.refresh();
+                window.draw(cx).clear(cx);
+                window.activate_window();
+                cx.activate(true);
+            });
+        });
+    }
     fn empty(focus: FocusHandle, input: Entity<TextInput>, cx: &mut Context<Self>) -> Self {
         Self {
             backend: Default::default(),
@@ -174,11 +194,16 @@ impl WorkspaceView {
             }],
             profile: crate::session::profile(),
             load_task: None,
+            startup_window: None,
+            restored: false,
             update_task: None,
             update_available: false,
             preference_updates: None,
             preference_task: None,
             conversations: vec![Conversation {
+                closed: false,
+                close_task: None,
+                images: vec![],
                 project: 0,
                 pane: None,
                 total_messages: 0,
@@ -296,6 +321,9 @@ impl WorkspaceView {
                         )
                     });
                 self.conversations.push(Conversation {
+                closed: false,
+                close_task: None,
+                images: vec![],
                     project,
                     pane: Some(pane.id),
                     total_messages: 0,
@@ -331,6 +359,9 @@ impl WorkspaceView {
             }
             if self.conversations.len() == first {
                 self.conversations.push(Conversation {
+                closed: false,
+                close_task: None,
+                images: vec![],
                     project,
                     pane: None,
                     total_messages: 0,
@@ -381,7 +412,7 @@ impl WorkspaceView {
             .conversations
             .iter()
             .enumerate()
-            .filter(|(_, c)| c.project == index)
+            .filter(|(_, c)| !c.closed && c.project == index)
             .map(|(i, _)| i)
             .collect();
         for i in indices {
@@ -519,9 +550,16 @@ impl WorkspaceView {
         }));
     }
     fn new_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.add_chat(cx);
+        self.create_chat(self.selected, cx);
+        window.focus(&self.conversations[self.selected].input.focus_handle(cx), cx);
+    }
+    fn add_chat(&mut self, cx: &mut Context<Self>) {
         let input = cx.new(TextInput::new);
-        window.focus(&input.focus_handle(cx), cx);
         self.conversations.push(Conversation {
+                closed: false,
+                close_task: None,
+                images: vec![],
             project: self.project,
             pane: None,
             total_messages: 0,
@@ -554,7 +592,6 @@ impl WorkspaceView {
         self.selected = self.conversations.len() - 1;
         self.projects[self.project].selected = self.selected;
         self.settings = false;
-        self.create_chat(self.selected, cx);
         cx.notify();
     }
     fn titlebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -654,11 +691,14 @@ impl WorkspaceView {
             .child(div().h(px(1.)).bg(rgba(0xebebeb0f)).my(px(14.)))
             .child(div().flex().items_center().justify_between().px(px(9.)).mb(px(10.)).text_color(rgba(0xebebeb80)).text_size(px(colors::CHAT_SMALL)).child("Chats")
                 .child(button("new-chat", "New chat").child(icon("Plus")).on_click(cx.listener(|s, _, w, cx| s.new_chat(w, cx)))))
-            .children(self.conversations.iter().enumerate().filter(|(_, chat)| chat.project == self.project).map(|(i, chat)| {
+            .children(self.conversations.iter().enumerate().filter(|(_, chat)| !chat.closed && chat.project == self.project).map(|(i, chat)| {
                 div().id(("chat", i)).role(Role::Button).aria_label(chat.title.clone()).flex().items_center().gap(px(8.)).px(px(9.)).h(px(36.)).mb(px(3.)).rounded(px(6.))
                     .border_1().border_color(if i == self.selected { rgba(0xebebeb0f) } else { rgba(0) })
                     .when(i == self.selected, |d| d.bg(rgba(0xebebeb17))).hover(|s| s.bg(rgba(0xebebeb0d))).cursor_pointer()
                     .child(icon("codex")).child(div().flex_1().min_w_0().text_size(px(colors::CHAT_SMALL)).overflow_hidden().text_ellipsis().child(chat.title.clone()))
+                    .child(button(("close-chat", i), "").aria_label("Close chat and stop agent").debug_selector(|| "close-chat".into())
+                        .child(icon("X").size(px(12.)))
+                        .on_click(cx.listener(move |s, _, _, cx| { cx.stop_propagation(); s.close_chat(i, cx); })))
                     .on_click(cx.listener(move |s, _, _, cx| { s.selected = i; s.projects[s.project].selected = i; s.persist_workspace_preferences(None, cx); s.settings = false; if !s.conversations[i].loaded && !s.conversations[i].loading { s.load_transcript(200, cx); } cx.notify(); }))
             }))
             .child(div().flex_1())
@@ -679,7 +719,7 @@ impl WorkspaceView {
             .flex()
             .flex_col()
             .px(px(0.))
-            .pt(px(16.))
+            .pt(px(0.))
             .pb(px(18.))
             .child(
                 div()
@@ -899,6 +939,7 @@ impl WorkspaceView {
                         .py(px(6.))
                         .rounded(px(8.))
                         .rounded_br(px(2.))
+                        .children(message.images.iter().flatten().map(|path| img(std::path::PathBuf::from(path)).w(px(220.)).h(px(150.)).object_fit(ObjectFit::Contain)))
                         .child(crate::selectable::SelectableText { id: format!("message-text-{}", message.id).into(), text: content, highlights: vec![], links: vec![] }),
                 )
                 .into_any_element()
@@ -944,7 +985,7 @@ impl WorkspaceView {
             .conversations
             .iter()
             .enumerate()
-            .filter(|(_, c)| c.project == self.project)
+            .filter(|(_, c)| !c.closed && c.project == self.project)
             .map(|(i, c)| c.pane.clone().unwrap_or_else(|| format!("draft-{i}")))
             .collect();
         let columns = inferay_presentation::dock::responsive_columns(
@@ -1106,6 +1147,7 @@ impl WorkspaceView {
         div()
             .id(("chat-pane", index))
             .debug_selector(|| "chat-pane".into())
+            .on_drop(cx.listener(move |s, paths: &ExternalPaths, _, cx| s.attach_images(index, paths.paths().to_vec(), cx)))
             .size_full()
             .flex()
             .flex_col()
@@ -1150,8 +1192,8 @@ impl WorkspaceView {
         div().debug_selector(|| "chat-composer".into()).relative().w_full().max_w(px(624.)).mx_auto().px(px(12.)).pt(px(4.)).pb(px(8.)).flex_shrink_0()
             .when(!self.status.is_empty(), |d| d.child(div().px(px(8.)).pb(px(10.)).text_size(px(11.)).text_color(rgba(0xebebeb80)).child(self.status.clone())))
             .when(chat.running, |d| d.child(
-                div().debug_selector(|| "chat-activity".into()).flex().items_center().justify_between().px(px(12.)).py(px(4.))
-                    .child(div().h(px(24.)).flex().items_center().when_some(chat.start_time, |d, start| d.child(
+                div().debug_selector(|| "chat-activity".into()).flex().items_center().justify_between().px(px(8.)).py(px(1.))
+                    .child(div().h(px(20.)).flex().items_center().when_some(chat.start_time, |d, start| d.child(
                         div().id(("activity-time", index)).flex().items_center().gap(px(6.)).with_animation(
                             ("chat-activity", index), Animation::new(std::time::Duration::from_millis(1500)).repeat(),
                             move |d, phase| {
@@ -1173,12 +1215,12 @@ impl WorkspaceView {
                             },
                         )
                     )))
-                    .child(button(("activity-stop", index), "").aria_label("Stop generation").size(px(24.)).p(px(3.)).border_1().border_color(rgba(0xebebeb1a)).rounded(px(6.)).child(icon("Stop").size(px(16.)))
+                    .child(button(("activity-stop", index), "").aria_label("Stop generation").size(px(20.)).p(px(2.)).border_1().border_color(rgba(0xebebeb1a)).rounded(px(6.)).child(icon("Stop").size(px(16.)))
                         .on_click(cx.listener(move |view, _, _, cx| view.send_chat(index, true, cx))))
             ))
             .child(div().relative().rounded(px(12.)).border_1().border_color(rgba(0xebebeb0f))
                 .when(chat.running || chat.input.focus_handle(cx).is_focused(window), |d| d.child(
-                    div().absolute().inset_0().with_animation(("composer-beam", index), Animation::new(std::time::Duration::from_millis(2500)).repeat(), |d, phase| d.child(
+                    div().absolute().inset_0().rounded(px(12.)).overflow_hidden().with_animation(("composer-beam", index), Animation::new(std::time::Duration::from_millis(2500)).repeat(), |d, phase| d.child(
                         canvas(|_, _, _| (), move |bounds, _, window, _| {
                             let width = f32::from(bounds.size.width);
                             let height = f32::from(bounds.size.height);
@@ -1210,7 +1252,7 @@ impl WorkspaceView {
                                 let tail = (progress - phase).rem_euclid(1.);
                                 let alpha = (1. - ((tail - 0.66) / 0.14).abs()).max(0.);
                                 if alpha == 0. { continue; }
-                                for (stroke, opacity) in [(5., 0.08), (2., 0.2), (1., 0.65)] {
+                                for (stroke, opacity) in [(36., 0.015), (20., 0.025), (10., 0.04), (5., 0.08), (2., 0.2), (1., 0.65)] {
                                     let mut path = PathBuilder::stroke(px(stroke));
                                     path.move_to(position(progress * perimeter));
                                     path.line_to(position((segment + 1) as f32 / 240. * perimeter));
@@ -1291,11 +1333,16 @@ impl WorkspaceView {
                                 })
                         }))
                 ))
+                .when(!chat.images.is_empty(), |d| d.child(div().flex().flex_wrap().gap(px(6.)).p(px(8.)).children(chat.images.iter().enumerate().map(|(i, path)| {
+                    let path = path.clone();
+                    div().relative().child(img(path).w(px(72.)).h(px(56.)).object_fit(ObjectFit::Contain).rounded(px(6.)))
+                        .child(button(("remove-image", i), "×").aria_label("Remove image").absolute().top_0().right_0().w(px(18.)).h(px(18.)).px(px(3.)).bg(rgb(0x222222)).on_click(cx.listener(move |s, _, _, cx| { s.conversations[index].images.remove(i); cx.notify(); })))
+                }))))
                 .child(div().flex().items_end().gap(px(4.)).pl(px(4.)).pr(px(12.)).py(px(6.))
                     .child(div().flex().items_center().gap(px(2.)).flex_shrink_0()
                         .children([("Plus", "Attach image"), ("Mic", "Start voice input")].into_iter().map(|(glyph, label)| {
                             button((label, index), "").aria_label(label).w(px(28.)).h(px(28.)).px(px(6.)).child(icon(glyph).size(px(16.)))
-                                .on_click(cx.listener(move |s, _, _, cx| { s.status = format!("{label} is not connected in the native preview yet."); cx.notify(); }))
+                                .on_click(cx.listener(move |s, _, _, cx| { if glyph == "Plus" { s.pick_chat_images(index, cx); } else { s.status = format!("{label} is not connected in the native preview yet."); cx.notify(); } }))
                         })))
                     .child(div().flex_1().min_w_0().child(chat.input.clone()))
                     .child(button(("send-chat", index), "").aria_label(if chat.running { "Stop generating" } else { "Send message" })
@@ -1431,7 +1478,7 @@ impl Render for WorkspaceView {
                                 (event.position.y - bounds.top()) / bounds.size.height
                             };
                             let ids: Vec<_> = s.conversations.iter().enumerate()
-                                .filter(|(_, chat)| chat.project == s.project)
+                                .filter(|(_, chat)| !chat.closed && chat.project == s.project)
                                 .map(|(i, chat)| chat.pane.clone().unwrap_or_else(|| format!("draft-{i}"))).collect();
                             let visible = inferay_presentation::dock::responsive_columns(&serde_json::json!({"width":s.chat_width,"columns":3}));
                             let request = serde_json::json!({"workspaceId":workspace,"legacyWorkspaceId":legacy,"ids":ids,"columns":3,"visibleColumns":visible,"action":{"type":"resize","path":path,"ratio":ratio}});
@@ -1560,6 +1607,29 @@ impl Render for WorkspaceView {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[gpui::test]
+    fn startup_waits_for_decoded_background(cx: &mut gpui::TestAppContext) {
+        let window = cx.add_window(|_, cx| {
+            let input = cx.new(TextInput::new);
+            WorkspaceView::empty(cx.focus_handle(), input, cx)
+        });
+        cx.run_until_parked();
+        window.update(cx, |view, _, cx| {
+            assert!(view.startup_window.is_none());
+            view.restored = true;
+            view.set_background(&serde_json::json!({"mode":"scene","id":"city","blur":0}), cx);
+            assert!(view.scene.is_none());
+            assert!(view.scene_task.is_some());
+            assert!(!view.restored || view.scene_task.is_some());
+            cx.notify();
+        }).unwrap();
+        cx.run_until_parked();
+        window.update(cx, |view, _, _| {
+            assert!(view.scene.is_some());
+            assert!(view.scene_task.is_none());
+        }).unwrap();
+    }
+
     #[gpui::test]
     fn reopening_repository_reuses_loaded_view(cx: &mut gpui::TestAppContext) {
         let first = tempfile::tempdir().unwrap();
@@ -1703,7 +1773,7 @@ mod tests {
             view.clone().into_any_element()
         });
         let activity = cx.debug_bounds("chat-activity").unwrap();
-        assert_eq!(activity.size.height, px(32.));
+        assert_eq!(activity.size.height, px(22.));
         let queue = cx.debug_bounds("chat-queue").unwrap();
         assert!(activity.bottom() <= queue.top());
         assert!(queue.size.height <= px(112.));
