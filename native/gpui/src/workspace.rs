@@ -162,6 +162,7 @@ pub struct WorkspaceView {
     menu: Option<(usize, &'static str)>,
     expanded: HashSet<String>,
     proposals: std::collections::HashMap<String, proposals::State>,
+    skill_proposals: std::collections::HashMap<String, proposals::SkillState>,
     status: String,
 }
 impl WorkspaceView {
@@ -322,6 +323,7 @@ impl WorkspaceView {
             menu: None,
             expanded: HashSet::new(),
             proposals: Default::default(),
+            skill_proposals: Default::default(),
             status: "Loading your saved workspace…".into(),
         }
     }
@@ -1295,6 +1297,12 @@ impl WorkspaceView {
                     )
                 })
                 .into_any_element()
+        } else if let Some(proposal) = message
+            .render
+            .as_ref()
+            .and_then(|r| r.skill_proposal.as_deref())
+        {
+            self.skill_proposal_card(&message.id, proposal, cx)
         } else if let Some(command) = message
             .render
             .as_ref()

@@ -501,17 +501,6 @@ pub fn system_card(render: &inferay_core::chat_protocol::NativeChatRender) -> Op
             "✦",
             false,
         )
-    } else if let Some(proposal) = &render.skill_proposal {
-        let proposal = serde_json::to_value(proposal).ok()?;
-        (
-            "Skill proposal".into(),
-            proposal["name"].as_str().map(str::to_owned),
-            proposal["description"].as_str().map(str::to_owned),
-            Some("Not applied".into()),
-            0xf4bd50,
-            "✦",
-            false,
-        )
     } else if render.automation_definition_proposal.is_some()
         || render.automation_proposal.is_some()
         || render.plugin_proposal.is_some()
