@@ -452,6 +452,13 @@ impl WorkspaceView {
                             s.repository_stats = stats;
                             cx.notify();
                         }
+                        // Branches and linked worktrees can change without changing file counts.
+                        if s.repository
+                            && !s.settings
+                            && let Some(view) = &s.repository_view
+                        {
+                            view.update(cx, |view, cx| view.refresh(cx));
+                        }
                     })
                     .is_err()
                 {
@@ -2199,6 +2206,46 @@ mod tests {
                 assert!(view.scene_task.is_none());
             })
             .unwrap();
+    }
+
+    #[gpui::test]
+    fn repository_poll_refreshes_visible_panel_even_when_counts_match(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().to_string_lossy().into_owned();
+        let window = cx.add_window(|_, cx| {
+            let input = cx.new(TextInput::new);
+            let mut view = WorkspaceView::empty(cx.focus_handle(), input, cx);
+            view.projects[0].repositories = vec![("Repository".into(), path.clone())];
+            view.repository = true;
+            view.open_repository(path, cx);
+            view.refresh_repository_stats(cx);
+            view
+        });
+        cx.run_until_parked();
+        let notifications = std::rc::Rc::new(std::cell::Cell::new(0));
+        let count = notifications.clone();
+        let subscription = window
+            .update(cx, |view, _, cx| {
+                cx.observe(view.repository_view.as_ref().unwrap(), move |_, _, _| {
+                    count.set(count.get() + 1);
+                })
+            })
+            .unwrap();
+        cx.background_executor
+            .advance_clock(std::time::Duration::from_secs(5));
+        cx.run_until_parked();
+        assert!(notifications.get() > 0);
+        window
+            .update(cx, |view, _, _| view.repository = false)
+            .unwrap();
+        notifications.set(0);
+        cx.background_executor
+            .advance_clock(std::time::Duration::from_secs(5));
+        cx.run_until_parked();
+        assert_eq!(notifications.get(), 0);
+        drop(subscription);
     }
 
     #[gpui::test]

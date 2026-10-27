@@ -852,6 +852,87 @@ impl Render for RepositoryView {
 mod tests {
     use super::*;
     #[gpui::test]
+    fn refresh_observes_external_checkout_with_unchanged_file_counts(cx: &mut TestAppContext) {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().canonicalize().unwrap();
+        let git = |args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .current_dir(&root)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+        git(&["init", "-b", "main"]);
+        git(&["config", "user.name", "Test Author"]);
+        git(&["config", "user.email", "test@example.invalid"]);
+        std::fs::write(root.join("file.txt"), "base\n").unwrap();
+        git(&["add", "."]);
+        git(&["-c", "commit.gpgsign=false", "commit", "-m", "Initial"]);
+        git(&["switch", "--detach"]);
+        std::fs::write(root.join("file.txt"), "changed\n").unwrap();
+        let window = cx.add_window(|_, cx| {
+            let mut view = RepositoryView::new(
+                root.to_string_lossy().into_owned(),
+                Value::Null,
+                "vscode-black".into(),
+                0,
+                cx,
+            );
+            view.avatars.insert(
+                "test@example.invalid".into(),
+                Arc::new(Image::from_bytes(ImageFormat::Png, vec![])),
+            );
+            view
+        });
+        cx.run_until_parked();
+        let summary = window
+            .update(cx, |view, _, _| {
+                assert_eq!(view.status.as_ref().unwrap().branch, "HEAD");
+                assert!(
+                    view.graph
+                        .worktrees
+                        .iter()
+                        .find(|tree| tree.is_current)
+                        .unwrap()
+                        .branch
+                        .is_none()
+                );
+                view.status.as_ref().unwrap().change_summary()
+            })
+            .unwrap();
+        git(&["switch", "main"]);
+        window.update(cx, |view, _, cx| view.refresh(cx)).unwrap();
+        cx.run_until_parked();
+        window
+            .update(cx, |view, _, _| {
+                assert_eq!(view.status.as_ref().unwrap().branch, "main");
+                assert_eq!(view.status.as_ref().unwrap().change_summary(), summary);
+                assert_eq!(
+                    view.graph
+                        .worktrees
+                        .iter()
+                        .find(|tree| tree.is_current)
+                        .unwrap()
+                        .branch
+                        .as_deref(),
+                    Some("main")
+                );
+                assert!(
+                    view.graph
+                        .commits
+                        .iter()
+                        .any(|commit| commit.item_kind == GitGraphItemKind::WorktreeWip)
+                );
+            })
+            .unwrap();
+    }
+
+    #[gpui::test]
     fn repository_geometry_uses_global_zoom_and_logical_viewport_width(
         cx: &mut gpui::TestAppContext,
     ) {
