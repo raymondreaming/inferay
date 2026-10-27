@@ -52,15 +52,33 @@ pub struct ChatReplica {
     revision: Option<u64>,
     epoch: Value,
     reconnecting: bool,
+    offset: usize,
+    limit: Option<usize>,
 }
 
 impl ChatReplica {
+    pub fn window(limit: usize) -> Self {
+        Self {
+            limit: Some(limit.max(200)),
+            ..Self::default()
+        }
+    }
+    pub fn total(&self) -> usize {
+        self.offset + self.messages.len()
+    }
     pub fn clear(&mut self) {
-        *self = Self::default();
+        *self = Self {
+            limit: self.limit,
+            ..Self::default()
+        };
     }
     pub fn reconnect(&mut self, pane: &str) -> Value {
         self.reconnecting = true;
-        json!({"type":"chat:reconnect", "paneId":pane, "epoch":self.epoch, "revision":self.revision})
+        let mut request = json!({"type":"chat:reconnect", "paneId":pane, "epoch":self.epoch, "revision":self.revision});
+        if let Some(limit) = self.limit {
+            request["limit"] = json!(limit);
+        }
+        request
     }
     pub fn event(
         &mut self,
@@ -168,6 +186,10 @@ impl ChatReplica {
                 .iter()
                 .map(|m| string(&m["id"]).to_owned())
                 .collect();
+            self.offset = message["start"]
+                .as_u64()
+                .and_then(|n| usize::try_from(n).ok())
+                .unwrap_or(0);
             self.epoch = message["epoch"].clone();
             self.revision = Some(revision);
             self.reconnecting = false;
@@ -196,6 +218,15 @@ impl ChatReplica {
             return TranscriptAdmission::Ignore;
         }
         let reset = update["reset"] == true;
+        // Prefix eviction or edits outside the loaded window require a fresh
+        // bounded snapshot. Never apply global positions as local positions.
+        let start = if reset {
+            start
+        } else if let Some(start) = start.checked_sub(self.offset) {
+            start
+        } else {
+            return self.resync();
+        };
         if !reset
             && (self.revision.is_none() || self.revision != valid_integer(&update["baseRevision"]))
         {
@@ -232,6 +263,7 @@ impl ChatReplica {
         }
         let delete_count = if reset { self.messages.len() } else { delete };
         if reset {
+            self.offset = 0;
             self.messages = inserted;
         } else {
             self.messages.splice(start..start + delete, inserted);
@@ -249,6 +281,81 @@ impl ChatReplica {
 mod reconnect_tests {
     use super::*;
     use TranscriptAdmission::*;
+
+    #[test]
+    fn recent_window_translates_positions_and_resyncs_on_prefix_eviction() {
+        let mut replica = ChatReplica::window(200);
+        assert_eq!(replica.reconnect("p")["limit"], 200);
+        let status = ChatRunStatus::default();
+        let snapshot = json!({"type":"chat:sync","paneId":"p","modelVersion":1,"epoch":"e","revision":1,"start":400,"total":401,"messages":[{"id":"last","role":"assistant","content":"a"}]});
+        assert!(matches!(
+            replica.event(&snapshot, "p", &status).unwrap().admission,
+            Sync { .. }
+        ));
+        assert_eq!(replica.total(), 401);
+        let patch = json!({"type":"chat:model","paneId":"p","transcriptUpdate":{"version":1,"epoch":"e","revision":2,"baseRevision":1,"start":400,"deleteCount":1,"messages":[{"message":{"id":"last","role":"assistant"},"appendContent":"b"}]}});
+        assert!(matches!(
+            replica.event(&patch, "p", &status).unwrap().admission,
+            Patch {
+                start: 0,
+                delete_count: 1
+            }
+        ));
+        let mut eviction = patch;
+        eviction["transcriptUpdate"]["revision"] = json!(3);
+        eviction["transcriptUpdate"]["baseRevision"] = json!(2);
+        eviction["transcriptUpdate"]["start"] = json!(0);
+        assert!(matches!(
+            replica.event(&eviction, "p", &status).unwrap().admission,
+            Resync { reconnect: true }
+        ));
+    }
+
+    #[test]
+    fn reconnect_replays_production_splices_then_accepts_current_sync() {
+        let mut source = inferay_core::chat_protocol::ChatMessageBuffer::default();
+        source.push_user("first", Option::None);
+        source.take_update();
+        let epoch = source.epoch().to_owned();
+        let revision = source.revision();
+        let mut replica = ChatReplica::default();
+        assert!(matches!(
+            replica.admit(&json!({"type":"chat:sync","modelVersion":1,
+            "epoch":epoch,"revision":revision,"messages":source.messages()})),
+            Sync { .. }
+        ));
+        let cursor = replica.reconnect("pane");
+        source.push_user("second", Option::None);
+        source.take_update();
+        source.push_system("completed");
+        source.take_update();
+        for update in source
+            .replay_since(
+                cursor["epoch"].as_str().unwrap(),
+                cursor["revision"].as_u64().unwrap(),
+            )
+            .unwrap()
+        {
+            assert!(matches!(
+                replica.admit(&json!({"transcriptUpdate":update})),
+                Patch { .. }
+            ));
+        }
+        assert!(matches!(
+            replica.admit(&json!({"type":"chat:sync","modelVersion":1,
+            "epoch":epoch,"revision":source.revision(),"unchanged":true})),
+            None
+        ));
+        assert_eq!(
+            replica.messages,
+            source
+                .messages()
+                .iter()
+                .map(|m| m.id.clone())
+                .collect::<Vec<_>>()
+        );
+        assert!(!replica.reconnecting);
+    }
 
     #[test]
     fn event_plan_rejects_wrong_panes_and_stale_sync_side_effects() {

@@ -1,5 +1,6 @@
 use crate::zoom::ui;
 mod attachments;
+mod completions;
 mod lifecycle;
 mod live;
 mod settings;
@@ -42,11 +43,15 @@ struct Conversation {
     sending: bool,
     run: ChatRunStatus,
     queue: Vec<serde_json::Value>,
+    requests: Vec<serde_json::Value>,
+    request_inputs: std::collections::HashMap<String, Entity<TextInput>>,
+    request_task: Option<Task<()>>,
     queue_task: Option<Task<()>>,
     queue_editor: Option<(String, Entity<TextInput>)>,
     queue_submit: Option<Subscription>,
     connection_error: Option<String>,
     submit_subscription: Option<Subscription>,
+    completion: completions::State,
     draft_subscription: Option<Subscription>,
     draft_task: Option<Task<()>>,
     title: String,
@@ -80,11 +85,15 @@ impl Conversation {
             sending: false,
             run: ChatRunStatus::default(),
             queue: vec![],
+            requests: vec![],
+            request_inputs: Default::default(),
+            request_task: None,
             queue_task: None,
             queue_editor: None,
             queue_submit: None,
             connection_error: None,
             submit_subscription: None,
+            completion: Default::default(),
             draft_subscription: None,
             draft_task: None,
             title: "New chat".into(),
@@ -1477,6 +1486,30 @@ impl WorkspaceView {
                     ))
                 ))
                 .bg(match self.appearance { Appearance::Dark => rgba(0x2f2f2fff), _ => rgba(0x181818e0) })
+                .when(!chat.requests.is_empty(), |d| d.child(
+                    div().id(("provider-requests", index)).debug_selector(|| "provider-requests".into())
+                        .max_h(ui(240.)).overflow_y_scroll().p(ui(10.)).flex().flex_col().gap(ui(8.))
+                        .children(chat.requests.iter().enumerate().map(|(position, request)| {
+                            let id = request["id"].as_str().unwrap_or("").to_owned();
+                            let approve_id = id.clone();
+                            let method = request["method"].as_str().unwrap_or("");
+                            let question = method == "item/tool/requestUserInput";
+                            let title = if question { "The agent needs your input" } else if method == "mcpServer/elicitation/request" { "Connection request" } else { "Approval required" };
+                            div().flex().flex_col().gap(ui(6.)).text_size(ui(13.))
+                                .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
+                                .children(["message","reason","command"].into_iter().filter_map(|key| request["params"][key].as_str().map(|text| div().child(text.to_owned()))))
+                                .children(live::request_fields(request).into_iter().filter_map(|(field,label)| {
+                                    chat.request_inputs.get(&format!("{id}/{field}")).map(|input| div().flex().flex_col().gap(ui(3.)).child(label).child(input.clone()))
+                                }))
+                                .child(div().flex().gap(ui(8.))
+                                    .child(button(("answer-provider", position), if question {"Send answers"} else {"Approve once"})
+                                        .debug_selector(|| "answer-provider".into())
+                                        .on_click(cx.listener(move |view,_,_,cx| view.answer_provider_request(index, approve_id.clone(), true, cx))))
+                                    .when(!question, |d| d.child(button(("decline-provider", position), "Decline")
+                                        .on_click(cx.listener(move |view,_,_,cx| view.answer_provider_request(index, id.clone(), false, cx)))))
+                                )
+                        }))
+                ))
                 .when(!chat.queue.is_empty(), |d| d.child(
                     div().id(("chat-queue", index)).debug_selector(|| "chat-queue".into()).max_h(ui(112.)).overflow_y_scroll().px(ui(4.)).py(ui(2.))
                         .border_b_1().border_color(rgba(0xebebeb0f))
@@ -1497,6 +1530,12 @@ impl WorkspaceView {
                                         }
                                     })))
                                     .when(chat.queue_editor.as_ref().is_none_or(|(id, _)| message["id"].as_str() != Some(id.as_str())), |d| d.text_ellipsis().child(text)))
+                                .when(message["interrupted"] == true, |d| {
+                                    let id = message["id"].as_str().unwrap_or("").to_owned();
+                                    d.child(div().text_color(rgba(0xebebeb80)).child("Interrupted — review work before retrying"))
+                                     .child(button(("retry-queued", position), "Retry").debug_selector(|| "retry-queued".into())
+                                        .on_click(cx.listener(move |view, _, _, cx| view.update_queued_message(index, id.clone(), None, true, cx))))
+                                })
                                 .when(message["transient"].as_bool().unwrap_or(false), |d| d.child(
                                     div().flex_shrink_0().text_color(rgba(0xebebeb80)).child("Steering…")))
                                 .when(!message["transient"].as_bool().unwrap_or(false), |d| {
@@ -1511,7 +1550,7 @@ impl WorkspaceView {
                                             if chat.queue_task.is_some() { return; }
                                             if let Some((id, input)) = &chat.queue_editor && id == &edit_id {
                                                 let text = input.read(cx).content.to_string();
-                                                view.update_queued_message(index, edit_id.clone(), Some(text), cx);
+                                                view.update_queued_message(index, edit_id.clone(), Some(text), false, cx);
                                             } else if let Some(message) = chat.queue.iter().find(|m| m["id"].as_str() == Some(&edit_id)) {
                                                 let text = message["text"].as_str().unwrap_or("").to_owned();
                                                 let input = cx.new(TextInput::new);
@@ -1523,7 +1562,7 @@ impl WorkspaceView {
                                                     if let Some((id, input)) = &view.conversations[index].queue_editor {
                                                         let id = id.clone();
                                                         let text = input.read(cx).content.to_string();
-                                                        view.update_queued_message(index, id, Some(text), cx);
+                                                        view.update_queued_message(index, id, Some(text), false, cx);
                                                     }
                                                 }));
                                                 window.focus(&input.focus_handle(cx), cx);
@@ -1543,7 +1582,7 @@ impl WorkspaceView {
                                     .when(!editing, |d| d.child(button(("remove-queued", position), "").aria_label("Remove from queue")
                                         .w(ui(20.)).h(ui(20.)).px(ui(3.)).child(icon("Trash").size(ui(14.)))
                                         .opacity(if chat.queue_task.is_some() { 0.4 } else { 1. })
-                                        .on_click(cx.listener(move |view, _, _, cx| view.update_queued_message(index, id.clone(), None, cx)))))
+                                        .on_click(cx.listener(move |view, _, _, cx| view.update_queued_message(index, id.clone(), None, false, cx)))))
                                 })
                         }))
                 ))
@@ -1553,7 +1592,11 @@ impl WorkspaceView {
                             button((label, index), "").aria_label(label).w(ui(28.)).h(ui(28.)).px(ui(6.)).child(icon(glyph).size(ui(16.)))
                                 .on_click(cx.listener(move |s, _, _, cx| { if glyph == "Plus" { s.pick_chat_images(index, cx); } else { s.status = format!("{label} is not connected in the native preview yet."); cx.notify(); } }))
                         })))
-                    .child(div().flex_1().min_w_0().child(chat.input.clone()))
+                    .child(div().flex_1().min_w_0().child(chat.input.clone())
+                        .capture_key_down(cx.listener(move |view, event: &KeyDownEvent, window, cx| { view.completion_key(index, &event.keystroke.key, event.keystroke.modifiers.shift, window, cx); }))
+                        .capture_action(cx.listener(move |view, _: &crate::input::Enter, window, cx| { if !view.completion_key(index, "enter", false, window, cx) { cx.propagate(); } }))
+                        .capture_action(cx.listener(move |view, _: &crate::input::Up, window, cx| { if !view.completion_key(index, "up", false, window, cx) { cx.propagate(); } }))
+                        .capture_action(cx.listener(move |view, _: &crate::input::Down, window, cx| { if !view.completion_key(index, "down", false, window, cx) { cx.propagate(); } })))
                     .child(button(("send-chat", index), "").debug_selector(|| "chat-submit".into()).aria_label(if chat.run.is_loading { "Stop generating" } else { "Send message" })
                         .w(ui(28.)).h(ui(28.)).px(ui(6.))
                         .opacity(if chat.commands.is_some() && !chat.sending { 1. } else { 0.4 })
@@ -1566,6 +1609,7 @@ impl WorkspaceView {
                             .child(value).child(icon("ChevronDown").size(ui(9.)))
                             .on_click(cx.listener(move |s, _, _, cx| { s.selected = index; s.menu = if s.menu == Some((index, name)) { None } else { Some((index, name)) }; cx.notify(); }))
                     }))))
+            .when(chat.completion.menu["show"] == true && chat.input.focus_handle(cx).is_focused(window), |d| d.child(self.completion_popup(index, cx)))
             .when_some(self.menu.filter(|(pane, _)| *pane == index), |d, (_, name)| d.child(self.popup(index, name, cx)))
     }
     fn popup(&self, index: usize, name: &'static str, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1889,6 +1933,66 @@ mod tests {
                 cx.run_until_parked();
             }
         }
+    }
+
+    #[gpui::test]
+    fn provider_question_fields_keep_separate_answers_and_stale_request_errors(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let profile = tempfile::tempdir().unwrap();
+        let backend = crate::backend::RUNTIME
+            .block_on(crate::backend::Backend::connect(profile.path().to_owned()))
+            .unwrap();
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            let mut view = WorkspaceView::empty(cx.focus_handle(), cx.new(TextInput::new), cx);
+            view.status.clear();
+            view.backend = std::sync::Arc::new(tokio::sync::OnceCell::new_with(Some(backend)));
+            let chat = &mut view.conversations[0];
+            chat.pane = Some("questions-pane".into());
+            chat.requests = vec![serde_json::json!({"id":"request","method":"item/tool/requestUserInput","params":{"questions":[{"id":"color","question":"Which color?"},{"id":"size","question":"Which size?"}]}})];
+            for field in ["color","size"] { chat.request_inputs.insert(format!("request/{field}"), cx.new(TextInput::new)); }
+            view
+        });
+        cx.update(|_, cx| crate::input::bind(cx));
+        for (field, answer) in [("color", "blue"), ("size", "large")] {
+            let input = view.read_with(cx, |view, _| {
+                view.conversations[0].request_inputs[&format!("request/{field}")].clone()
+            });
+            cx.focus(&input);
+            cx.simulate_input(answer);
+        }
+        cx.simulate_resize(size(px(900.), px(800.)));
+        cx.draw(point(px(0.), px(0.)), size(px(900.), px(800.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        assert!(cx.debug_bounds("provider-requests").is_some());
+        let answer_button = cx.debug_bounds("answer-provider").unwrap();
+        cx.simulate_click(answer_button.center(), Modifiers::default());
+        cx.run_until_parked();
+        view.read_with(cx, |view, cx| {
+            let chat = &view.conversations[0];
+            assert!(chat.request_task.is_none());
+            assert!(
+                chat.error
+                    .as_ref()
+                    .is_some_and(|error| error.contains("Could not answer request"))
+            );
+            assert_eq!(
+                chat.request_inputs["request/color"]
+                    .read(cx)
+                    .content
+                    .as_ref(),
+                "blue"
+            );
+            assert_eq!(
+                chat.request_inputs["request/size"]
+                    .read(cx)
+                    .content
+                    .as_ref(),
+                "large"
+            );
+            assert!(chat.input.read(cx).content.is_empty());
+        });
     }
 
     #[gpui::test]

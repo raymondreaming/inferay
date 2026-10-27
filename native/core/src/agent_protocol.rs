@@ -27,6 +27,7 @@ pub struct CodexInvocationContext {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ProtocolEmission {
     Chat(Value),
+    Requests(Vec<Value>),
     UserInputAcknowledged { text: String },
     FileChange(Vec<PathBuf>),
     Status { status: String, is_loading: bool },

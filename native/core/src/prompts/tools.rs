@@ -18,7 +18,9 @@ pub fn tool_definitions() -> Value {
              "skillId":{"type":"string"},"expectedUpdatedAt":{"type":"integer"},
              "name":{"type":"string"},"command":{"type":"string"},
              "description":{"type":"string"},"promptTemplate":{"type":"string"},"reason":{"type":"string"}
-         },"required":["action","name","command","description","promptTemplate","reason"],"additionalProperties":false}}
+         },"required":["action","name","command","description","promptTemplate","reason"],
+         "anyOf":[{"properties":{"action":{"const":"create"}}},{"properties":{"action":{"const":"update"}},"required":["skillId","expectedUpdatedAt"]}],
+         "additionalProperties":false}}
     ])
 }
 

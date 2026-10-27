@@ -157,6 +157,26 @@
 																		"promptTemplate",
 																		"reason"
 																	],
+																	"anyOf": [
+																		{
+																			"properties": {
+																				"action": {
+																					"const": "create"
+																				}
+																			}
+																		},
+																		{
+																			"properties": {
+																				"action": {
+																					"const": "update"
+																				}
+																			},
+																			"required": [
+																				"skillId",
+																				"expectedUpdatedAt"
+																			]
+																		}
+																	],
 																	"additionalProperties": false
 																}
 															}
@@ -182,7 +202,25 @@
 																			"type": "object"
 																		}
 																	},
-																	"required": ["action"]
+																	"required": ["action"],
+																	"anyOf": [
+																		{
+																			"properties": {
+																				"action": {
+																					"enum": ["list", "help"]
+																				}
+																			}
+																		},
+																		{
+																			"properties": {
+																				"action": {
+																					"const": "command"
+																				}
+																			},
+																			"required": ["command"]
+																		}
+																	],
+																	"additionalProperties": false
 																}
 															}
 														},
@@ -233,7 +271,33 @@
 																			}
 																		}
 																	},
-																	"required": ["action"]
+																	"required": ["action"],
+																	"anyOf": [
+																		{
+																			"properties": {
+																				"action": {
+																					"const": "search"
+																				}
+																			}
+																		},
+																		{
+																			"properties": {
+																				"action": {
+																					"const": "read"
+																				}
+																			},
+																			"required": ["id"]
+																		},
+																		{
+																			"properties": {
+																				"action": {
+																					"const": "save"
+																				}
+																			},
+																			"required": ["note"]
+																		}
+																	],
+																	"additionalProperties": false
 																}
 															}
 														},

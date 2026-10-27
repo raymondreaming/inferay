@@ -70,7 +70,9 @@ The generated static inventory provides exact path/method pairs. These are the s
 | Memory | `/api/memory`, `/note`, `/graph`, `/save`, `/delete`; `memory_store` | Search/read/graph, validated user-directed file changes |
 | Skills | `/api/prompts`, `/proposal`, `/api/prompts/{id}`; `prompt_store` | List/create, accepted proposal, update/delete by ID |
 | Preferences | `/api/client-storage`; `client_storage` | Selected reads and validated per-key updates |
-| Chat queues | `/api/chat-queues/{paneId}` GET/PATCH; `chat_persistence` adapter | Queue read and item mutations; durable transcript traffic otherwise uses chat runtime/WebSocket |
+| Chat queues | `/api/chat-queues/{paneId}` GET/PATCH; `chat_persistence` adapter | Read, edit, remove, or explicitly retry a queued entry with its captured settings |
+| Provider requests | `POST /api/chat-requests/{paneId}` | `{requestId, answer}` responds to one live provider request; stale IDs and invalid answers return 400 |
+| Chat diagnostics | `GET /api/chat-diagnostics/{paneId}` | Last-run context byte counts and provider startup milestones, without prompt contents |
 | Workspace | `/api/agent/state*`, `/api/workspace/panels`, `/dock`, `/documents`; workspace owners | Typed state transitions, panel/dock sessions, retained documents |
 | Context/settings | `/api/agent-context`, `/api/config/*`; context/settings/native owners | Instructions, folder configuration, background upload and native directory picker |
 | Provider/MCP | `/api/agents/account-status`, `/mcp-status`, `/mcp-action`, `/api/native/provider-config`, `/api/agent/commands` | Provider configuration/status, external tool connection discovery/actions |
@@ -79,7 +81,7 @@ The generated static inventory provides exact path/method pairs. These are the s
 | Rendering | `/api/native/markdown`, `/markdown/stream`, `/highlight`, `/diff` | Native parsing/render projections; not database commands |
 | App metadata | `/api/app-info`, `/api/native/update`, `/api/link-metadata`, `/api/mcp-icons`, `/api/mcp-icon` | Metadata, update status/action, link preview and cached icon delivery |
 
-Only two parameterized JSON route families currently fall outside the static inventory: `PUT/DELETE /api/prompts/{id}` and `GET/PATCH /api/chat-queues/{paneId}`. `/ws` is the authenticated native WebSocket carrying workspace/chat messages, not an OpenAPI request/response route. Static renderer assets and media response details have their own serving rules. Read each owning request type before adding a client; the route inventory alone is insufficient.
+Parameterized JSON route families outside the static inventory are `PUT/DELETE /api/prompts/{id}`, `GET/PATCH /api/chat-queues/{paneId}`, `POST /api/chat-requests/{paneId}`, and `GET /api/chat-diagnostics/{paneId}`. `/ws` is the authenticated native WebSocket carrying workspace/chat messages, not an OpenAPI request/response route. Static renderer assets and media response details have their own serving rules. Read each owning request type before adding a client; the route inventory alone is insufficient.
 
 ## Adding or changing a contract
 

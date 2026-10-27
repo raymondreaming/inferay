@@ -2862,3 +2862,232 @@ for line in sys.stdin:
             .any(|message| message.content == "continued")
     );
 }
+
+#[tokio::test]
+async fn retrying_a_chat_submission_runs_the_provider_once_and_replays_small_gaps() {
+    let profile = tempfile::tempdir().unwrap();
+    let (project, _) = chat_fixture(profile.path());
+    let binary = profile.path().join(".local/bin/claude");
+    let script = std::fs::read_to_string(&binary).unwrap().replace(
+        "assert 'Captured skill instructions' in str(args), args",
+        "assert '<skill-library>' not in str(args), args",
+    );
+    std::fs::write(binary, script).unwrap();
+    let runtime = runtime(profile.path());
+    let chat = chats(&runtime, profile.path());
+    let cwd = profile.path().join("projects").join(project);
+    let input = crate::chat_runtime::SendMessageInput {
+        pane_id: "receipt-test".into(),
+        agent_kind: "claude".into(),
+        client_message_id: Some("stable-message".into()),
+        text: "Do the fixture work".into(),
+        cwd: cwd.clone(),
+        cwd_provided: true,
+        ..Default::default()
+    };
+    // Concurrent retries must share admission even before a transcript exists.
+    tokio::join!(
+        chat.send_message(input.clone()),
+        chat.send_message(input.clone())
+    );
+    chat.send_message(input).await;
+    let invocations = std::fs::read_to_string(cwd.join("invocations.jsonl")).unwrap();
+    let chats = invocations
+        .lines()
+        .filter(|line| line.contains("stream-json"))
+        .count();
+    assert_eq!(chats, 1);
+    let (sender, mut receiver) = tokio::sync::broadcast::channel(512);
+    chat.reconnect(crate::chat_runtime::ReconnectInput {
+        limit: None,
+        pane_id: "receipt-test",
+        client_id: 1,
+        sender: sender.clone(),
+        provider: None,
+        provider_session_id: None,
+        cwd: None,
+        cursor: None,
+    })
+    .await;
+    let mut sync = Value::Null;
+    while let Ok(frame) = receiver.try_recv() {
+        let event: Value = serde_json::from_str(frame.as_str()).unwrap();
+        if event["type"] == "chat:sync" {
+            sync = event;
+        }
+    }
+    assert!(
+        sync["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["content"] == "task complete")
+    );
+    chat.publish_command_response(
+        crate::chat_runtime::SendMessageInput {
+            pane_id: "receipt-test".into(),
+            ..Default::default()
+        },
+        "small update",
+    )
+    .await;
+    while receiver.try_recv().is_ok() {}
+    chat.reconnect(crate::chat_runtime::ReconnectInput {
+        limit: None,
+        pane_id: "receipt-test",
+        client_id: 1,
+        sender,
+        provider: None,
+        provider_session_id: None,
+        cwd: None,
+        cursor: Some((
+            sync["epoch"].as_str().unwrap(),
+            sync["revision"].as_u64().unwrap(),
+        )),
+    })
+    .await;
+    let frames: Vec<Value> = std::iter::from_fn(|| receiver.try_recv().ok())
+        .map(|s| serde_json::from_str(s.as_str()).unwrap())
+        .collect();
+    assert!(
+        frames
+            .iter()
+            .any(|frame| frame["type"] == "chat:model" && frame["transcriptUpdate"].is_object())
+    );
+    assert!(frames.iter().any(|frame| frame["type"] == "chat:sync"
+        && frame["unchanged"] == true
+        && frame["messages"].is_null()));
+}
+
+#[tokio::test]
+async fn queued_turn_keeps_its_directory_and_starts_a_fresh_provider_session() {
+    let profile = tempfile::tempdir().unwrap();
+    let (project, _) = chat_fixture(profile.path());
+    let binary = profile.path().join(".local/bin/claude");
+    let script = std::fs::read_to_string(&binary).unwrap().replace(
+        "assert 'Captured skill instructions' in str(args), args",
+        "# ordinary chat fixture",
+    );
+    std::fs::write(binary, script).unwrap();
+    let runtime = runtime(profile.path());
+    let chat = chats(&runtime, profile.path());
+    let first = profile.path().join("projects").join(project);
+    let second = profile.path().join("second-repository");
+    std::fs::create_dir_all(&second).unwrap();
+    std::fs::write(first.join("block"), "").unwrap();
+    let owner = chat.clone();
+    let first_cwd = first.clone();
+    let running = tokio::spawn(async move {
+        owner
+            .send_message(crate::chat_runtime::SendMessageInput {
+                pane_id: "queue-settings".into(),
+                agent_kind: "claude".into(),
+                text: "First task".into(),
+                cwd: first_cwd,
+                cwd_provided: true,
+                ..Default::default()
+            })
+            .await;
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while !first.join("started").exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    chat.send_message(crate::chat_runtime::SendMessageInput {
+        pane_id: "queue-settings".into(),
+        agent_kind: "claude".into(),
+        text: "Second task".into(),
+        client_message_id: Some("second-turn".into()),
+        cwd: second.clone(),
+        cwd_provided: true,
+        ..Default::default()
+    })
+    .await;
+    let persistence = crate::chat_persistence::ChatPersistence::new(profile.path().into());
+    let queue = persistence.read_queue("queue-settings").await.unwrap();
+    assert_eq!(queue.len(), 1);
+    assert_eq!(queue[0].execution.as_ref().unwrap().cwd, second);
+    std::fs::remove_file(first.join("block")).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(20), running)
+        .await
+        .unwrap()
+        .unwrap();
+    let args: Value = serde_json::from_str(
+        std::fs::read_to_string(second.join("invocations.jsonl"))
+            .unwrap()
+            .lines()
+            .next()
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(!args.as_array().unwrap().iter().any(|arg| arg == "--resume"));
+    assert!(
+        args.to_string()
+            .contains("Opening user request: First task")
+    );
+    assert!(second.join("normal-chat-write").exists());
+    assert!(
+        persistence
+            .read_queue("queue-settings")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let diagnostics = persistence
+        .read_diagnostics("queue-settings")
+        .await
+        .unwrap();
+    assert!(
+        diagnostics["contextBytes"]["developerTotal"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+    assert!(diagnostics["providerTiming"]["milestonesMs"]["processSpawned"].is_number());
+}
+
+#[tokio::test]
+async fn resumed_chat_refreshes_custom_skill_catalog_without_inlining_bodies() {
+    let profile = tempfile::tempdir().unwrap();
+    let (project, _) = chat_fixture(profile.path());
+    let binary = profile.path().join(".local/bin/claude");
+    let script = std::fs::read_to_string(&binary).unwrap().replace(
+        "assert 'Captured skill instructions' in str(args), args",
+        "# ordinary chat fixture",
+    );
+    std::fs::write(binary, script).unwrap();
+    let runtime = runtime(profile.path());
+    let chat = chats(&runtime, profile.path());
+    let old = runtime.prompts.lock().await.create(json!({"name":"Old catalog skill","command":"catalog-old","description":"old skill","promptTemplate":"OLD_PRIVATE_BODY"}).as_object().unwrap(),1).unwrap();
+    let cwd = profile.path().join("projects").join(project);
+    chat.send_message(crate::chat_runtime::SendMessageInput {
+        pane_id: "catalog-chat".into(),
+        agent_kind: "claude".into(),
+        text: "First ordinary task".into(),
+        cwd: cwd.clone(),
+        cwd_provided: true,
+        ..Default::default()
+    })
+    .await;
+    runtime.prompts.lock().await.delete(&old.id).unwrap();
+    runtime.prompts.lock().await.create(json!({"name":"New catalog skill","command":"catalog-new","description":"new skill","promptTemplate":"NEW_PRIVATE_BODY"}).as_object().unwrap(),2).unwrap();
+    chat.send_message(crate::chat_runtime::SendMessageInput {
+        pane_id: "catalog-chat".into(),
+        agent_kind: "claude".into(),
+        text: "Continue the ordinary task".into(),
+        ..Default::default()
+    })
+    .await;
+    let log = std::fs::read_to_string(cwd.join("invocations.jsonl")).unwrap();
+    let first = log.lines().next().unwrap();
+    let last = log.lines().last().unwrap();
+    assert!(first.contains("catalog-old"));
+    assert!(last.contains("--resume"));
+    assert!(last.contains("catalog-new"));
+    assert!(!last.contains("catalog-old"));
+    assert!(!last.contains("NEW_PRIVATE_BODY"));
+    assert!(!first.contains("OLD_PRIVATE_BODY"));
+}

@@ -3634,6 +3634,91 @@
 			"journalMode": "wal",
 			"objects": [
 				{
+					"name": "chat_submissions",
+					"kind": "table",
+					"sql": "CREATE TABLE chat_submissions (\n                         pane TEXT NOT NULL, id TEXT NOT NULL, request_hash TEXT NOT NULL,\n                         owner TEXT NOT NULL, handled INTEGER NOT NULL DEFAULT 0,\n                         PRIMARY KEY(pane, id))",
+					"withoutRowid": false,
+					"strict": false,
+					"columns": [
+						{
+							"name": "pane",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 1,
+							"hidden": 0
+						},
+						{
+							"name": "id",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 2,
+							"hidden": 0
+						},
+						{
+							"name": "request_hash",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "owner",
+							"declaredType": "TEXT",
+							"notNull": true,
+							"defaultValue": null,
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						},
+						{
+							"name": "handled",
+							"declaredType": "INTEGER",
+							"notNull": true,
+							"defaultValue": "0",
+							"primaryKeyPosition": 0,
+							"hidden": 0
+						}
+					],
+					"foreignKeys": [],
+					"indexes": [
+						{
+							"name": "sqlite_autoindex_chat_submissions_1",
+							"unique": true,
+							"origin": "pk",
+							"partial": false,
+							"sql": null,
+							"columns": [
+								{
+									"sequence": 0,
+									"columnId": 0,
+									"name": "pane",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 1,
+									"columnId": 1,
+									"name": "id",
+									"descending": false,
+									"collation": "BINARY",
+									"key": true
+								},
+								{
+									"sequence": 2,
+									"columnId": -1,
+									"name": null,
+									"descending": false,
+									"collation": "BINARY",
+									"key": false
+								}
+							]
+						}
+					]
+				},
+				{
 					"name": "documents",
 					"kind": "table",
 					"sql": "CREATE TABLE documents (\n                         pane TEXT NOT NULL, kind TEXT NOT NULL, body TEXT NOT NULL CHECK(json_valid(body)),\n                         PRIMARY KEY(pane, kind))",

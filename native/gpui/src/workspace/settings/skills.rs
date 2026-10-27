@@ -14,7 +14,7 @@ impl WorkspaceView {
             .find(|p| p["_id"].as_str() == state.skill.as_deref());
         let builtin = selected.is_some_and(|p| p["isBuiltIn"] == true);
         div().flex().gap(ui(24.))
-            .child(div().id("skill-library").w(ui(250.)).flex_shrink_0().max_h(ui(560.)).overflow_y_scroll()
+            .child(div().id("skill-library").debug_selector(|| "skill-library".into()).w(ui(250.)).flex_shrink_0().max_h(ui(560.)).overflow_y_scroll()
                 .child(state.field("skill-search"))
                 .child(button("new-skill", "New skill").mt(ui(12.)).w_full().on_click(cx.listener(|s, _, _, cx| s.select_skill(Some(String::new()), cx))))
                 .children(state.data.get("skills").and_then(Value::as_array).into_iter().flatten()

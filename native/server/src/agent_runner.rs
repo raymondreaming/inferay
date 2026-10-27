@@ -4,7 +4,7 @@
 //! caller owns transport-specific broadcasting by draining `ProtocolEmission`s;
 //! no JavaScript process or reverse IPC is involved.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -23,6 +23,112 @@ use tokio::sync::{mpsc, oneshot};
 
 pub(crate) const PROTOCOL_BUFFER_CAPACITY: usize = 64;
 
+const PROTOCOL_BUFFER_BYTES: usize = 8 * 1024 * 1024;
+
+/// Budget retained payloads as well as event count. An oversized event owns
+/// the entire budget until applied, so large tool results cannot pile up.
+#[derive(Clone)]
+pub(crate) struct ProtocolSender {
+    sender: mpsc::Sender<(ProtocolEmission, tokio::sync::OwnedSemaphorePermit)>,
+    bytes: Arc<tokio::sync::Semaphore>,
+}
+
+pub(crate) fn protocol_channel() -> (
+    ProtocolSender,
+    mpsc::Receiver<(ProtocolEmission, tokio::sync::OwnedSemaphorePermit)>,
+) {
+    let (sender, receiver) = mpsc::channel(PROTOCOL_BUFFER_CAPACITY);
+    (
+        ProtocolSender {
+            sender,
+            bytes: Arc::new(tokio::sync::Semaphore::new(PROTOCOL_BUFFER_BYTES)),
+        },
+        receiver,
+    )
+}
+
+impl ProtocolSender {
+    pub(crate) async fn send(&self, emission: ProtocolEmission) -> Result<(), String> {
+        fn value_bytes(value: &Value) -> usize {
+            std::mem::size_of::<Value>()
+                + match value {
+                    Value::String(s) => s.capacity(),
+                    Value::Array(items) => items.iter().map(value_bytes).sum(),
+                    Value::Object(items) => items
+                        .iter()
+                        .map(|(key, value)| key.capacity() + value_bytes(value))
+                        .sum(),
+                    _ => 0,
+                }
+        }
+        let size = match &emission {
+            ProtocolEmission::Chat(value) => value_bytes(value),
+            ProtocolEmission::Requests(values) => values.iter().map(value_bytes).sum(),
+            ProtocolEmission::FileChange(paths) => {
+                paths.iter().map(|path| path.as_os_str().len()).sum()
+            }
+            ProtocolEmission::Status { status, .. } => status.capacity(),
+            ProtocolEmission::UserInputAcknowledged { text } => text.capacity(),
+            ProtocolEmission::System(s)
+            | ProtocolEmission::Session(s)
+            | ProtocolEmission::Title(s) => s.capacity(),
+        }
+        .saturating_add(std::mem::size_of::<ProtocolEmission>())
+        .min(PROTOCOL_BUFFER_BYTES);
+        let budget = self
+            .bytes
+            .clone()
+            .acquire_many_owned(size as u32)
+            .await
+            .map_err(|e| e.to_string())?;
+        self.sender
+            .send((emission, budget))
+            .await
+            .map_err(|_| "Protocol consumer closed".into())
+    }
+}
+
+const MAX_PROVIDER_FRAME_BYTES: usize = 32 * 1024 * 1024;
+
+/// Own partial frames across cancelled reads (the control select can interrupt
+/// any read). Never allocate an unbounded NDJSON line from a provider.
+struct ProviderFrames<R> {
+    reader: BufReader<R>,
+    partial: Vec<u8>,
+}
+impl<R: AsyncRead + Unpin> ProviderFrames<R> {
+    fn new(reader: R) -> Self {
+        Self {
+            reader: BufReader::new(reader),
+            partial: Vec::new(),
+        }
+    }
+    async fn next(&mut self) -> std::io::Result<Option<Vec<u8>>> {
+        loop {
+            let available = self.reader.fill_buf().await?;
+            if available.is_empty() {
+                return Ok((!self.partial.is_empty()).then(|| std::mem::take(&mut self.partial)));
+            }
+            let length = available
+                .iter()
+                .position(|byte| *byte == b'\n')
+                .map_or(available.len(), |index| index + 1);
+            let complete = available[length - 1] == b'\n';
+            if self.partial.len().saturating_add(length) > MAX_PROVIDER_FRAME_BYTES {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Provider frame exceeds 32 MiB; return large results as files instead of inline payloads",
+                ));
+            }
+            self.partial.extend_from_slice(&available[..length]);
+            self.reader.consume(length);
+            if complete {
+                return Ok(Some(std::mem::take(&mut self.partial)));
+            }
+        }
+    }
+}
+
 const MAX_STREAM_CHARS: usize = 64_000;
 const CODEX_RPC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 const CODEX_INTERRUPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
@@ -32,14 +138,15 @@ const CODEX_INTERRUPT_TIMEOUT: std::time::Duration = std::time::Duration::from_s
 /// cannot finish before they drain.
 pub(crate) async fn drive_protocol<R, F, H, A>(run: R, mut apply: H) -> F::Output
 where
-    R: FnOnce(mpsc::Sender<ProtocolEmission>) -> F,
+    R: FnOnce(ProtocolSender) -> F,
     F: std::future::Future,
     H: FnMut(ProtocolEmission) -> A,
     A: std::future::Future<Output = ()>,
 {
-    let (sender, mut receiver) = mpsc::channel(PROTOCOL_BUFFER_CAPACITY);
+    let (sender, mut receiver) = protocol_channel();
     let (result, ()) = tokio::join!(run(sender), async {
         while let Some(emission) = receiver.recv().await {
+            let (emission, _budget) = emission;
             apply(emission).await;
         }
     });
@@ -52,6 +159,9 @@ pub struct AgentProcessHandle {
     pid: Arc<AtomicU32>,
     cancelled: Arc<AtomicBool>,
     codex_control: Arc<Mutex<Option<mpsc::UnboundedSender<CodexControl>>>>,
+    requests: Arc<Mutex<HashMap<String, PendingProviderRequest>>>,
+    started: std::time::Instant,
+    timings: Arc<Mutex<serde_json::Map<String, Value>>>,
     skills: Arc<tokio::sync::Mutex<PromptStore>>,
     projects: Option<Arc<crate::project_runtime::ProjectRuntime>>,
     memory: Option<MemoryScope>,
@@ -67,10 +177,22 @@ pub(crate) struct MemoryScope {
     pub reads: Arc<std::sync::Mutex<Vec<Value>>>,
 }
 
+#[derive(Clone)]
+struct PendingProviderRequest {
+    rpc_id: Value,
+    method: String,
+    params: Value,
+}
+
 pub(crate) enum CodexControl {
     Steer {
         text: String,
         images: Vec<PathBuf>,
+        response: oneshot::Sender<Result<(), String>>,
+    },
+    Respond {
+        id: String,
+        answer: Value,
         response: oneshot::Sender<Result<(), String>>,
     },
     Interrupt,
@@ -86,7 +208,23 @@ impl AgentProcessHandle {
             pid: Arc::default(),
             cancelled: Arc::default(),
             codex_control: Arc::default(),
+            requests: Arc::default(),
+            started: std::time::Instant::now(),
+            timings: Arc::default(),
         }
+    }
+
+    fn mark(&self, stage: &str) {
+        self.timings
+            .lock()
+            .expect("provider timings")
+            .entry(stage.to_owned())
+            .or_insert_with(|| json!(self.started.elapsed().as_millis() as u64));
+    }
+
+    pub(crate) fn diagnostics(&self) -> Value {
+        json!({"elapsedMs":self.started.elapsed().as_millis() as u64,
+            "milestonesMs":self.timings.lock().expect("provider timings").clone()})
     }
 
     pub(crate) fn with_projects(
@@ -244,8 +382,47 @@ impl AgentProcessHandle {
             .map_err(|_| "Codex turn ended before steering completed".to_string())?
     }
 
+    pub(crate) fn pending_requests(&self) -> Vec<Value> {
+        let requests = self.requests.lock().expect("provider requests");
+        let mut entries: Vec<_> = requests
+            .iter()
+            .map(|(id, request)| json!({"id":id,"method":request.method,"params":request.params}))
+            .collect();
+        entries.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+        entries
+    }
+
+    pub(crate) async fn respond(&self, id: String, answer: Value) -> Result<(), String> {
+        let sender = self
+            .codex_control
+            .lock()
+            .expect("codex control")
+            .clone()
+            .ok_or("Provider request is no longer active")?;
+        let (response, receiver) = oneshot::channel();
+        sender
+            .send(CodexControl::Respond {
+                id,
+                answer,
+                response,
+            })
+            .map_err(|_| "Provider turn has ended")?;
+        tokio::time::timeout(CODEX_RPC_TIMEOUT, receiver)
+            .await
+            .map_err(|_| "Provider response timed out; reconnect to check its state")?
+            .map_err(|_| "Provider turn ended before accepting the response")?
+    }
+
     pub fn stop_codex(&self) -> bool {
         self.cancelled.store(true, Ordering::Release);
+        let handle = self.clone();
+        let pid = self.pid();
+        tokio::spawn(async move {
+            tokio::time::sleep(CODEX_INTERRUPT_TIMEOUT).await;
+            if pid.is_some() && handle.pid() == pid && handle.is_cancelled() {
+                handle.kill();
+            }
+        });
         self.codex_control
             .lock()
             .expect("codex control lock")
@@ -270,6 +447,7 @@ impl AgentProcessHandle {
     }
 
     fn clear_codex_control(&self) {
+        self.requests.lock().expect("provider requests").clear();
         self.codex_control
             .lock()
             .expect("codex control lock")
@@ -290,7 +468,7 @@ pub async fn run_agent(
     handle: &AgentProcessHandle,
     tracker: &RuntimePidTracker,
     context: &mut AgentProtocolContext,
-    emissions: &mpsc::Sender<ProtocolEmission>,
+    emissions: &ProtocolSender,
 ) -> String {
     match kind {
         inferay_core::agent_kind::AgentKind::Codex => {
@@ -314,7 +492,7 @@ async fn run_claude(
     run: ProviderRun<'_>,
     handle: &AgentProcessHandle,
     context: &mut AgentProtocolContext,
-    emissions: &mpsc::Sender<ProtocolEmission>,
+    emissions: &ProtocolSender,
 ) -> String {
     let scoped_mcp = match run
         .invocation
@@ -383,17 +561,19 @@ async fn run_claude(
         }
     };
     handle.set_pid(child.id());
+    handle.mark("processSpawned");
     let stderr = tokio::spawn(drain_bounded(child.stderr.take().expect("piped stderr")));
-    let mut stdout = BufReader::new(child.stdout.take().expect("piped stdout"));
-    let mut line = Vec::new();
+    let mut stdout = ProviderFrames::new(child.stdout.take().expect("piped stdout"));
     let mut protocol = ClaudeProtocolState::default();
 
     loop {
-        line.clear();
-        match stdout.read_until(b'\n', &mut line).await {
-            Ok(0) => break,
-            Ok(_) => {
+        match stdout.next().await {
+            Ok(None) => break,
+            Ok(Some(line)) => {
                 if let Some(event) = parse_ndjson(&line) {
+                    if event["type"] == "stream_event" || event["type"] == "assistant" {
+                        handle.mark("firstOutput");
+                    }
                     protocol.handle_event(context, &event);
                     flush_emissions(context, emissions).await;
                 }
@@ -402,6 +582,7 @@ async fn run_claude(
                 if !handle.is_cancelled() {
                     emit_error(context, error.to_string());
                 }
+                let _ = child.start_kill();
                 break;
             }
         }
@@ -446,7 +627,7 @@ fn claude_invocation_args(run: &ProviderRun<'_>, mcp_config: Option<&Path>) -> V
     arguments
 }
 
-const DIRECT_INTEGRATIONS: &str = "Inferay uses local Git and the GitHub CLI directly. GitKraken tools are disabled in Inferay. Use the direct Linear MCP tools for Linear; discover the available tools before claiming access is missing. If a direct integration is unavailable, report that specific connection failure rather than asking the user to connect GitKraken.";
+pub(crate) const DIRECT_INTEGRATIONS: &str = "You are running inside Inferay through the installed provider harness. Inferay owns the conversation, project bindings, queue and approval cards. Use native Inferay tools for app-owned resources; ordinary coding needs no app tools. A proposal is pending user action, not a saved change. Use absolute Markdown file links for local outputs. Inferay uses local Git and the GitHub CLI directly. GitKraken tools are disabled in Inferay. Use the direct Linear MCP tools for Linear; discover the available tools before claiming access is missing. If a direct integration is unavailable, report that specific connection failure rather than asking the user to connect GitKraken.";
 /// Config with no MCP servers, for turns that cannot use them.
 pub(crate) fn write_empty_mcp_config() -> Option<tempfile::NamedTempFile> {
     let file = tempfile::Builder::new()
@@ -464,7 +645,7 @@ async fn run_codex(
     tracker: &RuntimePidTracker,
     context: &mut AgentProtocolContext,
     state: &mut CodexProtocolState,
-    emissions: &mpsc::Sender<ProtocolEmission>,
+    emissions: &ProtocolSender,
 ) -> String {
     let _ = emissions
         .send(ProtocolEmission::Status {
@@ -490,9 +671,12 @@ async fn run_codex(
     let stderr = tokio::spawn(drain_bounded(child.stderr.take().expect("piped stderr")));
     let mut rpc = CodexConnection {
         stdin: child.stdin.take().expect("piped stdin"),
-        stdout: BufReader::new(child.stdout.take().expect("piped stdout")).lines(),
+        stdout: ProviderFrames::new(child.stdout.take().expect("piped stdout")),
+        read_failed: false,
         request_id: 0,
+        pending_notifications: VecDeque::new(),
     };
+    handle.mark("processSpawned");
     let startup = async {
         rpc.request(
             "initialize",
@@ -506,6 +690,7 @@ async fn run_codex(
         )
         .await?;
         rpc.write(&json!({"method":"initialized"})).await?;
+        handle.mark("initialized");
         let _ = emissions.send(ProtocolEmission::Status { status: "Loading Codex configuration…".into(), is_loading: true }).await;
         let config = rpc
             .request(
@@ -514,6 +699,7 @@ async fn run_codex(
                 (&mut *context, &mut *state, emissions),
             )
             .await?;
+        handle.mark("configurationRead");
         let mut start_params = codex_thread_params(run.invocation);
         configure_codex_session(&mut start_params, &config["config"], run.env, run.invocation.mcp_servers.as_deref())?;
         start_params["dynamicTools"] = handle.tool_definitions();
@@ -549,6 +735,7 @@ async fn run_codex(
             .and_then(Value::as_str)
             .ok_or("Codex App Server did not return a thread id")?
             .to_owned();
+        handle.mark("conversationReady");
         state.set_session(context, thread_id.clone());
         state.handle_notification(context, "thread/name/updated", &json!({
             "threadId": thread_id, "threadName": thread_response["thread"]["name"]
@@ -574,6 +761,7 @@ async fn run_codex(
             }
         }
         let _ = emissions.send(ProtocolEmission::Status { status: "Starting response…".into(), is_loading: true }).await;
+        handle.mark("toolsReady");
         let turn_params = codex_turn_params(&thread_id, run.prompt, run.invocation);
         let turn_response = rpc
             .request(
@@ -587,6 +775,7 @@ async fn run_codex(
             .and_then(Value::as_str)
             .ok_or("Codex App Server did not return a turn id")?
             .to_owned();
+        handle.mark("turnAccepted");
         Ok::<_, String>((thread_id, turn_id))
     }
     .await;
@@ -594,11 +783,6 @@ async fn run_codex(
         let (control_tx, mut control_rx) = mpsc::unbounded_channel();
         handle.set_codex_control(control_tx);
         let mut pending_steers = HashMap::<u64, oneshot::Sender<Result<(), String>>>::new();
-        let mut pending_user_input: Option<(Value, Vec<String>)> = None;
-        // An MCP server waiting on the user. Held separately from
-        // pending_user_input because the reply shape is MCP's
-        // {action, content}, not Codex's answers map.
-        let mut pending_elicitation: Option<(Value, Option<String>)> = None;
         let mut completed = false;
         let mut interrupt_deadline = None;
         loop {
@@ -617,38 +801,30 @@ async fn run_codex(
                         Some(CodexControl::Steer { text, images, response }) => {
                             state.prepare_for_steering(context);
                             flush_emissions(context, emissions).await;
-                            if let Some((response_id, field)) = pending_elicitation.take() {
-                                let reply = elicitation_reply(&response_id, &text, field.as_deref());
-                                let result = rpc
-                                    .write(&reply)
-                                    .await
-                                    .map_err(|error| error.to_string());
-                                if result.is_ok() {
-                                    state.close_tool(context);
-                                    flush_emissions(context, emissions).await;
+                            match rpc.send("turn/steer", json!({
+                                "threadId":thread_id,"expectedTurnId":turn_id,
+                                "input":codex_user_input(&text, &images)
+                            })).await {
+                                Ok(id) => { pending_steers.insert(id, response); }
+                                Err(error) => { let _ = response.send(Err(error)); }
+                            }
+                        }
+                        Some(CodexControl::Respond { id, answer, response }) => {
+                            let request = handle.requests.lock().expect("provider requests").get(&id).cloned();
+                            let result = match request {
+                                None => Err("This request was already answered or its turn ended".into()),
+                                Some(request) => match provider_request_reply(&request, answer) {
+                                    Err(error) => Err(error),
+                                    Ok(reply) => rpc.write(&reply).await,
                                 }
-                                let _ = response.send(result);
-                            } else if let Some((response_id, question_ids)) = pending_user_input.take() {
-                                let answers = question_ids.into_iter().map(|question_id| {
-                                    (question_id, json!({"answers":[text]}))
-                                }).collect::<serde_json::Map<_, _>>();
-                                let result = rpc.write(&json!({"id":response_id,"result":{"answers":answers}}))
-                                    .await
-                                    .map_err(|error| error.to_string());
-                                if result.is_ok() {
-                                    state.close_tool(context);
-                                    flush_emissions(context, emissions).await;
-                                }
-                                let _ = response.send(result);
-                            } else {
-                                match rpc.send("turn/steer", json!({
-                                        "threadId":thread_id,
-                                        "expectedTurnId":turn_id,
-                                        "input":codex_user_input(&text, &images)
-                                })).await {
-                                    Ok(id) => { pending_steers.insert(id, response); }
-                                    Err(error) => { let _ = response.send(Err(error)); }
-                                }
+                            };
+                            if result.is_ok() {
+                                handle.requests.lock().expect("provider requests").remove(&id);
+                            }
+                            let accepted = result.is_ok();
+                            let _ = response.send(result);
+                            if accepted {
+                                let _ = emissions.send(ProtocolEmission::Requests(handle.pending_requests())).await;
                             }
                         }
                         Some(CodexControl::Interrupt) => {
@@ -670,14 +846,23 @@ async fn run_codex(
                         let _ = response.send(result);
                         continue;
                     }
-                    if message.get("method").and_then(Value::as_str) == Some("item/tool/requestUserInput")
-                        && let Some(id) = message.get("id").cloned()
+                    // Server requests must belong to this root before exposing
+                    // an approval or invoking a host tool on its behalf.
+                    if message.get("id").is_some() && message.get("method").is_some()
+                        && (message["params"]["threadId"].as_str().is_some_and(|id| id != thread_id)
+                            || message["params"]["turnId"].as_str().is_some_and(|id| id != turn_id))
                     {
-                        let questions = message.pointer("/params/questions").and_then(Value::as_array).cloned().unwrap_or_default();
-                        let question_ids = questions.iter().filter_map(|question| question.get("id").and_then(Value::as_str).map(str::to_owned)).collect();
-                        pending_user_input = Some((id, question_ids));
-                        state.begin_tool(context, "AskUserQuestion", json!({"questions":questions}));
-                        flush_emissions(context, emissions).await;
+                        let _ = rpc.write(&json!({"id":message["id"],"error":{"code":-32000,"message":"Request does not belong to the active turn"}})).await;
+                        continue;
+                    }
+                    if let (Some(method), Some(rpc_id)) = (message["method"].as_str(), message.get("id"))
+                        && matches!(method, "item/tool/requestUserInput" | "mcpServer/elicitation/request" | "item/commandExecution/requestApproval" | "item/fileChange/requestApproval")
+                    {
+                        let id = uuid::Uuid::new_v4().to_string();
+                        handle.requests.lock().expect("provider requests").insert(id, PendingProviderRequest {
+                            rpc_id: rpc_id.clone(), method: method.into(), params: message["params"].clone(),
+                        });
+                        let _ = emissions.send(ProtocolEmission::Requests(handle.pending_requests())).await;
                         continue;
                     }
                     if message.get("method").and_then(Value::as_str) == Some("item/tool/call")
@@ -704,24 +889,6 @@ async fn run_codex(
                         }
                         continue;
                     }
-                    if message.get("method").and_then(Value::as_str)
-                        == Some("mcpServer/elicitation/request")
-                        && let Some(id) = message.get("id").cloned()
-                    {
-                        // Declining this is what made MCP servers needing consent
-                        // unusable: the server asks, Inferay refuses, and the
-                        // connect prompt can never reach the user.
-                        let params = message.pointer("/params").cloned().unwrap_or(Value::Null);
-                        let field = params
-                            .pointer("/requestedSchema/properties")
-                            .and_then(Value::as_object)
-                            .filter(|properties| properties.len() == 1)
-                            .and_then(|properties| properties.keys().next().cloned());
-                        pending_elicitation = Some((id, field));
-                        state.begin_tool(context, "McpElicitation", params);
-                        flush_emissions(context, emissions).await;
-                        continue;
-                    }
                     if let Some(reply) = unsupported_codex_request(&message) {
                         let method = message["method"].as_str().unwrap_or("unknown");
                         emit_error(context, format!("Codex requested {method}, which Inferay does not support yet. The request was declined so the turn can continue."));
@@ -731,7 +898,23 @@ async fn run_codex(
                         }
                         continue;
                     }
+                    // App-server can report nested or stale provider turns on this
+                    // transport. Only the submitted root owns this transcript and
+                    // completion; never translate a child's output into its parent.
+                    let params = &message["params"];
+                    let event_thread = params["threadId"].as_str();
+                    let event_turn = params["turnId"].as_str()
+                        .or_else(|| params.pointer("/turn/id").and_then(Value::as_str));
+                    if event_thread.is_some_and(|id| id != thread_id)
+                        || event_turn.is_some_and(|id| id != turn_id)
+                    {
+                        continue;
+                    }
+                    if message["method"].as_str().is_some_and(|method| method.ends_with("/delta")) { handle.mark("firstDelta"); }
                     let is_completed = message.get("method").and_then(Value::as_str) == Some("turn/completed");
+                    if is_completed && event_turn != Some(turn_id.as_str()) {
+                        continue;
+                    }
                     if let Some(method) = message["method"].as_str() {
                         crate::agent_protocol::handle_codex_notification(state, context, method, &message["params"]);
                         flush_emissions(context, emissions).await;
@@ -851,12 +1034,14 @@ pub(crate) async fn inspect_codex_mcp(
     let stderr = tokio::spawn(drain_bounded(child.stderr.take().expect("piped stderr")));
     let mut rpc = CodexConnection {
         stdin: child.stdin.take().expect("piped stdin"),
-        stdout: BufReader::new(child.stdout.take().expect("piped stdout")).lines(),
+        stdout: ProviderFrames::new(child.stdout.take().expect("piped stdout")),
+        read_failed: false,
         request_id: 0,
+        pending_notifications: VecDeque::new(),
     };
     let mut context = AgentProtocolContext::new(cwd.to_owned());
     let mut protocol = CodexProtocolState::default();
-    let (emissions, receiver) = mpsc::channel(1);
+    let (emissions, receiver) = protocol_channel();
     // Inventory inspection has no chat consumer. Discard notifications rather
     // than accumulating them while waiting for MCP discovery replies.
     drop(receiver);
@@ -923,8 +1108,10 @@ pub(crate) async fn inspect_codex_mcp(
 
 struct CodexConnection {
     stdin: tokio::process::ChildStdin,
-    stdout: tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
+    stdout: ProviderFrames<tokio::process::ChildStdout>,
+    read_failed: bool,
     request_id: u64,
+    pending_notifications: VecDeque<Value>,
 }
 
 impl CodexConnection {
@@ -948,12 +1135,29 @@ impl CodexConnection {
     }
 
     async fn read(&mut self) -> Option<Value> {
-        while let Some(line) = self.stdout.next_line().await.ok()? {
-            if let Ok(message) = serde_json::from_str(&line) {
-                return Some(message);
-            }
+        if let Some(message) = self.pending_notifications.pop_front() {
+            return Some(message);
         }
-        None
+        self.read_frame().await
+    }
+
+    async fn read_frame(&mut self) -> Option<Value> {
+        if self.read_failed {
+            return None;
+        }
+        let result = match self.stdout.next().await {
+            Ok(Some(line)) => serde_json::from_slice(&line)
+                .map_err(|error| format!("Invalid provider JSON: {error}")),
+            Ok(None) => return None,
+            Err(error) => Err(error.to_string()),
+        };
+        Some(match result {
+            Ok(message) => message,
+            Err(error) => {
+                self.read_failed = true;
+                json!({"method":"error","params":{"error":{"message":error}}})
+            }
+        })
     }
 
     async fn request(
@@ -963,7 +1167,7 @@ impl CodexConnection {
         protocol: (
             &mut AgentProtocolContext,
             &mut CodexProtocolState,
-            &mpsc::Sender<ProtocolEmission>,
+            &ProtocolSender,
         ),
     ) -> Result<Value, String> {
         let id = self.send(method, params).await?;
@@ -975,13 +1179,14 @@ impl CodexConnection {
             CODEX_RPC_TIMEOUT
         };
         let deadline = tokio::time::Instant::now() + timeout;
+        let mut pending_bytes = 0;
         loop {
             if tokio::time::Instant::now() >= deadline {
                 return Err(format!(
                     "Codex {method} response timed out; connection state is unknown"
                 ));
             }
-            let message = tokio::time::timeout_at(deadline, self.read())
+            let message = tokio::time::timeout_at(deadline, self.read_frame())
                 .await
                 .map_err(|_| {
                     format!("Codex {method} response timed out; connection state is unknown")
@@ -994,6 +1199,18 @@ impl CodexConnection {
             }
             if let Some(reply) = unsupported_codex_request(&message) {
                 self.write(&reply).await?;
+                continue;
+            }
+            // A fast turn may emit output or completion before the start RPC
+            // reply. Correlate those only after the root turn ID is known.
+            if method == "turn/start" && message["method"].is_string() {
+                pending_bytes += message.to_string().len();
+                if self.pending_notifications.len() >= 128 || pending_bytes > 1_048_576 {
+                    return Err(
+                        "Codex emitted too much data before acknowledging turn/start".into(),
+                    );
+                }
+                self.pending_notifications.push_back(message);
                 continue;
             }
             if let Some(method) = message["method"].as_str() {
@@ -1009,25 +1226,65 @@ impl CodexConnection {
     }
 }
 
-// Server requests have their own ID namespace. Never confuse them with replies
-// to our requests, and never leave an unsupported request waiting indefinitely.
-/// MCP expects `{action, content}` back. A declining word means declined; a
-/// server that asked for one string field gets the user's text as that field,
-/// and everything else is a plain acceptance.
-fn elicitation_reply(id: &Value, text: &str, field: Option<&str>) -> Value {
-    let answer = text.trim();
-    let declined = matches!(
-        answer.to_lowercase().as_str(),
-        "decline" | "declined" | "cancel" | "cancelled" | "no" | "deny" | "reject" | "skip"
-    );
-    if declined {
-        return json!({"id": id, "result": {"action": "decline"}});
-    }
-    let content = match field {
-        Some(field) if !answer.is_empty() => json!({ field: answer }),
-        _ => json!({}),
+// Provider replies are matched to a live request, never inferred from chat text.
+fn provider_request_reply(
+    request: &PendingProviderRequest,
+    answer: Value,
+) -> Result<Value, String> {
+    let result = match request.method.as_str() {
+        "item/tool/requestUserInput" => {
+            let questions = request.params["questions"]
+                .as_array()
+                .ok_or("Provider supplied invalid questions")?;
+            let answers = answer
+                .as_object()
+                .ok_or("Answer each question separately")?;
+            if answers.len() != questions.len() {
+                return Err("Answer every question in this request".into());
+            }
+            let mut output = serde_json::Map::new();
+            for question in questions {
+                let id = question["id"].as_str().ok_or("Question has no identity")?;
+                let text = answers
+                    .get(id)
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.trim().is_empty())
+                    .ok_or("An answer is missing")?;
+                output.insert(id.into(), json!({"answers":[text]}));
+            }
+            json!({"answers":output})
+        }
+        "mcpServer/elicitation/request" => {
+            let action = answer["action"]
+                .as_str()
+                .ok_or("Choose accept or decline")?;
+            if !matches!(action, "accept" | "decline" | "cancel") {
+                return Err("Invalid elicitation decision".into());
+            }
+            let content = answer.get("content").cloned().unwrap_or(json!({}));
+            if action == "accept" && !request.params["requestedSchema"].is_null() {
+                inferay_core::projects::validate_json(
+                    &request.params["requestedSchema"],
+                    &content,
+                )?;
+            }
+            json!({"action":action,"content":content})
+        }
+        "item/commandExecution/requestApproval" | "item/fileChange/requestApproval" => {
+            let decision = answer
+                .as_str()
+                .filter(|s| matches!(*s, "accept" | "decline" | "cancel"))
+                .ok_or("Choose approve once or decline")?;
+            if let Some(available) = request.params["availableDecisions"].as_array()
+                && !available.iter().any(|value| value == decision)
+            {
+                return Err("Provider does not offer that decision".into());
+            }
+            json!({"decision":decision})
+        }
+        _ => return Err("Unsupported provider request".into()),
     };
-    json!({"id": id, "result": {"action": "accept", "content": content}})
+    Ok(json!({"id":request.rpc_id,"result":result}))
 }
 
 fn unsupported_codex_request(message: &Value) -> Option<Value> {
@@ -1059,7 +1316,7 @@ async fn finish_codex_child(
     protocol: (
         &mut AgentProtocolContext,
         &mut CodexProtocolState,
-        &mpsc::Sender<ProtocolEmission>,
+        &ProtocolSender,
     ),
 ) -> String {
     let (context, state, emissions) = protocol;
@@ -1202,10 +1459,7 @@ fn emit_error(context: &mut AgentProtocolContext, message: String) {
     context.emissions.push(ProtocolEmission::System(message));
 }
 
-async fn flush_emissions(
-    context: &mut AgentProtocolContext,
-    sender: &mpsc::Sender<ProtocolEmission>,
-) {
+async fn flush_emissions(context: &mut AgentProtocolContext, sender: &ProtocolSender) {
     for emission in context.take_emissions() {
         let _ = sender.send(emission).await;
     }
@@ -1394,7 +1648,7 @@ mod runner_tests {
         let handle = AgentProcessHandle::with_skills(Arc::new(tokio::sync::Mutex::new(
             PromptStore::open(root.join("bundled.json"), root.join("local.json")).unwrap(),
         )));
-        let (tx, mut rx) = mpsc::channel(PROTOCOL_BUFFER_CAPACITY);
+        let (tx, mut rx) = protocol_channel();
         let mut context = AgentProtocolContext::new(root.clone());
         let env = HashMap::new();
         let invocation = CodexInvocationContext {
@@ -1419,20 +1673,20 @@ mod runner_tests {
         );
         assert!(handle.pid().is_none());
         assert!(
-            matches!(rx.try_recv().unwrap(), ProtocolEmission::Session(id) if id == "fixture-session")
+            matches!(rx.try_recv().unwrap().0, ProtocolEmission::Session(id) if id == "fixture-session")
         );
         assert!(
-            matches!(rx.try_recv().unwrap(), ProtocolEmission::Chat(event) if event["result"] == "done")
+            matches!(rx.try_recv().unwrap().0, ProtocolEmission::Chat(event) if event["result"] == "done")
         );
         std::fs::write(&binary, "#!/bin/sh\nprintf 'fixture failure' >&2\nexit 1\n").unwrap();
         assert_eq!(run_claude(make_run(), &handle, &mut context, &tx).await, "");
         assert!(
-            matches!(rx.try_recv().unwrap(), ProtocolEmission::System(error) if error == "fixture failure")
+            matches!(rx.try_recv().unwrap().0, ProtocolEmission::System(error) if error == "fixture failure")
         );
         std::fs::remove_file(&binary).unwrap();
         assert_eq!(run_claude(make_run(), &handle, &mut context, &tx).await, "");
         assert!(matches!(
-            rx.try_recv().unwrap(),
+            rx.try_recv().unwrap().0,
             ProtocolEmission::System(_)
         ));
         std::fs::remove_dir_all(root).unwrap();

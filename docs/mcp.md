@@ -61,6 +61,6 @@ MCP icons are cached/displayed through `mcp_icons.rs`; they do not alter permiss
 - Return an honest proposal/result. Creating a card is not saving, approving, enabling or sending an external action.
 - Validate arguments at the actual storage/execution boundary. Do not expose a SQL passthrough to make one tool easier to implement.
 - Do not represent MCP JSON-RPC methods as independent REST paths. External servers' schemas belong to those servers and are not included in Inferay's native-tool snapshot.
-- Improvements to consider: derive more native tool inputs from Rust enums instead of hand-maintained JSON; make action-dependent fields explicit in schemas; add versioned result schemas where clients need them; keep provider connection diagnostics structured. Those changes need compatibility review rather than silently claiming all existing dynamic responses are fully typed.
+- Skill updates, project commands, and memory reads/saves declare their action-dependent required fields in the tool schemas. Improvements to consider: derive more inputs from Rust enums instead of hand-maintained JSON; add versioned result schemas where clients need them; keep provider connection diagnostics structured. Those changes need compatibility review rather than silently claiming all existing dynamic responses are fully typed.
 
 Run `bun run generate:api` after changing tool definitions or database contracts. See [API generation and coverage](api.md) for exact artifacts and verification.

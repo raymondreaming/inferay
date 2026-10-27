@@ -584,11 +584,12 @@ pub fn validate_schema_definition(schema: &Value, depth: usize) -> Result<(), St
                     return Err("Unsigned schema bound required".into());
                 }
             }
-            "title" | "description" => {
+            "title" | "description" | "$schema" => {
                 if !value.is_string() {
                     return Err("Schema description must be text".into());
                 }
             }
+            "default" | "examples" => {} // Annotations do not constrain accepted values.
             _ => return Err(format!("Unsupported schema keyword: {key}")),
         }
     }

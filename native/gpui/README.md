@@ -37,7 +37,7 @@ Native design tokens, icons, and syntax palettes live in `assets/` and `src/colo
 | Surface | Still required |
 |---|---|
 | Workspace | Complete tab lifecycle, drag/drop, project management |
-| Conversation | Full run-status presentation, clipboard image paste, attachment draft persistence, mentions/command picker, approvals, complete rich cards, embedded apps; provider-backed send/stop UI verification |
+| Conversation | Full run-status presentation, clipboard image paste, attachment draft persistence, file mentions, richer approval details, complete rich cards, embedded apps; provider-backed send/stop UI verification |
 | Repository | Commit flow, remaining Git actions, search/filter/context menus, column interaction, refresh lifecycle, broader geometry comparisons |
 | Settings | Finish side-by-side interaction checks, range sliders, account/avatar presentation, richer database filtering/sorting and large-cell navigation |
 | Files and project resources | Native explorer/editing, memory, plugins, automations, proposal flows |
@@ -64,3 +64,7 @@ Repository parity: linked worktree WIP rows stay beside their loaded HEAD instea
 The 2026-10-26 cutover deletes the former UI and host in one commit. The production bundle keeps `com.inferay.app`, `/Applications/inferay.app`, the existing Inferay Dock icon, and the existing user profile. `packages/inferay` remains the npm installer/launcher; the release command builds the GPUI DMG, updates both GPUI manifest and lockfile, and publishes the existing npm/GitHub artifacts.
 
 Production GPUI checks for updates on launch and every 15 minutes. Available updates open Settings → About & updates, where Update and restart uses the shared installer backend. External-backend development sessions cannot initiate installation or restart their owning backend. Local builds verify packaging; publishing and a real downloaded-version upgrade are separate release operations.
+
+Provider requests render native per-question inputs and action-specific approve-once/decline controls. Interrupted queued turns show an explicit Retry action. Chat snapshots retain the requested recent window across reconnects; Load older messages expands it while preserving the reading anchor.
+
+Typing `/` in the composer opens the live native skill and command catalog, including custom skills. Prefix filtering, Up/Down, Enter/Tab selection, Escape dismissal, mouse selection and Manage skills use the existing command API and Skills settings. Selection inserts into the draft rather than sending it. Resumed agent turns refresh skill names, descriptions and revisions while keeping captured session instructions.

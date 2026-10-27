@@ -1,5 +1,5 @@
 {
-	"description": "Static dispatch_api route inventory, plus database routes. Parameterized prompts/{id}, chat-queues/{paneId} and websocket messages remain documented in api.md; this is not a generated client contract.",
+	"description": "Static dispatch_api route inventory, plus database routes. Parameterized prompts/{id}, chat-queues/{paneId}, chat-requests/{paneId}, chat-diagnostics/{paneId} and websocket messages remain documented in api.md; this is not a generated client contract.",
 	"routes": {
 		"/api/agent-context": ["GET", "PUT"],
 		"/api/agent/commands": ["GET"],

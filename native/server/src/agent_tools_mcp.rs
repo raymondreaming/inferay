@@ -12,14 +12,13 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
-use tokio::sync::mpsc;
 
 #[derive(Clone)]
 struct Tools {
     token: String,
     active: Arc<AtomicBool>,
     handle: AgentProcessHandle,
-    emissions: mpsc::Sender<ProtocolEmission>,
+    emissions: crate::agent_runner::ProtocolSender,
 }
 
 pub(crate) struct ToolBridge {
@@ -36,7 +35,7 @@ impl Drop for ToolBridge {
 impl ToolBridge {
     pub async fn start(
         handle: AgentProcessHandle,
-        emissions: mpsc::Sender<ProtocolEmission>,
+        emissions: crate::agent_runner::ProtocolSender,
     ) -> Result<Self, String> {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
@@ -152,7 +151,7 @@ mod tests {
             .unwrap(),
         ));
         let handle = AgentProcessHandle::with_skills(skills);
-        let (sender, _receiver) = mpsc::channel(crate::agent_runner::PROTOCOL_BUFFER_CAPACITY);
+        let (sender, _receiver) = crate::agent_runner::protocol_channel();
         let bridge = ToolBridge::start(handle, sender).await.unwrap();
         let config: Value = serde_json::from_reader(bridge.config.reopen().unwrap()).unwrap();
         let url = config["mcpServers"]["inferay"]["url"].as_str().unwrap();
@@ -218,7 +217,7 @@ mod provider_test {
             )
             .unwrap(),
         )));
-        let (sender, _receiver) = mpsc::channel(crate::agent_runner::PROTOCOL_BUFFER_CAPACITY);
+        let (sender, _receiver) = crate::agent_runner::protocol_channel();
         let bridge = ToolBridge::start(handle, sender).await.unwrap();
         let output = tokio::time::timeout(std::time::Duration::from_secs(120), tokio::process::Command::new("claude")
             .current_dir(root.path())

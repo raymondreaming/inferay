@@ -2,6 +2,7 @@ use inferay_core::chat_protocol::ChatTranscriptMessage;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::{
     any::Any,
     path::{Path, PathBuf},
@@ -16,6 +17,22 @@ pub struct QueuedMessageInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub images: Option<Vec<PathBuf>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub execution: Option<QueuedExecution>,
+    #[serde(default)]
+    pub interrupted: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+pub struct QueuedExecution {
+    pub provider: String,
+    pub model: Option<String>,
+    pub reasoning_level: Option<String>,
+    pub cwd: PathBuf,
+    pub reference_paths: Vec<PathBuf>,
+    pub mcp_servers: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -141,6 +158,10 @@ fn open_connection(path: &Path) -> StoreResult<Connection> {
                      CREATE TABLE IF NOT EXISTS documents (
                          pane TEXT NOT NULL, kind TEXT NOT NULL, body TEXT NOT NULL CHECK(json_valid(body)),
                          PRIMARY KEY(pane, kind));
+                     CREATE TABLE IF NOT EXISTS chat_submissions (
+                         pane TEXT NOT NULL, id TEXT NOT NULL, request_hash TEXT NOT NULL,
+                         owner TEXT NOT NULL, handled INTEGER NOT NULL DEFAULT 0,
+                         PRIMARY KEY(pane, id));
                      CREATE TABLE IF NOT EXISTS transcripts (
                          pane TEXT PRIMARY KEY NOT NULL, epoch TEXT NOT NULL, revision TEXT NOT NULL);
                      CREATE TABLE IF NOT EXISTS retired_epochs (
@@ -298,14 +319,81 @@ impl ChatPersistence {
         .await
     }
 
+    /// Claim before any provider side effect. A retry is an acknowledgement,
+    /// never permission to run an uncertain submission again after a restart.
+    pub async fn claim_submission(
+        &self,
+        pane: &str,
+        id: &str,
+        body: Value,
+        owner: &str,
+    ) -> Result<bool, String> {
+        if id.is_empty() || id.len() > 256 {
+            return Err("Invalid message ID".into());
+        }
+        let id = id.to_owned();
+        let owner = owner.to_owned();
+        let body = format!(
+            "{:x}",
+            Sha256::digest(serde_json::to_vec(&body).map_err(|e| e.to_string())?)
+        );
+        self.transaction(pane, move |connection, pane| {
+            let previous: Option<String> = connection
+                .query_row(
+                    "SELECT request_hash FROM chat_submissions WHERE pane=?1 AND id=?2",
+                    params![pane, id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(previous) = previous {
+                if previous != body {
+                    return Err("Message ID was already used for a different submission".into());
+                }
+                return Ok(false);
+            }
+            connection.execute(
+                "INSERT INTO chat_submissions(pane,id,request_hash,owner) VALUES(?1,?2,?3,?4)",
+                params![pane, id, body, owner],
+            )?;
+            Ok(true)
+        })
+        .await
+    }
+
+    pub async fn finish_submission(&self, pane: &str, id: &str) -> Result<(), String> {
+        let id = id.to_owned();
+        self.transaction(pane, move |connection, pane| {
+            connection.execute(
+                "UPDATE chat_submissions SET handled=1 WHERE pane=?1 AND id=?2",
+                params![pane, id],
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn interrupted_submissions(
+        &self,
+        pane: &str,
+        owner: &str,
+    ) -> Result<Vec<String>, String> {
+        let owner = owner.to_owned();
+        self.transaction(pane, move |connection, pane| {
+            let mut query = connection.prepare("SELECT id FROM chat_submissions WHERE pane=?1 AND owner<>?2 AND handled=0 ORDER BY rowid")?;
+            let ids = query.query_map(params![pane,owner], |row| row.get(0))?.collect::<Result<Vec<String>,_>>()?;
+            Ok(ids)
+        }).await
+    }
+
     pub async fn clear_session(&self, pane_id: &str, epoch: Option<String>) -> Result<(), String> {
         self.transaction(pane_id, move |connection, pane| {
             connection.execute("INSERT OR IGNORE INTO retired_epochs SELECT pane,epoch FROM transcripts WHERE pane=?1", [pane])?;
             if let Some(epoch) = epoch {
                 connection.execute("INSERT OR IGNORE INTO retired_epochs(pane,epoch) VALUES(?1,?2)", [pane, &epoch])?;
             }
+            connection.execute("UPDATE chat_submissions SET handled=1 WHERE pane=?1", [pane])?;
             connection.execute("DELETE FROM transcript_messages WHERE pane=?1", [pane])?;
-            connection.execute("DELETE FROM documents WHERE pane=?1 AND kind IN ('session','queue','agentContext')", [pane])?;
+            connection.execute("DELETE FROM documents WHERE pane=?1 AND kind IN ('session','queue','agentContext','queuedActive')", [pane])?;
             write_document(connection, pane, "legacySummaryCleared", &true)?;
             // Retain an empty transcript so legacy provider history cannot restore a cleared chat.
             connection.execute("INSERT INTO transcripts(pane,epoch,revision) VALUES(?1,?2,'0') ON CONFLICT(pane) DO UPDATE SET epoch=excluded.epoch,revision='0'", [pane, &uuid::Uuid::new_v4().to_string()])?;
@@ -360,6 +448,20 @@ impl ChatPersistence {
         })
     }
 
+    pub async fn save_diagnostics(&self, pane: &str, value: Value) -> Result<(), String> {
+        self.transaction(pane, move |connection, pane| {
+            write_document(connection, pane, "diagnostics", &value)
+        })
+        .await
+    }
+
+    pub async fn read_diagnostics(&self, pane: &str) -> Result<Value, String> {
+        self.transaction(pane, |connection, pane| {
+            read_document(connection, pane, "diagnostics")
+        })
+        .await
+    }
+
     pub async fn read_queue(&self, pane_id: &str) -> Result<Vec<QueuedMessageInfo>, String> {
         self.transaction(pane_id, |connection, pane| {
             read_queue_document(connection, pane)
@@ -405,12 +507,77 @@ impl ChatPersistence {
         .await
     }
 
-    pub async fn shift_runtime(&self, pane_id: &str) -> Result<Option<QueuedMessageInfo>, String> {
-        self.edit_queue(pane_id, |queue| {
-            if queue.is_empty() {
-                return Ok(None);
+    pub async fn claim_queued(
+        &self,
+        pane_id: &str,
+        owner: &str,
+        retry_id: Option<&str>,
+    ) -> Result<Option<QueuedMessageInfo>, String> {
+        let owner = owner.to_owned();
+        let retry_id = retry_id.map(str::to_owned);
+        self.transaction(pane_id, move |connection, pane| {
+            let active: Value = read_document(connection, pane, "queuedActive")?;
+            if !active.is_null() {
+                return Err("Queued work is already claimed".into());
             }
-            Ok(Some(queue.remove(0)))
+            let mut queue = read_queue_document(connection, pane)?;
+            let index = if let Some(id) = &retry_id {
+                queue
+                    .iter()
+                    .position(|message| &message.id == id)
+                    .ok_or("Queued message no longer exists")?
+            } else {
+                if queue.first().is_none_or(|message| message.interrupted) {
+                    return Ok(None);
+                }
+                0
+            };
+            let mut next = queue.remove(index);
+            next.interrupted = false;
+            write_document(
+                connection,
+                pane,
+                "queuedActive",
+                &serde_json::json!({"owner":owner,"message":next}),
+            )?;
+            write_document(connection, pane, "queue", &queue)?;
+            Ok(Some(next))
+        })
+        .await
+    }
+
+    pub async fn finish_queued(&self, pane: &str, id: &str) -> Result<(), String> {
+        let id = id.to_owned();
+        self.transaction(pane, move |connection, pane| {
+            let active: Value = read_document(connection, pane, "queuedActive")?;
+            if active["message"]["id"] == id {
+                connection.execute(
+                    "DELETE FROM documents WHERE pane=?1 AND kind='queuedActive'",
+                    [pane],
+                )?;
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn recover_queued(&self, pane: &str, owner: &str) -> Result<(), String> {
+        let owner = owner.to_owned();
+        self.transaction(pane, move |connection, pane| {
+            let active: Value = read_document(connection, pane, "queuedActive")?;
+            if active.is_null() || active["owner"] == owner {
+                return Ok(());
+            }
+            let mut message: QueuedMessageInfo = serde_json::from_value(active["message"].clone())?;
+            message.interrupted = true;
+            let mut queue = read_queue_document(connection, pane)?;
+            queue.insert(0, message);
+            write_document(connection, pane, "queue", &queue)?;
+            connection.execute(
+                "DELETE FROM documents WHERE pane=?1 AND kind='queuedActive'",
+                [pane],
+            )?;
+            Ok(())
         })
         .await
     }
@@ -592,6 +759,71 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn submission_receipts_survive_restart_and_reject_conflicting_retries() {
+        let root = tempfile::tempdir().unwrap();
+        let store = ChatPersistence::new(root.path().to_owned());
+        let body = serde_json::json!({"text":"do work"});
+        let (a, b) = tokio::join!(
+            store.claim_submission("pane", "id", body.clone(), "boot-one"),
+            store.claim_submission("pane", "id", body.clone(), "boot-one")
+        );
+        assert_ne!(a.unwrap(), b.unwrap());
+        assert!(
+            store
+                .interrupted_submissions("pane", "boot-one")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        let restored = ChatPersistence::new(root.path().to_owned());
+        assert_eq!(
+            restored
+                .interrupted_submissions("pane", "boot-two")
+                .await
+                .unwrap(),
+            ["id"]
+        );
+        assert!(
+            !restored
+                .claim_submission("pane", "id", body.clone(), "boot-two")
+                .await
+                .unwrap()
+        );
+        assert!(
+            restored
+                .claim_submission(
+                    "pane",
+                    "id",
+                    serde_json::json!({"text":"different"}),
+                    "boot-two"
+                )
+                .await
+                .is_err()
+        );
+        restored.finish_submission("pane", "id").await.unwrap();
+        assert!(
+            restored
+                .interrupted_submissions("pane", "boot-two")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        restored.clear_session("pane", None).await.unwrap();
+        assert!(
+            !restored
+                .claim_submission("pane", "id", body.clone(), "boot-two")
+                .await
+                .unwrap()
+        );
+        assert!(
+            restored
+                .claim_submission("another-pane", "id", body, "boot-two")
+                .await
+                .unwrap()
+        );
+    }
+
+    #[tokio::test]
     async fn transcript_splices_preserve_content_and_reject_invalid_replacements() {
         use serde_json::json;
         let directory = tempfile::tempdir().unwrap();
@@ -685,6 +917,64 @@ mod tests {
             })),
             reply,
         }
+    }
+
+    #[tokio::test]
+    async fn queue_claims_recover_once_with_original_execution_settings() {
+        let root = tempfile::tempdir().unwrap();
+        let store = ChatPersistence::new(root.path().to_owned());
+        let message: QueuedMessageInfo = serde_json::from_value(serde_json::json!({
+            "id":"queued", "text":"work", "displayText":"work", "execution":{
+                "provider":"codex","model":"chosen","reasoningLevel":"high",
+                "cwd":"/original","referencePaths":["/reference"],"mcpServers":[]
+            }
+        }))
+        .unwrap();
+        store
+            .enqueue_runtime("pane", message.clone())
+            .await
+            .unwrap();
+        let claimed = store
+            .claim_queued("pane", "first", None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(claimed, message);
+        assert!(store.claim_queued("pane", "first", None).await.is_err());
+        store.recover_queued("pane", "first").await.unwrap();
+        assert!(store.read_queue("pane").await.unwrap().is_empty());
+        store.recover_queued("pane", "second").await.unwrap();
+        store.recover_queued("pane", "second").await.unwrap();
+        let recovered = store.read_queue("pane").await.unwrap();
+        assert_eq!(recovered.len(), 1);
+        assert!(recovered[0].interrupted);
+        assert_eq!(recovered[0].execution, message.execution);
+        assert!(
+            store
+                .claim_queued("pane", "second", None)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            store
+                .claim_queued("pane", "second", Some("missing"))
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            store
+                .claim_queued("pane", "second", Some("queued"))
+                .await
+                .unwrap()
+                .unwrap(),
+            message
+        );
+        store.finish_queued("pane", "stale").await.unwrap();
+        assert!(store.claim_queued("pane", "second", None).await.is_err());
+        store.finish_queued("pane", "queued").await.unwrap();
+        store.recover_queued("pane", "third").await.unwrap();
+        assert!(store.read_queue("pane").await.unwrap().is_empty());
     }
 
     #[test]

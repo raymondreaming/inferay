@@ -1,4 +1,5 @@
 use super::*;
+use std::future::Future;
 use std::os::unix::fs::PermissionsExt;
 
 #[tokio::test]
@@ -107,10 +108,7 @@ async fn slow_consumer_bounds_queued_events_and_preserves_delivery_order() {
                         .await
                         .unwrap();
                 }
-                assert!(matches!(
-                    sender.try_send(ProtocolEmission::System("overflow".into())),
-                    Err(mpsc::error::TrySendError::Full(_))
-                ));
+                assert_eq!(sender.sender.capacity(), 0);
                 release.send(()).unwrap();
                 sender
                     .send(ProtocolEmission::System(
@@ -182,8 +180,28 @@ for line in sys.stdin:
   send({'id':m['id'],'result':{'thread':{'id':'fixture-thread'}}})
  elif method=='mcpServerStatus/list': send({'id':m['id'],'result':{'data':[],'nextCursor':None}})
  elif method=='turn/start':
+  if MODE=='early':
+   send({'method':'item/completed','params':{'threadId':'child','turnId':'child-turn','item':{'type':'agentMessage','text':'child output'}}})
+   send({'method':'turn/completed','params':{'threadId':'child','turn':{'id':'child-turn','status':'completed'}}})
+   send({'method':'item/completed','params':{'threadId':'fixture-thread','turnId':'fixture-turn','item':{'type':'agentMessage','text':'root output'}}})
+   send({'method':'turn/completed','params':{'threadId':'fixture-thread','turn':{'id':'fixture-turn','status':'completed'}}})
   send({'id':m['id'],'result':{'turn':{'id':'fixture-turn'}}})
+  if MODE=='children':
+   send({'method':'item/completed','params':{'threadId':'child','turnId':'child-turn','item':{'type':'agentMessage','text':'child output'}}})
+   send({'method':'turn/completed','params':{'threadId':'child','turn':{'id':'child-turn','status':'completed'}}})
+   send({'method':'turn/completed','params':{'threadId':'fixture-thread','turn':{'id':'old-turn','status':'completed'}}})
+   send({'method':'item/completed','params':{'threadId':'fixture-thread','turnId':'fixture-turn','item':{'type':'agentMessage','text':'root output'}}})
+   send({'method':'turn/completed','params':{'threadId':'fixture-thread','turn':{'id':'fixture-turn','status':'completed'}}})
+  if MODE=='questions':
+   send({'id':'questions','method':'item/tool/requestUserInput','params':{'questions':[{'id':'color','question':'Color?'},{'id':'size','question':'Size?'}]}})
+   send({'id':'approval','method':'item/commandExecution/requestApproval','params':{'availableDecisions':['accept','decline']}})
   if MODE=='unsupported': send({'id':'server-question','method':'future/request','params':{}})
+ elif m.get('id')=='questions':
+  assert m['result']['answers']=={'color':{'answers':['blue']},'size':{'answers':['large']}}
+ elif m.get('id')=='approval':
+  assert m['result']['decision']=='decline'
+  send({'method':'item/completed','params':{'item':{'type':'agentMessage','text':'answered separately'}}})
+  send({'method':'turn/completed','params':{'turn':{'id':'fixture-turn','status':'completed'}}})
  elif method=='turn/interrupt': pass # Simulate an unresponsive model request.
  elif m.get('id')=='server-question':
   assert m['error']['code']==-32601
@@ -260,7 +278,7 @@ async fn unsupported_server_requests_receive_replies_during_startup_and_turns() 
     let tracker = RuntimePidTracker::new(f.root.join("pids.json"));
     let mut context = AgentProtocolContext::new(f.root.clone());
     let mut state = CodexProtocolState::default();
-    let (tx, _rx) = mpsc::channel(PROTOCOL_BUFFER_CAPACITY);
+    let (tx, _rx) = protocol_channel();
     let env = HashMap::new();
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(10),
@@ -285,6 +303,45 @@ async fn unsupported_server_requests_receive_replies_during_startup_and_turns() 
 }
 
 #[tokio::test]
+async fn child_and_stale_turns_cannot_complete_or_contaminate_the_root_turn() {
+    for mode in ["children", "early"] {
+        let f = Fixture::new(mode);
+        let invocation = f.invocation(false);
+        let handle = f.handle();
+        let tracker = RuntimePidTracker::new(f.root.join("pids.json"));
+        let mut context = AgentProtocolContext::new(f.root.clone());
+        let mut state = CodexProtocolState::default();
+        let (tx, mut rx) = protocol_channel();
+        let env = HashMap::new();
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            run_codex(
+                ProviderRun {
+                    binary: &f.binary,
+                    invocation: &invocation,
+                    env: &env,
+                    prompt: "hello",
+                },
+                &handle,
+                &tracker,
+                &mut context,
+                &mut state,
+                &tx,
+            ),
+        )
+        .await
+        .unwrap();
+        assert_eq!(result, "root output");
+        while let Ok(emission) = rx.try_recv() {
+            if let ProtocolEmission::Chat(event) = emission.0 {
+                assert!(!event.to_string().contains("child output"));
+            }
+        }
+        assert!(handle.pid().is_none());
+    }
+}
+
+#[tokio::test]
 async fn failed_resume_does_not_silently_start_a_new_thread() {
     let f = Fixture::new("resume");
     let invocation = f.invocation(true);
@@ -292,7 +349,7 @@ async fn failed_resume_does_not_silently_start_a_new_thread() {
     let tracker = RuntimePidTracker::new(f.root.join("pids.json"));
     let mut context = AgentProtocolContext::new(f.root.clone());
     let mut state = CodexProtocolState::default();
-    let (tx, mut rx) = mpsc::channel(PROTOCOL_BUFFER_CAPACITY);
+    let (tx, mut rx) = protocol_channel();
     let env = HashMap::new();
     run_codex(
         ProviderRun {
@@ -311,7 +368,7 @@ async fn failed_resume_does_not_silently_start_a_new_thread() {
     let requests = std::fs::read_to_string(f.root.join("requests.jsonl")).unwrap();
     assert!(requests.contains("thread/resume"));
     assert!(!requests.contains("thread/start"));
-    assert!(std::iter::from_fn(|| rx.try_recv().ok()).any(|event|
+    assert!(std::iter::from_fn(|| rx.try_recv().ok().map(|item| item.0)).any(|event|
         matches!(event, ProtocolEmission::System(message) if message.contains("Could not resume Codex session saved-thread"))));
 }
 
@@ -323,7 +380,7 @@ async fn interrupt_terminates_a_server_that_never_completes_the_turn() {
     let tracker = RuntimePidTracker::new(f.root.join("pids.json"));
     let mut context = AgentProtocolContext::new(f.root.clone());
     let mut state = CodexProtocolState::default();
-    let (tx, _rx) = mpsc::channel(PROTOCOL_BUFFER_CAPACITY);
+    let (tx, _rx) = protocol_channel();
     let env = HashMap::new();
     tokio::time::timeout(std::time::Duration::from_secs(10), async {
         tokio::join!(
@@ -370,7 +427,7 @@ async fn notifications_do_not_reset_the_rpc_deadline() {
     let tracker = RuntimePidTracker::new(f.root.join("pids.json"));
     let mut context = AgentProtocolContext::new(f.root.clone());
     let mut state = CodexProtocolState::default();
-    let (tx, mut rx) = mpsc::channel(PROTOCOL_BUFFER_CAPACITY);
+    let (tx, mut rx) = protocol_channel();
     let env = HashMap::new();
     tokio::time::timeout(
         std::time::Duration::from_secs(30),
@@ -390,7 +447,7 @@ async fn notifications_do_not_reset_the_rpc_deadline() {
     )
     .await
     .unwrap();
-    assert!(std::iter::from_fn(|| rx.try_recv().ok()).any(|event|
+    assert!(std::iter::from_fn(|| rx.try_recv().ok().map(|item| item.0)).any(|event|
         matches!(event, ProtocolEmission::System(message) if message.contains("response timed out"))));
     assert!(handle.pid().is_none());
 }
@@ -585,4 +642,170 @@ fn provider_launch_clears_inherited_gui_signal_mask_without_changing_parent() {
             assert_eq!(libc::sigismember(&current, libc::SIGTERM), 1);
         }
     }).join().unwrap();
+}
+
+#[tokio::test]
+async fn large_protocol_events_apply_backpressure_until_consumed() {
+    let (sender, mut receiver) = protocol_channel();
+    sender
+        .send(ProtocolEmission::System("x".repeat(PROTOCOL_BUFFER_BYTES)))
+        .await
+        .unwrap();
+    let next = sender.send(ProtocolEmission::System("next".into()));
+    tokio::pin!(next);
+    assert!(matches!(
+        std::future::poll_fn(|cx| std::task::Poll::Ready(next.as_mut().poll(cx))).await,
+        std::task::Poll::Pending
+    ));
+    let first = receiver.recv().await.unwrap();
+    assert_eq!(sender.bytes.available_permits(), 0);
+    drop(first);
+    next.await.unwrap();
+    assert!(
+        matches!(receiver.recv().await.unwrap().0, ProtocolEmission::System(text) if text == "next")
+    );
+}
+
+#[tokio::test]
+async fn provider_frames_survive_cancelled_reads_and_reject_unbounded_lines() {
+    let (mut writer, reader) = tokio::io::duplex(64);
+    let mut frames = ProviderFrames::new(reader);
+    writer.write_all(b"partial").await.unwrap();
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(10), frames.next())
+            .await
+            .is_err()
+    );
+    writer.write_all(b" complete\nnext\n").await.unwrap();
+    assert_eq!(frames.next().await.unwrap().unwrap(), b"partial complete\n");
+    assert_eq!(frames.next().await.unwrap().unwrap(), b"next\n");
+    drop(writer);
+    assert!(frames.next().await.unwrap().is_none());
+    let input = vec![b'x'; MAX_PROVIDER_FRAME_BYTES + 1];
+    let mut frames = ProviderFrames::new(input.as_slice());
+    assert_eq!(
+        frames.next().await.unwrap_err().kind(),
+        std::io::ErrorKind::InvalidData
+    );
+    assert!(frames.partial.len() <= MAX_PROVIDER_FRAME_BYTES);
+}
+
+#[test]
+fn provider_answers_preserve_question_identity_and_limit_approval_scope() {
+    let request = PendingProviderRequest {
+        rpc_id: json!(42),
+        method: "item/tool/requestUserInput".into(),
+        params: json!({"questions":[{"id":"color"},{"id":"size"}]}),
+    };
+    assert!(provider_request_reply(&request, json!("blue")).is_err());
+    assert!(provider_request_reply(&request, json!({"color":"blue"})).is_err());
+    let reply = provider_request_reply(&request, json!({"color":"blue","size":"large"})).unwrap();
+    assert_eq!(reply["id"], 42);
+    assert_eq!(
+        reply["result"]["answers"]["size"]["answers"],
+        json!(["large"])
+    );
+    let request = PendingProviderRequest {
+        rpc_id: json!("approval"),
+        method: "item/commandExecution/requestApproval".into(),
+        params: json!({"availableDecisions":["accept","decline"]}),
+    };
+    assert!(provider_request_reply(&request, json!("acceptForSession")).is_err());
+    assert!(provider_request_reply(&request, json!("cancel")).is_err());
+    assert_eq!(
+        provider_request_reply(&request, json!("accept")).unwrap()["result"]["decision"],
+        "accept"
+    );
+}
+
+#[tokio::test]
+async fn concurrent_provider_requests_are_answered_once_by_identity() {
+    let f = Fixture::new("questions");
+    let invocation = f.invocation(false);
+    let handle = f.handle();
+    let tracker = RuntimePidTracker::new(f.root.join("pids.json"));
+    let mut context = AgentProtocolContext::new(f.root.clone());
+    let mut state = CodexProtocolState::default();
+    let (tx, _rx) = protocol_channel();
+    let env = HashMap::new();
+    let (output, ()) = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        tokio::join!(
+            run_codex(
+                ProviderRun {
+                    binary: &f.binary,
+                    invocation: &invocation,
+                    env: &env,
+                    prompt: "hello"
+                },
+                &handle,
+                &tracker,
+                &mut context,
+                &mut state,
+                &tx
+            ),
+            async {
+                while handle.pending_requests().len() != 2 {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+                let requests = handle.pending_requests();
+                let question = requests
+                    .iter()
+                    .find(|r| r["method"] == "item/tool/requestUserInput")
+                    .unwrap()["id"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned();
+                assert!(
+                    handle
+                        .respond(question.clone(), json!({"color":"blue"}))
+                        .await
+                        .is_err()
+                );
+                assert_eq!(handle.pending_requests().len(), 2);
+                handle
+                    .respond(question.clone(), json!({"color":"blue","size":"large"}))
+                    .await
+                    .unwrap();
+                assert!(
+                    handle
+                        .respond(question, json!({"color":"blue","size":"large"}))
+                        .await
+                        .is_err()
+                );
+                assert_eq!(handle.pending_requests().len(), 1);
+                let approval = handle.pending_requests()[0]["id"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned();
+                handle.respond(approval, json!("decline")).await.unwrap();
+            }
+        )
+    })
+    .await
+    .unwrap();
+    assert_eq!(output, "answered separately");
+    assert!(handle.pending_requests().is_empty());
+    let timings = handle.diagnostics();
+    assert!(timings["milestonesMs"]["turnAccepted"].is_number());
+}
+
+#[tokio::test]
+async fn stop_deadline_kills_provider_even_when_control_consumer_is_blocked() {
+    let fixture = Fixture::new("hang");
+    let handle = fixture.handle();
+    let mut child = tokio::process::Command::new("/bin/sleep")
+        .arg("30")
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    handle.set_pid(child.id());
+    let (sender, _blocked_receiver) = mpsc::unbounded_channel();
+    handle.set_codex_control(sender);
+    assert!(handle.stop_codex());
+    let status = tokio::time::timeout(std::time::Duration::from_secs(8), child.wait())
+        .await
+        .expect("stop must not depend on draining emissions or controls")
+        .unwrap();
+    handle.set_pid(None);
+    assert!(!status.success());
 }

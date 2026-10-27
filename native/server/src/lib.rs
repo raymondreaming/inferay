@@ -780,6 +780,27 @@ async fn dynamic_json_route(state: &ServerState, path: &str, request: Request) -
             _ => Err(api_error(StatusCode::NOT_FOUND, "Not found")),
         };
     }
+    if request.method() == "GET"
+        && let Some(pane) = route_parameter(path, "/api/chat-diagnostics/")
+    {
+        return state
+            .chat_persistence
+            .read_diagnostics(&pane)
+            .await
+            .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error));
+    }
+    if request.method() == "POST"
+        && let Some(pane) = route_parameter(path, "/api/chat-requests/")
+    {
+        let body: Value = api_body(request).await?;
+        let id = required(body["requestId"].as_str(), "Missing provider request ID")?;
+        state
+            .chat_runtime
+            .respond_to_request(&pane, id.into(), body["answer"].clone())
+            .await
+            .map_err(|error| api_error(StatusCode::BAD_REQUEST, error))?;
+        return Ok(json!({"accepted":true}));
+    }
     if let Some(pane_id) = route_parameter(path, "/api/chat-queues/") {
         return match request.method().as_str() {
             "GET" => get_chat_queue(state, request, &pane_id).await,
@@ -811,6 +832,14 @@ async fn patch_chat_queue(state: &ServerState, request: Request, pane_id: &str) 
         body["id"].as_str().filter(|id| !id.is_empty()),
         "Expected queued message ID",
     )?;
+    if body["action"] == "retry" {
+        state
+            .chat_runtime
+            .retry_queued(pane_id, id)
+            .await
+            .map_err(|e| api_error(StatusCode::BAD_REQUEST, e))?;
+        return Ok(json!({"queue":state.chat_persistence.read_queue(pane_id).await?}));
+    }
     let text = match body["action"].as_str() {
         Some("remove") => None,
         Some("edit") => Some(required(
@@ -2683,7 +2712,9 @@ async fn serve_native_websocket(state: ServerState, socket: WebSocket) {
             loop {
                 let message = match outgoing.recv().await {
                     Ok(message) => AxumMessage::Text(message),
-                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    // A missed final update may never be followed by another
+                    // revision. Reconnect rather than leave a silently stale client.
+                    Err(broadcast::error::RecvError::Lagged(_)) => break,
                     Err(broadcast::error::RecvError::Closed) => break,
                 };
                 if sink.send(message).await.is_err() {
@@ -2830,6 +2861,9 @@ async fn handle_native_websocket_message(
             state
                 .chat_runtime
                 .reconnect(chat_runtime::ReconnectInput {
+                    limit: message["limit"]
+                        .as_u64()
+                        .and_then(|n| usize::try_from(n).ok()),
                     pane_id,
                     client_id,
                     sender: sender.clone(),

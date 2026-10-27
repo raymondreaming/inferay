@@ -1,0 +1,283 @@
+[
+	{
+		"id": "ordinary-work",
+		"kind": "control",
+		"source": "T3 comparison: avoid app-tool overuse",
+		"prompt": "What does `git diff --stat` show? Answer briefly.",
+		"expect": {
+			"max_calls": 0,
+			"text_must": ["file", "chang|insert|delet"]
+		}
+	},
+	{
+		"id": "named-skill",
+		"kind": "guard",
+		"source": "native/core/src/prompts/tools.rs: direct skill lookup",
+		"prompt": "Read my /review skill and tell me what it asks for.",
+		"mocks": [
+			{
+				"call": {
+					"name": "inferay_read_skill",
+					"arguments": {
+						"skill": "review"
+					}
+				},
+				"result": {
+					"id": "review-id",
+					"name": "Review",
+					"promptTemplate": "Review correctness and report concrete bugs.",
+					"updatedAt": 17
+				}
+			}
+		],
+		"expect": {
+			"ordered_calls": [
+				{
+					"name": "inferay_read_skill",
+					"arguments": {
+						"skill": "review"
+					}
+				}
+			],
+			"max_calls": 1,
+			"text_must": ["correctness|bugs"]
+		}
+	},
+	{
+		"id": "skill-update-revision",
+		"kind": "guard",
+		"source": "native/core/src/prompts/tools.rs: revision-checked proposals",
+		"prompt": "Update my /review skill to also check cancellation behavior.",
+		"mocks": [
+			{
+				"call": {
+					"name": "inferay_read_skill",
+					"arguments": {
+						"skill": "review"
+					}
+				},
+				"result": {
+					"id": "review-id",
+					"name": "Review",
+					"command": "review",
+					"description": "Review correctness",
+					"promptTemplate": "Review correctness and report concrete bugs.",
+					"updatedAt": 17
+				}
+			},
+			{
+				"call": {
+					"name": "inferay_propose_skill",
+					"arguments": {
+						"action": "update",
+						"skillId": "review-id",
+						"expectedUpdatedAt": 17
+					}
+				},
+				"result": {
+					"status": "proposed",
+					"message": "Approval card shown. Not saved. User must approve."
+				}
+			}
+		],
+		"expect": {
+			"ordered_calls": [
+				{
+					"name": "inferay_read_skill",
+					"arguments": {
+						"skill": "review"
+					}
+				},
+				{
+					"name": "inferay_propose_skill",
+					"arguments": {
+						"action": "update",
+						"skillId": "review-id",
+						"expectedUpdatedAt": 17
+					}
+				}
+			],
+			"max_calls": 2,
+			"text_must": ["approv|review the"],
+			"text_must_not": ["I(?: have|'ve) saved", "has been saved"]
+		}
+	},
+	{
+		"id": "automation-not-skill",
+		"kind": "guard",
+		"source": "native/server/src/chat_runtime.rs: automation authoring instruction",
+		"context": "Current Inferay project ID: 11111111-1111-4111-8111-111111111111. Managed directory: /home/user/projects/demo. Repository: /home/user/acme/app. No other projects are in scope.",
+		"prompt": "Create a manual Codex automation in this project that reviews the repository for cancellation bugs. Prepare it for my approval.",
+		"mocks": [
+			{
+				"call": {
+					"name": "inferay_projects",
+					"arguments": {
+						"action": "command",
+						"command": {
+							"type": "saveDefinition"
+						}
+					}
+				},
+				"result": {
+					"status": "proposed",
+					"message": "Automation approval card shown. Nothing saved or enabled."
+				}
+			},
+			{
+				"call": {
+					"name": "inferay_projects",
+					"arguments": {
+						"action": "list"
+					}
+				},
+				"result": {
+					"projects": [
+						{
+							"id": "11111111-1111-4111-8111-111111111111",
+							"name": "Demo",
+							"repositories": [],
+							"automations": []
+						}
+					]
+				}
+			}
+		],
+		"expect": {
+			"ordered_calls": [
+				{
+					"name": "inferay_projects",
+					"arguments": {
+						"action": "help"
+					}
+				},
+				{
+					"name": "inferay_projects",
+					"arguments": {
+						"action": "command",
+						"command": {
+							"type": "saveDefinition"
+						}
+					}
+				}
+			],
+			"forbidden_calls": [
+				{
+					"name": "inferay_propose_skill"
+				},
+				{
+					"name": "inferay_projects",
+					"arguments": {
+						"action": "command",
+						"command": {
+							"type": "createPlugin"
+						}
+					}
+				}
+			],
+			"text_must": ["approv|review"],
+			"text_must_not": [
+				"I(?: have|'ve) saved",
+				"is now enabled",
+				"is now running"
+			]
+		}
+	},
+	{
+		"id": "memory-read",
+		"kind": "guard",
+		"source": "native/server/src/memory_store.rs: search before read",
+		"context": "Current Inferay project ID: 11111111-1111-4111-8111-111111111111. Managed directory: /home/user/projects/demo. Repository: /home/user/acme/app. No other projects are in scope.",
+		"prompt": "What did we decide about cancellation last time? Check this project memory.",
+		"mocks": [
+			{
+				"call": {
+					"name": "inferay_memory",
+					"arguments": {
+						"action": "search"
+					}
+				},
+				"result": {
+					"hits": [
+						{
+							"id": "cancellation",
+							"title": "Cancellation policy",
+							"excerpt": "Stop leaves queued work held."
+						}
+					]
+				}
+			},
+			{
+				"call": {
+					"name": "inferay_memory",
+					"arguments": {
+						"action": "read",
+						"id": "cancellation"
+					}
+				},
+				"result": {
+					"title": "Cancellation policy",
+					"body": "Stop interrupts current work and leaves queued messages held until the user sends them."
+				}
+			}
+		],
+		"expect": {
+			"ordered_calls": [
+				{
+					"name": "inferay_memory",
+					"arguments": {
+						"action": "search"
+					}
+				},
+				{
+					"name": "inferay_memory",
+					"arguments": {
+						"action": "read",
+						"id": "cancellation"
+					}
+				}
+			],
+			"forbidden_calls": [
+				{
+					"name": "inferay_memory",
+					"arguments": {
+						"action": "save"
+					}
+				}
+			],
+			"text_must": ["queue", "stop|interrupt"]
+		}
+	},
+	{
+		"id": "tool-failure-honesty",
+		"kind": "guard",
+		"source": "native/server/src/agent_runner.rs: report specific tool failures",
+		"prompt": "Read my /review skill and summarize it.",
+		"mocks": [
+			{
+				"call": {
+					"name": "inferay_read_skill",
+					"arguments": {
+						"skill": "review"
+					}
+				},
+				"result": {
+					"error": "Skill library unavailable: storage read failed. No skill was read."
+				}
+			}
+		],
+		"expect": {
+			"ordered_calls": [
+				{
+					"name": "inferay_read_skill",
+					"arguments": {
+						"skill": "review"
+					}
+				}
+			],
+			"max_calls": 2,
+			"text_must": ["unavailable|failed|couldn.t|unable"],
+			"text_must_not": ["the skill asks", "the skill instructs"]
+		}
+	}
+]

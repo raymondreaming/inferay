@@ -1,7 +1,7 @@
 use crate::{utf16_length as javascript_length, utf16_slice as javascript_slice};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 use crate::prompts::cards::ChatSkillPart;
 use crate::prompts::{SkillProposal, SkillRead};
@@ -211,6 +211,10 @@ pub struct ChatMessageBuffer {
     reset_pending: bool,
     message_chars: Vec<usize>,
     total_chars: usize,
+    // Short reconnects replay exact suffix splices. Bound both count and bytes;
+    // older cursors fall back to the retained transcript snapshot.
+    replay: VecDeque<(Value, usize)>,
+    replay_bytes: usize,
 }
 
 impl ChatMessageBuffer {
@@ -758,7 +762,39 @@ impl ChatMessageBuffer {
         self.published_revision = self.revision;
         self.dirty_start = None;
         self.reset_pending = false;
+        let bytes = serde_json::to_vec(&update)
+            .expect("transcript update serialization")
+            .len();
+        self.replay_bytes += bytes;
+        self.replay.push_back((update.clone(), bytes));
+        while self.replay.len() > 128 || self.replay_bytes > 1_048_576 {
+            if let Some((_, bytes)) = self.replay.pop_front() {
+                self.replay_bytes -= bytes;
+            }
+        }
         Some(update)
+    }
+
+    /// Return a complete contiguous catch-up, or require a snapshot. Never
+    /// replay across epochs or omit an update that has not been published yet.
+    pub fn replay_since(&self, epoch: &str, revision: u64) -> Option<Vec<&Value>> {
+        if epoch != self.epoch() || revision > self.revision {
+            return None;
+        }
+        let mut cursor = revision;
+        let mut updates = Vec::new();
+        for (update, _) in &self.replay {
+            let next = update["revision"].as_u64()?;
+            if next <= cursor {
+                continue;
+            }
+            if update["baseRevision"].as_u64()? != cursor {
+                return None;
+            }
+            updates.push(update);
+            cursor = next;
+        }
+        (cursor == self.revision).then_some(updates)
     }
 
     pub fn messages(&self) -> &[ChatTranscriptMessage] {
@@ -1159,6 +1195,40 @@ fn prepare_system_card(value: &Value, render: &mut NativeChatRender) {
 #[cfg(test)]
 mod output_reference_tests {
     use super::*;
+
+    #[test]
+    fn reconnect_replay_is_contiguous_and_bounded_by_count_and_bytes() {
+        let mut buffer = ChatMessageBuffer::default();
+        buffer.push_user("initial", None);
+        buffer.take_update().unwrap();
+        let epoch = buffer.epoch().to_owned();
+        let first = buffer.revision();
+        buffer.push_user("next", None);
+        assert!(buffer.replay_since(&epoch, first).is_none()); // not published
+        let update = buffer.take_update().unwrap();
+        assert_eq!(buffer.replay_since(&epoch, first).unwrap(), vec![&update]);
+        assert!(buffer.replay_since("wrong", first).is_none());
+        assert!(buffer.replay_since(&epoch, buffer.revision() + 1).is_none());
+        assert!(
+            buffer
+                .replay_since(&epoch, buffer.revision())
+                .unwrap()
+                .is_empty()
+        );
+        for _ in 0..130 {
+            buffer.push_user("small", None);
+            buffer.take_update();
+        }
+        assert!(buffer.replay_since(&epoch, first).is_none());
+        assert!(buffer.replay.len() <= 128);
+        let before_large = buffer.revision();
+        for _ in 0..8 {
+            buffer.push_user(&"😀".repeat(100_000), None);
+            buffer.take_update();
+        }
+        assert!(buffer.replay_bytes <= 1_048_576);
+        assert!(buffer.replay_since(&epoch, before_large).is_none());
+    }
 
     #[test]
     fn transcript_rows_keep_rare_cards_out_of_inline_storage() {

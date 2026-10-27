@@ -98,6 +98,10 @@ impl WorkspaceView {
         chat.draft_subscription = None;
         chat.draft_task = None;
         chat.theme_task = None;
+        chat.request_task = None;
+        chat.completion = Default::default();
+        chat.requests.clear();
+        chat.request_inputs.clear();
         chat.transcript = crate::transcript::Transcript::new();
         chat.images.clear();
         if let Some(next) = self
@@ -246,6 +250,7 @@ impl WorkspaceView {
     }
 
     pub(super) fn track_draft(&mut self, index: usize, save_initial: bool, cx: &mut Context<Self>) {
+        self.track_completions(index, cx);
         let chat = &mut self.conversations[index];
         if chat.submit_subscription.is_none() {
             chat.input
@@ -659,9 +664,9 @@ mod tests {
                 queued,
                 json!({"id":"steering","text":"live steer","transient":true}),
             ];
-            view.update_queued_message(0, "steering".into(), None, cx);
+            view.update_queued_message(0, "steering".into(), None, false, cx);
             assert!(view.conversations[0].queue_task.is_none());
-            view.update_queued_message(0, "remove-me".into(), None, cx);
+            view.update_queued_message(0, "remove-me".into(), None, false, cx);
             // A newer socket update arriving before the HTTP response must survive.
             view.conversations[0]
                 .queue
@@ -720,9 +725,15 @@ mod tests {
             let editor = cx.new(TextInput::new);
             editor.update(cx, |input, cx| input.set_content("edited message", cx));
             view.conversations[0].queue_editor = Some(("remove-me".into(), editor.clone()));
-            view.update_queued_message(0, "remove-me".into(), Some("   ".into()), cx);
+            view.update_queued_message(0, "remove-me".into(), Some("   ".into()), false, cx);
             assert!(view.conversations[0].queue_task.is_none());
-            view.update_queued_message(0, "remove-me".into(), Some(" edited message ".into()), cx);
+            view.update_queued_message(
+                0,
+                "remove-me".into(),
+                Some(" edited message ".into()),
+                false,
+                cx,
+            );
             editor.update(cx, |input, cx| input.set_content("still typing", cx));
             view.conversations[0].queue[0]["text"] = "newer socket text".into();
             view

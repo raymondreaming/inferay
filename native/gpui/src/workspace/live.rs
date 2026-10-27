@@ -17,6 +17,7 @@ const UPDATE_CAPACITY: usize = 8;
 #[cfg_attr(test, derive(Clone))]
 struct Update {
     changed: Option<(usize, Vec<ChatTranscriptMessage>)>,
+    total: Option<usize>,
     notice: Option<String>,
     commands: Option<tokio::sync::mpsc::Sender<Command>>,
     run_status: ChatRunStatus,
@@ -24,6 +25,7 @@ struct Update {
     prior_activity: Vec<(ChatRunStatus, bool)>,
     refresh_title: bool,
     queue: Option<Vec<Value>>,
+    requests: Option<Vec<Value>>,
 }
 
 impl Update {
@@ -41,7 +43,9 @@ impl Update {
             (_, Some(changed)) | (Some(changed), None) => Some(changed),
             (None, None) => None,
         };
+        self.total = self.total.or(previous.total);
         self.queue = self.queue.take().or(previous.queue);
+        self.requests = self.requests.take().or(previous.requests);
         self.refresh_title |= previous.refresh_title;
         let mut activity = previous.prior_activity;
         activity.push((previous.run_status, previous.terminal));
@@ -50,12 +54,157 @@ impl Update {
     }
 }
 
+pub(super) fn request_fields(request: &Value) -> Vec<(String, String)> {
+    if request["method"] == "item/tool/requestUserInput" {
+        return request["params"]["questions"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|question| {
+                let id = question["id"].as_str()?;
+                let mut label = question["question"].as_str().unwrap_or(id).to_owned();
+                if let Some(options) = question["options"].as_array() {
+                    let options: Vec<_> = options
+                        .iter()
+                        .filter_map(|option| option["label"].as_str())
+                        .collect();
+                    if !options.is_empty() {
+                        label.push_str(&format!(" ({})", options.join(" / ")));
+                    }
+                }
+                Some((id.into(), label))
+            })
+            .collect();
+    }
+    request["params"]["requestedSchema"]["properties"]
+        .as_object()
+        .into_iter()
+        .flat_map(|properties| properties.iter())
+        .map(|(name, schema)| {
+            (
+                name.clone(),
+                format!(
+                    "{} ({}){}",
+                    schema["description"].as_str().unwrap_or(name),
+                    schema["type"].as_str().unwrap_or("JSON"),
+                    schema["enum"]
+                        .as_array()
+                        .map(|values| format!(
+                            " — {}",
+                            values
+                                .iter()
+                                .map(|value| value
+                                    .as_str()
+                                    .map(str::to_owned)
+                                    .unwrap_or_else(|| value.to_string()))
+                                .collect::<Vec<_>>()
+                                .join(" / ")
+                        ))
+                        .unwrap_or_default()
+                ),
+            )
+        })
+        .collect()
+}
+
 impl WorkspaceView {
+    pub(super) fn answer_provider_request(
+        &mut self,
+        index: usize,
+        id: String,
+        accept: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let chat = &mut self.conversations[index];
+        if chat.request_task.is_some() {
+            return;
+        }
+        let Some(request) = chat.requests.iter().find(|request| request["id"] == id) else {
+            return;
+        };
+        let (Some(backend), Some(pane)) = (self.backend.get().cloned(), chat.pane.clone()) else {
+            return;
+        };
+        let answer = if request["method"] == "item/tool/requestUserInput" {
+            let mut values = serde_json::Map::new();
+            for (field, _) in request_fields(request) {
+                let text = chat.request_inputs[&format!("{id}/{field}")]
+                    .read(cx)
+                    .content
+                    .to_string();
+                values.insert(field, json!(text));
+            }
+            Value::Object(values)
+        } else if request["method"] == "mcpServer/elicitation/request" {
+            let mut content = serde_json::Map::new();
+            if accept {
+                for (field, _) in request_fields(request) {
+                    let text = chat.request_inputs[&format!("{id}/{field}")]
+                        .read(cx)
+                        .content
+                        .to_string();
+                    let schema = &request["params"]["requestedSchema"]["properties"][&field];
+                    let required = request["params"]["requestedSchema"]["required"]
+                        .as_array()
+                        .is_some_and(|fields| fields.iter().any(|value| value == &field));
+                    if text.is_empty() && !required {
+                        continue;
+                    }
+                    let value = if schema["type"] == "string" {
+                        json!(text)
+                    } else {
+                        match serde_json::from_str(&text) {
+                            Ok(value) => value,
+                            Err(_) => {
+                                chat.error = Some(format!("Enter a valid value for {field}"));
+                                cx.notify();
+                                return;
+                            }
+                        }
+                    };
+                    content.insert(field, value);
+                }
+            }
+            json!({"action":if accept {"accept"} else {"decline"},"content":content})
+        } else {
+            json!(if accept { "accept" } else { "decline" })
+        };
+        let target_pane = pane.clone();
+        let work = cx.background_executor().spawn(async move {
+            RUNTIME.block_on(async move {
+                let pane =
+                    url::form_urlencoded::byte_serialize(pane.as_bytes()).collect::<String>();
+                backend
+                    .request(
+                        reqwest::Method::POST,
+                        &format!("/api/chat-requests/{pane}"),
+                        Some(json!({"requestId":id,"answer":answer})),
+                    )
+                    .await
+            })
+        });
+        chat.request_task = Some(cx.spawn(async move |this, cx| {
+            let result = work.await;
+            let _ = this.update(cx, |view, cx| {
+                let chat = &mut view.conversations[index];
+                if chat.closed || chat.pane.as_ref() != Some(&target_pane) {
+                    return;
+                }
+                chat.request_task = None;
+                if let Err(error) = result {
+                    chat.error = Some(format!("Could not answer request: {error:#}"));
+                }
+                cx.notify();
+            });
+        }));
+    }
+
     pub(super) fn update_queued_message(
         &mut self,
         index: usize,
         id: String,
         text: Option<String>,
+        retry: bool,
         cx: &mut Context<Self>,
     ) {
         let text = text.map(|text| text.trim().to_owned());
@@ -90,7 +239,7 @@ impl WorkspaceView {
             RUNTIME.block_on(async move {
                 let encoded = url::form_urlencoded::byte_serialize(pane.as_bytes()).collect::<String>().replace('+', "%20");
                 backend.request(reqwest::Method::PATCH, &format!("/api/chat-queues/{encoded}"),
-                    Some(json!({"action":if text.is_some() {"edit"} else {"remove"},"id":id,"text":text}))).await
+                    Some(json!({"action":if retry {"retry"} else if text.is_some() {"edit"} else {"remove"},"id":id,"text":text}))).await
             })
         });
         chat.queue_task = Some(cx.spawn(async move |this, cx| {
@@ -299,12 +448,15 @@ impl WorkspaceView {
         let backend = self.backend.clone();
         let profile = self.profile.clone();
         let (updates, mut incoming) = tokio::sync::mpsc::channel(UPDATE_CAPACITY);
+        let window_limit = chat.transcript.rows().len().max(200);
         RUNTIME.spawn(async move {
-            let mut replica = ChatReplica::default();
+            let mut replica = ChatReplica::window(window_limit);
             let mut buffer = ChatMessageBuffer::default();
             let mut queue = json!([]);
             let mut status = ChatRunStatus::default();
+            let mut failures = 0u32;
             loop {
+                let connected_at = std::time::Instant::now();
                 let session = async {
                     let backend = backend
                         .get_or_try_init(|| Backend::connect(profile.clone()))
@@ -343,7 +495,7 @@ impl WorkspaceView {
                                     // A full snapshot repairs a gap without admitting out-of-order patches.
                                     socket
                                         .send(Message::Text(
-                                            json!({"type":"chat:reconnect","paneId":pane})
+                                            json!({"type":"chat:reconnect","paneId":pane,"limit":window_limit})
                                                 .to_string()
                                                 .into(),
                                         ))
@@ -428,7 +580,7 @@ impl WorkspaceView {
                             None
                         };
                         updates
-                            .send(Update { changed, queue: queue_update, notice: plan.notice, commands: ready.then(|| commands.clone()), refresh_title: matches!(event["type"].as_str(), Some("chat:sync" | "chat:summary")), run_status: status.clone(), terminal: matches!(event["type"].as_str(), Some("chat:done" | "chat:error")), prior_activity: vec![] })
+                            .send(Update { total: Some(replica.total()), changed, requests: if event["requests"].is_array() { event["requests"].as_array().cloned() } else if matches!(event["type"].as_str(), Some("chat:done"|"chat:error")) { Some(vec![]) } else { None }, queue: queue_update, notice: plan.notice, commands: ready.then(|| commands.clone()), refresh_title: matches!(event["type"].as_str(), Some("chat:sync" | "chat:summary")), run_status: status.clone(), terminal: matches!(event["type"].as_str(), Some("chat:done" | "chat:error")), prior_activity: vec![] })
                             .await
                             .map_err(|_| anyhow::anyhow!("Chat view closed"))?;
                     }
@@ -440,15 +592,20 @@ impl WorkspaceView {
                 };
                 if let Err(error) = result
                     && updates
-                        .send(Update { changed: None, queue: None, notice: Some(format!("{error:#}")), commands: None, refresh_title: false, run_status: status.clone(), terminal: false, prior_activity: vec![] })
+                        .send(Update { total: None, changed: None, queue: None, requests: None, notice: Some(format!("{error:#}")), commands: None, refresh_title: false, run_status: status.clone(), terminal: false, prior_activity: vec![] })
                         .await
                         .is_err()
                 {
                     return;
                 }
+                // A brief successful handshake must not reset a flapping connection.
+                if connected_at.elapsed() >= std::time::Duration::from_secs(30) { failures = 0; }
+                let delay = (1u64 << failures.min(5)).min(30);
+                failures = failures.saturating_add(1);
+                let jitter = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().subsec_millis() as u64 % 500;
                 tokio::select! {
                     _ = updates.closed() => return,
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(2)) => {},
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(delay * 1000 + jitter)) => {},
                 }
             }
         });
@@ -461,6 +618,7 @@ impl WorkspaceView {
                     update.merge(next);
                 }
                 let changed = update.changed.take();
+                let total = update.total;
                 if this
                     .update(cx, |view, cx| {
                         view.track_draft(index, false, cx);
@@ -474,6 +632,25 @@ impl WorkspaceView {
                             chat.run.admit(status, terminal);
                         }
                         chat.run.admit(update.run_status, update.terminal);
+                        if let Some(requests) = update.requests.take() {
+                            chat.requests = requests;
+                            let fields: Vec<_> = chat
+                                .requests
+                                .iter()
+                                .flat_map(|request| {
+                                    let id = request["id"].as_str().unwrap_or("");
+                                    request_fields(request)
+                                        .into_iter()
+                                        .map(move |(field, _)| format!("{id}/{field}"))
+                                })
+                                .collect();
+                            chat.request_inputs.retain(|key, _| fields.contains(key));
+                            for field in fields {
+                                chat.request_inputs
+                                    .entry(field)
+                                    .or_insert_with(|| cx.new(TextInput::new));
+                            }
+                        }
                         if let Some(queue) = update.queue.take() {
                             chat.queue = queue;
                             if chat.queue_editor.as_ref().is_some_and(|(id, _)| {
@@ -514,7 +691,9 @@ impl WorkspaceView {
                 };
                 if this
                     .update(cx, |view, cx| {
-                        view.conversations[index].transcript.publish(prepared, None);
+                        view.conversations[index]
+                            .transcript
+                            .publish(prepared, total);
                         cx.notify();
                     })
                     .is_err()
@@ -533,6 +712,8 @@ mod tests {
 
     fn update(start: usize, messages: Vec<ChatTranscriptMessage>) -> Update {
         Update {
+            total: None,
+            requests: None,
             changed: Some((start, messages)),
             notice: None,
             commands: None,

@@ -14,6 +14,23 @@ fn mcp_tools() -> Value {
     }
     json!({"description":"Superset of native Inferay tools. Actual tools/list is restricted to the current turn's project, memory and automation grants. External provider MCP servers are separate.","tools":tools,"projectCommands":serde_json::from_str::<Value>(include_str!("project_commands.json")).unwrap()})
 }
+/// Model evals consume the running product's text and schemas, never copies.
+pub fn agent_eval_contract() -> Value {
+    let mut tools = mcp_tools()["tools"].take();
+    tools
+        .as_array_mut()
+        .unwrap()
+        .retain(|tool| tool["name"] != "inferay_tools");
+    json!({
+        "instructions": {
+            "shared": format!("{}\n\n{}", crate::agent_runner::DIRECT_INTEGRATIONS, crate::chat_runtime::SKILL_AUTHORING_INSTRUCTIONS),
+            "codex": crate::chat_runtime::CODEX_WORKFLOW_INSTRUCTIONS,
+        },
+        "tools":tools,
+        "projectHelp":serde_json::from_str::<Value>(include_str!("project_commands.json")).unwrap()
+    })
+}
+
 fn mcp_openapi() -> Value {
     let tools = mcp_tools();
     let calls:Vec<_>=tools["tools"].as_array().unwrap().iter().map(|tool|json!({"type":"object","required":["name","arguments"],"properties":{"name":{"const":tool["name"]},"arguments":tool["inputSchema"]}})).collect();
@@ -277,7 +294,7 @@ pub fn artifacts() -> Result<BTreeMap<&'static str, Value>> {
         methods.sort();
         methods.dedup();
     }
-    artifacts.insert("http-routes.json",json!({"description":"Static dispatch_api route inventory, plus database routes. Parameterized prompts/{id}, chat-queues/{paneId} and websocket messages remain documented in api.md; this is not a generated client contract.","routes":routes}));
+    artifacts.insert("http-routes.json",json!({"description":"Static dispatch_api route inventory, plus database routes. Parameterized prompts/{id}, chat-queues/{paneId}, chat-requests/{paneId}, chat-diagnostics/{paneId} and websocket messages remain documented in api.md; this is not a generated client contract.","routes":routes}));
     Ok(artifacts)
 }
 #[cfg(test)]

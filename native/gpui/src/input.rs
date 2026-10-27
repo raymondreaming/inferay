@@ -81,6 +81,10 @@ impl TextInput {
         self.scroll_y = px(0.);
         cx.notify();
     }
+    pub fn completion_cursor(&self) -> Option<usize> {
+        (self.marked_range.is_none() && self.selected_range.is_empty())
+            .then(|| self.content[..self.cursor_offset()].encode_utf16().count())
+    }
     fn edit_state(&self) -> EditState {
         EditState {
             content: self.content.clone(),
