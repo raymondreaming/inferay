@@ -1,24 +1,24 @@
 use super::*;
 
+type LineStyles = Vec<(std::ops::Range<usize>, HighlightStyle)>;
+
+#[derive(Clone)]
 pub(super) struct PreparedDiff {
     pub(super) diff: Arc<GitHunkDiff>,
     pub(super) path: SharedString,
     pub(super) theme: String,
-    pub(super) old: Vec<Vec<(std::ops::Range<usize>, HighlightStyle)>>,
-    pub(super) new: Vec<Vec<(std::ops::Range<usize>, HighlightStyle)>>,
+    pub(super) old: Arc<[LineStyles]>,
+    pub(super) new: Arc<[LineStyles]>,
     pub(super) inline: Arc<[GitDiffLine]>,
-    inline_highlights: Vec<Vec<(std::ops::Range<usize>, HighlightStyle)>>,
+    inline_sources: Arc<[Option<(bool, usize)>]>,
+    pub(super) colored: bool,
     split_ranges: Arc<[[usize; 2]]>,
     inline_ranges: Arc<[[usize; 2]]>,
     split_minimap: Arc<[inferay_native_diff::MinimapSegment]>,
     inline_minimap: Arc<[inferay_native_diff::MinimapSegment]>,
 }
 impl PreparedDiff {
-    fn classify(
-        lines: &[GitDiffLine],
-        path: &str,
-        theme: &str,
-    ) -> Vec<Vec<(std::ops::Range<usize>, HighlightStyle)>> {
+    pub(super) fn classify(lines: &[GitDiffLine], path: &str, theme: &str) -> Vec<LineStyles> {
         let source: Vec<_> = lines
             .iter()
             .map(|line| {
@@ -35,7 +35,11 @@ impl PreparedDiff {
         crate::syntax::line_highlights(&source, path, theme)
     }
 
+    #[cfg(test)]
     pub(super) fn new(diff: GitHunkDiff, path: &str, theme: &str) -> Self {
+        Self::plain(diff, path, theme).retheme(theme)
+    }
+    pub(super) fn plain(diff: GitHunkDiff, path: &str, theme: &str) -> Self {
         let inline: Arc<[GitDiffLine]> = diff
             .compact_lines
             .clone()
@@ -64,38 +68,194 @@ impl PreparedDiff {
         ));
         let inline_minimap =
             inferay_native_diff::minimap_segments(&inline, "full", inline.len()).into();
+        let old_rows: std::collections::HashMap<_, _> = diff
+            .old_lines
+            .iter()
+            .enumerate()
+            .filter_map(|(i, line)| line.number.map(|n| (n, i)))
+            .collect();
+        let new_rows: std::collections::HashMap<_, _> = diff
+            .new_lines
+            .iter()
+            .enumerate()
+            .filter_map(|(i, line)| line.number.map(|n| (n, i)))
+            .collect();
+        let inline_sources = inline
+            .iter()
+            .map(|line| {
+                let removed = line.line_type == GitDiffLineType::Remove;
+                line.number
+                    .and_then(|number| {
+                        if removed {
+                            old_rows.get(&number)
+                        } else {
+                            new_rows.get(&number)
+                        }
+                    })
+                    .map(|&index| (removed, index))
+            })
+            .collect();
         Self {
             split_ranges,
             inline_ranges,
             split_minimap: split_minimap.into(),
             inline_minimap,
-            inline_highlights: Self::classify(&inline, path, theme),
+            inline_sources,
+            colored: false,
             inline,
-            old: Self::classify(&diff.old_lines, path, theme),
-            new: Self::classify(&diff.new_lines, path, theme),
+            old: Arc::new([]),
+            new: Arc::new([]),
             diff: Arc::new(diff),
             path: path.to_owned().into(),
             theme: theme.into(),
         }
     }
     pub(super) fn retheme(&self, theme: &str) -> Self {
-        Self {
-            old: Self::classify(&self.diff.old_lines, &self.path, theme),
-            new: Self::classify(&self.diff.new_lines, &self.path, theme),
-            diff: self.diff.clone(),
-            path: self.path.clone(),
-            inline: self.inline.clone(),
-            inline_highlights: Self::classify(&self.inline, &self.path, theme),
-            split_ranges: self.split_ranges.clone(),
-            inline_ranges: self.inline_ranges.clone(),
-            split_minimap: self.split_minimap.clone(),
-            inline_minimap: self.inline_minimap.clone(),
-            theme: theme.into(),
-        }
+        let mut next = self.clone();
+        next.old = Self::classify(&self.diff.old_lines, &self.path, theme).into();
+        next.new = Self::classify(&self.diff.new_lines, &self.path, theme).into();
+        next.theme = theme.into();
+        next.colored = true;
+        next
+    }
+    fn uncolored(&self, theme: &str) -> Self {
+        let mut next = self.clone();
+        next.old = Arc::new([]);
+        next.new = Arc::new([]);
+        next.theme = theme.into();
+        next.colored = false;
+        next
+    }
+    fn inline_styles(&self, index: usize) -> &[(std::ops::Range<usize>, HighlightStyle)] {
+        self.inline_sources
+            .get(index)
+            .and_then(|source| *source)
+            .and_then(|(old, index)| {
+                if old {
+                    self.old.get(index)
+                } else {
+                    self.new.get(index)
+                }
+            })
+            .map_or(&[], Vec::as_slice)
+    }
+
+    pub(super) fn bytes(&self) -> usize {
+        let source = self
+            .diff
+            .old_lines
+            .iter()
+            .chain(&self.diff.new_lines)
+            .chain(self.inline.iter())
+            .map(|line| line.content.capacity())
+            .sum::<usize>()
+            + (self.diff.old_lines.capacity() + self.diff.new_lines.capacity() + self.inline.len())
+                * std::mem::size_of::<GitDiffLine>();
+        let styles = self
+            .old
+            .iter()
+            .chain(self.new.iter())
+            .map(|line| {
+                std::mem::size_of_val(line)
+                    + line.capacity()
+                        * std::mem::size_of::<(std::ops::Range<usize>, HighlightStyle)>()
+            })
+            .sum::<usize>();
+        source
+            + styles
+            + self.diff.raw_patch.as_ref().map_or(0, String::capacity)
+            + self.inline_sources.len() * std::mem::size_of::<Option<(bool, usize)>>()
+            + (self.split_ranges.len() + self.inline_ranges.len())
+                * 2
+                * std::mem::size_of::<usize>()
+            + (self.split_minimap.len() + self.inline_minimap.len())
+                * std::mem::size_of::<inferay_native_diff::MinimapSegment>()
     }
 }
 
 impl RepositoryView {
+    pub(super) fn diff_key(&self, path: String, staged: bool) -> DiffKey {
+        DiffKey {
+            cwd: self.selected_worktree.as_ref().unwrap_or(&self.cwd).clone(),
+            commit: self.selected.clone(),
+            path,
+            staged,
+        }
+    }
+
+    pub(super) fn show_prepared_diff(&mut self, data: Arc<PreparedDiff>, cx: &mut Context<Self>) {
+        let data = if data.theme == self.syntax_theme {
+            data
+        } else {
+            Arc::new(data.uncolored(&self.syntax_theme))
+        };
+        self.diff = Some(data.clone());
+        self.jump_diff_change(0);
+        self.color_diff(data, cx);
+    }
+
+    pub(super) fn color_diff(&mut self, data: Arc<PreparedDiff>, cx: &mut Context<Self>) {
+        if data.colored && data.theme == self.syntax_theme {
+            return;
+        }
+        let theme = self.syntax_theme.clone();
+        let key = self.diff_key(data.path.to_string(), self.selected_staged);
+        let cache = self.diff_cache.clone();
+        let work = cx
+            .background_executor()
+            .spawn_with_priority(Priority::Low, async move {
+                let prepared = Arc::new(data.retheme(&theme));
+                cache.lock().unwrap().publish_colors(key, prepared.clone());
+                prepared
+            });
+        self.theme_task = Some(cx.spawn(async move |this, cx| {
+            let prepared = work.await;
+            let _ = this.update(cx, |view, cx| {
+                if view.syntax_theme == prepared.theme
+                    && view
+                        .diff
+                        .as_ref()
+                        .is_some_and(|current| Arc::ptr_eq(&current.diff, &prepared.diff))
+                {
+                    view.diff = Some(prepared);
+                    cx.notify();
+                }
+            });
+        }));
+    }
+
+    pub(super) fn prefetch_diffs(&mut self, cx: &mut Context<Self>) {
+        // Working-tree inputs require Git validation when selected anyway;
+        // pre-reading them would add redundant Git processes while navigating.
+        if self.selected.is_none() {
+            return;
+        }
+        let files = self.file_entries();
+        let current = files.iter().position(|file| {
+            self.file.as_deref() == Some(&file.0) && file.4 == self.selected_staged
+        });
+        let targets = inferay_presentation::diff::diff_prefetch_files(
+            &json!({"count":files.len(),"current":current}),
+        );
+        let keys: Vec<_> = targets
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|index| files.get(index.as_u64()? as usize))
+            .map(|file| self.diff_key(file.0.clone(), file.4))
+            .collect();
+        let cache = self.diff_cache.clone();
+        let theme = self.syntax_theme.clone();
+        self.diff_prefetch_task = Some(cx.background_executor().spawn_with_priority(
+            Priority::Low,
+            async move {
+                for key in keys {
+                    DiffCache::load(&cache, &key, &theme);
+                }
+            },
+        ));
+    }
+
     fn diff_ranges(&self) -> &[[usize; 2]] {
         self.diff.as_ref().map_or(&[], |data| {
             if self.split_diff {
@@ -397,13 +557,7 @@ impl RepositoryView {
                                             StyledText::new(
                                                 line.map(|l| l.content.clone()).unwrap_or_default(),
                                             )
-                                            .with_highlights(
-                                                data.inline_highlights
-                                                    .get(i)
-                                                    .into_iter()
-                                                    .flatten()
-                                                    .cloned(),
-                                            ),
+                                            .with_highlights(data.inline_styles(i).iter().cloned()),
                                         )
                                     }
                                 })
@@ -445,6 +599,69 @@ fn minimap_thumb(bounds: Bounds<Pixels>, handle: &ScrollHandle, window: &Window)
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[test]
+    #[ignore = "release diagnostic; read-only local repository"]
+    fn profile_diff_open() {
+        use std::time::Instant;
+        assert!(!std::hint::black_box(cfg!(debug_assertions)));
+        let cwd = std::env::var("INFERAY_DIFF_PROFILE_CWD").unwrap();
+        let revision =
+            std::env::var("INFERAY_DIFF_PROFILE_COMMIT").unwrap_or_else(|_| "HEAD".into());
+        let details =
+            inferay_native_diff::get_git_commit_details_for_parent(&cwd, &revision, None).unwrap();
+        for file in details.files.iter().take(6) {
+            let started = Instant::now();
+            let diff = inferay_native_diff::get_git_commit_hunk_diff_for_parent(
+                &cwd,
+                &details.hash,
+                None,
+                &file.path,
+                false,
+            )
+            .unwrap();
+            let read = started.elapsed();
+            let prepared = PreparedDiff::plain(diff, &file.path, "vscode-black");
+            println!(
+                "{}",
+                json!({"file":file.path,"git_ms":read.as_secs_f64()*1000.,"prepare_ms":(started.elapsed()-read).as_secs_f64()*1000.,"rows":prepared.diff.old_lines.len().max(prepared.diff.new_lines.len())})
+            );
+        }
+    }
+
+    #[gpui::test]
+    fn revisiting_cached_commits_publishes_immediately_without_a_git_job(cx: &mut TestAppContext) {
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            let mut view = RepositoryView::new(
+                "/not-a-repository".into(),
+                json!({}),
+                "vscode-black".into(),
+                0,
+                cx,
+            );
+            view.task = None;
+            view.selected = Some("0123456789012345678901234567890123456789".into());
+            for path in ["a.rs", "b.rs"] {
+                let prepared = Arc::new(PreparedDiff::new(
+                    GitHunkDiff::default(),
+                    path,
+                    "vscode-black",
+                ));
+                let key = view.diff_key(path.into(), false);
+                view.diff_cache.lock().unwrap().put(key, prepared);
+            }
+            view
+        });
+        for path in ["a.rs", "b.rs", "a.rs"] {
+            view.update(cx, |view, cx| {
+                view.open_file(path.into(), false, cx);
+                assert_eq!(view.diff.as_ref().unwrap().path.as_ref(), path);
+                assert!(view.diff.as_ref().unwrap().colored);
+                assert!(view.diff_task.is_none());
+                assert!(view.theme_task.is_none());
+            });
+        }
+    }
 
     #[gpui::test]
     fn space_wraps_changes_and_minimap_clicks_scroll_the_same_view(cx: &mut TestAppContext) {

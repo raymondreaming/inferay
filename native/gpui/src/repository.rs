@@ -1,7 +1,9 @@
 use crate::zoom::ui;
 mod changes;
 mod diff;
+mod diff_cache;
 use diff::PreparedDiff;
+use diff_cache::{DiffCache, Key as DiffKey};
 mod graph;
 use crate::{button, colors, icon};
 use gpui::{prelude::*, *};
@@ -67,6 +69,8 @@ pub struct RepositoryView {
     task: Option<Task<()>>,
     selection_task: Option<Task<()>>,
     diff_task: Option<Task<()>>,
+    diff_cache: Arc<std::sync::Mutex<DiffCache>>,
+    diff_prefetch_task: Option<Task<()>>,
     theme_task: Option<Task<()>>,
 }
 impl RepositoryView {
@@ -74,32 +78,17 @@ impl RepositoryView {
         if self.syntax_theme == theme {
             return;
         }
-        self.syntax_theme = theme.clone();
+        self.syntax_theme = theme;
         self.theme_task = None;
         if let Some(diff) = self.diff.clone() {
-            let work = cx
-                .background_executor()
-                .spawn(async move { Arc::new(diff.retheme(&theme)) });
-            self.theme_task = Some(cx.spawn(async move |this, cx| {
-                let prepared = work.await;
-                let _ = this.update(cx, |view, cx| {
-                    if view.syntax_theme == prepared.theme
-                        && view
-                            .diff
-                            .as_ref()
-                            .is_some_and(|current| Arc::ptr_eq(&current.diff, &prepared.diff))
-                    {
-                        view.diff = Some(prepared);
-                        cx.notify();
-                    }
-                });
-            }));
+            self.color_diff(diff, cx);
         }
         cx.notify();
     }
 
     fn clear_diff(&mut self) {
         self.diff_task = None;
+        self.diff_prefetch_task = None;
         self.theme_task = None;
         self.diff = None;
         self.diff_change = None;
@@ -172,6 +161,8 @@ impl RepositoryView {
             task: None,
             selection_task: None,
             diff_task: None,
+            diff_cache: Default::default(),
+            diff_prefetch_task: None,
             theme_task: None,
         };
         view.refresh(cx);
@@ -491,6 +482,7 @@ impl RepositoryView {
     }
     fn open_file(&mut self, path: String, staged: bool, cx: &mut Context<Self>) {
         if !self.show_diff
+            && self.selected.is_some()
             && self.file.as_ref() == Some(&path)
             && self.selected_staged == staged
             && self.diff.is_some()
@@ -516,42 +508,41 @@ impl RepositoryView {
         self.diff_scroll.scroll_to_item(0, ScrollStrategy::Top);
         self.clear_diff();
         self.error = None;
-        let cwd = self.selected_worktree.as_ref().unwrap_or(&self.cwd).clone();
-        let hash = self.selected.clone();
-        let theme = self.syntax_theme.clone();
-        let work = cx.background_executor().spawn(async move {
-            let diff = if let Some(hash) = hash {
-                inferay_native_diff::get_git_commit_hunk_diff_for_parent(
-                    &cwd, &hash, None, &path, false,
-                )
-            } else {
-                let allowed = AllowedPaths::new(&cwd, &cwd, &cwd).ok()?;
-                Some(inferay_native_diff::get_git_hunk_diff(
-                    &allowed, &cwd, &path, staged,
-                ))
-            };
-            diff.map(|diff| Arc::new(PreparedDiff::new(diff, &path, &theme)))
-        });
-        self.diff_task = Some(cx.spawn(async move |this, cx| {
-            let mut diff = work.await;
-            while let Some(prepared) = diff.take() {
-                let Ok(theme) = this.read_with(cx, |view, _| view.syntax_theme.clone()) else {
-                    return;
-                };
-                if prepared.theme == theme {
-                    diff = Some(prepared);
-                    break;
-                }
-                diff = Some(
-                    cx.background_executor()
-                        .spawn(async move { Arc::new(prepared.retheme(&theme)) })
-                        .await,
-                );
+        let key = self.diff_key(path, staged);
+        if key.commit.is_some() {
+            let cached = self.diff_cache.lock().unwrap().get(&key);
+            if let Some(data) = cached {
+                self.show_prepared_diff(data, cx);
+                self.prefetch_diffs(cx);
+                cx.notify();
+                return;
             }
+        }
+        let theme = self.syntax_theme.clone();
+        let cache = self.diff_cache.clone();
+        let work = cx
+            .background_executor()
+            .spawn_with_priority(Priority::High, async move {
+                let started = std::time::Instant::now();
+                let data = DiffCache::load(&cache, &key, &theme);
+                if std::env::var_os("INFERAY_PROFILE_GIT").is_some() {
+                    eprintln!(
+                        "[gpui-diff] file={} first-visible={:?} retained-colors={}",
+                        key.path,
+                        started.elapsed(),
+                        data.as_ref().is_some_and(|d| d.colored)
+                    );
+                }
+                data
+            });
+        self.diff_task = Some(cx.spawn(async move |this, cx| {
+            let data = work.await;
             let _ = this.update(cx, |view, cx| {
-                view.error = diff.is_none().then(|| "Could not load this diff.".into());
-                view.diff = diff;
-                view.jump_diff_change(0);
+                view.error = data.is_none().then(|| "Could not load this diff.".into());
+                if let Some(data) = data {
+                    view.show_prepared_diff(data, cx);
+                }
+                view.prefetch_diffs(cx);
                 cx.notify();
             });
         }));
@@ -1029,14 +1020,6 @@ mod tests {
             view.navigate(&key("right"), window, cx);
             assert!(view.show_diff);
             assert_eq!(view.file.as_deref(), Some("a.rs"));
-            view.diff_task = None;
-            let prepared = Arc::new(PreparedDiff::new(GitHunkDiff::default(), "a.rs", "vscode-black"));
-            view.diff = Some(prepared.clone());
-            view.navigate(&key("left"), window, cx);
-            view.navigate(&key("right"), window, cx);
-            assert!(view.show_diff);
-            assert!(Arc::ptr_eq(view.diff.as_ref().unwrap(), &prepared));
-            assert!(view.diff_task.is_none());
         }).unwrap();
     }
     #[gpui::test]
@@ -1201,7 +1184,7 @@ mod tests {
             "vscode-black",
         );
         assert!(prepared.old[0].is_empty());
-        for (line, runs) in prepared.diff.new_lines.iter().zip(&prepared.new) {
+        for (line, runs) in prepared.diff.new_lines.iter().zip(prepared.new.iter()) {
             for (range, _) in runs {
                 assert!(line.content.get(range.clone()).is_some());
             }
