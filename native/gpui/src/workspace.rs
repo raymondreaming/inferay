@@ -18,6 +18,14 @@ enum Appearance {
     Glass,
     Scene,
 }
+impl Appearance {
+    fn composer_background(self) -> Rgba {
+        match self {
+            Self::Dark => rgba(0x2f2f2fff),
+            _ => rgba(0x181818e0),
+        }
+    }
+}
 struct Project {
     id: Option<String>,
     name: String,
@@ -1485,7 +1493,7 @@ impl WorkspaceView {
                         }).size_full()
                     ))
                 ))
-                .bg(match self.appearance { Appearance::Dark => rgba(0x2f2f2fff), _ => rgba(0x181818e0) })
+                .bg(self.appearance.composer_background())
                 .when(!chat.requests.is_empty(), |d| d.child(
                     div().id(("provider-requests", index)).debug_selector(|| "provider-requests".into())
                         .max_h(ui(240.)).overflow_y_scroll().p(ui(10.)).flex().flex_col().gap(ui(8.))
@@ -1641,6 +1649,10 @@ impl WorkspaceView {
             .collect(),
         };
         crate::menu_surface(("composer-menu", index))
+            .bg(Rgba {
+                a: 1.,
+                ..self.appearance.composer_background()
+            })
             .bottom(ui(46.))
             .left(ui(12.))
             .w(ui(180.))

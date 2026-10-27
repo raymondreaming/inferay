@@ -174,6 +174,10 @@ impl WorkspaceView {
         let state = &self.conversations[index].completion;
         let matches = state.matches();
         crate::menu_surface(("slash-menu", index))
+            .bg(Rgba {
+                a: 1.,
+                ..self.appearance.composer_background()
+            })
             .debug_selector(|| "slash-menu".into())
             .bottom(relative(1.))
             .left(ui(12.))
