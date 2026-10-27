@@ -3,6 +3,7 @@ mod attachments;
 mod completions;
 mod lifecycle;
 mod live;
+mod proposals;
 mod settings;
 use crate::transcript::PreparedTranscript;
 use crate::{Back, Settings, ToggleSidebar, button, colors, icon, input::TextInput};
@@ -116,6 +117,8 @@ pub struct WorkspaceView {
     default_config: inferay_core::provider_config::ProviderSettings,
     focus: FocusHandle,
     projects: Vec<Project>,
+    closed_projects: HashSet<String>,
+    project_picker: bool,
     profile: std::path::PathBuf,
     load_task: Option<Task<()>>,
     startup_window: Option<AnyWindowHandle>,
@@ -157,6 +160,7 @@ pub struct WorkspaceView {
     scene_dim: f32,
     menu: Option<(usize, &'static str)>,
     expanded: HashSet<String>,
+    proposals: std::collections::HashMap<String, proposals::State>,
     status: String,
 }
 impl WorkspaceView {
@@ -268,6 +272,8 @@ impl WorkspaceView {
                 dock: serde_json::Value::Null,
                 dock_workspace: None,
             }],
+            closed_projects: Default::default(),
+            project_picker: false,
             profile: crate::session::profile(),
             load_task: None,
             startup_window: None,
@@ -313,10 +319,12 @@ impl WorkspaceView {
             scene_dim: 0.,
             menu: None,
             expanded: HashSet::new(),
+            proposals: Default::default(),
             status: "Loading your saved workspace…".into(),
         }
     }
     fn restore(&mut self, session: crate::session::Session, cx: &mut Context<Self>) {
+        self.closed_projects = session.closed_projects;
         self.default_config = session.default_config;
         self.sidebar = !session.sidebar_collapsed;
         self.sidebar_width = session.sidebar_width;
@@ -387,9 +395,49 @@ impl WorkspaceView {
             }
         }
         self.status.clear();
-        self.select_project(session.selected_project, cx);
+        if let Some(index) = self
+            .projects
+            .iter()
+            .position(|p| !self.closed_projects.contains(p.id.as_deref().unwrap_or("")))
+        {
+            let selected = if self.closed_projects.contains(
+                self.projects[session.selected_project]
+                    .id
+                    .as_deref()
+                    .unwrap_or(""),
+            ) {
+                index
+            } else {
+                session.selected_project
+            };
+            self.select_project(selected, cx);
+        } else {
+            self.project_picker = true;
+        }
+    }
+    fn close_project_tab(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.closed_projects
+            .insert(self.projects[index].id.clone().unwrap_or_default());
+        if index == self.project {
+            if let Some(next) = self
+                .projects
+                .iter()
+                .position(|p| !self.closed_projects.contains(p.id.as_deref().unwrap_or("")))
+            {
+                self.select_project(next, cx);
+            } else {
+                self.project_picker = true;
+                self.repository = false;
+                self.repository_stats_task = None;
+            }
+        }
+        self.persist_workspace_preferences(None, cx);
+        cx.notify();
     }
     fn select_project(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.closed_projects
+            .remove(self.projects[index].id.as_deref().unwrap_or(""));
+        self.project_picker = false;
         self.project = index;
         self.selected = self.projects[index].selected;
         self.settings = false;
@@ -710,6 +758,7 @@ impl WorkspaceView {
     }
 
     fn new_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.select_project(self.project, cx);
         self.add_chat(cx);
         self.create_chat(self.selected, cx);
         window.focus(
@@ -746,6 +795,12 @@ impl WorkspaceView {
                     })),
             )
             .child(
+                button("open-workspaces", "Workspaces").on_click(cx.listener(|s, _, _, cx| {
+                    s.project_picker = !s.project_picker;
+                    cx.notify();
+                })),
+            )
+            .child(
                 button("new", "New")
                     .child(icon("Plus"))
                     .on_click(cx.listener(|s, _, w, cx| s.new_chat(w, cx))),
@@ -757,32 +812,50 @@ impl WorkspaceView {
                     .flex_1()
                     .min_w_0()
                     .overflow_x_scroll()
-                    .children(self.projects.iter().enumerate().map(|(i, project)| {
-                        let name = project.name.clone();
-                        div()
-                            .id(("project", i))
-                            .role(Role::Tab)
-                            .aria_selected(self.project == i)
-                            .aria_label(name.clone())
-                            .h(ui(30.))
-                            .flex_shrink_0()
-                            .px(ui(12.))
-                            .flex()
-                            .items_center()
-                            .gap(ui(7.))
-                            .rounded(ui(7.))
-                            .text_size(ui(colors::CHAT_SMALL))
-                            .font_weight(FontWeight::MEDIUM)
-                            .cursor_pointer()
-                            .when(self.project == i, |d| d.bg(rgba(0xebebeb17)))
-                            .hover(|s| s.bg(rgba(0xebebeb10)))
-                            .child(icon("Folder"))
-                            .child(name)
-                            .on_click(cx.listener(move |s, _, _, cx| {
-                                s.select_project(i, cx);
-                                s.persist_workspace_preferences(None, cx);
-                            }))
-                    }))
+                    .children(
+                        self.projects
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, p)| {
+                                !self.closed_projects.contains(p.id.as_deref().unwrap_or(""))
+                            })
+                            .map(|(i, project)| {
+                                let name = project.name.clone();
+                                div()
+                                    .id(("project", i))
+                                    .role(Role::Tab)
+                                    .aria_selected(self.project == i)
+                                    .aria_label(name.clone())
+                                    .h(ui(30.))
+                                    .flex_shrink_0()
+                                    .px(ui(12.))
+                                    .flex()
+                                    .items_center()
+                                    .gap(ui(7.))
+                                    .rounded(ui(7.))
+                                    .text_size(ui(colors::CHAT_SMALL))
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .cursor_pointer()
+                                    .when(self.project == i, |d| d.bg(rgba(0xebebeb17)))
+                                    .hover(|s| s.bg(rgba(0xebebeb10)))
+                                    .child(icon("Folder"))
+                                    .child(name.clone())
+                                    .child(
+                                        button(("close-project", i), "")
+                                            .aria_label(format!("Close {name} workspace tab"))
+                                            .debug_selector(move || format!("close-project-{i}"))
+                                            .child(icon("X").size(ui(12.)))
+                                            .on_click(cx.listener(move |s, _, _, cx| {
+                                                cx.stop_propagation();
+                                                s.close_project_tab(i, cx);
+                                            })),
+                                    )
+                                    .on_click(cx.listener(move |s, _, _, cx| {
+                                        s.select_project(i, cx);
+                                        s.persist_workspace_preferences(None, cx);
+                                    }))
+                            }),
+                    )
                     .child(div().flex_1().h_full().min_w(ui(16.)).on_mouse_down(
                         MouseButton::Left,
                         |event, window, _| {
@@ -1129,6 +1202,12 @@ impl WorkspaceView {
                     )
                 })
                 .into_any_element()
+        } else if let Some(command) = message
+            .render
+            .as_ref()
+            .and_then(|r| r.automation_definition_proposal.as_deref())
+        {
+            self.automation_proposal_card(&message.id, command, cx)
         } else if let Some(card) = message
             .render
             .as_ref()
@@ -1763,6 +1842,38 @@ impl Render for WorkspaceView {
             Appearance::Glass => rgba(0x06060666),
             Appearance::Scene => rgba(0x05050661),
         };
+        if self.project_picker
+            || self
+                .projects
+                .iter()
+                .all(|p| self.closed_projects.contains(p.id.as_deref().unwrap_or("")))
+        {
+            return div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .bg(shell)
+                .text_color(rgb(colors::TEXT))
+                .child(self.titlebar(cx))
+                .child(
+                    div()
+                        .p(ui(24.))
+                        .flex()
+                        .flex_col()
+                        .gap(ui(8.))
+                        .child("Open a workspace")
+                        .child("Closing a tab keeps its chats, repositories and files.")
+                        .children(self.projects.iter().enumerate().map(|(index, project)| {
+                            button(("reopen-project", index), project.name.clone())
+                                .debug_selector(move || format!("reopen-project-{index}"))
+                                .on_click(cx.listener(move |s, _, _, cx| {
+                                    s.select_project(index, cx);
+                                    s.persist_workspace_preferences(None, cx);
+                                }))
+                        })),
+                )
+                .into_any_element();
+        }
         div()
             .relative()
             .size_full()
@@ -1933,13 +2044,66 @@ impl Render for WorkspaceView {
                                 ),
                         ),
                 )
-            })
+            }).into_any_element()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[gpui::test]
+    fn workspace_tabs_close_and_reopen_without_deleting_chats(cx: &mut gpui::TestAppContext) {
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            let mut view = WorkspaceView::empty(cx.focus_handle(), cx.new(TextInput::new), cx);
+            view.projects[0].id = Some("first".into());
+            view.projects[0].name = "First".into();
+            view.projects.push(Project {
+                id: Some("second".into()),
+                name: "Second".into(),
+                repositories: vec![],
+                selected_repository: None,
+                selected: 1,
+                dock: serde_json::Value::Null,
+                dock_workspace: None,
+            });
+            view.conversations.push(Conversation::new(
+                1,
+                cx.new(TextInput::new),
+                view.default_config.clone(),
+            ));
+            view.conversations[0]
+                .input
+                .update(cx, |input, _| input.content = "Keep draft".into());
+            view
+        });
+        cx.draw(point(px(0.), px(0.)), size(px(1000.), px(700.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        let target = cx.debug_bounds("close-project-0").unwrap().center();
+        cx.simulate_click(target, Modifiers::default());
+        view.read_with(cx, |view, cx| {
+            assert_eq!(view.project, 1);
+            assert_eq!(view.projects.len(), 2);
+            assert_eq!(
+                view.conversations[0].input.read(cx).content.as_ref(),
+                "Keep draft"
+            );
+        });
+        view.update(cx, |view, cx| view.close_project_tab(1, cx));
+        cx.draw(point(px(0.), px(0.)), size(px(1000.), px(700.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        let target = cx.debug_bounds("reopen-project-0").unwrap().center();
+        cx.simulate_click(target, Modifiers::default());
+        view.read_with(cx, |view, _| {
+            assert_eq!(view.project, 0);
+            assert!(!view.project_picker);
+            assert!(!view.closed_projects.contains("first"));
+            assert!(view.closed_projects.contains("second"));
+            assert_eq!(view.conversations.len(), 2);
+        });
+    }
 
     fn attachment_photos() -> (tempfile::TempDir, Vec<std::path::PathBuf>) {
         let directory = tempfile::tempdir().unwrap();
@@ -2886,6 +3050,7 @@ mod tests {
             .update(cx, |view, window, cx| {
                 view.restore(
                     crate::session::Session {
+                        closed_projects: Default::default(),
                         zoom: crate::zoom::Zoom::default(),
                         default_config: inferay_core::provider_config::resolve(&serde_json::json!(
                             {}

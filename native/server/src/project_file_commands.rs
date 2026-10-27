@@ -108,14 +108,18 @@ pub(crate) fn apply(
                 paths.insert(id, path);
             }
             catalog::RepositoryChange::Remove { id } => {
-                if index::catalog(db, Some(&project_id))?
+                let catalog = index::catalog(db, Some(&project_id))?;
+                if let Some(users) = catalog
                     .repository_users
                     .get(&id)
-                    .is_some_and(|users| !users.is_empty())
+                    .filter(|users| !users.is_empty())
                 {
-                    return Err(
-                        "Remove this repository from its automations and tools first".into(),
-                    );
+                    let names = users
+                        .iter()
+                        .map(|user| user.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    return Err(format!("Remove this repository from its automations and tools first. Used by: {names}. Update those references before retrying removal.").into());
                 }
                 if !definition.repositories.iter().any(|r| r.id == id) {
                     return Err("Repository is not declared in this project".into());

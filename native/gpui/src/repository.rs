@@ -291,6 +291,8 @@ impl RepositoryView {
         let renderer = cx.svg_renderer();
         let work = cx.background_executor().spawn(async move {
             let started = std::time::Instant::now();
+            let missing = std::fs::metadata(&cwd)
+                .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound);
             let input = inferay_native_diff::prepare_git_graph(&cwd);
             let status = input
                 .worktrees
@@ -345,16 +347,17 @@ impl RepositoryView {
                     graph.commits.len()
                 );
             }
-            (status, graph, images, rendered, presentation)
+            (status, graph, images, rendered, presentation, missing)
         });
         self.task = Some(cx.spawn(async move |this, cx| {
-            let (status, graph, images, rendered, presentation) = work.await;
+            let (status, graph, images, rendered, presentation, missing) = work.await;
             let _ = this.update(cx, |view, cx| {
                 view.loading = false;
-                view.error = graph
-                    .state_error
-                    .clone()
-                    .or_else(|| status.is_none().then(|| "Not a Git repository".into()));
+                view.error = if missing {
+                    Some(format!("Repository folder is missing: {}. Select an existing checkout from the repository menu. The × control removes an unused link without deleting files.", view.cwd))
+                } else {
+                    graph.state_error.clone().or_else(|| status.is_none().then(|| "Not a Git repository".into()))
+                };
                 view.status = status;
                 view.graph = graph;
                 view.presentation = presentation;

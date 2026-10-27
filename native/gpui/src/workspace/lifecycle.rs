@@ -197,6 +197,7 @@ impl WorkspaceView {
         let pane = self.conversations[self.selected].pane.clone();
         let entries = json!({
             "inferay-selected-project-id":project,
+            "inferay-closed-project-tabs":serde_json::to_string(&self.closed_projects).unwrap(),
             "sidebar-collapsed":(!self.sidebar).to_string(),
             "main-sidebar-width":self.sidebar_width.to_string(),
             "inferay-ui-zoom-percent":self.zoom.percent().to_string(),
@@ -573,6 +574,7 @@ mod tests {
             view.projects[0].id = Some("latest".into());
             view.sidebar = false;
             view.sidebar_width = 280.;
+            view.closed_projects.insert("closed-project".into());
             view.persist_workspace_preferences(None, cx);
             view
         });
@@ -594,6 +596,7 @@ mod tests {
         let restored = crate::session::load(profile.path()).unwrap();
         assert!(restored.sidebar_collapsed);
         assert_eq!(restored.sidebar_width, 280.);
+        assert!(restored.closed_projects.contains("closed-project"));
         window
             .update(cx, |view, _, _| {
                 assert!(!view.status.starts_with("Could not save"))

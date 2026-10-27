@@ -62,11 +62,13 @@ Project ─┬─ Repositories (linked, never copied)
 
 ## Managing repositories
 
-The repository picker and sidebar show each linked checkout's name and path. Add repository links a folder immediately. The × control removes that repository from the current project without deleting its files; there is no separate save step. The shared project command refuses removal while an automation or repository-backed tool still references it, and the UI shows that error. Change those references before retrying. Removing the selected repository selects another linked checkout; removing the last closes the panel. Add repository remains available in the sidebar when the list is empty.
+The repository picker and sidebar show each linked checkout's name and path. Add repository links a folder immediately. The × control removes that repository from the current project without deleting its files; there is no separate save step. The shared project command refuses removal while an automation or repository-backed tool still references it, and the UI identifies the consumers in the error. Automation definition proposals in chat have Review changes, Save and Decline controls. Review shows the full definition; Save uses the shared conflict checks and leaves execution subject to separate approval. Change those references before retrying. Removing the selected repository selects another linked checkout; removing the last closes the panel. Add repository remains available in the sidebar when the list is empty.
 
 Chat titles use the provider’s thread name when available (including Codex name updates), with the first user message as the fallback. Naming a chat does not launch a separate Claude request. Saved provider-error titles are repaired from the transcript when the workspace loads, including unopened chats.
 
 ## Project navigation
+
+Each workspace tab has a × control that closes the tab without deleting its project, chats or files. Closed tabs stay closed after restart. Use Workspaces in the title bar to reopen them; closing the last tab shows that picker.
 
 During an app session, each project tab remembers its last section, active conversation, selected repository, and whether its repository panel is open. Switching projects restores that location; a project opened for the first time starts in Chat. Clicking the active project tab keeps the current page. ⌘← and ⌘→ switch between project tabs in their displayed order, wrapping at either end. Text fields retain their normal cursor shortcuts, and dialogs suspend tab switching.
 
