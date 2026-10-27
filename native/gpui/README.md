@@ -57,6 +57,8 @@ Tests cover global zoom with composer and Settings focus, zoom persistence and i
 
 `vendor/gpui-pre-apple` contains narrow CoreText weight, alpha-blending, and shadow-clipping fixes. `vendor/gpui-pre-macos` retains the native dark window material. See `NOTICE` and the included Apache license. Upstream Cocoa deprecation warnings remain in these framework dependencies.
 
+Repository membership: the picker and sidebar show checkout paths and provide Remove from project controls. Removal uses the shared project command, preserves checkout files, reports automation/tool dependencies, and selects another repository or closes the panel when the last one is removed. The sidebar can add a repository when the list is empty.
+
 Repository refresh: the visible history panel refreshes on the existing five-second repository poll, including external branch checkouts and linked-worktree changes with unchanged file counts. Hidden panels wait until reopened.
 
 Repository parity: linked worktree WIP rows stay beside their loaded HEAD instead of appearing at the top when that commit is outside the history page. Path/Tree controls, collapsible directories, and aggregate additions/deletions are available for current changes and commits. The repository left edge and lower detail panel (side panel when expanded) have resize handles. These sizes currently remain local to the open preview.

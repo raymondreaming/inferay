@@ -139,7 +139,7 @@ pub struct WorkspaceView {
     repository_width: f32,
     repository_resize: Option<(Pixels, f32)>,
     repository_subscription: Option<Subscription>,
-    repository_add_task: Option<Task<()>>,
+    repository_edit_task: Option<Task<()>>,
     repository_stats_task: Option<Task<()>>,
     repository_stats: std::collections::HashMap<String, inferay_core::repository::GitChangeSummary>,
     font: &'static str,
@@ -295,7 +295,7 @@ impl WorkspaceView {
             repository_width: 584.,
             repository_resize: None,
             repository_subscription: None,
-            repository_add_task: None,
+            repository_edit_task: None,
             repository_stats_task: None,
             repository_stats: Default::default(),
             font: ".SystemUIFont",
@@ -470,8 +470,8 @@ impl WorkspaceView {
             }
         }));
     }
-    fn add_repository(&mut self, cx: &mut Context<Self>) {
-        if self.repository_add_task.is_some() {
+    fn edit_repository(&mut self, remove: Option<String>, cx: &mut Context<Self>) {
+        if self.repository_edit_task.is_some() {
             return;
         }
         let Some(project_id) = self.projects[self.project].id.clone() else {
@@ -480,39 +480,82 @@ impl WorkspaceView {
         let Some(backend) = self.backend.get().cloned() else {
             return;
         };
-        let selected = cx.prompt_for_paths(PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: Some("Add repository to workspace".into()),
+        self.status.clear();
+        if let Some(view) = &self.repository_view {
+            view.update(cx, |view, cx| {
+                view.membership_error = None;
+                cx.notify();
+            });
+        }
+        let selected = remove.is_none().then(|| {
+            cx.prompt_for_paths(PathPromptOptions {
+                files: false,
+                directories: true,
+                multiple: false,
+                prompt: Some("Add repository to workspace".into()),
+            })
         });
-        self.repository_add_task = Some(cx.spawn(async move |this, cx| {
+        self.repository_edit_task = Some(cx.spawn(async move |this, cx| {
             let result = async {
-                let paths = selected.await??;
-                let Some(path) = paths.and_then(|paths| paths.into_iter().next()) else { return Ok(None); };
+                let path = if let Some(selected) = selected {
+                    let paths = selected.await??;
+                    let Some(path) = paths.and_then(|paths| paths.into_iter().next()) else { return Ok(None); };
+                    path.to_string_lossy().into_owned()
+                } else {
+                    remove.clone().unwrap()
+                };
+                let removing = remove.is_some();
                 let id = project_id.clone();
                 cx.background_executor().spawn(async move {
                     crate::backend::RUNTIME.block_on(async {
                         let endpoint = format!("/api/projects?projectId={id}");
                         let workspace: inferay_core::project_files::ProjectWorkspace = serde_json::from_value(backend.request(reqwest::Method::GET, &endpoint, None).await?)?;
                         let project = workspace.catalog.projects.iter().find(|p| p.id == id).ok_or_else(|| anyhow::anyhow!("Project no longer exists"))?;
-                        backend.request(reqwest::Method::POST, "/api/projects/command", Some(serde_json::json!({"type":"editRepository", "projectId":id, "expectedHash":project.source_hash, "change":{"kind":"add", "path":path}}))).await?;
+                        let change = if removing {
+                            let repository = project.definition.as_ref().and_then(|definition| definition.repositories.iter().find(|repo| workspace.catalog.repository_paths.get(&repo.id) == Some(&path)))
+                                .ok_or_else(|| anyhow::anyhow!("Repository is no longer linked to this project"))?;
+                            serde_json::json!({"kind":"remove", "id":repository.id})
+                        } else {
+                            serde_json::json!({"kind":"add", "path":path})
+                        };
+                        backend.request(reqwest::Method::POST, "/api/projects/command", Some(serde_json::json!({"type":"editRepository", "projectId":id, "expectedHash":project.source_hash, "change":change}))).await?;
                         let workspace: inferay_core::project_files::ProjectWorkspace = serde_json::from_value(backend.request(reqwest::Method::GET, &endpoint, None).await?)?;
                         let definition = workspace.catalog.projects.iter().find(|p| p.id == id).and_then(|p| p.definition.as_ref()).ok_or_else(|| anyhow::anyhow!("Project no longer exists"))?;
                         let repositories = definition.repositories.iter().filter_map(|repo| workspace.catalog.repository_paths.get(&repo.id).map(|path| (repo.name.clone(), path.clone()))).collect::<Vec<_>>();
-                        Ok::<_, anyhow::Error>(Some((repositories, path.to_string_lossy().into_owned())))
+                        Ok::<_, anyhow::Error>(Some((repositories, (!removing).then_some(path))))
                     })
                 }).await
             }.await;
             let _ = this.update(cx, |s, cx| {
-                s.repository_add_task = None;
+                s.repository_edit_task = None;
                 match result {
                     Ok(Some((repositories, path))) => {
-                        if let Some(project) = s.projects.iter_mut().find(|p| p.id.as_ref() == Some(&project_id)) { project.repositories = repositories; }
-                        if s.projects[s.project].id.as_ref() == Some(&project_id) { s.open_repository(path, cx); s.refresh_repository_stats(cx); }
+                        if let Some(project) = s.projects.iter_mut().find(|p| p.id.as_ref() == Some(&project_id)) {
+                            project.repositories = repositories;
+                            project.selected_repository = path.or_else(|| project.selected_repository.take().filter(|selected| project.repositories.iter().any(|(_, path)| path == selected)))
+                                .or_else(|| project.repositories.first().map(|(_, path)| path.clone()));
+                        }
+                        s.repository_views.retain(|path, _| s.projects.iter().any(|project| project.repositories.iter().any(|(_, linked)| linked == path)));
+                        if s.projects[s.project].id.as_ref() == Some(&project_id) {
+                            if let Some(path) = s.projects[s.project].selected_repository.clone() {
+                                s.open_repository(path, cx);
+                            } else {
+                                s.repository_view = None;
+                                s.repository_subscription = None;
+                                s.repository = false;
+                            }
+                            s.refresh_repository_stats(cx);
+                        }
                     }
                     Ok(None) => (),
-                    Err(error) => s.status = format!("Could not add repository: {error}"),
+                    Err(error) => {
+                        s.status = format!("Could not update repositories: {error}");
+                        if s.projects[s.project].id.as_ref() == Some(&project_id)
+                            && let Some(view) = &s.repository_view
+                        {
+                            view.update(cx, |view, cx| { view.membership_error = Some(s.status.clone()); cx.notify(); });
+                        }
+                    },
                 }
                 cx.notify();
             });
@@ -555,7 +598,10 @@ impl WorkspaceView {
                     crate::repository::RepositoryEvent::Select(path) => {
                         s.open_repository(path.clone(), cx)
                     }
-                    crate::repository::RepositoryEvent::Add => s.add_repository(cx),
+                    crate::repository::RepositoryEvent::Add => s.edit_repository(None, cx),
+                    crate::repository::RepositoryEvent::Remove(path) => {
+                        s.edit_repository(Some(path.clone()), cx)
+                    }
                 }
                 cx.notify();
             },
@@ -767,13 +813,23 @@ impl WorkspaceView {
             .child(button("repositories-toggle", "").h(ui(32.)).gap(ui(10.)).text_size(ui(colors::CHAT_SMALL)).text_color(rgba(0xebebeb80)).child(icon("GitBranch")).child("Repositories").child(div().flex_1()).child(icon(if self.repositories_collapsed { "ChevronRight" } else { "ChevronDown" }))
                 .on_click(cx.listener(|s, _, _, cx| { s.repositories_collapsed = !s.repositories_collapsed; cx.notify(); })))
             .children(self.projects[self.project].repositories.iter().enumerate().filter(|_| !self.repositories_collapsed).map(|(i, (name, path))| {
-                let path = path.clone();
-                button(("repo", i), "").aria_label(name.clone()).h(ui(32.)).pl(ui(26.)).text_size(ui(colors::CHAT_SMALL)).child(icon("GitBranch")).child(div().flex_1().min_w_0().text_ellipsis().child(name.clone()))
-                    .when_some(self.repository_stats.get(&path), |d, stats| d
+                let selected_path = path.clone();
+                let removed_path = path.clone();
+                div().flex().items_center()
+                .child(button(("repo", i), "").aria_label(format!("{name}: {path}")).flex_1().min_w_0().pl(ui(26.)).text_size(ui(colors::CHAT_SMALL)).child(icon("GitBranch")).child(div().flex_1().min_w_0()
+                    .child(div().text_ellipsis().child(name.clone()))
+                    .child(div().text_size(ui(10.)).text_color(rgba(0xebebeb80)).text_ellipsis().child(path.clone())))
+                    .when_some(self.repository_stats.get(path), |d, stats| d
                         .child(div().text_size(ui(11.)).text_color(rgb(0x4fbd83)).child(format!("+{}", stats.additions)))
                         .child(div().text_size(ui(11.)).text_color(rgb(0xdf6464)).child(format!("−{}", stats.deletions))))
-                    .on_click(cx.listener(move |s, _, _, cx| { s.repository = true; s.open_repository(path.clone(), cx); cx.notify(); }))
+                    .on_click(cx.listener(move |s, _, _, cx| { s.repository = true; s.open_repository(selected_path.clone(), cx); cx.notify(); })))
+                .child(button(("remove-repository", i), "").aria_label(format!("Remove {name} from project: {path}. Files stay on disk."))
+                    .debug_selector(move || format!("remove-repository-{i}"))
+                    .child(icon("X").size(ui(12.)))
+                    .on_click(cx.listener(move |s, _, _, cx| { cx.stop_propagation(); s.edit_repository(Some(removed_path.clone()), cx); })))
             }))
+            .child(button("add-sidebar-repository", "Add repository…").child(icon("Plus"))
+                .on_click(cx.listener(|s, _, _, cx| s.edit_repository(None, cx))))
             .child(div().h(ui(1.)).bg(rgba(0xebebeb0f)).my(ui(14.)))
             .child(div().flex().items_center().justify_between().px(ui(9.)).mb(ui(10.)).text_color(rgba(0xebebeb80)).text_size(ui(colors::CHAT_SMALL)).child("Chats")
                 .child(button("new-chat", "New chat").child(icon("Plus")).on_click(cx.listener(|s, _, w, cx| s.new_chat(w, cx)))))
@@ -2206,6 +2262,147 @@ mod tests {
                 assert!(view.scene_task.is_none());
             })
             .unwrap();
+    }
+
+    #[gpui::test]
+    fn repository_removal_persists_preserves_files_and_handles_dependencies(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let profile = tempfile::tempdir().unwrap();
+        let directories = [
+            tempfile::tempdir().unwrap(),
+            tempfile::tempdir().unwrap(),
+            tempfile::tempdir().unwrap(),
+        ];
+        let paths: Vec<String> = directories
+            .iter()
+            .map(|dir| {
+                dir.path()
+                    .canonicalize()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        for path in &paths {
+            std::fs::write(std::path::Path::new(path).join("keep.txt"), "keep").unwrap();
+        }
+        let project_id = "00000000-0000-4000-8000-000000000001";
+        let ids = [
+            "00000000-0000-4000-8000-000000000002",
+            "00000000-0000-4000-8000-000000000003",
+            "00000000-0000-4000-8000-000000000004",
+        ];
+        let backend = crate::backend::RUNTIME
+            .block_on(crate::backend::Backend::connect(profile.path().to_owned()))
+            .unwrap();
+        let repositories: Vec<_> = ids
+            .iter()
+            .map(|id| serde_json::json!({"id":id,"name":"Same name"}))
+            .collect();
+        let bindings: std::collections::BTreeMap<_, _> = ids.iter().zip(paths.iter()).collect();
+        crate::backend::RUNTIME.block_on(backend.request(reqwest::Method::POST, "/api/projects/command", Some(serde_json::json!({"type":"saveProject", "expectedHash":null, "definition":{"schema":"inferay.project/1","id":project_id,"name":"Test","description":"","instructions":"","repositories":repositories}, "repositoryPaths":bindings})))).unwrap();
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            let input = cx.new(TextInput::new);
+            let mut view = WorkspaceView::empty(cx.focus_handle(), input, cx);
+            view.status.clear();
+            view.backend =
+                std::sync::Arc::new(tokio::sync::OnceCell::new_with(Some(backend.clone())));
+            view.projects[0].id = Some(project_id.into());
+            view.projects[0].repositories = paths
+                .iter()
+                .map(|path| ("Same name".into(), path.clone()))
+                .collect();
+            view.repository = true;
+            view.open_repository(paths[0].clone(), cx);
+            view
+        });
+        cx.run_until_parked();
+        cx.draw(point(px(0.), px(0.)), size(px(1000.), px(700.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        let remove = cx.debug_bounds("remove-repository-1").unwrap();
+        cx.simulate_click(remove.center(), Modifiers::default());
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| {
+            assert!(view.repository_edit_task.is_none());
+            assert_eq!(view.projects[0].repositories.len(), 2, "{}", view.status);
+            assert_eq!(
+                view.projects[0].selected_repository.as_ref(),
+                Some(&paths[0])
+            );
+            assert!(
+                !view.projects[0]
+                    .repositories
+                    .iter()
+                    .any(|(_, path)| path == &paths[1])
+            );
+        });
+        view.update(cx, |view, cx| {
+            view.edit_repository(Some(paths[0].clone()), cx)
+        });
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| {
+            assert_eq!(
+                view.projects[0].selected_repository.as_ref(),
+                Some(&paths[2])
+            );
+            assert!(!view.repository_views.contains_key(&paths[0]));
+        });
+        let automation = profile
+            .path()
+            .join("projects")
+            .join(project_id)
+            .join("automations/job/automation.json");
+        std::fs::create_dir_all(automation.parent().unwrap()).unwrap();
+        std::fs::write(&automation, serde_json::json!({"schema":"inferay.automation/1","id":"00000000-0000-4000-8000-000000000005","name":"Keep dependency","archived":true,"trigger":{"kind":"manual"},"overlap":"skip","may":[],"execution":{"kind":"agent","provider":"codex","instructions":"Run","skills":[],"resources":[],"repositories":[ids[2]],"workingDirectory":{"base":"repository","id":ids[2]},"timeoutSeconds":300}}).to_string()).unwrap();
+        view.update(cx, |view, cx| {
+            view.edit_repository(Some(paths[2].clone()), cx)
+        });
+        cx.run_until_parked();
+        view.read_with(cx, |view, cx| {
+            assert_eq!(view.projects[0].repositories.len(), 1);
+            assert!(
+                view.repository_view
+                    .as_ref()
+                    .unwrap()
+                    .read(cx)
+                    .membership_error
+                    .as_ref()
+                    .unwrap()
+                    .contains("automations and tools")
+            );
+        });
+        std::fs::remove_file(automation).unwrap();
+        view.update(cx, |view, cx| {
+            view.edit_repository(Some(paths[2].clone()), cx)
+        });
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| {
+            assert!(view.projects[0].repositories.is_empty(), "{}", view.status);
+            assert!(view.projects[0].selected_repository.is_none());
+            assert!(view.repository_view.is_none());
+            assert!(!view.repository);
+            assert!(view.status.is_empty());
+        });
+        let saved: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(
+                profile
+                    .path()
+                    .join("projects")
+                    .join(project_id)
+                    .join("project.json"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(saved["repositories"].as_array().unwrap().is_empty());
+        for path in &paths {
+            assert_eq!(
+                std::fs::read_to_string(std::path::Path::new(path).join("keep.txt")).unwrap(),
+                "keep"
+            );
+        }
     }
 
     #[gpui::test]

@@ -15,6 +15,7 @@ pub enum RepositoryEvent {
     Expand,
     Select(String),
     Add,
+    Remove(String),
 }
 impl EventEmitter<RepositoryEvent> for RepositoryView {}
 
@@ -34,6 +35,7 @@ pub struct RepositoryView {
     files_scroll: [ScrollHandle; 2],
     cwd: String,
     pub repositories: Vec<(String, String)>,
+    pub membership_error: Option<String>,
     repository_menu: bool,
     selected_worktree: Option<String>,
     pub expanded: bool,
@@ -126,6 +128,7 @@ impl RepositoryView {
             files_scroll: [ScrollHandle::new(), ScrollHandle::new()],
             cwd,
             repositories: vec![],
+            membership_error: None,
             repository_menu: false,
             selected_worktree: None,
             expanded: false,
@@ -728,6 +731,9 @@ impl Render for RepositoryView {
                         .child("Reading repository…"),
                 )
             })
+            .when_some(self.membership_error.clone(), |d, error| {
+                d.child(div().p(ui(12.)).text_size(ui(11.)).child(error))
+            })
             .when_some(self.error.clone(), |d, error| {
                 d.child(div().p(ui(12.)).text_size(ui(11.)).child(error))
             })
@@ -813,7 +819,8 @@ impl Render for RepositoryView {
                         .debug_selector(|| "repository-menu".into())
                         .top(ui(32.))
                         .left(ui(8.))
-                        .w(ui(260.))
+                        .w(ui(360.))
+                        .max_w(ui((self.available_width - 16.).max(180.)))
                         .on_mouse_down_out(cx.listener(|s, _, _, cx| {
                             s.repository_menu = false;
                             cx.notify();
@@ -823,15 +830,31 @@ impl Render for RepositoryView {
                                 .iter()
                                 .enumerate()
                                 .map(|(i, (name, path))| {
-                                    let path = path.clone();
-                                    button(("workspace-repository", i), name.clone())
-                                        .w_full()
-                                        .when(path == self.cwd, |d| d.bg(rgba(0xebebeb17)))
-                                        .on_click(cx.listener(move |s, _, _, cx| {
-                                            s.repository_menu = false;
-                                            cx.emit(RepositoryEvent::Select(path.clone()));
-                                            cx.notify();
-                                        }))
+                                    let selected_path = path.clone();
+                                    let removed_path = path.clone();
+                                    div().flex().items_center().w_full()
+                                        .when(path == &self.cwd, |d| d.bg(rgba(0xebebeb17)))
+                                        .child(button(("workspace-repository", i), "")
+                                            .flex_1().min_w_0()
+                                            .aria_label(format!("{name}: {path}"))
+                                            .child(div().flex().flex_col().min_w_0()
+                                                .child(name.clone())
+                                                .child(div().text_size(ui(10.)).text_color(rgba(0xebebeb80)).text_ellipsis().child(path.clone())))
+                                            .on_click(cx.listener(move |s, _, _, cx| {
+                                                s.repository_menu = false;
+                                                cx.emit(RepositoryEvent::Select(selected_path.clone()));
+                                                cx.notify();
+                                            })))
+                                        .child(button(("remove-workspace-repository", i), "")
+                                            .debug_selector(move || format!("remove-workspace-repository-{i}"))
+                                            .aria_label(format!("Remove {name} from project: {path}. Files stay on disk."))
+                                            .child(icon("X").size(ui(12.)))
+                                            .on_click(cx.listener(move |s, _, _, cx| {
+                                                cx.stop_propagation();
+                                                s.repository_menu = false;
+                                                cx.emit(RepositoryEvent::Remove(removed_path.clone()));
+                                                cx.notify();
+                                            })))
                                 }),
                         )
                         .child(
@@ -1025,6 +1048,47 @@ mod tests {
             .unwrap();
     }
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn repository_menu_removes_the_chosen_path_without_selecting_it(cx: &mut TestAppContext) {
+        let directory = tempfile::tempdir().unwrap();
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            RepositoryView::new(
+                directory.path().to_string_lossy().into_owned(),
+                Value::Null,
+                "vscode-black".into(),
+                0,
+                cx,
+            )
+        });
+        view.update(cx, |view, _| {
+            view.task = None;
+            view.loading = false;
+            view.repositories = vec![
+                ("Same name".into(), "/first".into()),
+                ("Same name".into(), "/second".into()),
+            ];
+            view.repository_menu = true;
+        });
+        let events = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let captured = events.clone();
+        let subscription = cx.update(|_, cx| {
+            cx.subscribe(&view, move |_, event: &RepositoryEvent, _| {
+                captured.borrow_mut().push(match event {
+                    RepositoryEvent::Remove(path) => format!("remove:{path}"),
+                    _ => "unexpected".into(),
+                });
+            })
+        });
+        cx.draw(point(px(0.), px(0.)), size(px(600.), px(600.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        let remove = cx.debug_bounds("remove-workspace-repository-1").unwrap();
+        cx.simulate_click(remove.center(), Modifiers::default());
+        assert_eq!(*events.borrow(), vec!["remove:/second"]);
+        assert!(!view.read_with(cx, |view, _| view.repository_menu));
+        drop(subscription);
+    }
 
     #[gpui::test]
     fn repository_menu_overlays_without_moving_toolbar(cx: &mut TestAppContext) {

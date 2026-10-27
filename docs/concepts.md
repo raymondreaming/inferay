@@ -62,7 +62,7 @@ Project ─┬─ Repositories (linked, never copied)
 
 ## Managing repositories
 
-Manage repositories opens a compact dialog for the current project. Selecting a folder links it immediately; Remove unlinks it immediately without deleting files. There is no separate save step. Repositories used by automations show those automation names and cannot be removed until those references are changed. Project details and archiving remain in Edit project. Repository management can change a local folder binding while preserving the repository ID used by automations. Select a dependent automation in the dialog to edit its repository references before removing that repository. Changes save automatically; close the dialog with ×.
+The repository picker and sidebar show each linked checkout's name and path. Add repository links a folder immediately. The × control removes that repository from the current project without deleting its files; there is no separate save step. The shared project command refuses removal while an automation or repository-backed tool still references it, and the UI shows that error. Change those references before retrying. Removing the selected repository selects another linked checkout; removing the last closes the panel. Add repository remains available in the sidebar when the list is empty.
 
 Chat titles use the provider’s thread name when available (including Codex name updates), with the first user message as the fallback. Naming a chat does not launch a separate Claude request. Saved provider-error titles are repaired from the transcript when the workspace loads, including unopened chats.
 
