@@ -118,6 +118,7 @@ pub struct WorkspaceView {
     focus: FocusHandle,
     projects: Vec<Project>,
     closed_projects: HashSet<String>,
+    closed_repositories: std::collections::HashMap<String, HashSet<String>>,
     project_picker: bool,
     profile: std::path::PathBuf,
     load_task: Option<Task<()>>,
@@ -273,6 +274,7 @@ impl WorkspaceView {
                 dock_workspace: None,
             }],
             closed_projects: Default::default(),
+            closed_repositories: Default::default(),
             project_picker: false,
             profile: crate::session::profile(),
             load_task: None,
@@ -325,6 +327,7 @@ impl WorkspaceView {
     }
     fn restore(&mut self, session: crate::session::Session, cx: &mut Context<Self>) {
         self.closed_projects = session.closed_projects;
+        self.closed_repositories = session.closed_repositories;
         self.default_config = session.default_config;
         self.sidebar = !session.sidebar_collapsed;
         self.sidebar_width = session.sidebar_width;
@@ -448,10 +451,12 @@ impl WorkspaceView {
         if let Some(path) = self.projects[index]
             .selected_repository
             .clone()
+            .filter(|p| self.repository_is_open(p))
             .or_else(|| {
                 self.projects[index]
                     .repositories
-                    .first()
+                    .iter()
+                    .find(|(_, p)| self.repository_is_open(p))
                     .map(|(_, path)| path.clone())
             })
         {
@@ -517,6 +522,61 @@ impl WorkspaceView {
                     .await;
             }
         }));
+    }
+    fn repository_is_open(&self, path: &str) -> bool {
+        !self
+            .closed_repositories
+            .get(self.projects[self.project].id.as_deref().unwrap_or(""))
+            .is_some_and(|paths| paths.contains(path))
+    }
+    fn close_repository(&mut self, path: String, cx: &mut Context<Self>) {
+        self.closed_repositories
+            .entry(self.projects[self.project].id.clone().unwrap_or_default())
+            .or_default()
+            .insert(path.clone());
+        self.status.clear();
+        let next = self.projects[self.project]
+            .selected_repository
+            .clone()
+            .filter(|p| p != &path && self.repository_is_open(p))
+            .or_else(|| {
+                self.projects[self.project]
+                    .repositories
+                    .iter()
+                    .find(|(_, p)| self.repository_is_open(p))
+                    .map(|(_, p)| p.clone())
+            });
+        self.repository_views.remove(&path);
+        if let Some(next) = next {
+            self.open_repository(next, cx);
+            if let Some(view) = &self.repository_view {
+                view.update(cx, |view, cx| {
+                    view.membership_error = None;
+                    cx.notify();
+                });
+            }
+        } else {
+            self.projects[self.project].selected_repository = None;
+            self.repository_view = None;
+            self.repository_subscription = None;
+            self.repository = false;
+        }
+        self.persist_workspace_preferences(None, cx);
+        cx.notify();
+    }
+    fn reopen_repositories(&mut self, cx: &mut Context<Self>) {
+        self.closed_repositories
+            .remove(self.projects[self.project].id.as_deref().unwrap_or(""));
+        if let Some(path) = self.projects[self.project]
+            .repositories
+            .first()
+            .map(|(_, p)| p.clone())
+        {
+            self.repository = true;
+            self.open_repository(path, cx);
+        }
+        self.persist_workspace_preferences(None, cx);
+        cx.notify();
     }
     fn edit_repository(&mut self, remove: Option<String>, cx: &mut Context<Self>) {
         self.edit_repository_location(remove, false, cx);
@@ -654,7 +714,14 @@ impl WorkspaceView {
             view
         };
         view.update(cx, |view, _| {
-            view.repositories = self.projects[self.project].repositories.clone();
+            view.repositories = self.projects[self.project]
+                .repositories
+                .iter()
+                .filter(|(_, p)| self.repository_is_open(p))
+                .cloned()
+                .collect();
+            view.has_closed_repositories =
+                view.repositories.len() < self.projects[self.project].repositories.len();
             self.repository_expanded = view.expanded;
         });
         self.repository_subscription = Some(cx.subscribe(
@@ -671,9 +738,10 @@ impl WorkspaceView {
                     crate::repository::RepositoryEvent::Relink(path) => {
                         s.edit_repository_location(Some(path.clone()), true, cx)
                     }
-                    crate::repository::RepositoryEvent::Remove(path) => {
-                        s.edit_repository(Some(path.clone()), cx)
+                    crate::repository::RepositoryEvent::Close(path) => {
+                        s.close_repository(path.clone(), cx)
                     }
+                    crate::repository::RepositoryEvent::Reopen => s.reopen_repositories(cx),
                 }
                 cx.notify();
             },
@@ -819,12 +887,6 @@ impl WorkspaceView {
                     })),
             )
             .child(
-                button("open-workspaces", "Workspaces").on_click(cx.listener(|s, _, _, cx| {
-                    s.project_picker = !s.project_picker;
-                    cx.notify();
-                })),
-            )
-            .child(
                 button("new", "New")
                     .child(icon("Plus"))
                     .on_click(cx.listener(|s, _, w, cx| s.new_chat(w, cx))),
@@ -852,7 +914,8 @@ impl WorkspaceView {
                                     .aria_label(name.clone())
                                     .h(ui(30.))
                                     .flex_shrink_0()
-                                    .px(ui(12.))
+                                    .pl(ui(12.))
+                                    .pr(ui(4.))
                                     .flex()
                                     .items_center()
                                     .gap(ui(7.))
@@ -866,6 +929,10 @@ impl WorkspaceView {
                                     .child(name.clone())
                                     .child(
                                         button(("close-project", i), "")
+                                            .px(ui(0.))
+                                            .w(ui(24.))
+                                            .h(ui(24.))
+                                            .justify_center()
                                             .aria_label(format!("Close {name} workspace tab"))
                                             .debug_selector(move || format!("close-project-{i}"))
                                             .child(icon("X").size(ui(12.)))
@@ -909,7 +976,7 @@ impl WorkspaceView {
             }))
             .child(button("repositories-toggle", "").h(ui(32.)).gap(ui(10.)).text_size(ui(colors::CHAT_SMALL)).text_color(rgba(0xebebeb80)).child(icon("GitBranch")).child("Repositories").child(div().flex_1()).child(icon(if self.repositories_collapsed { "ChevronRight" } else { "ChevronDown" }))
                 .on_click(cx.listener(|s, _, _, cx| { s.repositories_collapsed = !s.repositories_collapsed; cx.notify(); })))
-            .children(self.projects[self.project].repositories.iter().enumerate().filter(|_| !self.repositories_collapsed).map(|(i, (name, path))| {
+            .children(self.projects[self.project].repositories.iter().enumerate().filter(|(_, (_, path))| !self.repositories_collapsed && self.repository_is_open(path)).map(|(i, (name, path))| {
                 let selected_path = path.clone();
                 let removed_path = path.clone();
                 div().flex().items_center()
@@ -920,11 +987,13 @@ impl WorkspaceView {
                         .child(div().text_size(ui(11.)).text_color(rgb(0x4fbd83)).child(format!("+{}", stats.additions)))
                         .child(div().text_size(ui(11.)).text_color(rgb(0xdf6464)).child(format!("−{}", stats.deletions))))
                     .on_click(cx.listener(move |s, _, _, cx| { s.repository = true; s.open_repository(selected_path.clone(), cx); cx.notify(); })))
-                .child(button(("remove-repository", i), "").aria_label(format!("Remove {name} from project: {path}. Files stay on disk."))
+                .child(button(("remove-repository", i), "").aria_label(format!("Close {name}: {path}. Keep project references and files."))
                     .debug_selector(move || format!("remove-repository-{i}"))
                     .child(icon("X").size(ui(12.)))
-                    .on_click(cx.listener(move |s, _, _, cx| { cx.stop_propagation(); s.edit_repository(Some(removed_path.clone()), cx); })))
+                    .on_click(cx.listener(move |s, _, _, cx| { cx.stop_propagation(); s.close_repository(removed_path.clone(), cx); })))
             }))
+            .when(self.projects[self.project].repositories.iter().any(|(_, p)| !self.repository_is_open(p)), |d| d.child(button("reopen-repositories", "Reopen closed repositories")
+                .on_click(cx.listener(|s, _, _, cx| s.reopen_repositories(cx)))))
             .child(button("add-sidebar-repository", "Add repository…").child(icon("Plus"))
                 .on_click(cx.listener(|s, _, _, cx| s.edit_repository(None, cx))))
             .child(div().h(ui(1.)).bg(rgba(0xebebeb0f)).my(ui(14.)))
@@ -2509,8 +2578,9 @@ mod tests {
         cx.draw(point(px(0.), px(0.)), size(px(1000.), px(700.)), |_, _| {
             view.clone().into_any_element()
         });
-        let remove = cx.debug_bounds("remove-repository-1").unwrap();
-        cx.simulate_click(remove.center(), Modifiers::default());
+        view.update(cx, |view, cx| {
+            view.edit_repository(Some(paths[1].clone()), cx)
+        });
         cx.run_until_parked();
         view.read_with(cx, |view, _| {
             assert!(view.repository_edit_task.is_none());
@@ -2544,6 +2614,25 @@ mod tests {
             .join("automations/job/automation.json");
         std::fs::create_dir_all(automation.parent().unwrap()).unwrap();
         std::fs::write(&automation, serde_json::json!({"schema":"inferay.automation/1","id":"00000000-0000-4000-8000-000000000005","name":"Keep dependency","archived":true,"trigger":{"kind":"manual"},"overlap":"skip","may":[],"execution":{"kind":"agent","provider":"codex","instructions":"Run","skills":[],"resources":[],"repositories":[ids[2]],"workingDirectory":{"base":"repository","id":ids[2]},"timeoutSeconds":300}}).to_string()).unwrap();
+        let dependency_before_close = std::fs::read(&automation).unwrap();
+        cx.draw(point(px(0.), px(0.)), size(px(1000.), px(700.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        let close = cx.debug_bounds("remove-repository-0").unwrap();
+        cx.simulate_click(close.center(), Modifiers::default());
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| {
+            assert_eq!(view.projects[0].repositories.len(), 1);
+            assert!(!view.repository_is_open(&paths[2]));
+            assert!(!view.repository);
+            assert!(view.repository_view.is_none());
+            assert!(view.status.is_empty(), "{}", view.status);
+        });
+        assert_eq!(std::fs::read(&automation).unwrap(), dependency_before_close);
+        let persisted = crate::session::load(profile.path()).unwrap();
+        assert!(persisted.closed_repositories[project_id].contains(&paths[2]));
+        view.update(cx, |view, cx| view.reopen_repositories(cx));
+        cx.run_until_parked();
         view.update(cx, |view, cx| {
             view.edit_repository(Some(paths[2].clone()), cx)
         });
@@ -3130,6 +3219,7 @@ mod tests {
                 view.restore(
                     crate::session::Session {
                         closed_projects: Default::default(),
+                        closed_repositories: Default::default(),
                         zoom: crate::zoom::Zoom::default(),
                         default_config: inferay_core::provider_config::resolve(&serde_json::json!(
                             {}

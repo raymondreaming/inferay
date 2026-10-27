@@ -62,13 +62,15 @@ Project ─┬─ Repositories (linked, never copied)
 
 ## Managing repositories
 
-The repository picker and sidebar show each linked checkout's name and path. If a folder has moved, Locate folder opens a folder picker and reconnects the existing repository identity, preserving automation references. Selecting a changed location requires review before automations run again. Canceling leaves the binding unchanged. Add repository links a folder immediately. The × control removes that repository from the current project without deleting its files; there is no separate save step. The shared project command refuses removal while an automation or repository-backed tool still references it, and the UI identifies the consumers in the error. Automation definition proposals in chat have Review changes, Save and Decline controls. Review shows the full definition; Save uses the shared conflict checks and leaves execution subject to separate approval. Change those references before retrying. Removing the selected repository selects another linked checkout; removing the last closes the panel. Add repository remains available in the sidebar when the list is empty.
+The repository picker and sidebar show each open checkout's name and path. The × control closes the entry immediately, including missing folders and repositories used by automations. Closing is a saved visibility preference; it does not delete files or change project, automation or tool references. Reopen closed repositories restores those entries. Closing the selected entry selects another open repository, or closes the panel if none remain.
+
+If a folder has moved, Locate folder reconnects the existing repository identity, preserving automation references. A changed location requires review before automations run again. Canceling leaves the binding unchanged. Add repository links a folder to the project. Actual project unlink operations retain dependency checks and identify the consumers blocking removal. Automation definition proposals in chat have Review changes, Save and Decline controls; saving does not enable or run an automation.
 
 Chat titles use the provider’s thread name when available (including Codex name updates), with the first user message as the fallback. Naming a chat does not launch a separate Claude request. Saved provider-error titles are repaired from the transcript when the workspace loads, including unopened chats.
 
 ## Project navigation
 
-Each workspace tab has a × control that closes the tab without deleting its project, chats or files. Closed tabs stay closed after restart. Use Workspaces in the title bar to reopen them; closing the last tab shows that picker.
+Each workspace tab has a × control that closes the tab without deleting its project, chats or files. Closed tabs stay closed after restart. Closing the last tab shows a picker for reopening saved projects.
 
 During an app session, each project tab remembers its last section, active conversation, selected repository, and whether its repository panel is open. Switching projects restores that location; a project opened for the first time starts in Chat. Clicking the active project tab keeps the current page. ⌘← and ⌘→ switch between project tabs in their displayed order, wrapping at either end. Text fields retain their normal cursor shortcuts, and dialogs suspend tab switching.
 

@@ -15,7 +15,8 @@ pub enum RepositoryEvent {
     Expand,
     Select(String),
     Add,
-    Remove(String),
+    Close(String),
+    Reopen,
     Relink(String),
 }
 impl EventEmitter<RepositoryEvent> for RepositoryView {}
@@ -36,6 +37,7 @@ pub struct RepositoryView {
     files_scroll: [ScrollHandle; 2],
     cwd: String,
     pub repositories: Vec<(String, String)>,
+    pub has_closed_repositories: bool,
     pub membership_error: Option<String>,
     missing: bool,
     repository_menu: bool,
@@ -130,6 +132,7 @@ impl RepositoryView {
             files_scroll: [ScrollHandle::new(), ScrollHandle::new()],
             cwd,
             repositories: vec![],
+            has_closed_repositories: false,
             membership_error: None,
             missing: false,
             repository_menu: false,
@@ -857,16 +860,18 @@ impl Render for RepositoryView {
                                             })))
                                         .child(button(("remove-workspace-repository", i), "")
                                             .debug_selector(move || format!("remove-workspace-repository-{i}"))
-                                            .aria_label(format!("Remove {name} from project: {path}. Files stay on disk."))
+                                            .aria_label(format!("Close {name}: {path}. Keep project references and files."))
                                             .child(icon("X").size(ui(12.)))
                                             .on_click(cx.listener(move |s, _, _, cx| {
                                                 cx.stop_propagation();
                                                 s.repository_menu = false;
-                                                cx.emit(RepositoryEvent::Remove(removed_path.clone()));
+                                                cx.emit(RepositoryEvent::Close(removed_path.clone()));
                                                 cx.notify();
                                             })))
                                 }),
                         )
+                        .when(self.has_closed_repositories, |d| d.child(button("reopen-repositories", "Reopen closed repositories")
+                            .on_click(cx.listener(|s, _, _, cx| { s.repository_menu = false; cx.emit(RepositoryEvent::Reopen); cx.notify(); }))))
                         .child(
                             button("add-workspace-repository", "Add repository…")
                                 .child(icon("Plus"))
@@ -1085,7 +1090,7 @@ mod tests {
         let subscription = cx.update(|_, cx| {
             cx.subscribe(&view, move |_, event: &RepositoryEvent, _| {
                 captured.borrow_mut().push(match event {
-                    RepositoryEvent::Remove(path) => format!("remove:{path}"),
+                    RepositoryEvent::Close(path) => format!("remove:{path}"),
                     _ => "unexpected".into(),
                 });
             })

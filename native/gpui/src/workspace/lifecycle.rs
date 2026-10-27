@@ -198,6 +198,7 @@ impl WorkspaceView {
         let entries = json!({
             "inferay-selected-project-id":project,
             "inferay-closed-project-tabs":serde_json::to_string(&self.closed_projects).unwrap(),
+            "inferay-closed-repositories":serde_json::to_string(&self.closed_repositories).unwrap(),
             "sidebar-collapsed":(!self.sidebar).to_string(),
             "main-sidebar-width":self.sidebar_width.to_string(),
             "inferay-ui-zoom-percent":self.zoom.percent().to_string(),

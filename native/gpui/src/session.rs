@@ -23,6 +23,7 @@ pub struct Session {
     pub default_config: inferay_core::provider_config::ProviderSettings,
     pub projects: Vec<Project>,
     pub closed_projects: std::collections::HashSet<String>,
+    pub closed_repositories: HashMap<String, std::collections::HashSet<String>>,
     pub selected_project: usize,
     pub selected_pane: Option<String>,
     pub sidebar_width: f32,
@@ -251,6 +252,9 @@ pub fn load(root: &Path) -> Result<Session> {
         zoom: crate::zoom::Zoom::restore(value("inferay-ui-zoom-percent")?.as_deref()),
         sidebar_collapsed: value("sidebar-collapsed")?.as_deref() == Some("true"),
         closed_projects: value("inferay-closed-project-tabs")?
+            .and_then(|v| serde_json::from_str(&v).ok())
+            .unwrap_or_default(),
+        closed_repositories: value("inferay-closed-repositories")?
             .and_then(|v| serde_json::from_str(&v).ok())
             .unwrap_or_default(),
         drafts,
