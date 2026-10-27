@@ -16,6 +16,7 @@ pub enum RepositoryEvent {
     Select(String),
     Add,
     Remove(String),
+    Relink(String),
 }
 impl EventEmitter<RepositoryEvent> for RepositoryView {}
 
@@ -36,6 +37,7 @@ pub struct RepositoryView {
     cwd: String,
     pub repositories: Vec<(String, String)>,
     pub membership_error: Option<String>,
+    missing: bool,
     repository_menu: bool,
     selected_worktree: Option<String>,
     pub expanded: bool,
@@ -129,6 +131,7 @@ impl RepositoryView {
             cwd,
             repositories: vec![],
             membership_error: None,
+            missing: false,
             repository_menu: false,
             selected_worktree: None,
             expanded: false,
@@ -353,8 +356,9 @@ impl RepositoryView {
             let (status, graph, images, rendered, presentation, missing) = work.await;
             let _ = this.update(cx, |view, cx| {
                 view.loading = false;
+                view.missing = missing;
                 view.error = if missing {
-                    Some(format!("Repository folder is missing: {}. Select an existing checkout from the repository menu. The × control removes an unused link without deleting files.", view.cwd))
+                    Some(format!("Repository folder is missing: {}. Use Locate folder to reconnect it. Existing automation references are preserved; changed locations require execution review.", view.cwd))
                 } else {
                     graph.state_error.clone().or_else(|| status.is_none().then(|| "Not a Git repository".into()))
                 };
@@ -737,6 +741,9 @@ impl Render for RepositoryView {
             .when_some(self.membership_error.clone(), |d, error| {
                 d.child(div().p(ui(12.)).text_size(ui(11.)).child(error))
             })
+            .when(self.missing, |d| d.child(button("locate-repository", "Locate folder")
+                .debug_selector(|| "locate-repository".into())
+                .on_click(cx.listener(|s, _, _, cx| cx.emit(RepositoryEvent::Relink(s.cwd.clone()))))))
             .when_some(self.error.clone(), |d, error| {
                 d.child(div().p(ui(12.)).text_size(ui(11.)).child(error))
             })

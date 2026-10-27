@@ -519,6 +519,14 @@ impl WorkspaceView {
         }));
     }
     fn edit_repository(&mut self, remove: Option<String>, cx: &mut Context<Self>) {
+        self.edit_repository_location(remove, false, cx);
+    }
+    fn edit_repository_location(
+        &mut self,
+        remove: Option<String>,
+        relink: bool,
+        cx: &mut Context<Self>,
+    ) {
         if self.repository_edit_task.is_some() {
             return;
         }
@@ -535,12 +543,19 @@ impl WorkspaceView {
                 cx.notify();
             });
         }
-        let selected = remove.is_none().then(|| {
+        let selected = (remove.is_none() || relink).then(|| {
             cx.prompt_for_paths(PathPromptOptions {
                 files: false,
                 directories: true,
                 multiple: false,
-                prompt: Some("Add repository to workspace".into()),
+                prompt: Some(
+                    if relink {
+                        "Locate moved repository folder"
+                    } else {
+                        "Add repository to workspace"
+                    }
+                    .into(),
+                ),
             })
         });
         self.repository_edit_task = Some(cx.spawn(async move |this, cx| {
@@ -552,17 +567,23 @@ impl WorkspaceView {
                 } else {
                     remove.clone().unwrap()
                 };
-                let removing = remove.is_some();
+                let removing = remove.is_some() && !relink;
                 let id = project_id.clone();
                 cx.background_executor().spawn(async move {
                     crate::backend::RUNTIME.block_on(async {
+                        let path = if removing { path } else { std::path::Path::new(&path).canonicalize()?.to_string_lossy().into_owned() };
+
                         let endpoint = format!("/api/projects?projectId={id}");
                         let workspace: inferay_core::project_files::ProjectWorkspace = serde_json::from_value(backend.request(reqwest::Method::GET, &endpoint, None).await?)?;
                         let project = workspace.catalog.projects.iter().find(|p| p.id == id).ok_or_else(|| anyhow::anyhow!("Project no longer exists"))?;
-                        let change = if removing {
-                            let repository = project.definition.as_ref().and_then(|definition| definition.repositories.iter().find(|repo| workspace.catalog.repository_paths.get(&repo.id) == Some(&path)))
+                        let change = if removing || relink {
+                            let repository = project.definition.as_ref().and_then(|definition| definition.repositories.iter().find(|repo| workspace.catalog.repository_paths.get(&repo.id) == remove.as_ref()))
                                 .ok_or_else(|| anyhow::anyhow!("Repository is no longer linked to this project"))?;
-                            serde_json::json!({"kind":"remove", "id":repository.id})
+                            if relink {
+                                serde_json::json!({"kind":"relink", "id":repository.id, "path":path})
+                            } else {
+                                serde_json::json!({"kind":"remove", "id":repository.id})
+                            }
                         } else {
                             serde_json::json!({"kind":"add", "path":path})
                         };
@@ -647,6 +668,9 @@ impl WorkspaceView {
                         s.open_repository(path.clone(), cx)
                     }
                     crate::repository::RepositoryEvent::Add => s.edit_repository(None, cx),
+                    crate::repository::RepositoryEvent::Relink(path) => {
+                        s.edit_repository_location(Some(path.clone()), true, cx)
+                    }
                     crate::repository::RepositoryEvent::Remove(path) => {
                         s.edit_repository(Some(path.clone()), cx)
                     }
@@ -2438,7 +2462,7 @@ mod tests {
             tempfile::tempdir().unwrap(),
             tempfile::tempdir().unwrap(),
         ];
-        let paths: Vec<String> = directories
+        let mut paths: Vec<String> = directories
             .iter()
             .map(|dir| {
                 dir.path()
@@ -2537,6 +2561,61 @@ mod tests {
                     .contains("automations and tools")
             );
         });
+        let automation_before = std::fs::read(&automation).unwrap();
+        let moved = tempfile::tempdir().unwrap();
+        let new_path = moved.path().join("moved-repo");
+        std::fs::rename(&paths[2], &new_path).unwrap();
+        view.update(cx, |view, cx| view.open_repository(paths[2].clone(), cx));
+        cx.run_until_parked();
+        cx.draw(point(px(0.), px(0.)), size(px(1000.), px(700.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        let locate = cx.debug_bounds("locate-repository").unwrap();
+        cx.simulate_click(locate.center(), Modifiers::default());
+        assert!(cx.did_prompt_for_paths());
+        cx.simulate_path_prompt_response(|_| None);
+        cx.run_until_parked();
+        view.read_with(cx, |view, _| {
+            assert_eq!(
+                view.projects[0].selected_repository.as_ref(),
+                Some(&paths[2])
+            )
+        });
+        view.update(cx, |view, cx| {
+            view.edit_repository_location(Some(paths[2].clone()), true, cx)
+        });
+        cx.simulate_path_prompt_response(|_| Some(vec![new_path.clone()]));
+        cx.run_until_parked();
+        paths[2] = new_path
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        view.read_with(cx, |view, _| {
+            assert_eq!(
+                view.projects[0].repositories,
+                vec![("Same name".into(), paths[2].clone())]
+            );
+            assert_eq!(
+                view.projects[0].selected_repository.as_ref(),
+                Some(&paths[2])
+            );
+            assert!(view.status.is_empty(), "{}", view.status);
+        });
+        assert_eq!(
+            std::fs::read(&automation).unwrap(),
+            automation_before,
+            "Relinking must preserve automation definitions"
+        );
+        let catalog = crate::backend::RUNTIME
+            .block_on(backend.request(
+                reqwest::Method::GET,
+                &format!("/api/projects?projectId={project_id}"),
+                None,
+            ))
+            .unwrap();
+        assert_eq!(catalog["catalog"]["repositoryPaths"][ids[2]], paths[2]);
+        assert_eq!(catalog["catalog"]["automations"][0]["enabled"], false);
         std::fs::remove_file(automation).unwrap();
         view.update(cx, |view, cx| {
             view.edit_repository(Some(paths[2].clone()), cx)
