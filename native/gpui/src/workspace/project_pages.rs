@@ -17,6 +17,12 @@ pub(super) struct State {
     pub detail: Value,
     pub library: Value,
     pub connection: Value,
+    pub automation_baseline: Value,
+    pub automation_submitted: Value,
+    pub automation_configure: bool,
+    pub automation_menu: Option<(&'static str, Bounds<Pixels>)>,
+    pub automation_save: Option<Task<()>>,
+    pub viewport_width: f32,
     pub draft: Value,
     pub original: Value,
     pub review: Option<Value>,
@@ -42,8 +48,11 @@ impl State {
         let mut observers = vec![];
         for (key, placeholder) in [
             ("search", "Search"),
-            ("name", "Name"),
-            ("instructions", "What should the agent do?"),
+            ("name", "Untitled"),
+            (
+                "instructions",
+                "Tell the agent what to do when this automation runs…",
+            ),
             ("model", "Model"),
             ("reasoning", "Reasoning level"),
             ("interval", "Interval in seconds"),
@@ -66,11 +75,25 @@ impl State {
             let input = cx.new(|cx| {
                 let mut input = TextInput::field(placeholder, cx);
                 input.secret = key == "connection-secret";
+                input.typography = (12., 20.4);
+                if key == "name" {
+                    input.typography = (24., 32.);
+                    input.submit_on_enter = true;
+                    input.height_limits = (32., 32.);
+                }
+                if key == "instructions" {
+                    input.height_limits = (148., 148.);
+                }
+
                 input
             });
             observers.push(cx.observe(&input, move |s, _, cx| {
                 if key == "search" && s.project_pages.page == Some("Memory") {
                     s.search_project_memory(cx);
+                }
+                if s.project_pages.page == Some("Automations") && !["search", "file"].contains(&key)
+                {
+                    s.queue_automation_save(cx);
                 }
                 cx.notify();
             }));
@@ -87,6 +110,12 @@ impl State {
             detail: Value::Null,
             library: Value::Null,
             connection: Value::Null,
+            automation_baseline: Value::Null,
+            automation_submitted: Value::Null,
+            automation_configure: false,
+            automation_menu: None,
+            automation_save: None,
+            viewport_width: 1400.,
             draft: Value::Null,
             original: Value::Null,
             review: None,
@@ -258,12 +287,26 @@ impl WorkspaceView {
             cx.notify();
             return;
         }
+        if self.project_pages.page == Some("Automations") && !self.automation_can_leave(cx) {
+            return;
+        }
         let project = self.projects[self.project].id.clone().unwrap_or_default();
         if self.project_pages.project != project {
             self.project_pages = State::new(cx);
             self.project_pages.project = project;
         }
+        self.project_pages.fields["search"].update(cx, |input, _| {
+            input.placeholder = if page == "Automations" {
+                "Search Automations"
+            } else {
+                "Search"
+            }
+            .into()
+        });
         self.project_pages.page = Some(page);
+        if page == "Automations" {
+            self.project_pages.draft = Value::Null;
+        }
         self.settings = false;
         self.project_pages.screen = "detail";
         self.project_pages.selected = None;
@@ -328,12 +371,22 @@ impl WorkspaceView {
                 match result {
                     Err(error)=>s.project_pages.error=Some(error.to_string()),
                     Ok(value)=>match target {
-                        "catalog"=>{s.project_pages.data=value; if s.project_pages.page==Some("Memory") {s.load_memory(cx);} else {s.poll_project_page(cx);}},
+                        "catalog"=>{s.project_pages.data=value;
+                            if s.project_pages.page==Some("Automations") && s.project_pages.screen=="detail" {
+                                let current=list(&s.project_pages.data["catalog"],"automations").iter().find(|a|a["file"]["id"].as_str()==s.project_pages.selected.as_deref() && a["file"]["definition"]["archived"]!=true).or_else(||list(&s.project_pages.data["catalog"],"automations").iter().find(|a|a["file"]["definition"]["archived"]!=true)).cloned();
+                                if let Some(current)=current {if s.project_pages.draft["id"]!=current["file"]["id"] {s.edit_automation(Some(current),None,cx);} else {s.project_pages.original["enabled"]=current["enabled"].clone();s.queue_automation_save(cx);}} else {s.project_pages.draft=Value::Null;s.project_pages.original=Value::Null;s.project_pages.selected=None;}
+                            }
+                            if s.project_pages.page==Some("Memory") {s.load_memory(cx);} else {s.poll_project_page(cx);}},
                         "detail"=>s.project_pages.detail=value,
                         "library"=>{s.project_pages.library=value;s.project_pages.detail=Value::Null;},
                         "library-file"=>{s.project_pages.set("file",value["content"].as_str().unwrap_or(""),cx);s.project_pages.detail=value;},
                         "save-note"=>{s.project_pages.screen="detail";s.reload_project_page(cx);},
-                        "save-automation"=>{s.project_pages.screen="detail";s.project_pages.notice=Some("Automation saved. Review inputs before enabling its schedule.".into());s.reload_project_page(cx);},
+                        "save-automation"=>{
+                            let definition=s.project_pages.automation_submitted.take();
+                            s.project_pages.automation_baseline=definition.clone();
+                            s.project_pages.original["file"]=json!({"id":definition["id"],"definition":definition,"sourcePath":value["sourcePath"],"sourceHash":value["sourceHash"]});
+                            s.project_pages.screen="detail";s.project_pages.notice=None;s.reload_project_page(cx);
+                        },
                         "save-library-file"=>{s.project_pages.detail=Value::Null;s.project_pages.notice=Some("File saved. Review changed inputs before enabling schedules.".into());s.reload_project_page(cx);},
                         "connection-saved"=>{s.project_pages.connection=Value::Null;s.project_pages.set("connection-secret","",cx);s.project_pages.confirmation=None;s.project_request(query("/api/projects/connections",&[("projectId",&s.project_pages.project)]),None,"connections",cx);},
                         "tool-bindings-saved"=>{s.project_pages.original=Value::Null;s.project_pages.draft=Value::Null;s.reload_project_page(cx);},
@@ -435,51 +488,80 @@ impl WorkspaceView {
             .flex_col()
             .min_w_0()
             .min_h_0()
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(ui(10.))
-                    .h(ui(48.))
-                    .px(ui(18.))
-                    .border_b_1()
-                    .border_color(rgba(0xebebeb14))
-                    .child(
-                        div()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(state.page.unwrap_or("Project")),
-                    )
-                    .child(label(self.projects[self.project].name.clone()))
-                    .child(div().flex_1())
-                    .child(
-                        button("refresh-project-page", "Refresh")
-                            .on_click(cx.listener(|s, _, _, cx| s.reload_project_page(cx))),
-                    )
-                    .child(
-                        button("close-project-page", "Back to chats").on_click(cx.listener(
-                            |s, _, _, cx| {
+            .when(state.page != Some("Automations"), |d| {
+                d.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(ui(10.))
+                        .h(ui(48.))
+                        .px(ui(18.))
+                        .border_b_1()
+                        .border_color(rgba(0xebebeb14))
+                        .child(
+                            div()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(state.page.unwrap_or("Project")),
+                        )
+                        .child(label(self.projects[self.project].name.clone()))
+                        .child(div().flex_1())
+                        .child(
+                            button("refresh-project-page", "Refresh")
+                                .on_click(cx.listener(|s, _, _, cx| s.reload_project_page(cx))),
+                        )
+                        .child(button("close-project-page", "Back to chats").on_click(
+                            cx.listener(|s, _, _, cx| {
                                 s.project_pages.page = None;
                                 s.project_pages.poll = None;
                                 cx.notify();
-                            },
+                            }),
                         )),
-                    ),
-            )
+                )
+            })
             .when_some(state.error.clone(), |d, error| {
                 d.child(
                     div()
                         .px(ui(18.))
                         .py(ui(8.))
                         .text_color(rgb(0xf0a0a0))
-                        .child(error),
+                        .child(error)
+                        .when(
+                            state.page == Some("Automations") && !state.original.is_null(),
+                            |d| {
+                                d.child(
+                                    div()
+                                        .flex()
+                                        .gap(ui(8.))
+                                        .child(
+                                            button("retry-automation-save", "Retry save").on_click(
+                                                cx.listener(|s, _, _, cx| s.save_automation(cx)),
+                                            ),
+                                        )
+                                        .child(
+                                            button(
+                                                "discard-automation-changes",
+                                                "Reload saved version",
+                                            )
+                                            .on_click(
+                                                cx.listener(|s, _, _, cx| {
+                                                    s.project_pages.draft = Value::Null;
+                                                    s.project_pages.automation_save = None;
+                                                    s.reload_project_page(cx);
+                                                }),
+                                            ),
+                                        ),
+                                )
+                            },
+                        ),
                 )
             })
             .when_some(state.notice.clone(), |d, notice| {
                 d.child(label(notice).px(ui(18.)).py(ui(8.)))
             })
-            .when(state.task.is_some(), |d| {
-                d.child(label("Loading…").px(ui(18.)))
-            })
+            .when(
+                state.task.is_some() && state.page != Some("Automations"),
+                |d| d.child(label("Loading…").px(ui(18.))),
+            )
             .when(state.project.is_empty(), |d| {
                 d.child(
                     card()
@@ -493,6 +575,9 @@ impl WorkspaceView {
                     Some("Plugins") => self.plugins_page(cx),
                     _ => self.memory_page(cx),
                 })
+            })
+            .when(state.page == Some("Automations"), |d| {
+                d.child(self.automation_popup(cx))
             })
             .when_some(state.confirmation.as_ref(), |d, (title, command)| {
                 let command = command.clone();
@@ -613,11 +698,17 @@ mod tests {
         cx.run_until_parked();
         view.read_with(cx, |s, cx| {
             assert!(s.project_pages.error.is_some());
-            assert_eq!(s.project_pages.screen, "edit");
+            assert_eq!(s.project_pages.screen, "detail");
             assert_eq!(s.project_pages.text("name", cx), "My retained draft");
         });
         view.update(cx, |s, cx| {
-            s.project_pages.screen = "detail";
+            s.open_project_page("Memory", cx);
+            assert_eq!(s.project_pages.page, Some("Automations"));
+            assert_eq!(s.project_pages.text("name", cx), "My retained draft");
+            // Explicitly discard the conflicting draft before changing pages.
+            s.project_pages.original = Value::Null;
+            s.project_pages.error = None;
+            s.project_pages.mutating = false;
             s.open_project_page("Memory", cx);
         });
         cx.run_until_parked();

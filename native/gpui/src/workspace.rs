@@ -2136,6 +2136,8 @@ impl WorkspaceView {
 }
 impl Render for WorkspaceView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.project_pages.viewport_width =
+            f32::from(window.viewport_size().width) / crate::zoom::factor(window);
         if window.rem_size() != self.zoom.rem_size() {
             self.zoom.apply(window);
         }

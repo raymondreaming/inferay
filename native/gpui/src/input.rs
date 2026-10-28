@@ -50,9 +50,11 @@ impl gpui::EventEmitter<Submit> for TextInput {}
 pub struct TextInput {
     pub submit_on_enter: bool,
     pub secret: bool,
+    pub typography: (f32, f32),
+    pub height_limits: (f32, f32),
     focus_handle: FocusHandle,
     pub content: SharedString,
-    placeholder: SharedString,
+    pub placeholder: SharedString,
     selected_range: Range<usize>,
     selection_reversed: bool,
     marked_range: Option<Range<usize>>,
@@ -602,7 +604,10 @@ impl Element for TextElement {
     ) -> (LayoutId, ()) {
         let mut style = Style::default();
         style.size.width = relative(1.).into();
-        let content = self.input.read(cx).display_content();
+        let input = self.input.read(cx);
+        let typography = input.typography;
+        let height_limits = input.height_limits;
+        let content = input.display_content();
         let font = window.text_style().font();
         let layout = window.request_measured_layout(style, move |known, available, window, _| {
             let width = known.width.or(match available.width {
@@ -621,7 +626,7 @@ impl Element for TextElement {
                 .text_system()
                 .shape_text(
                     content.clone(),
-                    crate::zoom::pixels(crate::colors::INPUT_TEXT, window),
+                    crate::zoom::pixels(typography.0, window),
                     &[run],
                     width,
                     None,
@@ -629,24 +634,15 @@ impl Element for TextElement {
                 .map(|lines| {
                     lines
                         .iter()
-                        .map(|l| {
-                            l.size(crate::zoom::pixels(
-                                crate::colors::INPUT_LINE_HEIGHT,
-                                window,
-                            ))
-                            .height
-                        })
+                        .map(|l| l.size(crate::zoom::pixels(typography.1, window)).height)
                         .fold(px(0.), |a, b| a + b)
                 })
-                .unwrap_or(crate::zoom::pixels(
-                    crate::colors::INPUT_LINE_HEIGHT,
-                    window,
-                ));
+                .unwrap_or(crate::zoom::pixels(typography.1, window));
             size(
                 width.unwrap_or(crate::zoom::pixels(200., window)),
                 height
-                    .max(crate::zoom::pixels(20., window))
-                    .min(crate::zoom::pixels(120., window)),
+                    .max(crate::zoom::pixels(height_limits.0, window))
+                    .min(crate::zoom::pixels(height_limits.1, window)),
             )
         });
         (layout, ())
@@ -660,8 +656,9 @@ impl Element for TextElement {
         window: &mut Window,
         cx: &mut App,
     ) -> PrepaintState {
-        let line_height = crate::zoom::pixels(crate::colors::INPUT_LINE_HEIGHT, window);
         let input = self.input.read(cx);
+        let typography = input.typography;
+        let line_height = crate::zoom::pixels(typography.1, window);
         let text = if input.content.is_empty() {
             input.placeholder.clone()
         } else {
@@ -707,7 +704,7 @@ impl Element for TextElement {
             .text_system()
             .shape_text(
                 text,
-                crate::zoom::pixels(crate::colors::INPUT_TEXT, window),
+                crate::zoom::pixels(typography.0, window),
                 &runs,
                 Some(bounds.size.width),
                 input.content.is_empty().then_some(1),
@@ -832,8 +829,8 @@ impl Render for TextInput {
             .w_full()
             .min_w_0()
             .overflow_hidden()
-            .line_height(crate::zoom::ui(crate::colors::INPUT_LINE_HEIGHT))
-            .text_size(crate::zoom::ui(crate::colors::INPUT_TEXT))
+            .line_height(crate::zoom::ui(self.typography.1))
+            .text_size(crate::zoom::ui(self.typography.0))
             .child(TextElement { input: cx.entity() })
     }
 }
@@ -849,6 +846,8 @@ impl TextInput {
         Self {
             submit_on_enter: false,
             secret: false,
+            typography: (crate::colors::INPUT_TEXT, crate::colors::INPUT_LINE_HEIGHT),
+            height_limits: (20., 120.),
             focus_handle: cx.focus_handle(),
             content: "".into(),
             placeholder: "Message… (/ commands, @ files)".into(),

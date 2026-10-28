@@ -2983,10 +2983,12 @@ version = "0.1.115"
 dependencies = [
  "anyhow",
  "chrono",
+ "chrono-tz",
  "env_logger",
  "futures-util",
  "gpui-pre",
  "gpui-pre-platform",
+ "iana-time-zone",
  "image",
  "inferay-core",
  "inferay-native-diff",
