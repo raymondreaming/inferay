@@ -49,6 +49,7 @@ impl gpui::EventEmitter<Submit> for TextInput {}
 
 pub struct TextInput {
     pub submit_on_enter: bool,
+    pub secret: bool,
     focus_handle: FocusHandle,
     pub content: SharedString,
     placeholder: SharedString,
@@ -66,6 +67,22 @@ pub struct TextInput {
 }
 
 impl TextInput {
+    fn display_content(&self) -> SharedString {
+        if !self.secret {
+            return self.content.clone();
+        }
+        // Preserve UTF-8 and UTF-16 offsets used by native selection and IME.
+        self.content
+            .chars()
+            .map(|c| match c.len_utf8() {
+                1 => '*',
+                2 => '·',
+                3 => '•',
+                _ => '🞄',
+            })
+            .collect::<String>()
+            .into()
+    }
     pub fn field(placeholder: &str, cx: &mut Context<Self>) -> Self {
         let mut input = Self::new(cx);
         input.placeholder = placeholder.to_owned().into();
@@ -250,6 +267,9 @@ impl TextInput {
     }
 
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
+        if self.secret {
+            return;
+        }
         if !self.selected_range.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(
                 self.content[self.selected_range.clone()].to_string(),
@@ -582,7 +602,7 @@ impl Element for TextElement {
     ) -> (LayoutId, ()) {
         let mut style = Style::default();
         style.size.width = relative(1.).into();
-        let content = self.input.read(cx).content.clone();
+        let content = self.input.read(cx).display_content();
         let font = window.text_style().font();
         let layout = window.request_measured_layout(style, move |known, available, window, _| {
             let width = known.width.or(match available.width {
@@ -645,7 +665,7 @@ impl Element for TextElement {
         let text = if input.content.is_empty() {
             input.placeholder.clone()
         } else {
-            input.content.clone()
+            input.display_content()
         };
         let color = if input.content.is_empty() {
             rgba(0xebebeb80).into()
@@ -774,7 +794,11 @@ impl Render for TextInput {
             .id("composer-input")
             .role(gpui::Role::MultilineTextInput)
             .aria_label(self.placeholder.clone())
-            .aria_value(self.content.clone())
+            .aria_value(if self.secret {
+                SharedString::default()
+            } else {
+                self.content.clone()
+            })
             .tab_index(0)
             .flex()
             .key_context("TextInput")
@@ -824,6 +848,7 @@ impl TextInput {
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
             submit_on_enter: false,
+            secret: false,
             focus_handle: cx.focus_handle(),
             content: "".into(),
             placeholder: "Message… (/ commands, @ files)".into(),
@@ -870,6 +895,35 @@ pub fn bind(cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[gpui::test]
+    fn secret_fields_mask_unicode_without_changing_selection_offsets(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let input = cx.new(|cx| {
+            let mut input = TextInput::field("Secret", cx);
+            input.secret = true;
+            input.set_content("keyé文🔐", cx);
+            input
+        });
+        input.read_with(cx, |input, _| {
+            let display = input.display_content();
+            assert_eq!(display.len(), input.content.len());
+            assert_eq!(
+                display.encode_utf16().count(),
+                input.content.encode_utf16().count()
+            );
+            assert_eq!(
+                display.char_indices().map(|(i, _)| i).collect::<Vec<_>>(),
+                input
+                    .content
+                    .char_indices()
+                    .map(|(i, _)| i)
+                    .collect::<Vec<_>>()
+            );
+            assert!(!display.contains("key"));
+        });
+    }
+
     #[gpui::test]
     fn zoom_keeps_multiline_layout_hit_testing_and_clipboard_in_the_same_units(
         cx: &mut gpui::TestAppContext,
