@@ -196,6 +196,7 @@ impl WorkspaceView {
         let project = self.projects[self.project].id.clone().unwrap_or_default();
         let pane = self.conversations[self.selected].pane.clone();
         let entries = json!({
+            "commit-graph-columns-v13:global":serde_json::to_string(&self.graph_preferences).unwrap(),
             "inferay-selected-project-id":project,
             "inferay-closed-project-tabs":serde_json::to_string(&self.closed_projects).unwrap(),
             "inferay-closed-repositories":serde_json::to_string(&self.closed_repositories).unwrap(),

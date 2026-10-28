@@ -2,12 +2,64 @@ use super::*;
 use crate::zoom::ui;
 
 impl RepositoryView {
+    pub(super) fn column_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        crate::menu_surface("graph-column-menu")
+            .top(ui(32.))
+            .right(ui(8.))
+            .w(ui(200.))
+            .on_mouse_down_out(cx.listener(|s, _, _, cx| {
+                s.columns_menu = false;
+                cx.notify();
+            }))
+            .child(
+                div()
+                    .px(ui(9.))
+                    .py(ui(6.))
+                    .text_size(ui(11.))
+                    .text_color(rgba(0xebebeb80))
+                    .child("Show columns"),
+            )
+            .children(
+                [
+                    ("date", "Date"),
+                    ("refs", "Branch"),
+                    ("graph", "Graph"),
+                    ("message", "Message"),
+                    ("author", "Author"),
+                    ("sha", "SHA"),
+                ]
+                .into_iter()
+                .map(|(key, label)| {
+                    let visible = self.preferences["columns"][key].as_bool().unwrap_or(true);
+                    button(SharedString::from(format!("column-{key}")), "")
+                        .aria_label(format!("{} {label}", if visible { "Hide" } else { "Show" }))
+                        .debug_selector(move || format!("column-{key}"))
+                        .child(div().w(ui(16.)).child(if visible { "✓" } else { "" }))
+                        .child(label)
+                        .on_click(cx.listener(move |s, _, _, cx| {
+                            let visible = s.preferences["columns"][key].as_bool().unwrap_or(true);
+                            if visible
+                                && s.preferences["columns"].as_object().is_some_and(|columns| {
+                                    columns.values().filter(|v| **v == true).count() == 1
+                                })
+                            {
+                                return;
+                            }
+                            s.preferences["columns"][key] = json!(!visible);
+                            cx.emit(RepositoryEvent::GraphPreferences(s.preferences.clone()));
+                            cx.notify();
+                        }))
+                }),
+            )
+    }
+
     pub(super) fn graph_table(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let mut input = self.preferences.clone();
         input["maxColumn"] = self.presentation["maxColumn"].clone();
         input["pinnedColumns"] = self.presentation["pinnedColumns"].clone();
         input["availableWidth"] = json!(self.viewport_width());
         input["stretch"] = json!(true);
+        input["toolsWidth"] = json!(0);
         input["count"] = json!(self.graph.commits.len());
         let layout = inferay_presentation::graph::layout(&input);
         let order: Vec<String> = layout["visibleOrder"]
@@ -16,6 +68,7 @@ impl RepositoryView {
             .iter()
             .filter_map(|v| v.as_str().map(str::to_owned))
             .collect();
+        let compact = layout["compact"] == true;
         let widths = layout["columnWidths"].clone();
         let display = layout["displayColumns"].clone();
         let graph_left = layout["graphLeft"].as_f64().unwrap_or(0.) as f32;
@@ -43,14 +96,22 @@ impl RepositoryView {
                     .line_height(ui(12.))
                     .text_color(rgba(0xebebeb70))
                     .children(order.iter().map(|column| {
-                        div()
-                            .w(ui(widths[column].as_f64().unwrap_or(100.) as f32))
-                            .px(ui(8.))
-                            .flex_shrink_0()
-                            .child(match column.as_str() {
-                                "refs" => "BRANCH".into(),
-                                _ => column.to_uppercase(),
-                            })
+                        let width = widths[column].as_f64().unwrap_or(100.) as f32;
+                        let key = column.clone();
+                        let resizing = self.column_resize.as_ref().is_some_and(|(active,_,_,_)| active == column);
+                        div().relative().h_full().flex().items_center()
+                            .w(ui(width)).px(ui(8.)).flex_shrink_0()
+                            .child(match column.as_str() { "refs" => "BRANCH".into(), _ => column.to_uppercase() })
+                            .child(div().id(SharedString::from(format!("resize-column-{column}")))
+                                .debug_selector({ let key=key.clone(); move || format!("resize-column-{key}") })
+                                .absolute().right_0().top_0().h_full().w(ui(7.)).cursor_col_resize()
+                                .border_r_1().border_color(rgba(0xebebeb30))
+                                .when(resizing, |d| d.bg(rgba(0x8ab4f850)))
+                                .hover(|s| s.bg(rgba(0x8ab4f840)))
+                                .on_mouse_down(MouseButton::Left,cx.listener(move |s,event:&MouseDownEvent,window,cx| {
+                                    window.prevent_default(); cx.stop_propagation();
+                                    s.column_resize=Some((key.clone(),event.position.x,width,compact)); cx.notify();
+                                })))
                     })),
             )
             .child(
@@ -112,8 +173,8 @@ impl RepositoryView {
                                     .text_size(ui(colors::CHAT_SMALL))
                                     .cursor_pointer()
                                     .when(
-                                        commit.item_kind != GitGraphItemKind::WorktreeWip
-                                            || active,
+                                        (commit.item_kind != GitGraphItemKind::WorktreeWip
+                                            || active) && s.preferences["columns"]["graph"] != false,
                                         |d| {
                                             d.child(
                                                 div()

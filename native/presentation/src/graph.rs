@@ -240,6 +240,7 @@ pub fn layout(i: &Value) -> Value {
     for (index, column) in positions.iter().enumerate() {
         display[*column] = index;
     }
+    let tools_width = i["toolsWidth"].as_f64().unwrap_or(TOOLS_WIDTH).max(0.);
     let available = number(&i["availableWidth"]);
     let compact = available > 0. && available < 760.;
     let mut order = array(&i["order"]).to_vec();
@@ -280,13 +281,13 @@ pub fn layout(i: &Value) -> Value {
             .map(|c| number(&widths[string(c)]))
             .sum();
         if i["compactWidths"]["message"].as_f64().is_none() {
-            widths["message"] = json!((available - other - TOOLS_WIDTH).max(96.));
+            widths["message"] = json!((available - other - tools_width).max(96.));
         }
     }
     let content = |widths: &serde_json::Map<String, Value>| -> f64 {
         columns.iter().map(|c| number(&widths[string(c)])).sum()
     };
-    let slack = number(&i["availableWidth"]) - content(&widths) - TOOLS_WIDTH;
+    let slack = number(&i["availableWidth"]) - content(&widths) - tools_width;
     if flag(&i["stretch"]) && slack > 0.5 && columns.iter().any(|c| **c == "message") {
         widths["message"] = json!(number(&widths["message"]) + slack);
     }
@@ -297,7 +298,7 @@ pub fn layout(i: &Value) -> Value {
         .sum();
     let height = number(&i["count"]).max(0.).floor() * ROW_HEIGHT;
     let graph_width = number(&widths["graph"]);
-    let table_width = content(&widths) + TOOLS_WIDTH;
+    let table_width = content(&widths) + tools_width;
     json!({"compact":compact,"visibleOrder":columns,"displayColumns":display,"graphHeight":height,"graphLeft":left,
         "graphWidth":graph_width,"columnWidths":widths,
         "tableWidth":table_width})
@@ -564,6 +565,12 @@ mod column_layout_tests {
         assert_eq!(stretched["columnWidths"]["message"], 936.);
         assert_eq!(stretched["columnWidths"]["author"], 136.);
         assert_eq!(stretched["tableWidth"], 1200.);
+        let mut native = input.clone();
+        native["toolsWidth"] = json!(0);
+        native["stretch"] = json!(true);
+        let native = layout(&native);
+        assert_eq!(native["columnWidths"]["message"], 968.);
+        assert_eq!(native["tableWidth"], 1200.);
     }
 
     #[test]

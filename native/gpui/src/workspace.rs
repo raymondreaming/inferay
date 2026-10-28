@@ -722,6 +722,7 @@ impl WorkspaceView {
                 .filter(|(_, p)| self.repository_is_open(p))
                 .cloned()
                 .collect();
+            view.preferences = inferay_presentation::graph::preferences(&self.graph_preferences);
             view.has_closed_repositories =
                 view.repositories.len() < self.projects[self.project].repositories.len();
             self.repository_expanded = view.expanded;
@@ -730,6 +731,10 @@ impl WorkspaceView {
             &view,
             |s, _, event: &crate::repository::RepositoryEvent, cx| {
                 match event {
+                    crate::repository::RepositoryEvent::GraphPreferences(preferences) => {
+                        s.graph_preferences = preferences.clone();
+                        s.persist_workspace_preferences(None, cx);
+                    }
                     crate::repository::RepositoryEvent::Expand => {
                         s.repository_expanded = !s.repository_expanded
                     }
@@ -982,9 +987,7 @@ impl WorkspaceView {
                 let selected_path = path.clone();
                 let removed_path = path.clone();
                 div().flex().items_center()
-                .child(button(("repo", i), "").aria_label(format!("{name}: {path}")).flex_1().min_w_0().pl(ui(26.)).text_size(ui(colors::CHAT_SMALL)).child(icon("GitBranch")).child(div().flex_1().min_w_0()
-                    .child(div().text_ellipsis().child(name.clone()))
-                    .child(div().text_size(ui(10.)).text_color(rgba(0xebebeb80)).text_ellipsis().child(path.clone())))
+                .child(button(("repo", i), "").aria_label(format!("{name}: {path}")).h(ui(32.)).flex_1().min_w_0().pl(ui(26.)).text_size(ui(colors::CHAT_SMALL)).child(icon("GitBranch")).child(div().flex_1().min_w_0().text_ellipsis().child(name.clone()))
                     .when_some(self.repository_stats.get(path), |d, stats| d
                         .child(div().text_size(ui(11.)).text_color(rgb(0x4fbd83)).child(format!("+{}", stats.additions)))
                         .child(div().text_size(ui(11.)).text_color(rgb(0xdf6464)).child(format!("−{}", stats.deletions))))

@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 pub enum RepositoryEvent {
     Expand,
+    GraphPreferences(Value),
     Select(String),
     Add,
     Close(String),
@@ -41,6 +42,8 @@ pub struct RepositoryView {
     pub membership_error: Option<String>,
     missing: bool,
     repository_menu: bool,
+    columns_menu: bool,
+    column_resize: Option<(String, Pixels, f32, bool)>,
     selected_worktree: Option<String>,
     pub expanded: bool,
     changes_height: f32,
@@ -50,7 +53,7 @@ pub struct RepositoryView {
     avatar_task: Option<Task<()>>,
     avatars: std::collections::HashMap<String, Arc<Image>>,
     mutating: bool,
-    preferences: Value,
+    pub(crate) preferences: Value,
     syntax_theme: String,
     presentation: Value,
     available_width: f32,
@@ -136,6 +139,8 @@ impl RepositoryView {
             membership_error: None,
             missing: false,
             repository_menu: false,
+            columns_menu: false,
+            column_resize: None,
             selected_worktree: None,
             expanded: false,
             changes_height: 246.,
@@ -573,6 +578,11 @@ impl Render for RepositoryView {
                 cx.listener(|s, _, window, cx| window.focus(&s.focus, cx)),
             )
             .on_mouse_move(cx.listener(|view, event: &MouseMoveEvent, window, cx| {
+                if let Some((column, start, width, compact)) = view.column_resize.clone() {
+                    let width = width + f32::from(event.position.x - start) / crate::zoom::factor(window);
+                    view.preferences[if compact { "compactWidths" } else { "widths" }][&column] = inferay_presentation::graph::resize_column(&json!({"column":column,"width":width}));
+                    cx.notify();
+                }
                 if let Some(grab) = view.minimap_drag {
                     view.scroll_minimap(event.position.y, grab, window);
                 }
@@ -591,14 +601,15 @@ impl Render for RepositoryView {
             }))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|view, _, _, _| {
+                cx.listener(|view, _, _, cx| {
+                    if view.column_resize.take().is_some() { cx.emit(RepositoryEvent::GraphPreferences(view.preferences.clone())); cx.notify(); }
                     view.changes_resize = None;
                     view.minimap_drag = None;
                 }),
             )
             .on_mouse_up_out(
                 MouseButton::Left,
-                cx.listener(|view, _, _, _| view.minimap_drag = None),
+                cx.listener(|view, _, _, cx| { view.minimap_drag = None; view.changes_resize = None; if view.column_resize.take().is_some() { cx.emit(RepositoryEvent::GraphPreferences(view.preferences.clone())); cx.notify(); } }),
             )
             .on_key_down(cx.listener(Self::navigate))
             .relative()
@@ -655,6 +666,7 @@ impl Render for RepositoryView {
                             .child(icon("ChevronDown"))
                             .on_click(cx.listener(|s, _, _, cx| {
                                 s.repository_menu = !s.repository_menu;
+                                s.columns_menu = false;
                                 cx.notify();
                             })),
                     )
@@ -703,6 +715,8 @@ impl Render for RepositoryView {
                                 cx.notify();
                             })),
                     )
+                    .child(button("graph-columns", "").aria_label("Show or hide Git columns").debug_selector(|| "graph-columns".into()).child(icon("Settings"))
+                        .on_click(cx.listener(|s,_,_,cx| {s.columns_menu = !s.columns_menu; s.repository_menu = false; cx.notify();})))
                     .child(
                         button("refresh-git", "↻")
                             .aria_label("Refresh repository")
@@ -826,13 +840,14 @@ impl Render for RepositoryView {
                         )
                     }),
             )
+            .when(self.columns_menu, |d| d.child(self.column_menu(cx)))
             .when(self.repository_menu, |d| {
                 d.child(
                     crate::menu_surface("repository-menu")
                         .debug_selector(|| "repository-menu".into())
                         .top(ui(32.))
                         .left(ui(8.))
-                        .w(ui(360.))
+                        .w(ui(280.))
                         .max_w(ui((self.available_width - 16.).max(180.)))
                         .on_mouse_down_out(cx.listener(|s, _, _, cx| {
                             s.repository_menu = false;
@@ -845,14 +860,13 @@ impl Render for RepositoryView {
                                 .map(|(i, (name, path))| {
                                     let selected_path = path.clone();
                                     let removed_path = path.clone();
-                                    div().flex().items_center().w_full()
-                                        .when(path == &self.cwd, |d| d.bg(rgba(0xebebeb17)))
+                                    div().flex().items_center().w_full().rounded(ui(6.))
+                                        .when(path == &self.cwd, |d| d.bg(rgba(0xebebeb0d)))
                                         .child(button(("workspace-repository", i), "")
-                                            .flex_1().min_w_0()
+                                            .h(ui(32.)).gap(ui(8.)).flex_1().min_w_0()
                                             .aria_label(format!("{name}: {path}"))
-                                            .child(div().flex().flex_col().min_w_0()
-                                                .child(name.clone())
-                                                .child(div().text_size(ui(10.)).text_color(rgba(0xebebeb80)).text_ellipsis().child(path.clone())))
+                                            .child(icon("Folder"))
+                                            .child(div().flex_1().min_w_0().text_ellipsis().child(name.clone()))
                                             .on_click(cx.listener(move |s, _, _, cx| {
                                                 s.repository_menu = false;
                                                 cx.emit(RepositoryEvent::Select(selected_path.clone()));
@@ -889,6 +903,78 @@ impl Render for RepositoryView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[gpui::test]
+    fn graph_columns_resize_toggle_and_fill_viewport(cx: &mut gpui::TestAppContext) {
+        let directory = tempfile::tempdir().unwrap();
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            RepositoryView::new(
+                directory.path().to_string_lossy().into_owned(),
+                Value::Null,
+                "vscode-black".into(),
+                0,
+                cx,
+            )
+        });
+        view.update(cx, |s, _| {
+            s.task = None;
+            s.loading = false;
+            s.changes = false;
+        });
+        cx.simulate_resize(size(px(1400.), px(700.)));
+        cx.run_until_parked();
+        for _ in 0..2 {
+            cx.draw(point(px(0.), px(0.)), size(px(1400.), px(700.)), |_, _| {
+                view.clone().into_any_element()
+            });
+        }
+        let handle = cx.debug_bounds("resize-column-date").unwrap();
+        let start = handle.center();
+        let end = start + point(px(50.), px(0.));
+        cx.simulate_mouse_down(start, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_move(end, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_up(end, MouseButton::Left, Modifiers::default());
+        view.read_with(cx, |s, _| {
+            assert_eq!(s.preferences["widths"]["date"], 182.);
+            assert!(s.column_resize.is_none());
+        });
+        cx.draw(point(px(0.), px(0.)), size(px(1400.), px(700.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        let menu = cx.debug_bounds("graph-columns").unwrap();
+        cx.simulate_click(menu.center(), Modifiers::default());
+        cx.draw(point(px(0.), px(0.)), size(px(1400.), px(700.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        let toggle = cx.debug_bounds("column-date").unwrap();
+        cx.simulate_click(toggle.center(), Modifiers::default());
+        view.read_with(cx, |s, _| {
+            assert_eq!(s.preferences["columns"]["date"], false)
+        });
+        cx.draw(point(px(0.), px(0.)), size(px(1400.), px(700.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        assert!(cx.debug_bounds("resize-column-date").is_none());
+        view.read_with(cx, |s, _| {
+            let mut input = s.preferences.clone();
+            input["availableWidth"] = json!(s.viewport_width());
+            input["toolsWidth"] = json!(0);
+            input["stretch"] = json!(true);
+            let layout = inferay_presentation::graph::layout(&input);
+            let total: f64 = layout["visibleOrder"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| {
+                    layout["columnWidths"][c.as_str().unwrap()]
+                        .as_f64()
+                        .unwrap()
+                })
+                .sum();
+            assert!((total - s.viewport_width() as f64).abs() < 1.);
+            assert!(layout["columnWidths"]["message"].as_f64().unwrap() > 340.);
+        });
+    }
+
     #[gpui::test]
     fn refresh_observes_external_checkout_with_unchanged_file_counts(cx: &mut TestAppContext) {
         let directory = tempfile::tempdir().unwrap();
