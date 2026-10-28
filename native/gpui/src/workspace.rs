@@ -3,6 +3,7 @@ mod attachments;
 mod completions;
 mod lifecycle;
 mod live;
+mod project_pages;
 mod proposals;
 mod settings;
 use crate::transcript::PreparedTranscript;
@@ -148,6 +149,7 @@ pub struct WorkspaceView {
     repository_stats: std::collections::HashMap<String, inferay_core::repository::GitChangeSummary>,
     font: &'static str,
     syntax_theme: String,
+    project_pages: project_pages::State,
     graph_preferences: serde_json::Value,
     glass_opacity: f32,
     repository_view: Option<Entity<crate::repository::RepositoryView>>,
@@ -309,6 +311,7 @@ impl WorkspaceView {
             repository_stats: Default::default(),
             font: ".SystemUIFont",
             syntax_theme: "vscode-black".into(),
+            project_pages: project_pages::State::new(cx),
             graph_preferences: serde_json::Value::Null,
             glass_opacity: 0.75,
             repository_view: None,
@@ -444,6 +447,8 @@ impl WorkspaceView {
             .remove(self.projects[index].id.as_deref().unwrap_or(""));
         self.project_picker = false;
         self.project = index;
+        self.project_pages.page = None;
+        self.project_pages.poll = None;
         self.selected = self.projects[index].selected;
         self.settings = false;
         self.menu = None;
@@ -976,51 +981,249 @@ impl WorkspaceView {
             )
     }
     fn sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        div().id("sidebar").relative().w(ui(self.sidebar_width)).h_full().flex_shrink_0().flex().flex_col().overflow_y_scroll().px(ui(8.)).pt(ui(8.))
-            .children([("Bookmark", "Memory"), ("Sparkles", "Plugins"), ("Workflow", "Automations")].into_iter().map(|(glyph, name)| {
-                button(name, "").aria_label(name).h(ui(32.)).gap(ui(10.)).text_size(ui(colors::CHAT_SMALL)).child(icon(glyph)).child(name)
-                    .on_click(cx.listener(move |s, _, _, cx| { s.status = format!("{name} is available in the current Inferay app. This preview covers the workspace and appearance."); cx.notify(); }))
-            }))
-            .child(button("repositories-toggle", "").h(ui(32.)).gap(ui(10.)).text_size(ui(colors::CHAT_SMALL)).text_color(rgba(0xebebeb80)).child(icon("GitBranch")).child("Repositories").child(div().flex_1()).child(icon(if self.repositories_collapsed { "ChevronRight" } else { "ChevronDown" }))
-                .on_click(cx.listener(|s, _, _, cx| { s.repositories_collapsed = !s.repositories_collapsed; cx.notify(); })))
-            .children(self.projects[self.project].repositories.iter().enumerate().filter(|(_, (_, path))| !self.repositories_collapsed && self.repository_is_open(path)).map(|(i, (name, path))| {
-                let selected_path = path.clone();
-                let removed_path = path.clone();
-                div().flex().items_center()
-                .child(button(("repo", i), "").aria_label(format!("{name}: {path}")).h(ui(32.)).flex_1().min_w_0().pl(ui(26.)).text_size(ui(colors::CHAT_SMALL)).child(icon("GitBranch")).child(div().flex_1().min_w_0().text_ellipsis().child(name.clone()))
-                    .when_some(self.repository_stats.get(path), |d, stats| d
-                        .child(div().text_size(ui(11.)).text_color(rgb(0x4fbd83)).child(format!("+{}", stats.additions)))
-                        .child(div().text_size(ui(11.)).text_color(rgb(0xdf6464)).child(format!("−{}", stats.deletions))))
-                    .on_click(cx.listener(move |s, _, _, cx| { s.repository = true; s.open_repository(selected_path.clone(), cx); cx.notify(); })))
-                .child(button(("remove-repository", i), "").aria_label(format!("Close {name}: {path}. Keep project references and files."))
-                    .debug_selector(move || format!("remove-repository-{i}"))
-                    .child(icon("X").size(ui(12.)))
-                    .on_click(cx.listener(move |s, _, _, cx| { cx.stop_propagation(); s.close_repository(removed_path.clone(), cx); })))
-            }))
-            .when(self.projects[self.project].repositories.iter().any(|(_, p)| !self.repository_is_open(p)), |d| d.child(button("reopen-repositories", "Reopen closed repositories")
-                .on_click(cx.listener(|s, _, _, cx| s.reopen_repositories(cx)))))
-            .child(button("add-sidebar-repository", "Add repository…").child(icon("Plus"))
-                .on_click(cx.listener(|s, _, _, cx| s.edit_repository(None, cx))))
+        div()
+            .id("sidebar")
+            .relative()
+            .w(ui(self.sidebar_width))
+            .h_full()
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .overflow_y_scroll()
+            .px(ui(8.))
+            .pt(ui(8.))
+            .children(
+                [
+                    ("Bookmark", "Memory"),
+                    ("Sparkles", "Plugins"),
+                    ("Workflow", "Automations"),
+                ]
+                .into_iter()
+                .map(|(glyph, name)| {
+                    button(name, "")
+                        .aria_label(name)
+                        .h(ui(32.))
+                        .gap(ui(10.))
+                        .text_size(ui(colors::CHAT_SMALL))
+                        .child(icon(glyph))
+                        .child(name)
+                        .when(self.project_pages.page == Some(name), |d| {
+                            d.bg(rgba(0xebebeb10))
+                        })
+                        .on_click(cx.listener(move |s, _, _, cx| s.open_project_page(name, cx)))
+                }),
+            )
+            .child(
+                button("repositories-toggle", "")
+                    .h(ui(32.))
+                    .gap(ui(10.))
+                    .text_size(ui(colors::CHAT_SMALL))
+                    .text_color(rgba(0xebebeb80))
+                    .child(icon("GitBranch"))
+                    .child("Repositories")
+                    .child(div().flex_1())
+                    .child(icon(if self.repositories_collapsed {
+                        "ChevronRight"
+                    } else {
+                        "ChevronDown"
+                    }))
+                    .on_click(cx.listener(|s, _, _, cx| {
+                        s.repositories_collapsed = !s.repositories_collapsed;
+                        cx.notify();
+                    })),
+            )
+            .children(
+                self.projects[self.project]
+                    .repositories
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, (_, path))| {
+                        !self.repositories_collapsed && self.repository_is_open(path)
+                    })
+                    .map(|(i, (name, path))| {
+                        let selected_path = path.clone();
+                        let removed_path = path.clone();
+                        div()
+                            .flex()
+                            .items_center()
+                            .child(
+                                button(("repo", i), "")
+                                    .aria_label(format!("{name}: {path}"))
+                                    .h(ui(32.))
+                                    .flex_1()
+                                    .min_w_0()
+                                    .pl(ui(26.))
+                                    .text_size(ui(colors::CHAT_SMALL))
+                                    .child(icon("GitBranch"))
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .text_ellipsis()
+                                            .child(name.clone()),
+                                    )
+                                    .when_some(self.repository_stats.get(path), |d, stats| {
+                                        d.child(
+                                            div()
+                                                .text_size(ui(11.))
+                                                .text_color(rgb(0x4fbd83))
+                                                .child(format!("+{}", stats.additions)),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_size(ui(11.))
+                                                .text_color(rgb(0xdf6464))
+                                                .child(format!("−{}", stats.deletions)),
+                                        )
+                                    })
+                                    .on_click(cx.listener(move |s, _, _, cx| {
+                                        s.project_pages.page = None;
+                                        s.repository = true;
+                                        s.open_repository(selected_path.clone(), cx);
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                button(("remove-repository", i), "")
+                                    .aria_label(format!(
+                                        "Close {name}: {path}. Keep project references and files."
+                                    ))
+                                    .debug_selector(move || format!("remove-repository-{i}"))
+                                    .child(icon("X").size(ui(12.)))
+                                    .on_click(cx.listener(move |s, _, _, cx| {
+                                        cx.stop_propagation();
+                                        s.close_repository(removed_path.clone(), cx);
+                                    })),
+                            )
+                    }),
+            )
+            .when(
+                self.projects[self.project]
+                    .repositories
+                    .iter()
+                    .any(|(_, p)| !self.repository_is_open(p)),
+                |d| {
+                    d.child(
+                        button("reopen-repositories", "Reopen closed repositories")
+                            .on_click(cx.listener(|s, _, _, cx| s.reopen_repositories(cx))),
+                    )
+                },
+            )
+            .child(
+                button("add-sidebar-repository", "Add repository…")
+                    .child(icon("Plus"))
+                    .on_click(cx.listener(|s, _, _, cx| s.edit_repository(None, cx))),
+            )
             .child(div().h(ui(1.)).bg(rgba(0xebebeb0f)).my(ui(14.)))
-            .child(div().flex().items_center().justify_between().px(ui(9.)).mb(ui(10.)).text_color(rgba(0xebebeb80)).text_size(ui(colors::CHAT_SMALL)).child("Chats")
-                .child(button("new-chat", "New chat").child(icon("Plus")).on_click(cx.listener(|s, _, w, cx| s.new_chat(w, cx)))))
-            .children(self.conversations.iter().enumerate().filter(|(_, chat)| !chat.closed && chat.project == self.project).map(|(i, chat)| {
-                div().id(("chat", i)).role(Role::Button).aria_label(chat.title.clone()).flex().items_center().gap(ui(8.)).px(ui(9.)).h(ui(36.)).mb(ui(3.)).rounded(ui(6.))
-                    .border_1().border_color(if i == self.selected { rgba(0xebebeb0f) } else { rgba(0) })
-                    .when(i == self.selected, |d| d.bg(rgba(0xebebeb17))).hover(|s| s.bg(rgba(0xebebeb0d))).cursor_pointer()
-                    .child(icon("codex")).child(div().flex_1().min_w_0().text_size(ui(colors::CHAT_SMALL)).overflow_hidden().text_ellipsis().child(chat.title.clone()))
-                    .child(button(("close-chat", i), "").aria_label("Close chat and stop agent").debug_selector(|| "close-chat".into())
-                        .child(icon("X").size(ui(12.)))
-                        .on_click(cx.listener(move |s, _, _, cx| { cx.stop_propagation(); s.close_chat(i, cx); })))
-                    .on_click(cx.listener(move |s, _, _, cx| { s.selected = i; s.projects[s.project].selected = i; s.persist_workspace_preferences(None, cx); s.settings = false; if !s.conversations[i].loaded && !s.conversations[i].loading { s.load_transcript(200, cx); } cx.notify(); }))
-            }))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .px(ui(9.))
+                    .mb(ui(10.))
+                    .text_color(rgba(0xebebeb80))
+                    .text_size(ui(colors::CHAT_SMALL))
+                    .child("Chats")
+                    .child(
+                        button("new-chat", "New chat")
+                            .child(icon("Plus"))
+                            .on_click(cx.listener(|s, _, w, cx| s.new_chat(w, cx))),
+                    ),
+            )
+            .children(
+                self.conversations
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, chat)| !chat.closed && chat.project == self.project)
+                    .map(|(i, chat)| {
+                        div()
+                            .id(("chat", i))
+                            .role(Role::Button)
+                            .aria_label(chat.title.clone())
+                            .flex()
+                            .items_center()
+                            .gap(ui(8.))
+                            .px(ui(9.))
+                            .h(ui(36.))
+                            .mb(ui(3.))
+                            .rounded(ui(6.))
+                            .border_1()
+                            .border_color(if i == self.selected {
+                                rgba(0xebebeb0f)
+                            } else {
+                                rgba(0)
+                            })
+                            .when(i == self.selected, |d| d.bg(rgba(0xebebeb17)))
+                            .hover(|s| s.bg(rgba(0xebebeb0d)))
+                            .cursor_pointer()
+                            .child(icon("codex"))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_size(ui(colors::CHAT_SMALL))
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .child(chat.title.clone()),
+                            )
+                            .child(
+                                button(("close-chat", i), "")
+                                    .aria_label("Close chat and stop agent")
+                                    .debug_selector(|| "close-chat".into())
+                                    .child(icon("X").size(ui(12.)))
+                                    .on_click(cx.listener(move |s, _, _, cx| {
+                                        cx.stop_propagation();
+                                        s.close_chat(i, cx);
+                                    })),
+                            )
+                            .on_click(cx.listener(move |s, _, _, cx| {
+                                s.project_pages.page = None;
+                                s.selected = i;
+                                s.projects[s.project].selected = i;
+                                s.persist_workspace_preferences(None, cx);
+                                s.settings = false;
+                                if !s.conversations[i].loaded && !s.conversations[i].loading {
+                                    s.load_transcript(200, cx);
+                                }
+                                cx.notify();
+                            }))
+                    }),
+            )
             .child(div().flex_1())
-            .child(button("settings", "").child(icon("Settings")).child("Settings").on_click(cx.listener(|s, _, window, cx| s.set_settings(true, window, cx))))
-            .when(self.update_available, |d| d.child(button("update-available", "Update available").on_click(cx.listener(|s, _, window, cx| {
-                s.set_settings(true, window, cx);
-                s.settings_page("about", cx);
-            }))))
-            .child(div().id("sidebar-resize").absolute().right(ui(-2.)).top_0().w(ui(5.)).h_full().cursor_col_resize().on_mouse_down(MouseButton::Left, cx.listener(|s, e: &MouseDownEvent, _, cx| { s.sidebar_resize = Some((e.position.x, s.sidebar_width)); cx.stop_propagation(); })))
+            .child(
+                button("settings", "")
+                    .child(icon("Settings"))
+                    .child("Settings")
+                    .on_click(cx.listener(|s, _, window, cx| s.set_settings(true, window, cx))),
+            )
+            .when(self.update_available, |d| {
+                d.child(
+                    button("update-available", "Update available").on_click(cx.listener(
+                        |s, _, window, cx| {
+                            s.set_settings(true, window, cx);
+                            s.settings_page("about", cx);
+                        },
+                    )),
+                )
+            })
+            .child(
+                div()
+                    .id("sidebar-resize")
+                    .absolute()
+                    .right(ui(-2.))
+                    .top_0()
+                    .w(ui(5.))
+                    .h_full()
+                    .cursor_col_resize()
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|s, e: &MouseDownEvent, _, cx| {
+                            s.sidebar_resize = Some((e.position.x, s.sidebar_width));
+                            cx.stop_propagation();
+                        }),
+                    ),
+            )
     }
     fn transcript(&self, index: usize, cx: &mut Context<Self>) -> impl IntoElement {
         let chat = &self.conversations[index];
@@ -2101,7 +2304,8 @@ impl Render for WorkspaceView {
                                         .border_1()
                                         .border_color(rgba(0xebebeb0a))
                                         .bg(canvas)
-                                        .when(!self.settings, |d| {
+                                        .when(self.project_pages.page.is_some(), |d| d.child(self.project_page(cx)))
+                                        .when(!self.settings && self.project_pages.page.is_none(), |d| {
                                             d.when(
                                                 !(self.repository && self.repository_expanded),
                                                 |d| d.child(self.chat_grid(window, cx)),

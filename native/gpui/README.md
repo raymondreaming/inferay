@@ -40,7 +40,7 @@ Native design tokens, icons, and syntax palettes live in `assets/` and `src/colo
 | Conversation | Full run-status presentation, clipboard image paste, attachment draft persistence, file mentions, richer approval details, complete rich cards, embedded apps; provider-backed send/stop UI verification |
 | Repository | Commit flow, remaining Git actions, search/filter/context menus, column interaction, refresh lifecycle, broader geometry comparisons |
 | Settings | Finish side-by-side interaction checks, range sliders, account/avatar presentation, richer database filtering/sorting and large-cell navigation |
-| Files and project resources | Native explorer/editing, memory, plugins, automations, proposal flows |
+| Files and project resources | Native general file explorer, richer proposal flows, further visual parity checks |
 | Browser/tool surfaces | Native integration and complete lifecycle |
 | Rendering and input | More matched screenshots, complete keyboard/accessibility behavior, measured interaction performance |
 | Packaging | Verify production installer and release behavior on the native-only pipeline |
@@ -76,3 +76,5 @@ Typing `/` in the composer opens the live native skill and command catalog, incl
 Git history column boundaries resize on drag with hover and active feedback. The toolbar column menu toggles Date, Branch, Graph, Message, Author and SHA; widths and visibility persist across launches. Message fills remaining viewport width, while narrow layouts retain horizontal scrolling.
 
 Codex resumes preserve the provider thread while requesting metadata only (`excludeTurns`), avoiding redundant hydration of screenshot and tool history. Oversized transport responses produce one actionable error rather than a second misleading connection-closed error.
+
+Project workspaces: Memory, Plugins and Automations open native GPUI pages from the sidebar. Memory provides the shared graph layout, filters/body search, pan/zoom/fit, notes, file imports/previews, deletion, source chats and continuation drafts. Plugins provide imports, documentation/file editing with source-hash conflicts, permission review, schedule approval/disable, Keychain connections and tool bindings. Automations provide definition editing, model/reasoning choices, manual/interval/calendar triggers, context and tool grants, approval, manual runs, history/logs/artifacts, chat reopening, retries/stopping and effect dismissal/cancellation. All writes and execution use the existing authenticated backend. Forms use explicit Save and preserve failed-save drafts; edits do not automatically enable schedules. Opening a run conversation appends only its missing pane and retains other live chats.

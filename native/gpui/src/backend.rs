@@ -150,6 +150,104 @@ impl Backend {
             .await?;
         Self::response(response).await
     }
+    pub async fn import_project_files(
+        &self,
+        project: &str,
+        paths: Vec<PathBuf>,
+        plugin: bool,
+    ) -> Result<()> {
+        let mut pending = paths;
+        if plugin && pending.len() != 1 {
+            bail!("Choose one plugin folder");
+        }
+        let root = pending.first().cloned().context("Choose files to import")?;
+        let name = root
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        let mut files = Vec::new();
+        let mut total = 0;
+        let mut entries_seen = 0;
+        while let Some(path) = pending.pop() {
+            let metadata = tokio::fs::symlink_metadata(&path).await?;
+            if metadata.file_type().is_symlink() {
+                bail!("Symbolic links cannot be imported");
+            }
+            if metadata.is_dir() {
+                if !plugin {
+                    bail!("Choose files rather than a folder for Memory");
+                }
+                let mut entries = tokio::fs::read_dir(&path).await?;
+                while let Some(entry) = entries.next_entry().await? {
+                    entries_seen += 1;
+                    if entries_seen > 2000 {
+                        bail!("Import contains too many directory entries");
+                    }
+                    pending.push(entry.path());
+                }
+                continue;
+            }
+            total += metadata.len();
+            if total > 50_000_000 || files.len() >= 1000 {
+                bail!("Import exceeds 50 MB or 1,000 files");
+            }
+            files.push(path);
+        }
+        let mut form = reqwest::multipart::Form::new();
+        for file in files {
+            let bytes = tokio::fs::read(&file).await?;
+            let part = reqwest::multipart::Part::bytes(bytes).file_name(
+                file.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned(),
+            );
+            if plugin {
+                form = form.part(
+                    file.strip_prefix(&root)?.to_string_lossy().into_owned(),
+                    part,
+                );
+            } else {
+                let endpoint = format!(
+                    "{}/api/projects/documents?{}",
+                    self.origin,
+                    url::form_urlencoded::Serializer::new(String::new())
+                        .append_pair("projectId", project)
+                        .finish()
+                );
+                let response = self
+                    .client
+                    .post(endpoint)
+                    .header(header::ORIGIN, &self.origin)
+                    .header("x-inferay-auth", self.auth.clone())
+                    .multipart(reqwest::multipart::Form::new().part("file", part))
+                    .send()
+                    .await?;
+                Self::response(response).await?;
+            }
+        }
+        if plugin {
+            let endpoint = format!(
+                "{}/api/projects/plugin-import?{}",
+                self.origin,
+                url::form_urlencoded::Serializer::new(String::new())
+                    .append_pair("projectId", project)
+                    .append_pair("name", &name)
+                    .finish()
+            );
+            let response = self
+                .client
+                .post(endpoint)
+                .header(header::ORIGIN, &self.origin)
+                .header("x-inferay-auth", self.auth.clone())
+                .multipart(form)
+                .send()
+                .await?;
+            Self::response(response).await?;
+        }
+        Ok(())
+    }
     pub async fn request(&self, method: Method, path: &str, body: Option<Value>) -> Result<Value> {
         if !path.starts_with("/api/") || path.contains('#') {
             bail!("Invalid application endpoint");
@@ -319,6 +417,43 @@ mod tests {
             }).await.unwrap();
             socket.close(None).await.unwrap();
 
+        });
+    }
+}
+
+#[cfg(test)]
+mod project_page_tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn project_imports_and_file_edits_use_existing_catalog_and_conflicts() {
+        let profile = tempfile::tempdir().unwrap();
+        let fixture = tempfile::tempdir().unwrap();
+        RUNTIME.block_on(async {
+            let backend=Backend::connect(profile.path().into()).await.unwrap();
+            let project=uuid::Uuid::new_v4().to_string();
+            backend.request(Method::POST,"/api/projects/command",Some(json!({"type":"saveProject","definition":{"schema":"inferay.project/1","id":project,"name":"Imports","description":"","instructions":"","repositories":[]},"expectedHash":null}))).await.unwrap();
+            let folder=fixture.path().join("library");std::fs::create_dir(&folder).unwrap();
+            let plugin=uuid::Uuid::new_v4().to_string();
+            std::fs::write(folder.join("plugin.json"),json!({"schema":"inferay.plugin/1","id":plugin,"name":"Example library","version":"1.0.0","description":"Imported test library","may":[]}).to_string()).unwrap();
+            std::fs::write(folder.join("README.md"),"# Example\nOriginal documentation").unwrap();
+            backend.import_project_files(&project,vec![folder],true).await.unwrap();
+            let catalog=backend.request(Method::GET,&format!("/api/projects?projectId={project}"),None).await.unwrap();
+            let imported=&catalog["catalog"]["plugins"][0]["file"];
+            let plugin=imported["id"].as_str().unwrap();
+            let parent=imported["sourcePath"].as_str().unwrap().rsplit_once('/').unwrap().0;
+            let library=backend.request(Method::POST,"/api/projects/command",Some(json!({"type":"readPlugin","id":plugin}))).await.unwrap();
+            assert!(library["files"].as_array().unwrap().iter().any(|v|v["path"]=="README.md"));
+            let file=backend.request(Method::POST,"/api/projects/command",Some(json!({"type":"readPlugin","id":plugin,"path":"README.md"}))).await.unwrap();
+            let command=json!({"type":"saveDefinition","projectId":project,"path":format!("{parent}/README.md"),"content":"# Revised documentation","expectedHash":file["sourceHash"]});
+            backend.request(Method::POST,"/api/projects/command",Some(command.clone())).await.unwrap();
+            assert!(backend.request(Method::POST,"/api/projects/command",Some(command)).await.is_err());
+            let document=fixture.path().join("notes.txt");std::fs::write(&document,"Uploaded memory file").unwrap();
+            backend.import_project_files(&project,vec![document],false).await.unwrap();
+            let graph=backend.request(Method::GET,&format!("/api/memory/graph?projectId={project}"),None).await.unwrap();
+            assert!(graph["nodes"].as_array().unwrap().iter().any(|v|v["title"].as_str().is_some_and(|s|s.contains("notes"))));
+            let catalog=backend.request(Method::GET,&format!("/api/projects?projectId={project}"),None).await.unwrap();
+            assert!(catalog["history"]["runs"].as_array().unwrap().is_empty());
         });
     }
 }
