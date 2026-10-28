@@ -170,7 +170,12 @@ for line in sys.stdin:
   answer=json.loads(sys.stdin.readline())
   assert answer['error']['code']==-32601
   send({'id':m['id'],'result':{'config':{}}})
- elif method=='thread/resume': send({'id':m['id'],'error':{'code':-32000,'message':'resume unavailable'}})
+ elif method=='thread/resume':
+  if MODE=='resume-large':
+   turns=[] if m['params'].get('excludeTurns') else [{'image':'x'*(33*1024*1024)}]
+   send({'id':m['id'],'result':{'thread':{'id':'saved-thread','turns':turns}}})
+  elif MODE=='resume-oversize': send({'id':m['id'],'result':{'payload':'x'*(33*1024*1024)}})
+  else: send({'id':m['id'],'error':{'code':-32000,'message':'resume unavailable'}})
  elif method=='thread/start':
   tools=m['params']['dynamicTools']
   assert all(tool.get('type')=='function' for tool in tools), 'mixed canonical and legacy dynamic tools'
@@ -192,6 +197,9 @@ for line in sys.stdin:
    send({'method':'turn/completed','params':{'threadId':'fixture-thread','turn':{'id':'old-turn','status':'completed'}}})
    send({'method':'item/completed','params':{'threadId':'fixture-thread','turnId':'fixture-turn','item':{'type':'agentMessage','text':'root output'}}})
    send({'method':'turn/completed','params':{'threadId':'fixture-thread','turn':{'id':'fixture-turn','status':'completed'}}})
+  if MODE=='resume-large':
+   send({'method':'item/completed','params':{'threadId':'saved-thread','turnId':'fixture-turn','item':{'type':'agentMessage','text':'resumed without history'}}})
+   send({'method':'turn/completed','params':{'threadId':'saved-thread','turn':{'id':'fixture-turn','status':'completed'}}})
   if MODE=='questions':
    send({'id':'questions','method':'item/tool/requestUserInput','params':{'questions':[{'id':'color','question':'Color?'},{'id':'size','question':'Size?'}]}})
    send({'id':'approval','method':'item/commandExecution/requestApproval','params':{'availableDecisions':['accept','decline']}})
@@ -338,6 +346,66 @@ async fn child_and_stale_turns_cannot_complete_or_contaminate_the_root_turn() {
             }
         }
         assert!(handle.pid().is_none());
+    }
+}
+
+#[tokio::test]
+async fn resume_omits_large_history_and_reports_frame_failures_once() {
+    for mode in ["resume-large", "resume-oversize"] {
+        let f = Fixture::new(mode);
+        let invocation = f.invocation(true);
+        let handle = f.handle();
+        let tracker = RuntimePidTracker::new(f.root.join("pids.json"));
+        let mut context = AgentProtocolContext::new(f.root.clone());
+        let mut state = CodexProtocolState::default();
+        let (tx, mut rx) = protocol_channel();
+        let env = HashMap::new();
+        let output = run_codex(
+            ProviderRun {
+                binary: &f.binary,
+                invocation: &invocation,
+                env: &env,
+                prompt: "continue",
+            },
+            &handle,
+            &tracker,
+            &mut context,
+            &mut state,
+            &tx,
+        )
+        .await;
+        let requests = std::fs::read_to_string(f.root.join("requests.jsonl")).unwrap();
+        let requests: Vec<Value> = requests
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let resume = requests
+            .iter()
+            .find(|r| r["method"] == "thread/resume")
+            .unwrap();
+        assert_eq!(resume["params"]["excludeTurns"], true);
+        assert_eq!(resume["params"]["threadId"], "saved-thread");
+        assert!(!requests.iter().any(|r| r["method"] == "thread/start"));
+        let messages: Vec<String> = std::iter::from_fn(|| rx.try_recv().ok().map(|item| item.0))
+            .filter_map(|event| {
+                if let ProtocolEmission::System(message) = event {
+                    Some(message)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if mode == "resume-large" {
+            assert_eq!(output, "resumed without history");
+        } else {
+            assert_eq!(messages.iter().filter(|m| m.contains("32 MiB")).count(), 1);
+            assert!(
+                !messages
+                    .iter()
+                    .any(|m| m.contains("closed before replying"))
+            );
+            assert!(!requests.iter().any(|r| r["method"] == "turn/start"));
+        }
     }
 }
 

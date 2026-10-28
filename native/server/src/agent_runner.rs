@@ -117,7 +117,7 @@ impl<R: AsyncRead + Unpin> ProviderFrames<R> {
             if self.partial.len().saturating_add(length) > MAX_PROVIDER_FRAME_BYTES {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
-                    "Provider frame exceeds 32 MiB; return large results as files instead of inline payloads",
+                    "Provider response exceeds Inferay’s 32 MiB message limit",
                 ));
             }
             self.partial.extend_from_slice(&available[..length]);
@@ -708,6 +708,8 @@ async fn run_codex(
             let mut params = codex_thread_params(run.invocation);
             configure_codex_session(&mut params, &config["config"], run.env, run.invocation.mcp_servers.as_deref())?;
             params["threadId"] = json!(thread_id);
+            // Inferay owns transcript display; resume model state without rehydrating old image/tool payloads.
+            params["excludeTurns"] = json!(true);
             rpc.request(
                 "thread/resume",
                 params,
@@ -1192,6 +1194,12 @@ impl CodexConnection {
                     format!("Codex {method} response timed out; connection state is unknown")
                 })?
                 .ok_or_else(|| "Codex App Server closed before replying".to_string())?;
+            if self.read_failed {
+                return Err(message["params"]["error"]["message"]
+                    .as_str()
+                    .unwrap_or("Could not read Codex response")
+                    .to_owned());
+            }
             if message.get("method").is_none()
                 && message.get("id").and_then(Value::as_u64) == Some(id)
             {

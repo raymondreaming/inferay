@@ -72,3 +72,7 @@ Production GPUI checks for updates on launch and every 15 minutes. Available upd
 Provider requests render native per-question inputs and action-specific approve-once/decline controls. Interrupted queued turns show an explicit Retry action. Chat snapshots retain the requested recent window across reconnects; Load older messages expands it while preserving the reading anchor.
 
 Typing `/` in the composer opens the live native skill and command catalog, including custom skills. Prefix filtering, Up/Down, Enter/Tab selection, Escape dismissal, mouse selection and Manage skills use the existing command API and Skills settings. Selection inserts into the draft rather than sending it. Resumed agent turns refresh skill names, descriptions and revisions while keeping captured session instructions.
+
+Git history column boundaries resize on drag with hover and active feedback. The toolbar column menu toggles Date, Branch, Graph, Message, Author and SHA; widths and visibility persist across launches. Message fills remaining viewport width, while narrow layouts retain horizontal scrolling.
+
+Codex resumes preserve the provider thread while requesting metadata only (`excludeTurns`), avoiding redundant hydration of screenshot and tool history. Oversized transport responses produce one actionable error rather than a second misleading connection-closed error.
