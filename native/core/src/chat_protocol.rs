@@ -623,11 +623,11 @@ impl ChatMessageBuffer {
                 }
                 render
             };
-            // Stop hooks are internal completion bookkeeping, not a user-facing
-            // transcript step. Retain them as hidden group boundaries so they
-            // cannot leave a connector attached to the next turn's first tool.
-            let stop_hook = message.role == "tool"
-                && message.id.starts_with("hook:")
+            // Provider lifecycle hooks are bookkeeping, not work to show in
+            // the timeline. Keep their records, and let only stop hooks break
+            // tool groups so connectors still join the visible tools.
+            let internal_hook = message.role == "tool" && message.id.starts_with("hook:");
+            let stop_hook = internal_hook
                 && message
                     .tool_name
                     .as_deref()
@@ -648,7 +648,7 @@ impl ChatMessageBuffer {
             };
             render.group_start = index;
             render.group_anchor = None;
-            let mut hidden = stop_hook;
+            let mut hidden = internal_hook;
             if let Some(previous) = index
                 .checked_sub(1)
                 .and_then(|index| self.messages.get(index))
@@ -670,7 +670,7 @@ impl ChatMessageBuffer {
             render.continues_after = false;
             render.group_end = index + 1;
             let group_id = &self.messages[render.group_start].id;
-            render.group_leader = *group_id == message.id;
+            render.group_leader = render.group_anchor.is_none();
             render.row_id = if kind == ChatRenderKind::EditGroup {
                 format!("edit-group:{group_id}")
             } else if kind == ChatRenderKind::ToolGroup {
@@ -1335,55 +1335,67 @@ mod output_reference_tests {
     }
 
     #[test]
-    fn stop_hooks_stay_recorded_but_hidden_live_and_after_restore() {
+    fn lifecycle_hooks_stay_recorded_but_hidden_live_and_after_restore() {
         let mut buffer = ChatMessageBuffer::default();
-        for done in [false, true] {
-            buffer.apply_event(&serde_json::json!({"type":"inferay.tool","id":"hook:turn:stop","name":"stop hook","input":{"event":"stop","source":"hooks.json"},"output":"completed","done":done}));
-            assert_eq!(buffer.messages().len(), 1);
-            assert!(buffer.messages()[0].render.as_ref().unwrap().hidden);
-            assert_eq!(
-                buffer.messages()[0].render.as_ref().unwrap().kind,
-                ChatRenderKind::Message
-            );
-            assert_eq!(buffer.messages()[0].is_streaming, Some(!done));
-        }
-        let records = buffer.messages().to_vec();
-        assert!(records[0].content.contains("completed"));
-        let mut restored = ChatMessageBuffer::default();
-        restored.replace_messages(records);
-        assert!(restored.messages()[0].render.as_ref().unwrap().hidden);
-        for (id, name, input) in [
-            (
-                "hook:turn:pre",
-                "preToolUse hook",
-                serde_json::json!({"event":"preToolUse"}),
-            ),
-            ("job", "stop_job", serde_json::json!({"id":"job"})),
+        for event in [
+            "sessionStart",
+            "userPromptSubmit",
+            "preToolUse",
+            "postToolUse",
+            "stop",
         ] {
-            restored.apply_event(&serde_json::json!({"type":"inferay.tool","id":id,"name":name,"input":input,"done":true}));
-            assert!(
-                !restored
-                    .messages()
-                    .last()
-                    .unwrap()
-                    .render
-                    .as_ref()
-                    .unwrap()
-                    .hidden
-            );
-            if id.starts_with("hook:") {
-                assert!(
-                    restored
-                        .messages()
-                        .last()
-                        .unwrap()
-                        .render
-                        .as_ref()
-                        .unwrap()
-                        .group_leader
-                );
+            for done in [false, true] {
+                buffer.apply_event(&serde_json::json!({"type":"inferay.tool","id":format!("hook:turn:{event}"),"name":format!("{event} hook"),"input":{"event":event,"source":"hooks.json"},"output":"completed","done":done}));
+                let message = buffer.messages().last().unwrap();
+                assert!(message.render.as_ref().unwrap().hidden);
+                assert_eq!(message.is_streaming, Some(!done));
             }
         }
+        assert_eq!(buffer.messages().len(), 5);
+        let records = buffer.messages().to_vec();
+        assert!(
+            records
+                .iter()
+                .all(|message| message.content.contains("completed"))
+        );
+        let mut restored = ChatMessageBuffer::default();
+        restored.replace_messages(records);
+        assert!(
+            restored
+                .messages()
+                .iter()
+                .all(|message| message.render.as_ref().unwrap().hidden)
+        );
+        restored.apply_event(&serde_json::json!({"type":"inferay.tool","id":"job","name":"stop_job","input":{"id":"job"},"done":true}));
+        let tool = restored.messages().last().unwrap().render.as_ref().unwrap();
+        assert!(!tool.hidden);
+        assert!(tool.group_leader);
+    }
+
+    #[test]
+    fn hidden_hooks_connect_visible_tools_without_leading_or_trailing_segments() {
+        let mut buffer = ChatMessageBuffer::default();
+        for (id, name) in [
+            ("hook:pre1", "preToolUse hook"),
+            ("read", "Read"),
+            ("hook:post1", "postToolUse hook"),
+            ("hook:pre2", "preToolUse hook"),
+            ("search", "Grep"),
+            ("hook:post2", "postToolUse hook"),
+            ("hook:stop", "stop hook"),
+            ("next", "Read"),
+        ] {
+            buffer.apply_event(&serde_json::json!({"type":"inferay.tool","id":id,"name":name,"input":{},"done":true}));
+        }
+        let first = buffer.messages()[1].render.as_ref().unwrap();
+        let second = buffer.messages()[4].render.as_ref().unwrap();
+        let next = buffer.messages()[7].render.as_ref().unwrap();
+        assert!(first.group_leader);
+        assert!(first.continues_after);
+        assert!(!second.group_leader);
+        assert!(!second.continues_after);
+        assert!(next.group_leader);
+        assert!(!next.continues_after);
     }
 
     #[test]
