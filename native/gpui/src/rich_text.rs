@@ -89,7 +89,7 @@ impl Block {
     }
 }
 impl RichText {
-    fn prepare(text: &str, theme: &str) -> Self {
+    pub(crate) fn prepare(text: &str, theme: &str) -> Self {
         Self {
             blocks: inferay_server::prepare_markdown(text, false, true)
                 .blocks

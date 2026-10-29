@@ -628,10 +628,14 @@ impl WorkspaceView {
                         let chat = &mut view.conversations[index];
                         chat.connection_error = update.notice.take();
                         chat.commands = update.commands.take();
+                        let was_running = chat.run.is_loading;
                         for (status, terminal) in update.prior_activity {
                             chat.run.admit(status, terminal);
                         }
                         chat.run.admit(update.run_status, update.terminal);
+                        if was_running != chat.run.is_loading {
+                            chat.transcript.scroll.remeasure();
+                        }
                         if let Some(requests) = update.requests.take() {
                             chat.requests = requests;
                             let fields: Vec<_> = chat

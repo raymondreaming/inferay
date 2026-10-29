@@ -1337,14 +1337,235 @@ impl WorkspaceView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let chat = &self.conversations[index];
-        let row = &chat.transcript.rows()[message_index];
-        let message = &row.message;
-        if message.render.as_ref().is_some_and(|r| r.hidden) {
+        if chat.transcript.rows()[message_index].hidden() {
             return div().h(ui(0.)).into_any_element();
         }
+        let activity = chat.transcript.activity(message_index);
+        let open = activity
+            .is_none_or(|activity| chat.transcript.activity_open(activity, chat.run.is_loading));
+        let header = activity.filter(|activity| activity.start == message_index);
+        if !open && header.is_none() {
+            return div().h(ui(0.)).into_any_element();
+        }
+        let content = div()
+            .w_full()
+            .when_some(header, |d, activity| {
+                let active = chat
+                    .transcript
+                    .activity_active(activity, chat.run.is_loading);
+                let title = if active { "Working" } else { "Activity" };
+                let count = format!(
+                    "{} {}",
+                    activity.steps,
+                    if activity.steps == 1 { "step" } else { "steps" }
+                );
+                let id = chat.transcript.rows()[activity.start].message.id.clone();
+                d.child(
+                    div()
+                        .max_w(ui(544.))
+                        .mx_auto()
+                        .mb(ui(if open { 4. } else { 8. }))
+                        .child(
+                            button(SharedString::from(format!("activity-{id}")), "")
+                                .debug_selector(move || format!("activity-header-{id}"))
+                                .aria_label(format!(
+                                    "{} {title}, {count}",
+                                    if open { "Collapse" } else { "Expand" }
+                                ))
+                                .w_full()
+                                .h(ui(32.))
+                                .px(ui(4.))
+                                .gap(ui(8.))
+                                .text_color(if active {
+                                    rgba(0xebebebdd)
+                                } else {
+                                    rgba(0xebebeb90)
+                                })
+                                .child(
+                                    icon(if open { "ChevronDown" } else { "ChevronRight" })
+                                        .size(ui(12.)),
+                                )
+                                .child(div().font_weight(FontWeight::MEDIUM).child(title))
+                                .child(
+                                    div()
+                                        .text_size(ui(colors::CHAT_DETAIL))
+                                        .text_color(rgba(0xebebeb70))
+                                        .child(count),
+                                )
+                                .on_click(cx.listener(move |view, _, _, cx| {
+                                    let chat = &mut view.conversations[index];
+                                    chat.transcript
+                                        .toggle_activity(message_index, chat.run.is_loading);
+                                    cx.notify();
+                                }))
+                                .on_key_down(cx.listener(
+                                    move |view, event: &KeyDownEvent, _, cx| {
+                                        if matches!(event.keystroke.key.as_str(), "enter" | "space")
+                                        {
+                                            let chat = &mut view.conversations[index];
+                                            chat.transcript.toggle_activity(
+                                                message_index,
+                                                chat.run.is_loading,
+                                            );
+                                            cx.stop_propagation();
+                                            cx.notify();
+                                        }
+                                    },
+                                )),
+                        ),
+                )
+            })
+            .when(open, |d| {
+                d.child(
+                    div()
+                        .when(activity.is_some(), |d| {
+                            d.w_full().max_w(ui(544.)).mx_auto().pl(ui(24.))
+                        })
+                        .child(self.transcript_message(index, message_index, cx)),
+                )
+            });
+        div()
+            .w_full()
+            .flex()
+            .justify_center()
+            .child(
+                div()
+                    .debug_selector(|| "chat-message-column".into())
+                    .w_full()
+                    .max_w(ui(624.))
+                    .px(ui(12.))
+                    .child(content),
+            )
+            .into_any_element()
+    }
+
+    fn transcript_message(
+        &self,
+        index: usize,
+        message_index: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let chat = &self.conversations[index];
+        let row = &chat.transcript.rows()[message_index];
+        let message = &row.message;
+        if row.hidden() {
+            return div().h(ui(0.)).into_any_element();
+        }
+        let step = chat.transcript.step(message_index);
+        let nested = step.is_some_and(|step| step.start != message_index);
+        let step_open =
+            step.is_some_and(|step| chat.transcript.step_open(step, chat.run.is_loading));
+        if nested && !step_open {
+            return div().h(ui(0.)).into_any_element();
+        }
+        let (line_before, line_after) = chat.transcript.connections(message_index);
         let last_visible = chat.transcript.last_visible() == Some(message_index);
         let id = message.id.clone();
-        let row = if message.role == "tool" {
+        let row = if let Some(progress) = &row.progress {
+            let step = step.expect("progress rows own a timeline step");
+            let active = chat.transcript.step_active(step, chat.run.is_loading);
+            let title = if progress.title.is_empty() {
+                "Thinking…"
+            } else {
+                &progress.title
+            };
+            div()
+                .relative()
+                .pl(ui(16.))
+                .child(
+                    div()
+                        .debug_selector({
+                            let id = id.clone();
+                            move || format!("step-dot-{id}")
+                        })
+                        .absolute()
+                        .left(ui(-3.))
+                        .top(ui(13.))
+                        .size(ui(7.))
+                        .rounded_full()
+                        .border_1()
+                        .border_color(if active {
+                            rgb(0x8ab4f8)
+                        } else {
+                            rgba(0xebebeb50)
+                        })
+                        .bg(if active { rgb(0x8ab4f8) } else { rgb(0x202020) }),
+                )
+                .child(
+                    button(SharedString::from(format!("step-{id}")), "")
+                        .debug_selector({
+                            let id = id.clone();
+                            move || format!("step-header-{id}")
+                        })
+                        .aria_label(format!(
+                            "{} {title}",
+                            if step_open { "Collapse" } else { "Expand" }
+                        ))
+                        .w_full()
+                        .h_auto()
+                        .py(ui(6.))
+                        .min_h(ui(32.))
+                        .px(ui(4.))
+                        .gap(ui(8.))
+                        .text_size(ui(colors::CHAT_SMALL))
+                        .text_color(if active {
+                            rgba(0xebebebee)
+                        } else {
+                            rgba(0xebebeba0)
+                        })
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .font_weight(FontWeight::MEDIUM)
+                                .child(title.to_owned()),
+                        )
+                        .when(!step_open && step.tools > 0, |d| {
+                            d.child(
+                                div()
+                                    .text_size(ui(colors::CHAT_DETAIL))
+                                    .text_color(rgba(0xebebeb60))
+                                    .child(format!("{}", step.tools)),
+                            )
+                        })
+                        .child(
+                            icon(if step_open {
+                                "ChevronDown"
+                            } else {
+                                "ChevronRight"
+                            })
+                            .size(ui(12.)),
+                        )
+                        .on_click(cx.listener(move |view, _, _, cx| {
+                            let chat = &mut view.conversations[index];
+                            chat.transcript
+                                .toggle_step(message_index, chat.run.is_loading);
+                            cx.notify();
+                        }))
+                        .on_key_down(cx.listener(move |view, event: &KeyDownEvent, _, cx| {
+                            if matches!(event.keystroke.key.as_str(), "enter" | "space") {
+                                let chat = &mut view.conversations[index];
+                                chat.transcript
+                                    .toggle_step(message_index, chat.run.is_loading);
+                                cx.stop_propagation();
+                                cx.notify();
+                            }
+                        })),
+                )
+                .when(step_open, |d| {
+                    d.when_some(progress.body.as_ref(), |d, body| {
+                        d.child(
+                            div()
+                                .pl(ui(4.))
+                                .pb(ui(8.))
+                                .text_size(ui(colors::CHAT_SMALL))
+                                .text_color(rgba(0xebebeb90))
+                                .child(body.render(&format!("step-body-{}", message.id))),
+                        )
+                    })
+                })
+                .into_any_element()
+        } else if message.role == "tool" {
             let open = self.expanded.contains(&id);
             let render = message.render.as_ref();
             let display = render.and_then(|r| r.display.as_ref());
@@ -1362,30 +1583,22 @@ impl WorkspaceView {
                 .mx_auto()
                 .pl(ui(12.))
                 .pb(ui(if last_visible { 0. } else { 4. }))
-                .when(
-                    render.is_some_and(|r| {
-                        matches!(
-                            r.kind,
-                            inferay_core::chat_protocol::ChatRenderKind::ToolGroup
-                        ) && !r.group_leader
-                    }),
-                    |d| {
-                        d.child(
-                            div()
-                                .debug_selector({
-                                    let id = id.clone();
-                                    move || format!("tool-line-before-{id}")
-                                })
-                                .absolute()
-                                .left_0()
-                                .top_0()
-                                .w(ui(1.))
-                                .h(ui(12.))
-                                .bg(rgba(0xebebeb24)),
-                        )
-                    },
-                )
-                .when(render.is_some_and(|r| r.continues_after), |d| {
+                .when(line_before, |d| {
+                    d.child(
+                        div()
+                            .debug_selector({
+                                let id = id.clone();
+                                move || format!("tool-line-before-{id}")
+                            })
+                            .absolute()
+                            .left_0()
+                            .top_0()
+                            .w(ui(1.))
+                            .h(ui(12.))
+                            .bg(rgba(0xebebeb24)),
+                    )
+                })
+                .when(line_after, |d| {
                     d.child(
                         div()
                             .debug_selector({
@@ -1623,19 +1836,47 @@ impl WorkspaceView {
                 )
                 .into_any_element()
         };
-        div()
-            .w_full()
-            .flex()
-            .justify_center()
-            .child(
-                div()
-                    .debug_selector(|| "chat-message-column".into())
-                    .w_full()
-                    .max_w(ui(624.))
-                    .px(ui(12.))
-                    .child(row),
-            )
-            .into_any_element()
+        if let Some(step) = step {
+            div()
+                .relative()
+                .w_full()
+                .max_w(ui(544.))
+                .mx_auto()
+                .when(line_before && !nested, |d| {
+                    d.child(
+                        div()
+                            .debug_selector({
+                                let id = message.id.clone();
+                                move || format!("step-line-before-{id}")
+                            })
+                            .absolute()
+                            .left_0()
+                            .top_0()
+                            .w(ui(1.))
+                            .h(ui(16.5))
+                            .bg(rgba(0xebebeb24)),
+                    )
+                })
+                .when(chat.transcript.connections(step.start).1, |d| {
+                    d.child(
+                        div()
+                            .debug_selector({
+                                let id = message.id.clone();
+                                move || format!("step-line-{id}")
+                            })
+                            .absolute()
+                            .left_0()
+                            .top(ui(if nested { 0. } else { 16.5 }))
+                            .bottom_0()
+                            .w(ui(1.))
+                            .bg(rgba(0xebebeb24)),
+                    )
+                })
+                .child(div().when(nested, |d| d.pl(ui(32.))).child(row))
+                .into_any_element()
+        } else {
+            row
+        }
     }
     fn chat_grid(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let ids: Vec<_> = self
@@ -2596,15 +2837,91 @@ mod tests {
         );
     }
     #[gpui::test]
-    fn stop_hook_has_no_row_or_details_even_if_previously_expanded(cx: &mut gpui::TestAppContext) {
-        let id = "hook:turn:stop";
+    fn progress_steps_nest_tools_and_keep_reopened_history_visible(cx: &mut gpui::TestAppContext) {
         let (view, cx) = cx.add_window_view(|_, cx| {
             let mut view = WorkspaceView::empty(cx.focus_handle(), cx.new(TextInput::new), cx);
             view.status.clear();
-            view.expanded.insert(id.into());
+            let mut buffer = inferay_core::chat_protocol::ChatMessageBuffer::default();
+            buffer.apply_event(&serde_json::json!({"type":"inferay.progress","id":"codex-summary:first","text":"**Inspecting field options**"}));
+            buffer.apply_event(&serde_json::json!({"type":"inferay.tool","id":"read","name":"Read","input":{"file_path":"schema.ts"},"output":"fields","done":true}));
+            buffer.apply_event(&serde_json::json!({"type":"inferay.progress","id":"codex-summary:second","text":"**Testing validation coverage**"}));
+            buffer.apply_event(&serde_json::json!({"type":"inferay.tool","id":"test","name":"exec_command","input":{"cmd":"cargo test"},"output":"passed","done":true}));
+            view.conversations[0].run.begin(1);
+            view.conversations[0].transcript.publish(PreparedTranscript::prepare(0, buffer.messages().iter().cloned().map(std::sync::Arc::new), "vscode-black"), None);
+            view
+        });
+        cx.simulate_resize(size(px(1100.), px(900.)));
+        cx.draw(point(px(0.), px(0.)), size(px(1100.), px(900.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        assert!(cx.debug_bounds("tool-dot-read").is_none());
+        let parent = cx.debug_bounds("step-dot-codex-summary:second").unwrap();
+        let child = cx.debug_bounds("tool-dot-test").unwrap();
+        assert!(child.left() > parent.right());
+        let first = cx.debug_bounds("step-header-codex-summary:first").unwrap();
+        cx.simulate_click(first.center(), Modifiers::default());
+        cx.draw(point(px(0.), px(0.)), size(px(1100.), px(900.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        assert!(cx.debug_bounds("tool-dot-read").is_some());
+        cx.simulate_keystrokes("enter");
+        cx.draw(point(px(0.), px(0.)), size(px(1100.), px(900.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        assert!(cx.debug_bounds("tool-dot-read").is_none());
+        cx.simulate_keystrokes("space");
+        cx.draw(point(px(0.), px(0.)), size(px(1100.), px(900.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        assert!(cx.debug_bounds("tool-dot-read").is_some());
+        view.update(cx, |view, cx| {
+            let chat = &mut view.conversations[0];
+            chat.run = ChatRunStatus::default();
+            chat.transcript.scroll.remeasure();
+            cx.notify();
+        });
+        cx.draw(point(px(0.), px(0.)), size(px(1100.), px(900.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        assert!(cx.debug_bounds("tool-dot-read").is_none());
+        let activity = cx
+            .debug_bounds("activity-header-codex-summary:first")
+            .unwrap();
+        cx.simulate_click(activity.center(), Modifiers::default());
+        for zoom in ["100", "200"] {
+            view.update(cx, |view, cx| {
+                view.zoom = crate::zoom::Zoom::restore(Some(zoom));
+                view.conversations[0].transcript.scroll.remeasure();
+                cx.notify();
+            });
+            cx.draw(point(px(0.), px(0.)), size(px(1100.), px(900.)), |_, _| {
+                view.clone().into_any_element()
+            });
+            assert!(cx.debug_bounds("tool-dot-read").is_some());
+            assert!(cx.debug_bounds("tool-dot-test").is_none());
+            let parent = cx.debug_bounds("step-dot-codex-summary:first").unwrap();
+            let child = cx.debug_bounds("tool-dot-read").unwrap();
+            let line = cx.debug_bounds("step-line-codex-summary:first").unwrap();
+            assert!(child.left() > parent.right());
+            assert!((line.top() - parent.center().y).abs() < px(2.));
+        }
+    }
+
+    #[gpui::test]
+    fn lifecycle_hooks_have_no_rows_or_details_even_if_previously_expanded(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            let mut view = WorkspaceView::empty(cx.focus_handle(), cx.new(TextInput::new), cx);
+            view.status.clear();
+            for event in ["sessionStart", "userPromptSubmit", "preToolUse", "postToolUse", "stop"] {
+                view.expanded.insert(format!("hook:turn:{event}"));
+            }
             let mut buffer = inferay_core::chat_protocol::ChatMessageBuffer::default();
             buffer.replace_messages(vec![serde_json::from_value(serde_json::json!({"id":"answer","role":"assistant","content":"The answer remains visible."})).unwrap()]);
-            buffer.apply_event(&serde_json::json!({"type":"inferay.tool","id":id,"name":"stop hook","input":{"event":"stop"},"output":"completed","done":true}));
+            for event in ["sessionStart", "userPromptSubmit", "preToolUse", "postToolUse", "stop"] {
+                buffer.apply_event(&serde_json::json!({"type":"inferay.tool","id":format!("hook:turn:{event}"),"name":format!("{event} hook"),"input":{"event":event},"output":"completed","done":true}));
+            }
             view.conversations[0].transcript.publish(PreparedTranscript::prepare(0, buffer.messages().iter().cloned().map(std::sync::Arc::new), "vscode-black"), None);
             view
         });
@@ -2612,17 +2929,17 @@ mod tests {
         cx.draw(point(px(0.), px(0.)), size(px(900.), px(700.)), |_, _| {
             view.clone().into_any_element()
         });
-        assert!(cx.debug_bounds("tool-dot-hook:turn:stop").is_none());
-        assert!(cx.debug_bounds("tool-details-hook:turn:stop").is_none());
         assert!(cx.debug_bounds("tool-timeline-row").is_none());
         view.read_with(cx, |view, _| {
             let transcript = &view.conversations[0].transcript;
-            assert_eq!(transcript.rows().len(), 2);
+            assert_eq!(transcript.rows().len(), 6);
             assert_eq!(transcript.last_visible(), Some(0));
-            assert_eq!(
-                transcript.scroll.bounds_for_item(1).unwrap().size.height,
-                px(0.)
-            );
+            for row in 1..6 {
+                assert_eq!(
+                    transcript.scroll.bounds_for_item(row).unwrap().size.height,
+                    px(0.)
+                );
+            }
         });
     }
     #[gpui::test]
@@ -2642,6 +2959,7 @@ mod tests {
             ].into_iter().map(|v| serde_json::from_value(v).unwrap()).collect());
             assert!(buffer.messages()[1].render.as_ref().unwrap().hidden);
             view.conversations[0].transcript.publish(PreparedTranscript::prepare(0, buffer.messages().iter().cloned().map(std::sync::Arc::new), "vscode-black"), None);
+            view.conversations[0].transcript.toggle_activity(0, false);
             view
         });
         cx.simulate_resize(size(px(1100.), px(1000.)));
@@ -2677,6 +2995,84 @@ mod tests {
         }
     }
     #[gpui::test]
+    fn timeline_connects_tools_steps_and_nested_edits_across_invisible_rows(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            let mut view = WorkspaceView::empty(cx.focus_handle(), cx.new(TextInput::new), cx);
+            view.status.clear();
+            let mut buffer = inferay_core::chat_protocol::ChatMessageBuffer::default();
+            buffer.replace_messages([
+                serde_json::json!({"id":"lead","role":"tool","toolName":"Read","content":"{\"file_path\":\"main.rs\"}\nsource"}),
+                serde_json::json!({"id":"hook:pre","role":"tool","toolName":"preToolUse hook","content":"{}"}),
+                serde_json::json!({"id":"codex-summary:one","role":"system","content":"Inspecting fields"}),
+                serde_json::json!({"id":"empty","role":"assistant","content":""}),
+                serde_json::json!({"id":"codex-summary:two","role":"system","content":"Updating fields"}),
+                serde_json::json!({"id":"nested-read","role":"tool","toolName":"Read","content":"{\"file_path\":\"schema.rs\"}\nfields"}),
+                serde_json::json!({"id":"nested-edit","role":"tool","toolName":"Edit","content":"{\"file_path\":\"schema.rs\",\"old_string\":\"old\",\"new_string\":\"new\"}"}),
+                serde_json::json!({"id":"hook:post","role":"tool","toolName":"postToolUse hook","content":"{}"}),
+                serde_json::json!({"id":"codex-summary:three","role":"system","content":"Checking changes"}),
+                serde_json::json!({"id":"answer","role":"assistant","content":"The final answer stays separate."}),
+                serde_json::json!({"id":"separate","role":"tool","toolName":"Read","content":"{\"file_path\":\"next.rs\"}"}),
+            ].into_iter().map(|value| serde_json::from_value(value).unwrap()).collect());
+            view.conversations[0].transcript.publish(PreparedTranscript::prepare(0, buffer.messages().iter().cloned().map(std::sync::Arc::new), "vscode-black"), None);
+            view.conversations[0].transcript.toggle_step(4, false);
+            view.conversations[0].transcript.toggle_activity(0, false);
+            view
+        });
+        cx.simulate_resize(size(px(1100.), px(1400.)));
+        for zoom in ["50", "100", "200"] {
+            for expanded in [false, true] {
+                view.update(cx, |view, cx| {
+                    view.zoom = crate::zoom::Zoom::restore(Some(zoom));
+                    if expanded {
+                        view.expanded.insert("lead".into());
+                    } else {
+                        view.expanded.remove("lead");
+                    }
+                    view.conversations[0].transcript.scroll.remeasure();
+                    cx.notify();
+                });
+                cx.draw(point(px(0.), px(0.)), size(px(1100.), px(1400.)), |_, _| {
+                    view.clone().into_any_element()
+                });
+                for (outgoing, incoming) in [
+                    ("tool-line-after-lead", "step-line-before-codex-summary:one"),
+                    (
+                        "step-line-codex-summary:one",
+                        "step-line-before-codex-summary:two",
+                    ),
+                    ("step-line-codex-summary:two", "step-line-nested-read"),
+                    ("step-line-nested-read", "step-line-nested-edit"),
+                    (
+                        "step-line-nested-edit",
+                        "step-line-before-codex-summary:three",
+                    ),
+                    (
+                        "tool-line-after-nested-read",
+                        "tool-line-before-nested-edit",
+                    ),
+                ] {
+                    let outgoing = cx.debug_bounds(outgoing).unwrap();
+                    let incoming = cx.debug_bounds(incoming).unwrap();
+                    assert!((outgoing.center().x - incoming.center().x).abs() < px(1.));
+                    assert!((outgoing.bottom() - incoming.top()).abs() < px(1.));
+                }
+                assert!(cx.debug_bounds("step-line-codex-summary:three").is_none());
+                assert!(cx.debug_bounds("tool-line-before-separate").is_none());
+                view.read_with(cx, |view, _| {
+                    let transcript = &view.conversations[0].transcript;
+                    assert_eq!(
+                        transcript.scroll.bounds_for_item(3).unwrap().size.height,
+                        px(0.)
+                    );
+                    assert_eq!(transcript.step(4).unwrap().tools, 2);
+                });
+            }
+        }
+    }
+
+    #[gpui::test]
     fn last_expanded_tool_card_clears_the_padded_composer_at_large_zoom(
         cx: &mut gpui::TestAppContext,
     ) {
@@ -2687,6 +3083,7 @@ mod tests {
             let mut buffer = inferay_core::chat_protocol::ChatMessageBuffer::default();
             buffer.apply_event(&serde_json::json!({"type":"inferay.tool","id":"last-tool","name":"exec_command","input":{"cmd":"echo output"},"output": "readable output\n".repeat(200), "done":true}));
             view.conversations[0].transcript.publish(PreparedTranscript::prepare(0, buffer.messages().iter().cloned().map(std::sync::Arc::new), "vscode-black"), None);
+            view.conversations[0].transcript.toggle_activity(0, false);
             view
         });
         cx.simulate_resize(size(px(1100.), px(700.)));
@@ -3307,6 +3704,13 @@ mod tests {
         });
         assert!(cx.debug_bounds("tool-edit-card").is_none());
         assert!(cx.debug_bounds("tool-details-edit").is_none());
+        assert!(cx.debug_bounds("tool-timeline-row").is_none());
+        let activity = cx.debug_bounds("activity-header-edit").unwrap();
+        cx.simulate_click(activity.center(), Modifiers::default());
+        cx.draw(point(px(0.), px(0.)), size(px(800.), px(560.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        assert!(cx.debug_bounds("tool-edit-card").is_none());
         let row = cx.debug_bounds("tool-timeline-row").unwrap();
         cx.simulate_click(row.center(), Modifiers::default());
         cx.draw(point(px(0.), px(0.)), size(px(800.), px(560.)), |_, _| {
