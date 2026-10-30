@@ -2535,6 +2535,7 @@ impl Render for WorkspaceView {
                                 .flex_1()
                                 .min_h_0()
                                 .pr(ui(6.))
+                                .when(!self.sidebar, |d| d.pl(ui(6.)))
                                 .pb(ui(6.))
                                 .when(self.sidebar, |d| d.child(self.sidebar(cx)))
                                 .child(
