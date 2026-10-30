@@ -1,6 +1,6 @@
 [package]
 name = "inferay-gpui"
-version = "0.1.116"
+version = "0.1.117"
 edition = "2024"
 license = "LicenseRef-Inferay"
 publish = false
