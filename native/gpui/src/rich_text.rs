@@ -349,27 +349,60 @@ impl RichText {
                         .border_color(rgba(0xebebeb40))
                         .child(self.blocks(children, &id))
                         .into_any_element(),
-                    Block::Table(rows) => div()
-                        .id(SharedString::from(id.clone()))
-                        .overflow_x_scroll()
-                        .children(rows.iter().enumerate().map(|(row, cells)| {
-                            div()
-                                .flex()
-                                .children(cells.iter().enumerate().map(|(col, text)| {
-                                    div()
-                                        .w(ui(180.))
-                                        .flex_shrink_0()
-                                        .px(ui(10.))
-                                        .py(ui(6.))
-                                        .border_b_1()
-                                        .border_color(rgba(0xebebeb18))
-                                        .when(row == 0, |d| {
-                                            d.font_weight(FontWeight::SEMIBOLD).bg(rgba(0xffffff08))
-                                        })
-                                        .child(text.render(format!("inline-{id}-{row}-{col}")))
-                                }))
-                        }))
-                        .into_any_element(),
+                    Block::Table(rows) => {
+                        let widths: Vec<f32> = (0..rows.iter().map(Vec::len).max().unwrap_or(0))
+                            .map(|col| {
+                                let characters = rows
+                                    .iter()
+                                    .filter_map(|row| row.get(col))
+                                    .flat_map(|text| text.content().lines())
+                                    .map(|line| line.chars().count())
+                                    .max()
+                                    .unwrap_or(0);
+                                (characters as f32 * 7. + 16.).clamp(64., 240.)
+                            })
+                            .collect();
+                        let width = widths.iter().sum::<f32>();
+                        div()
+                            .id(SharedString::from(id.clone()))
+                            .debug_selector(|| "chat-table".into())
+                            .w_full()
+                            .min_w_0()
+                            .max_w_full()
+                            .overflow_x_scroll()
+                            .text_size(ui(crate::colors::CHAT_SMALL))
+                            .line_height(ui(18.))
+                            .rounded(ui(4.))
+                            .border_1()
+                            .border_color(rgba(0xebebeb18))
+                            .child(div().w(ui(width)).flex_shrink_0().children(
+                                rows.iter().enumerate().map(|(row, cells)| {
+                                    div().flex().w(ui(width)).children(
+                                        cells.iter().enumerate().map(|(col, text)| {
+                                            div()
+                                                .debug_selector(move || {
+                                                    format!("chat-table-cell-{row}-{col}")
+                                                })
+                                                .w(ui(widths[col]))
+                                                .min_w_0()
+                                                .flex_shrink_0()
+                                                .px(ui(8.))
+                                                .py(ui(3.))
+                                                .border_b_1()
+                                                .border_color(rgba(0xebebeb18))
+                                                .when(row == 0, |d| {
+                                                    d.font_weight(FontWeight::SEMIBOLD)
+                                                        .bg(rgba(0xffffff08))
+                                                })
+                                                .child(
+                                                    text.render(format!("inline-{id}-{row}-{col}")),
+                                                )
+                                        }),
+                                    )
+                                }),
+                            ))
+                            .into_any_element()
+                    }
                     Block::List(items) => div()
                         .flex()
                         .flex_col()
@@ -677,6 +710,39 @@ mod tests {
                 view.clone().into_any_element()
             });
         });
+    }
+
+    #[gpui::test]
+    fn wide_tables_scroll_inside_the_message(cx: &mut gpui::TestAppContext) {
+        struct Message(RichText);
+        impl Render for Message {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div().w_full().child(self.0.render("table"))
+            }
+        }
+        let (view, cx) = cx.add_window_view(|_, _| Message(RichText::prepare(
+            "| Name | Description | Details | More |\n| --- | --- | --- | --- |\n| A | A longer description that should wrap within its column | More details to read | Last column |",
+            "vscode-black",
+        )));
+        cx.simulate_resize(size(px(320.), px(240.)));
+        cx.draw(point(px(0.), px(0.)), size(px(320.), px(240.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        let viewport = cx.debug_bounds("chat-table").unwrap();
+        assert!(viewport.size.width <= px(320.));
+        let before = cx.debug_bounds("chat-table-cell-0-0").unwrap();
+        assert!(before.size.width < px(180.));
+        cx.simulate_event(ScrollWheelEvent {
+            position: viewport.center(),
+            delta: ScrollDelta::Pixels(point(px(-120.), px(0.))),
+            modifiers: Modifiers::default(),
+            touch_phase: TouchPhase::Moved,
+        });
+        cx.draw(point(px(0.), px(0.)), size(px(320.), px(240.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        assert!(cx.debug_bounds("chat-table-cell-0-0").unwrap().origin.x < before.origin.x);
+        assert_eq!(cx.debug_bounds("chat-table").unwrap(), viewport);
     }
 
     #[gpui::test]
