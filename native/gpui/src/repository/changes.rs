@@ -309,20 +309,7 @@ impl RepositoryView {
                                 "−{}",
                                 self.file_entries().iter().map(|f| f.3).sum::<usize>()
                             )),
-                    )
-                    .when(historical, |d| {
-                        d.child(
-                            div()
-                                .text_size(ui(colors::CHAT_DETAIL))
-                                .text_color(rgba(0xebebeb80))
-                                .child(
-                                    self.selected
-                                        .as_ref()
-                                        .map(|s| s.chars().take(7).collect::<String>())
-                                        .unwrap_or_default(),
-                                ),
-                        )
-                    }),
+                    ),
             )
             .child(
                 div()
@@ -330,17 +317,17 @@ impl RepositoryView {
                     .flex_1()
                     .min_h_0()
                     .min_w_0()
-                    .when(self.expanded, |d| d.flex_col())
+                    .when(self.changes_on_right(), |d| d.flex_col())
                     .when(historical, |d| {
                         d.child(
                             div()
                                 .id("commit-description")
                                 .overflow_y_scroll()
                                 .min_w_0()
-                                .when(!self.expanded, |d| {
+                                .when(!self.changes_on_right(), |d| {
                                     d.w(relative(0.5)).flex_shrink_0().h_full().border_r_1()
                                 })
-                                .when(self.expanded, |d| {
+                                .when(self.changes_on_right(), |d| {
                                     d.max_h(relative(0.4)).w_full().border_b_1()
                                 })
                                 .border_color(rgba(0xebebeb0f))
@@ -363,6 +350,28 @@ impl RepositoryView {
                                                 div()
                                                     .min_w_0()
                                                     .child(details.author.clone())
+                                                    .child(
+                                                        div()
+                                                            .flex()
+                                                            .items_center()
+                                                            .gap(ui(4.))
+                                                            .text_size(ui(colors::CHAT_DETAIL))
+                                                            .text_color(rgba(0xebebeb80))
+                                                            .child(details.hash.chars().take(7).collect::<String>())
+                                                            .child(
+                                                                button("copy-commit-hash", "")
+                                                                    .aria_label("Copy commit hash")
+                                                                    .h(ui(20.))
+                                                                    .px(ui(3.))
+                                                                    .child(icon("Copy").size(ui(12.)))
+                                                                    .on_click({
+                                                                        let hash = details.hash.clone();
+                                                                        move |_, _, cx| {
+                                                                            cx.write_to_clipboard(ClipboardItem::new_string(hash.clone()));
+                                                                        }
+                                                                    }),
+                                                            ),
+                                                    )
                                                     .child(
                                                     div()
                                                         .text_size(ui(colors::CHAT_DETAIL))
@@ -405,15 +414,16 @@ impl RepositoryView {
                             let count =
                                 self.file_entries().iter().filter(|f| f.4 == staged).count();
                             div()
+                                .debug_selector(move || if staged { "staged-files" } else { "unstaged-files" }.into())
                                 .flex()
                                 .flex_col()
                                 .flex_1()
                                 .min_w_0()
                                 .min_h_0()
-                                .when(staged && !self.expanded, |d| {
+                                .when(staged && !self.changes_on_right(), |d| {
                                     d.border_l_1().border_color(rgba(0xebebeb0f))
                                 })
-                                .when(staged && self.expanded, |d| {
+                                .when(staged && self.changes_on_right(), |d| {
                                     d.border_t_1().border_color(rgba(0xebebeb0f))
                                 })
                                 .child(

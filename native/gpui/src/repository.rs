@@ -662,6 +662,9 @@ impl Render for RepositoryView {
                         let _ = entity.update(cx, |s, cx| {
                             if (s.available_width - width).abs() > 1. {
                                 s.available_width = width;
+                                // Measurement happens during drawing, when notify alone cannot
+                                // schedule the corrected layout without another input event.
+                                window.request_animation_frame();
                                 cx.notify();
                             }
                         });
@@ -1051,7 +1054,13 @@ mod tests {
             )
         });
         cx.run_until_parked();
-        for (width, expanded) in [(600., false), (1800., true), (700., false), (2000., true)] {
+        for (width, expanded) in [
+            (600., false),
+            (800., false),
+            (1800., true),
+            (700., false),
+            (2000., true),
+        ] {
             view.update(cx, |s, cx| {
                 s.expanded = expanded;
                 s.changes = true;
@@ -1063,10 +1072,24 @@ mod tests {
                 cx.notify();
             });
             cx.simulate_resize(size(px(width), px(700.)));
-            for _ in 0..3 {
-                cx.draw(point(px(0.), px(0.)), size(px(width), px(700.)), |_, _| {
-                    view.clone().into_any_element()
-                });
+            cx.draw(point(px(0.), px(0.)), size(px(width), px(700.)), |_, _| {
+                view.clone().into_any_element()
+            });
+            assert!(
+                cx.update(|window, cx| window.simulate_next_frame(cx)) > 0,
+                "width changes must schedule their own frame without pointer movement"
+            );
+            cx.draw(point(px(0.), px(0.)), size(px(width), px(700.)), |_, _| {
+                view.clone().into_any_element()
+            });
+            let unstaged = cx.debug_bounds("unstaged-files").unwrap();
+            let staged = cx.debug_bounds("staged-files").unwrap();
+            if expanded || width >= 760. {
+                assert_eq!(unstaged.left(), staged.left());
+                assert!(staged.top() >= unstaged.bottom());
+            } else {
+                assert_eq!(unstaged.top(), staged.top());
+                assert!(staged.left() >= unstaged.right());
             }
             let header = cx.debug_bounds("graph-header").unwrap();
             view.read_with(cx, |s, _| {
