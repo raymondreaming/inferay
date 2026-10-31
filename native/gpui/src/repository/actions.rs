@@ -427,13 +427,10 @@ impl RepositoryView {
             .children(entries.into_iter().enumerate().map(
                 |(index, (action, label, target, remote, enabled))| {
                     let enabled = enabled && !self.mutating;
-                    let local = refs
-                        .iter()
-                        .any(|r| r.full_name == format!("refs/heads/{target}"));
                     button(SharedString::from(format!("git-menu-{index}")), label)
                         .debug_selector(move || format!("git-menu-{action}-{index}"))
                         .when(!enabled, |d| d.opacity(0.4))
-                        .when(enabled && action == "checkout" && local, |d| {
+                        .when(enabled && action == "checkout", |d| {
                             let view = cx.entity();
                             d.on_drag(
                                 graph::BranchDrag {

@@ -14,7 +14,7 @@ impl Render for BranchDrag {
             .py(ui(4.))
             .bg(rgb(0x29384d))
             .text_color(rgb(0xffffff))
-            .child(self.name.clone())
+            .child(self.name.trim_start_matches("refs/remotes/").to_owned())
     }
 }
 
@@ -73,6 +73,17 @@ impl RepositoryView {
 
     pub(super) fn branch_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let menu = self.branch_menu.as_ref().unwrap();
+        let source = menu.source.trim_start_matches("refs/remotes/");
+        let target = menu.target.trim_start_matches("refs/remotes/");
+        let local_destination = |reference: &str| {
+            reference
+                .strip_prefix("refs/remotes/")
+                .and_then(|remote| remote.split_once('/'))
+                .map_or_else(
+                    || reference.to_owned(),
+                    |(_, branch)| format!("local {branch}"),
+                )
+        };
         let popup = crate::menu_surface("branch-operation-menu")
             .relative()
             .debug_selector(|| "branch-operation-menu".into())
@@ -85,17 +96,17 @@ impl RepositoryView {
                 [
                     (
                         "merge",
-                        format!("Merge {} into {}", menu.source, menu.target),
+                        format!("Merge {source} into {}", local_destination(&menu.target)),
                         menu.can_merge,
                     ),
                     (
                         "fastForward",
-                        format!("Fast-forward {} to {}", menu.target, menu.source),
+                        format!("Fast-forward {} to {source}", local_destination(&menu.target)),
                         menu.can_fast_forward,
                     ),
                     (
                         "rebase",
-                        format!("Rebase {} onto {}", menu.source, menu.target),
+                        format!("Rebase {} onto {target}", local_destination(&menu.source)),
                         menu.can_rebase,
                     ),
                 ]
@@ -104,8 +115,13 @@ impl RepositoryView {
                     let source = menu.source.clone();
                     let target = menu.target.clone();
                     button(operation, "")
+                        .aria_label(label.clone())
+                        .w_full()
+                        .h_auto()
+                        .min_h(ui(28.))
+                        .py(ui(5.))
                         .debug_selector(move || format!("branch-operation-{operation}"))
-                        .child(label)
+                        .child(div().flex_1().min_w_0().line_height(ui(17.)).child(label))
                         .when(!enabled, |d| d.opacity(0.4))
                         .on_click(cx.listener(move |s, _, _, cx| {
                             if enabled {
@@ -114,6 +130,11 @@ impl RepositoryView {
                         }))
                 }),
             )
+            .when(menu.source.starts_with("refs/remotes/") || menu.target.starts_with("refs/remotes/"), |d| {
+                d.child(div().px(ui(8.)).py(ui(4.)).text_size(ui(11.)).child(
+                    "Remote destinations use a local tracking branch, creating it if needed. Nothing is pushed."
+                ))
+            })
             .children(menu.reasons.iter().map(|reason| {
                 div()
                     .px(ui(8.))
@@ -398,7 +419,7 @@ impl RepositoryView {
                                                                     cx.notify();
                                                                 })
                                                             })
-                                                            .tooltip({ let reference = primary.clone(); move |_, cx| cx.new(|_| RefTooltip(reference.clone())).into() })
+                                                            .when(s.branch_menu.is_none(), |d| d.tooltip({ let reference = primary.clone(); move |_, cx| cx.new(|_| RefTooltip(reference.clone())).into() }))
                                                             .debug_selector({ let name = primary.full_name.clone(); move || format!("branch-label-{name}") })
                                                             .when(primary.full_name.starts_with("refs/heads/") || primary.kind == GitGraphRefKind::RemoteBranch, |d| {
                                                                 let name = primary.full_name.strip_prefix("refs/heads/").unwrap_or(&primary.full_name).to_owned();
@@ -409,7 +430,7 @@ impl RepositoryView {
                                                                     }
                                                                 }))
                                                             })
-                                                            .when(primary.full_name.starts_with("refs/heads/") && !s.mutating, |d| {
+                                                            .when((primary.full_name.starts_with("refs/heads/") || primary.kind == GitGraphRefKind::RemoteBranch) && !s.mutating, |d| {
                                                                 let name = primary.full_name.strip_prefix("refs/heads/").unwrap_or(&primary.full_name).to_owned();
                                                                 d.on_drag(BranchDrag { cwd: s.cwd.clone(), name: name.clone() }, |drag, _, _, cx| cx.new(|_| drag.clone()))
                                                                     .drag_over::<BranchDrag>(|style, _, _, _| style.bg(rgb(0x405a80)))
@@ -763,6 +784,130 @@ mod tests {
                     .any(|r| r.full_name == "refs/heads/main")
             )
         });
+    }
+
+    #[gpui::test]
+    fn unchecked_local_and_remote_branches_can_be_dragged(cx: &mut TestAppContext) {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().canonicalize().unwrap();
+        let git = |args: &[&str]| {
+            let output = inferay_native_diff::git_command()
+                .current_dir(&root)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8_lossy(&output.stdout).trim().to_owned()
+        };
+        git(&["init", "-b", "target"]);
+        git(&["config", "user.name", "UI test"]);
+        git(&["config", "user.email", "test@example.invalid"]);
+        git(&["config", "commit.gpgsign", "false"]);
+        git(&["commit", "--allow-empty", "-m", "Base"]);
+        git(&["remote", "add", "origin", root.to_str().unwrap()]);
+        git(&["update-ref", "refs/remotes/origin/remote-target", "HEAD"]);
+        git(&["checkout", "-b", "source"]);
+        git(&["commit", "--allow-empty", "-m", "Source"]);
+        git(&["update-ref", "refs/remotes/origin/remote-source", "HEAD"]);
+        git(&["checkout", "-b", "unrelated", "target"]);
+        git(&["commit", "--allow-empty", "-m", "Unrelated"]);
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            let mut view = RepositoryView::new(
+                root.to_string_lossy().into_owned(),
+                Value::Null,
+                "vscode-black".into(),
+                0,
+                cx,
+            );
+            view.changes = false;
+            view.avatars.insert(
+                "test@example.invalid".into(),
+                Arc::new(Image::from_bytes(ImageFormat::Png, vec![])),
+            );
+            view
+        });
+        cx.simulate_resize(size(px(1400.), px(700.)));
+        cx.run_until_parked();
+        for (source, target) in [
+            ("refs/heads/source", "refs/heads/target"),
+            ("refs/heads/source", "refs/heads/unrelated"),
+            ("refs/remotes/origin/remote-source", "refs/heads/unrelated"),
+            ("refs/remotes/origin/remote-source", "refs/heads/target"),
+            ("refs/heads/source", "refs/remotes/origin/remote-target"),
+            (
+                "refs/remotes/origin/remote-source",
+                "refs/remotes/origin/remote-target",
+            ),
+        ] {
+            view.update(cx, |s, cx| {
+                s.branch_menu = None;
+                s.preferences["hiddenRefs"] = json!(
+                    [
+                        "refs/heads/source",
+                        "refs/heads/target",
+                        "refs/remotes/origin/remote-source",
+                        "refs/remotes/origin/remote-target"
+                    ]
+                    .into_iter()
+                    .filter(|name| *name != source && *name != target)
+                    .collect::<Vec<_>>()
+                );
+                cx.notify();
+            });
+            cx.update(|window, _| window.refresh());
+            let from = cx
+                .debug_bounds(Box::leak(format!("branch-label-{source}").into_boxed_str()))
+                .unwrap()
+                .center();
+            let to = cx
+                .debug_bounds(Box::leak(format!("branch-label-{target}").into_boxed_str()))
+                .unwrap()
+                .center();
+            cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
+            cx.simulate_mouse_move(
+                from + point(px(12.), px(0.)),
+                MouseButton::Left,
+                Modifiers::default(),
+            );
+            cx.update(|window, _| window.refresh());
+            cx.update(|_, cx| assert!(cx.has_active_drag(), "{source} must be draggable"));
+            cx.simulate_mouse_move(to, MouseButton::Left, Modifiers::default());
+            cx.update(|window, _| window.refresh());
+            cx.simulate_mouse_up(to, MouseButton::Left, Modifiers::default());
+            cx.run_until_parked();
+            view.read_with(cx, |s, _| {
+                let menu = s.branch_menu.as_ref().expect("drop must open a menu");
+                assert_eq!(menu.source, source.trim_start_matches("refs/heads/"));
+                assert_eq!(menu.target, target.trim_start_matches("refs/heads/"));
+                assert!(menu.can_merge && menu.can_rebase);
+                assert_eq!(menu.can_fast_forward, target != "refs/heads/unrelated");
+            });
+            assert_eq!(git(&["branch", "--show-current"]), "unrelated");
+        }
+        cx.update(|window, _| window.refresh());
+        let action = cx
+            .debug_bounds("branch-operation-fastForward")
+            .unwrap()
+            .center();
+        cx.simulate_click(action, Modifiers::default());
+        cx.run_until_parked();
+        assert_eq!(git(&["branch", "--show-current"]), "remote-target");
+        assert_eq!(
+            git(&["rev-parse", "remote-target"]),
+            git(&["rev-parse", "source"])
+        );
+        assert_eq!(
+            git(&["rev-parse", "refs/remotes/origin/remote-target"]),
+            git(&["rev-parse", "target"])
+        );
+        assert_eq!(
+            git(&["rev-parse", "--abbrev-ref", "@{upstream}"]),
+            "origin/remote-target"
+        );
     }
 
     #[test]

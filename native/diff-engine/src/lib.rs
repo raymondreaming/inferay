@@ -1327,35 +1327,102 @@ fn ref_operation_result(
     }
 }
 
+struct RefOperationBranch {
+    reference: String,
+    local: String,
+    checkout_head: String,
+    can_checkout: bool,
+}
+
+fn resolve_operation_branch(cwd: &str, name: &str) -> Option<RefOperationBranch> {
+    let branches = get_git_branches(cwd);
+    let local = name.strip_prefix("refs/heads/").unwrap_or(name);
+    if branches.iter().any(|branch| branch.name == local) {
+        let reference = format!("refs/heads/{local}");
+        return Some(RefOperationBranch {
+            checkout_head: reference.clone(),
+            reference,
+            local: local.into(),
+            can_checkout: true,
+        });
+    }
+    // Only explicit remote refs may create a local tracking branch.
+    name.strip_prefix("refs/remotes/")?;
+    let remote = resolve_remote_checkout(cwd, name)?;
+    let local_ref = format!("refs/heads/{}", remote.local);
+    let exists = branches.iter().any(|branch| branch.name == remote.local);
+    let ahead = exists && git_ref_contains(cwd, &remote.reference, &local_ref);
+    let can_checkout = !exists || ahead || git_ref_contains(cwd, &local_ref, &remote.reference);
+    Some(RefOperationBranch {
+        checkout_head: if ahead {
+            local_ref
+        } else {
+            remote.reference.clone()
+        },
+        reference: remote.reference,
+        local: remote.local,
+        can_checkout,
+    })
+}
+
 pub fn preflight_git_ref_operation(
     cwd: &str,
     source: &str,
     target: &str,
 ) -> GitRefOperationPreflight {
-    let branches = get_git_branches(cwd);
-    let valid_refs = source != target
-        && branches.iter().any(|branch| branch.name == source)
-        && branches.iter().any(|branch| branch.name == target);
+    let source_branch = resolve_operation_branch(cwd, source);
+    let target_branch = resolve_operation_branch(cwd, target);
+    let valid_refs = source != target && source_branch.is_some() && target_branch.is_some();
     let clean_worktree =
         run_git(&["status", "--porcelain"], cwd).is_some_and(|value| value.trim().is_empty());
     let worktrees = get_git_worktrees(cwd);
-    let source_in_other_worktree = worktrees
-        .iter()
-        .any(|worktree| !worktree.is_current && worktree.branch.as_deref() == Some(source));
-    let target_in_other_worktree = worktrees
-        .iter()
-        .any(|worktree| !worktree.is_current && worktree.branch.as_deref() == Some(target));
+    let source_in_other_worktree = worktrees.iter().any(|worktree| {
+        !worktree.is_current
+            && source_branch
+                .as_ref()
+                .is_some_and(|branch| worktree.branch.as_deref() == Some(&branch.local))
+    });
+    let target_in_other_worktree = worktrees.iter().any(|worktree| {
+        !worktree.is_current
+            && target_branch
+                .as_ref()
+                .is_some_and(|branch| worktree.branch.as_deref() == Some(&branch.local))
+    });
     let operation_idle =
         get_git_repository_operation_state(cwd).kind == GitRepositoryOperationKind::Idle;
     let common = valid_refs && clean_worktree && operation_idle;
-    let can_merge = common && !target_in_other_worktree;
+    let can_merge = common
+        && !target_in_other_worktree
+        && target_branch
+            .as_ref()
+            .is_some_and(|branch| branch.can_checkout);
     let shared_ancestor =
         run_git(&["merge-base", source, target], cwd).is_some_and(|value| !value.trim().is_empty());
-    let can_rebase = common && !source_in_other_worktree && shared_ancestor;
-    let can_fast_forward = can_merge && git_ref_contains(cwd, target, source);
+    let can_rebase = common
+        && !source_in_other_worktree
+        && shared_ancestor
+        && source_branch
+            .as_ref()
+            .is_some_and(|branch| branch.can_checkout);
+    let can_fast_forward = can_merge
+        && target_branch
+            .as_ref()
+            .zip(source_branch.as_ref())
+            .is_some_and(|(target, source)| {
+                git_ref_contains(cwd, &target.checkout_head, &source.reference)
+            });
     let mut reasons = Vec::new();
     if !valid_refs {
-        reasons.push("Choose two different local branches".to_string());
+        reasons.push("Choose two different local or remote branches".to_string());
+    }
+    for branch in [&source_branch, &target_branch].into_iter().flatten() {
+        if !branch.can_checkout {
+            reasons.push(format!(
+                "Local branch {} has diverged from {}; merge or rebase using its local label",
+                branch.local,
+                branch.reference.trim_start_matches("refs/remotes/")
+            ));
+        }
     }
     if !clean_worktree {
         reasons.push("Commit or stash working changes first".to_string());
@@ -1409,18 +1476,17 @@ pub fn perform_git_ref_operation(
     source: &str,
     target: &str,
 ) -> GitOperationResult {
-    let branches = get_git_branches(cwd);
-    if source == target
-        || !branches.iter().any(|branch| branch.name == source)
-        || !branches.iter().any(|branch| branch.name == target)
-    {
+    let Some((source_branch, target_branch)) = resolve_operation_branch(cwd, source)
+        .zip(resolve_operation_branch(cwd, target))
+        .filter(|_| source != target)
+    else {
         return ref_operation_failure(
             cwd,
             operation,
             GitOperationErrorKind::InvalidInput,
-            "Source and target must be different local branches".to_string(),
+            "Source and target must be different local or remote branches".into(),
         );
-    }
+    };
     if !run_git(&["status", "--porcelain"], cwd).is_some_and(|value| value.trim().is_empty()) {
         return ref_operation_failure(
             cwd,
@@ -1430,10 +1496,29 @@ pub fn perform_git_ref_operation(
         );
     }
 
+    let preflight = preflight_git_ref_operation(cwd, source, target);
+    let allowed = match operation {
+        "merge" => preflight.can_merge,
+        "fastForward" => preflight.can_fast_forward,
+        "rebase" => preflight.can_rebase,
+        _ => false,
+    };
+    if !allowed {
+        return ref_operation_failure(
+            cwd,
+            operation,
+            GitOperationErrorKind::InvalidInput,
+            if preflight.reasons.is_empty() {
+                "Unsupported ref operation".into()
+            } else {
+                preflight.reasons.join("; ")
+            },
+        );
+    }
     let (branch, args): (&str, &[&str]) = match operation {
-        "merge" => (target, &["merge", "--no-edit", source]),
-        "fastForward" => (target, &["merge", "--ff-only", source]),
-        "rebase" => (source, &["rebase", target]),
+        "merge" => (target, &["merge", "--no-edit", &source_branch.reference]),
+        "fastForward" => (target, &["merge", "--ff-only", &source_branch.reference]),
+        "rebase" => (source, &["rebase", &target_branch.reference]),
         _ => {
             return ref_operation_failure(
                 cwd,
@@ -1443,7 +1528,7 @@ pub fn perform_git_ref_operation(
             );
         }
     };
-    let checkout = checkout_git_branch(cwd, branch);
+    let checkout = checkout_git_branch(cwd, branch.strip_prefix("refs/heads/").unwrap_or(branch));
     if !checkout.ok {
         let error = checkout
             .error
@@ -3635,6 +3720,81 @@ mod graph_layout_tests {
 
 #[cfg(test)]
 mod checkout_tests {
+    #[test]
+    fn remote_ref_operations_use_local_tracking_branches_and_preserve_remotes() {
+        for operation in ["merge", "fastForward", "rebase"] {
+            let temp = tempfile::tempdir().unwrap();
+            let cwd = temp.path().to_str().unwrap();
+            let git = |args: &[&str]| {
+                let output = git_exec::command()
+                    .current_dir(cwd)
+                    .args(args)
+                    .output()
+                    .unwrap();
+                assert!(
+                    output.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                String::from_utf8_lossy(&output.stdout).trim().to_owned()
+            };
+            git(&["init", "-b", "idle"]);
+            git(&["config", "user.name", "Test"]);
+            git(&["config", "user.email", "test@example.invalid"]);
+            git(&["config", "commit.gpgsign", "false"]);
+            git(&["commit", "--allow-empty", "-m", "Base"]);
+            let base = git(&["rev-parse", "HEAD"]);
+            git(&["remote", "add", "origin", cwd]);
+            git(&["update-ref", "refs/remotes/origin/target", "HEAD"]);
+            git(&["commit", "--allow-empty", "-m", "Source"]);
+            let source = git(&["rev-parse", "HEAD"]);
+            git(&["update-ref", "refs/remotes/origin/source", "HEAD"]);
+            let from = "refs/remotes/origin/source";
+            let to = "refs/remotes/origin/target";
+            let preflight = preflight_git_ref_operation(cwd, from, to);
+            assert!(preflight.can_merge && preflight.can_rebase && preflight.can_fast_forward);
+            assert_eq!(git(&["branch", "--show-current"]), "idle");
+            std::fs::write(temp.path().join("dirty"), "keep").unwrap();
+            assert!(!preflight_git_ref_operation(cwd, from, to).can_merge);
+            assert_eq!(
+                perform_git_ref_operation(cwd, operation, from, to).error_kind,
+                Some(GitOperationErrorKind::DirtyWorktree)
+            );
+            assert_eq!(git(&["branch", "--show-current"]), "idle");
+            std::fs::remove_file(temp.path().join("dirty")).unwrap();
+            let result = perform_git_ref_operation(cwd, operation, from, to);
+            assert!(result.ok, "{operation}: {:?}", result.error);
+            let local = if operation == "rebase" {
+                "source"
+            } else {
+                "target"
+            };
+            assert_eq!(git(&["branch", "--show-current"]), local);
+            assert_eq!(
+                git(&["rev-parse", "--abbrev-ref", "@{upstream}"]),
+                format!("origin/{local}")
+            );
+            assert_eq!(git(&["rev-parse", from]), source);
+            assert_eq!(git(&["rev-parse", to]), base);
+
+            git(&["checkout", "idle"]);
+            // A divergent local namesake must not be silently rewritten.
+            git(&["checkout", "-B", local, &base]);
+            git(&["commit", "--allow-empty", "-m", "Diverged"]);
+            git(&[
+                "update-ref",
+                &format!("refs/remotes/origin/{local}"),
+                &source,
+            ]);
+            git(&["checkout", "idle"]);
+            let before = git(&["rev-parse", local]);
+            let blocked = perform_git_ref_operation(cwd, operation, from, to);
+            assert!(!blocked.ok);
+            assert_eq!(git(&["branch", "--show-current"]), "idle");
+            assert_eq!(git(&["rev-parse", local]), before);
+        }
+    }
+
     use super::*;
 
     #[test]
