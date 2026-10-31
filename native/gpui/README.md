@@ -39,7 +39,7 @@ Native design tokens, icons, and syntax palettes live in `assets/` and `src/colo
 |---|---|
 | Workspace | Complete tab lifecycle, drag/drop, project management |
 | Conversation | Full run-status presentation, clipboard image paste, attachment draft persistence, file mentions, richer approval details, complete rich cards, embedded apps; provider-backed send/stop UI verification |
-| Repository | Commit flow, remaining Git actions, search/filter/context menus, column interaction, refresh lifecycle, broader geometry comparisons |
+| Repository | Commit flow, remote-ref drag operations, worktree creation, advanced history editing, search/filter menus, refresh lifecycle, broader geometry comparisons |
 | Settings | Finish side-by-side interaction checks, range sliders, account/avatar presentation, richer database filtering/sorting and large-cell navigation |
 | Files and project resources | Native general file explorer, richer proposal flows, further visual parity checks |
 | Browser/tool surfaces | Native integration and complete lifecycle |
@@ -73,6 +73,12 @@ Production GPUI checks for updates on launch and every 15 minutes. Available upd
 Provider requests render native per-question inputs and action-specific approve-once/decline controls. Interrupted queued turns show an explicit Retry action. Chat snapshots retain the requested recent window across reconnects; Load older messages expands it while preserving the reading anchor.
 
 Typing `/` in the composer opens the live native skill and command catalog, including custom skills. Prefix filtering, Up/Down, Enter/Tab selection, Escape dismissal, mouse selection and Manage skills use the existing command API and Skills settings. Selection inserts into the draft rather than sending it. Resumed agent turns refresh skill names, descriptions and revisions while keeping captured session instructions.
+
+Git branch labels support double-click checkout (including remote tracking-branch checkout), full-reference hover details, and right-click branch/commit actions. Dragging a local branch onto another opens merge, fast-forward and rebase choices at the pointer; shared Git preflight disables unavailable operations. The +N reference menu exposes all references on a commit, including draggable checkout entries for additional local branches. Context actions include create/rename branches, create/delete tags, upstream setup, cherry-pick/revert, copying references, and separate or combined local/upstream deletion with confirmation. The Git dropdown beside History and Changes provides fetch, pull, push, publish, create branch, stash and in-progress operation continuation/abort/skip. Git mutations run in the background with shared dirty-worktree, worktree and remote guards; failures remain visible after refresh. Fetch/push and reference edits retain the open diff.
+
+WIP rows show their graph circle without a branch badge or a horizontal branch connector.
+
+Split and Unified are compact segmented diff choices, aligned in height with File and the History, Changes and Git controls. File toggles the complete selected file version without change tinting or alignment spacers, retaining syntax highlights and line numbers. It uses the index for staged files, the selected commit for history, and the prior version for deleted files; emptied files remain empty. These controls reuse the prepared diff without additional reads.
 
 Git history column boundaries resize on drag with hover and active feedback. The toolbar column menu toggles Date, Branch, Graph, Message, Author and SHA; widths and visibility persist across launches. Message fills remaining viewport width, while narrow layouts retain horizontal scrolling.
 

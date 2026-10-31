@@ -1,4 +1,5 @@
 use crate::zoom::ui;
+mod actions;
 mod changes;
 mod diff;
 mod diff_cache;
@@ -43,6 +44,11 @@ pub struct RepositoryView {
     missing: bool,
     repository_menu: bool,
     columns_menu: bool,
+    branch_menu: Option<GitRefOperationPreflight>,
+    branch_menu_position: Point<Pixels>,
+    git_menu: Option<(Point<Pixels>, String, Vec<GitGraphRef>)>,
+    git_prompt: Option<actions::GitPrompt>,
+    branch_menu_task: Option<Task<()>>,
     column_resize: Option<(String, Pixels, f32, bool)>,
     selected_worktree: Option<String>,
     pub expanded: bool,
@@ -72,6 +78,7 @@ pub struct RepositoryView {
     history: bool,
     changes: bool,
     split_diff: bool,
+    file_view: bool,
     limit: usize,
     loading: bool,
     error: Option<String>,
@@ -140,6 +147,11 @@ impl RepositoryView {
             missing: false,
             repository_menu: false,
             columns_menu: false,
+            branch_menu: None,
+            branch_menu_position: Point::default(),
+            git_menu: None,
+            git_prompt: None,
+            branch_menu_task: None,
             column_resize: None,
             selected_worktree: None,
             expanded: false,
@@ -169,6 +181,7 @@ impl RepositoryView {
             history: true,
             changes: true,
             split_diff: true,
+            file_view: false,
             limit: 200,
             loading: false,
             error: None,
@@ -201,6 +214,24 @@ impl RepositoryView {
         }
     }
     fn navigate(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if event.keystroke.key == "escape"
+            && (self.branch_menu.is_some()
+                || self.git_menu.is_some()
+                || self.git_prompt.is_some()
+                || self.branch_menu_task.is_some())
+        {
+            self.branch_menu = None;
+            self.git_menu = None;
+            self.git_prompt = None;
+            self.branch_menu_task = None;
+            window.focus(&self.focus, cx);
+            cx.stop_propagation();
+            cx.notify();
+            return;
+        }
+        if self.git_prompt.is_some() {
+            return;
+        }
         let key = match event.keystroke.key.as_str() {
             "up" => "ArrowUp",
             "down" => "ArrowDown",
@@ -368,7 +399,7 @@ impl RepositoryView {
                 view.error = if missing {
                     Some(format!("Repository folder is missing: {}. Use Locate folder to reconnect it. Existing automation references are preserved; changed locations require execution review.", view.cwd))
                 } else {
-                    graph.state_error.clone().or_else(|| status.is_none().then(|| "Not a Git repository".into()))
+                    graph.state_error.clone().or_else(|| status.is_none().then(|| "Not a Git repository".into())).or_else(|| view.error.take())
                 };
                 view.status = status;
                 view.graph = graph;
@@ -688,6 +719,9 @@ impl Render for RepositoryView {
                     .child(div().flex_1())
                     .child(
                         crate::plain_button("history", "History")
+                            .h(ui(24.))
+                            .px(ui(8.))
+                            .text_size(ui(11.))
                             .hover(|s| s.text_color(rgb(0xffffff)))
                             .on_click(cx.listener(|s, _, _, cx| {
                                 if s.show_diff {
@@ -706,6 +740,9 @@ impl Render for RepositoryView {
                     )
                     .child(
                         crate::plain_button("changes", "Changes")
+                            .h(ui(24.))
+                            .px(ui(8.))
+                            .text_size(ui(11.))
                             .hover(|s| s.text_color(rgb(0xffffff)))
                             .on_click(cx.listener(|s, _, _, cx| {
                                 s.changes = !s.changes;
@@ -715,6 +752,17 @@ impl Render for RepositoryView {
                                 cx.notify();
                             })),
                     )
+                    .child(button("git-operations", if self.mutating { "Working…" } else { "Git" }).h(ui(24.)).px(ui(8.)).text_size(ui(11.)).aria_label("Git operations").debug_selector(|| "git-operations".into()).child(icon("ChevronDown"))
+                        .on_click(cx.listener(|s, event: &ClickEvent, _, cx| {
+                            if s.git_menu.is_some() { s.git_menu = None; } else {
+                                s.git_menu = Some((event.position(), String::new(), vec![]));
+                            }
+                            s.branch_menu = None;
+                            s.branch_menu_task = None;
+                            s.columns_menu = false;
+                            s.repository_menu = false;
+                            cx.notify();
+                        })))
                     .child(button("graph-columns", "").aria_label("Show or hide Git columns").debug_selector(|| "graph-columns".into()).child(icon("Settings"))
                         .on_click(cx.listener(|s,_,_,cx| {s.columns_menu = !s.columns_menu; s.repository_menu = false; cx.notify();})))
                     .child(
@@ -840,6 +888,9 @@ impl Render for RepositoryView {
                         )
                     }),
             )
+            .when(self.git_menu.is_some(), |d| d.child(self.git_menu(cx)))
+            .when(self.git_prompt.is_some(), |d| d.child(self.git_prompt(cx)))
+            .when(self.branch_menu.is_some(), |d| d.child(self.branch_menu(cx)))
             .when(self.columns_menu, |d| d.child(self.column_menu(cx)))
             .when(self.repository_menu, |d| {
                 d.child(

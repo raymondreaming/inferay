@@ -257,6 +257,9 @@ impl RepositoryView {
     }
 
     fn diff_ranges(&self) -> &[[usize; 2]] {
+        if self.file_view {
+            return &[];
+        }
         self.diff.as_ref().map_or(&[], |data| {
             if self.split_diff {
                 &data.split_ranges
@@ -402,8 +405,34 @@ impl RepositoryView {
 
     pub(super) fn diff_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let diff = self.diff.clone();
+        // Reuse the complete selected Git version, omitting alignment spacers.
+        // Deleted files expose their previous version; staged and historical data
+        // already come from the index and selected commit respectively.
+        let file_new = !self.file_entries().iter().any(|file| {
+            self.file.as_deref() == Some(file.0.as_str())
+                && file.4 == self.selected_staged
+                && file.1 == "D"
+        });
+        let file_view = self.file_view;
+        let file_rows: Vec<usize> =
+            diff.as_ref()
+                .filter(|_| file_view)
+                .map_or_else(Vec::new, |d| {
+                    let lines = if file_new {
+                        &d.diff.new_lines
+                    } else {
+                        &d.diff.old_lines
+                    };
+                    lines
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, l)| l.number.map(|_| i))
+                        .collect()
+                });
         let count = diff.as_ref().map_or(0, |d| {
-            if self.split_diff {
+            if file_view {
+                file_rows.len()
+            } else if self.split_diff {
                 d.diff.old_lines.len().max(d.diff.new_lines.len())
             } else {
                 d.inline.len()
@@ -450,14 +479,58 @@ impl RepositoryView {
                             .child(self.file.clone().unwrap_or_default()),
                     )
                     .child(
-                        button("diff-mode", if split { "Split" } else { "Unified" }).on_click(
-                            cx.listener(|s, _, _, cx| {
-                                s.split_diff = !s.split_diff;
+                        div()
+                            .flex()
+                            .items_center()
+                            .rounded(ui(5.))
+                            .bg(rgba(0xebebeb0a))
+                            .p(ui(2.))
+                            .children([(true, "Split"), (false, "Unified")].into_iter().map(
+                                |(mode, label)| {
+                                    button(if mode { "diff-split" } else { "diff-unified" }, label)
+                                        .h(ui(20.))
+                                        .px(ui(7.))
+                                        .rounded(ui(3.))
+                                        .text_size(ui(11.))
+                                        .role(Role::RadioButton)
+                                        .aria_label(label)
+                                        .aria_selected(split == mode && !file_view)
+                                        .debug_selector(move || {
+                                            if mode {
+                                                "diff-split".into()
+                                            } else {
+                                                "diff-unified".into()
+                                            }
+                                        })
+                                        .when(split == mode && !file_view, |d| {
+                                            d.bg(rgba(0xebebeb20)).text_color(rgb(0xffffff))
+                                        })
+                                        .on_click(cx.listener(move |s, _, _, cx| {
+                                            s.split_diff = mode;
+                                            s.file_view = false;
+                                            s.diff_change = None;
+                                            s.jump_diff_change(0);
+                                            cx.notify();
+                                        }))
+                                },
+                            )),
+                    )
+                    .child(
+                        button("diff-file", "File")
+                            .h(ui(24.))
+                            .px(ui(8.))
+                            .text_size(ui(11.))
+                            .aria_label("View full file")
+                            .debug_selector(|| "diff-file".into())
+                            .when(file_view, |d| {
+                                d.bg(rgba(0xebebeb20)).text_color(rgb(0xffffff))
+                            })
+                            .on_click(cx.listener(|s, _, _, cx| {
+                                s.file_view = !s.file_view;
                                 s.diff_change = None;
-                                s.jump_diff_change(0);
+                                s.diff_scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
                                 cx.notify();
-                            }),
-                        ),
+                            })),
                     ),
             )
             .when(diff.as_ref().is_some_and(|d| d.diff.is_binary), |d| {
@@ -492,7 +565,30 @@ impl RepositoryView {
                                         .font_family("Menlo")
                                         .line_height(ui(colors::DIFF_ROW))
                                         .text_size(ui(colors::DIFF_TEXT));
-                                    if split {
+                                    if file_view {
+                                        let new = file_new;
+                                        let index = file_rows[i];
+                                        let line = if new {
+                                            &diff.new_lines[index]
+                                        } else {
+                                            &diff.old_lines[index]
+                                        };
+                                        let styles = if new { &data.new } else { &data.old };
+                                        row.child(
+                                            div()
+                                                .w(ui(colors::DIFF_GUTTER))
+                                                .flex_shrink_0()
+                                                .text_right()
+                                                .pr(ui(8.))
+                                                .text_color(rgba(0xebebeb60))
+                                                .child(line.number.unwrap().to_string()),
+                                        )
+                                        .child(
+                                            StyledText::new(line.content.clone()).with_highlights(
+                                                styles.get(index).into_iter().flatten().cloned(),
+                                            ),
+                                        )
+                                    } else if split {
                                         row.children(
                                             [diff.old_lines.get(i), diff.new_lines.get(i)]
                                                 .into_iter()
@@ -568,7 +664,7 @@ impl RepositoryView {
                         .min_h_0()
                         .min_w_0(),
                     )
-                    .child(self.diff_minimap(cx)),
+                    .when(!file_view, |d| d.child(self.diff_minimap(cx))),
             )
     }
 }
@@ -599,6 +695,118 @@ fn minimap_thumb(bounds: Bounds<Pixels>, handle: &ScrollHandle, window: &Window)
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn segmented_diff_modes_and_file_view_reuse_full_contents(cx: &mut TestAppContext) {
+        let root = tempfile::tempdir().unwrap();
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            let mut view = RepositoryView::new(
+                root.path().to_string_lossy().into_owned(),
+                Value::Null,
+                "vscode-black".into(),
+                0,
+                cx,
+            );
+            view.task = None;
+            view.loading = false;
+            view.show_diff = true;
+            view.changes = false;
+            view.file = Some("file.rs".into());
+            view.diff = Some(Arc::new(PreparedDiff::new(
+                GitHunkDiff {
+                    old_lines: vec![GitDiffLine {
+                        number: Some(1),
+                        content: "old".into(),
+                        line_type: GitDiffLineType::Remove,
+                    }],
+                    new_lines: vec![
+                        GitDiffLine {
+                            number: Some(1),
+                            content: "new".into(),
+                            line_type: GitDiffLineType::Add,
+                        },
+                        GitDiffLine {
+                            number: None,
+                            content: String::new(),
+                            line_type: GitDiffLineType::Spacer,
+                        },
+                        GitDiffLine {
+                            number: Some(2),
+                            content: "unchanged".into(),
+                            line_type: GitDiffLineType::Context,
+                        },
+                    ],
+                    ..Default::default()
+                },
+                "file.rs",
+                "vscode-black",
+            )));
+            view
+        });
+        cx.simulate_resize(size(px(900.), px(500.)));
+        let draw = |cx: &mut VisualTestContext| {
+            cx.draw(point(px(0.), px(0.)), size(px(900.), px(500.)), |_, _| {
+                view.clone().into_any_element()
+            });
+        };
+        draw(cx);
+        let retained = view.read_with(cx, |s, _| s.diff.clone().unwrap());
+        let button = cx.debug_bounds("diff-unified").unwrap().center();
+        cx.simulate_click(button, Modifiers::default());
+        view.read_with(cx, |s, _| assert!(!s.split_diff && !s.file_view));
+        draw(cx);
+        let button = cx.debug_bounds("diff-file").unwrap().center();
+        cx.simulate_click(button, Modifiers::default());
+        draw(cx);
+        view.read_with(cx, |s, _| {
+            assert!(s.file_view);
+            assert!(Arc::ptr_eq(&retained, s.diff.as_ref().unwrap()));
+        });
+        assert!(
+            cx.debug_bounds("diff-row-1").is_some(),
+            "whole file includes unchanged lines"
+        );
+        assert!(
+            cx.debug_bounds("diff-row-2").is_none(),
+            "alignment spacers are excluded"
+        );
+        assert!(cx.debug_bounds("diff-minimap").is_none());
+        let button = cx.debug_bounds("diff-split").unwrap().center();
+        cx.simulate_click(button, Modifiers::default());
+        view.read_with(cx, |s, _| assert!(s.split_diff && !s.file_view));
+        // An emptied file must not show the old contents as though it was deleted.
+        view.update(cx, |s, _| {
+            s.file_view = true;
+            s.diff = Some(Arc::new(PreparedDiff::new(
+                GitHunkDiff {
+                    old_lines: retained.diff.old_lines.clone(),
+                    ..Default::default()
+                },
+                "file.rs",
+                "vscode-black",
+            )));
+        });
+        draw(cx);
+        assert!(cx.debug_bounds("diff-row-0").is_none());
+        // A working-tree deletion must not replace the staged version.
+        view.update(cx, |s, _| {
+            s.diff = Some(retained.clone());
+            s.selected_staged = true;
+            s.status = Some(serde_json::from_value(json!({
+                "cwd":"", "name":"", "branch":"main", "upstream":null, "ahead":0, "behind":0,
+                "files":[{"path":"file.rs", "status":"D", "staged":false}, {"path":"file.rs", "status":"M", "staged":true}]
+            })).unwrap());
+        });
+        draw(cx);
+        assert!(cx.debug_bounds("diff-row-1").is_some());
+        view.update(cx, |s, _| s.selected_staged = false);
+        draw(cx);
+        assert!(
+            cx.debug_bounds("diff-row-0").is_some(),
+            "deleted file shows its previous contents"
+        );
+        assert!(cx.debug_bounds("diff-row-1").is_none());
+    }
 
     #[test]
     #[ignore = "release diagnostic; read-only local repository"]

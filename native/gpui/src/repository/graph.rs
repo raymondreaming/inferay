@@ -1,7 +1,135 @@
 use super::*;
 use crate::zoom::ui;
 
+#[derive(Clone)]
+pub(super) struct BranchDrag {
+    pub(super) cwd: String,
+    pub(super) name: String,
+}
+
+impl Render for BranchDrag {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px(ui(8.))
+            .py(ui(4.))
+            .bg(rgb(0x29384d))
+            .text_color(rgb(0xffffff))
+            .child(self.name.clone())
+    }
+}
+
+struct RefTooltip(GitGraphRef);
+impl Render for RefTooltip {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let reference = &self.0;
+        div()
+            .p(ui(8.))
+            .rounded(ui(4.))
+            .bg(rgb(colors::SHELL))
+            .text_size(ui(11.))
+            .text_color(rgb(0xffffff))
+            .child(format!(
+                "{}{}{}",
+                reference.full_name,
+                if reference.is_head {
+                    " · checked out"
+                } else {
+                    ""
+                },
+                reference
+                    .upstream
+                    .as_ref()
+                    .map(|upstream| format!(" · tracks {upstream}"))
+                    .unwrap_or_default()
+            ))
+    }
+}
+
 impl RepositoryView {
+    pub(super) fn open_branch_menu(
+        &mut self,
+        source: String,
+        target: String,
+        cx: &mut Context<Self>,
+    ) {
+        if self.mutating || source == target {
+            return;
+        }
+        self.branch_menu = None;
+        self.git_menu = None;
+        let cwd = self.cwd.clone();
+        let work = cx.background_executor().spawn(async move {
+            inferay_native_diff::preflight_git_ref_operation(&cwd, &source, &target)
+        });
+        self.branch_menu_task = Some(cx.spawn(async move |this, cx| {
+            let menu = work.await;
+            let _ = this.update(cx, |s, cx| {
+                s.branch_menu = Some(menu);
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
+    pub(super) fn branch_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let menu = self.branch_menu.as_ref().unwrap();
+        let popup = crate::menu_surface("branch-operation-menu")
+            .relative()
+            .debug_selector(|| "branch-operation-menu".into())
+            .w(ui(360.))
+            .on_mouse_down_out(cx.listener(|s, _, _, cx| {
+                s.branch_menu = None;
+                cx.notify();
+            }))
+            .children(
+                [
+                    (
+                        "merge",
+                        format!("Merge {} into {}", menu.source, menu.target),
+                        menu.can_merge,
+                    ),
+                    (
+                        "fastForward",
+                        format!("Fast-forward {} to {}", menu.target, menu.source),
+                        menu.can_fast_forward,
+                    ),
+                    (
+                        "rebase",
+                        format!("Rebase {} onto {}", menu.source, menu.target),
+                        menu.can_rebase,
+                    ),
+                ]
+                .into_iter()
+                .map(|(operation, label, enabled)| {
+                    let source = menu.source.clone();
+                    let target = menu.target.clone();
+                    button(operation, "")
+                        .debug_selector(move || format!("branch-operation-{operation}"))
+                        .child(label)
+                        .when(!enabled, |d| d.opacity(0.4))
+                        .on_click(cx.listener(move |s, _, _, cx| {
+                            if enabled {
+                                s.run_branch_action(operation, source.clone(), target.clone(), cx);
+                            }
+                        }))
+                }),
+            )
+            .children(menu.reasons.iter().map(|reason| {
+                div()
+                    .px(ui(8.))
+                    .py(ui(4.))
+                    .text_size(ui(11.))
+                    .child(reason.clone())
+            }));
+        deferred(
+            anchored()
+                .position(self.branch_menu_position)
+                .snap_to_window()
+                .child(popup),
+        )
+        .with_priority(2)
+    }
+
     pub(super) fn column_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
         crate::menu_surface("graph-column-menu")
             .top(ui(32.))
@@ -122,6 +250,9 @@ impl RepositoryView {
                         range
                             .map(|index| {
                                 let commit = &s.graph.commits[index];
+                                let context_hash = commit.hash.clone();
+                                let context_refs = commit.refs.clone();
+                                let is_commit = commit.item_kind == GitGraphItemKind::Commit;
                                 let selected =
                                     s.selected_item.as_deref() == Some(commit.id.as_str());
                                 let active = selected || s.hovered == Some(index);
@@ -150,16 +281,15 @@ impl RepositoryView {
                                         pins.iter().any(|v| v.as_str() == Some(&r.full_name))
                                     })
                                 });
-                                if commit.item_kind == GitGraphItemKind::Stash {
+                                if commit.item_kind != GitGraphItemKind::Commit {
                                     refs.clear();
                                 }
-                                let other_wip = commit.item_kind == GitGraphItemKind::WorktreeWip;
-                                let ghost: Option<GitGraphRef> = if refs.is_empty() && active && commit.item_kind != GitGraphItemKind::Stash {
+                                let ghost: Option<GitGraphRef> = if refs.is_empty() && active && commit.item_kind == GitGraphItemKind::Commit {
                                     commit.navigation.containing_branch.as_ref().and_then(|name| serde_json::from_value(s.presentation["references"][name].clone()).ok()).filter(|r: &GitGraphRef| !hidden.iter().any(|v| v.as_str() == Some(&r.full_name)))
                                 } else { None };
                                 let ghost_visible = ghost.is_some();
                                 if let Some(reference) = &ghost { refs.push(reference); }
-                                let has_connector = !refs.is_empty() || other_wip;
+                                let has_connector = !refs.is_empty();
                                 let dashed = commit.item_kind != GitGraphItemKind::Commit;
                                 div()
                                     .id(("commit", index))
@@ -254,6 +384,41 @@ impl RepositoryView {
                                                     let extra = refs.len() - 1 - companion;
                                                     d.child(
                                                         div()
+                                                            .id(("branch-label", index))
+                                                            .role(Role::Button)
+                                                            .aria_label(format!("Reference {}", primary.display_name))
+                                                            .on_mouse_down(MouseButton::Right, {
+                                                                let hash = primary.target.clone();
+                                                                let references = if ghost_visible { vec![primary.clone()] } else { commit.refs.clone() };
+                                                                cx.listener(move |s, event: &MouseDownEvent, _, cx| {
+                                                                    cx.stop_propagation();
+                                                                    s.branch_menu = None;
+                                                                    s.branch_menu_task = None;
+                                                                    s.git_menu = Some((event.position, hash.clone(), references.clone()));
+                                                                    cx.notify();
+                                                                })
+                                                            })
+                                                            .tooltip({ let reference = primary.clone(); move |_, cx| cx.new(|_| RefTooltip(reference.clone())).into() })
+                                                            .debug_selector({ let name = primary.full_name.clone(); move || format!("branch-label-{name}") })
+                                                            .when(primary.full_name.starts_with("refs/heads/") || primary.kind == GitGraphRefKind::RemoteBranch, |d| {
+                                                                let name = primary.full_name.strip_prefix("refs/heads/").unwrap_or(&primary.full_name).to_owned();
+                                                                d.on_mouse_down(MouseButton::Left, cx.listener(move |s, event: &MouseDownEvent, _, cx| {
+                                                                    if event.click_count == 2 {
+                                                                        cx.stop_propagation();
+                                                                        s.run_branch_action("checkout", name.clone(), String::new(), cx);
+                                                                    }
+                                                                }))
+                                                            })
+                                                            .when(primary.full_name.starts_with("refs/heads/") && !s.mutating, |d| {
+                                                                let name = primary.full_name.strip_prefix("refs/heads/").unwrap_or(&primary.full_name).to_owned();
+                                                                d.on_drag(BranchDrag { cwd: s.cwd.clone(), name: name.clone() }, |drag, _, _, cx| cx.new(|_| drag.clone()))
+                                                                    .drag_over::<BranchDrag>(|style, _, _, _| style.bg(rgb(0x405a80)))
+                                                                    .on_drop(cx.listener(move |s, drag: &BranchDrag, window, cx| {
+                                                                        s.branch_menu_position = window.mouse_position();
+                                                                        cx.stop_propagation();
+                                                                        if drag.cwd == s.cwd { s.open_branch_menu(drag.name.clone(), name.clone(), cx); }
+                                                                    }))
+                                                            })
                                                             .flex()
                                                             .items_center()
                                                             .gap(ui(4.))
@@ -291,38 +456,20 @@ impl RepositoryView {
                                                     )
                                                     .when(extra > 0, |d| {
                                                         d.child(
-                                                            div()
+                                                            button(("extra-refs", index), format!("+{extra}"))
                                                                 .px(ui(4.))
                                                                 .text_color(rgba(0xebebebb8))
-                                                                .child(format!("+{extra}")),
+                                                                .on_click({
+                                                                    let hash = commit.hash.clone();
+                                                                    let references = commit.refs.clone();
+                                                                    cx.listener(move |s, event: &ClickEvent, _, cx| {
+                                                                        cx.stop_propagation();
+                                                                        s.git_menu = Some((event.position(), hash.clone(), references.clone()));
+                                                                        cx.notify();
+                                                                    })
+                                                                }),
                                                         )
                                                     })
-                                                })
-                                                .when(other_wip, |d| {
-                                                    d.child(
-                                                        div()
-                                                            .min_w_0()
-                                                            .max_w(relative(1.))
-                                                            .overflow_hidden()
-                                                            .text_ellipsis()
-                                                            .text_size(ui(10.))
-                                                            .px(ui(6.))
-                                                            .h(ui(17.))
-                                                            .bg(rgba((tint << 8) | 64))
-                                                            .child(
-                                                                s.graph
-                                                                    .worktrees
-                                                                    .iter()
-                                                                    .find(|w| {
-                                                                        Some(&w.path)
-                                                                            == commit
-                                                                                .worktree_path
-                                                                                .as_ref()
-                                                                    })
-                                                                    .and_then(|w| w.branch.clone())
-                                                                    .unwrap_or_default(),
-                                                            ),
-                                                    )
                                                 })
                                                 .when(has_connector, |d| {
                                                     d.child(
@@ -361,6 +508,13 @@ impl RepositoryView {
                                                 .into_any_element(),
                                         }
                                     }))
+                                    .when(is_commit, |d| d.on_mouse_down(MouseButton::Right, cx.listener(move |s, event: &MouseDownEvent, _, cx| {
+                                        s.git_menu = Some((event.position, context_hash.clone(), context_refs.clone()));
+                                        s.branch_menu = None;
+                                        s.branch_menu_task = None;
+                                        cx.stop_propagation();
+                                        cx.notify();
+                                    })))
                                     .on_click(
                                         cx.listener(move |s, _, _, cx| s.select_commit(index, cx)),
                                     )
@@ -462,6 +616,154 @@ fn connector(tint: u32, dashed: bool) -> impl IntoElement {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn branch_double_click_and_drag_open_real_operations(cx: &mut TestAppContext) {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().canonicalize().unwrap();
+        let git = |args: &[&str]| {
+            let output = inferay_native_diff::git_command()
+                .current_dir(&root)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8_lossy(&output.stdout).trim().to_owned()
+        };
+        git(&["init", "-b", "main"]);
+        git(&["config", "user.name", "UI test"]);
+        git(&["config", "user.email", "test@example.invalid"]);
+        std::fs::write(root.join("file.txt"), "base\n").unwrap();
+        git(&["add", "."]);
+        git(&["-c", "commit.gpgsign=false", "commit", "-m", "Base"]);
+        git(&["switch", "-c", "feature"]);
+        std::fs::write(root.join("file.txt"), "next\n").unwrap();
+        git(&["commit", "-am", "Feature", "--no-gpg-sign"]);
+        git(&["switch", "main"]);
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            let mut view = RepositoryView::new(
+                root.to_string_lossy().into_owned(),
+                Value::Null,
+                "vscode-black".into(),
+                0,
+                cx,
+            );
+            view.changes = false;
+            view.avatars.insert(
+                "test@example.invalid".into(),
+                Arc::new(Image::from_bytes(ImageFormat::Png, vec![])),
+            );
+            view
+        });
+        cx.simulate_resize(size(px(1400.), px(700.)));
+        cx.run_until_parked();
+        for _ in 0..2 {
+            cx.draw(point(px(0.), px(0.)), size(px(1400.), px(700.)), |_, _| {
+                view.clone().into_any_element()
+            });
+        }
+        let feature = cx
+            .debug_bounds("branch-label-refs/heads/feature")
+            .unwrap()
+            .center();
+        cx.simulate_click(feature, Modifiers::default());
+        assert_eq!(git(&["branch", "--show-current"]), "main");
+        cx.simulate_event(MouseDownEvent {
+            position: feature,
+            button: MouseButton::Left,
+            click_count: 2,
+            ..Default::default()
+        });
+        cx.simulate_event(MouseUpEvent {
+            position: feature,
+            button: MouseButton::Left,
+            click_count: 2,
+            ..Default::default()
+        });
+        cx.run_until_parked();
+        assert_eq!(git(&["branch", "--show-current"]), "feature");
+        assert_eq!(
+            view.read_with(cx, |s, _| s.status.as_ref().unwrap().branch.clone()),
+            "feature"
+        );
+        for _ in 0..2 {
+            cx.draw(point(px(0.), px(0.)), size(px(1400.), px(700.)), |_, _| {
+                view.clone().into_any_element()
+            });
+        }
+        let feature = cx
+            .debug_bounds("branch-label-refs/heads/feature")
+            .unwrap()
+            .center();
+        let main = cx
+            .debug_bounds("branch-label-refs/heads/main")
+            .unwrap()
+            .center();
+        cx.simulate_mouse_down(feature, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_move(
+            feature + point(px(12.), px(0.)),
+            MouseButton::Left,
+            Modifiers::default(),
+        );
+        cx.draw(point(px(0.), px(0.)), size(px(1400.), px(700.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        cx.update(|_, cx| {
+            assert!(
+                cx.has_active_drag(),
+                "branch drag did not start: {feature:?} -> {main:?}"
+            )
+        });
+        cx.simulate_mouse_move(main, MouseButton::Left, Modifiers::default());
+        cx.draw(point(px(0.), px(0.)), size(px(1400.), px(700.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        cx.simulate_mouse_up(main, MouseButton::Left, Modifiers::default());
+        cx.run_until_parked();
+        view.read_with(cx, |s, _| {
+            let menu = s.branch_menu.as_ref().expect("drop opens operation menu");
+            assert_eq!((&*menu.source, &*menu.target), ("feature", "main"));
+            assert!(menu.can_merge && menu.can_fast_forward && menu.can_rebase);
+        });
+        assert_eq!(
+            git(&["branch", "--show-current"]),
+            "feature",
+            "drop alone does not mutate Git"
+        );
+        // Deferred popups must be rendered by the window, not the test's
+        // standalone element arena (which does not flush deferred draws).
+        cx.update(|window, _| window.refresh());
+        assert!(cx.debug_bounds("branch-operation-menu").is_some());
+        let fast_forward = cx
+            .debug_bounds("branch-operation-fastForward")
+            .unwrap()
+            .center();
+        cx.simulate_click(fast_forward, Modifiers::default());
+        cx.run_until_parked();
+        assert_eq!(git(&["branch", "--show-current"]), "main");
+        assert_eq!(git(&["rev-parse", "main"]), git(&["rev-parse", "feature"]));
+        cx.update(|window, _| window.refresh());
+        let main = cx
+            .debug_bounds("branch-label-refs/heads/main")
+            .unwrap()
+            .center();
+        // Right click targets the exact commit and exposes branch creation.
+        cx.simulate_mouse_down(main, MouseButton::Right, Modifiers::default());
+        view.read_with(cx, |s, _| {
+            assert!(
+                s.git_menu
+                    .as_ref()
+                    .unwrap()
+                    .2
+                    .iter()
+                    .any(|r| r.full_name == "refs/heads/main")
+            )
+        });
+    }
 
     #[test]
     fn preserves_shared_paths_pinned_lanes_and_each_node_shape() {
