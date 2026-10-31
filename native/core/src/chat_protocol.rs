@@ -648,7 +648,7 @@ impl ChatMessageBuffer {
             };
             render.group_start = index;
             render.group_anchor = None;
-            let mut hidden = internal_hook;
+            let mut hidden = internal_hook || (message.role == "system" && render.hidden);
             if let Some(previous) = index
                 .checked_sub(1)
                 .and_then(|index| self.messages.get(index))
@@ -1160,6 +1160,10 @@ fn prepare_system_card(value: &Value, render: &mut NativeChatRender) {
                 .is_some_and(|name| !name.trim().is_empty()) =>
         {
             let name = value["name"].as_str().unwrap();
+            if name.eq_ignore_ascii_case("goal") {
+                render.hidden = true;
+                return;
+            }
             let args = value["args"].as_str().filter(|args| !args.is_empty());
             render.command = Some(CommandCard {
                 label: args.map_or_else(|| format!("/{name}"), |args| format!("/{name} {args}")),
@@ -1195,6 +1199,39 @@ fn prepare_system_card(value: &Value, render: &mut NativeChatRender) {
 #[cfg(test)]
 mod output_reference_tests {
     use super::*;
+
+    #[test]
+    fn goal_commands_only_show_the_goal_status_card() {
+        let mut buffer = ChatMessageBuffer::default();
+        buffer.push_system(
+            &serde_json::json!({"type":"inferay.command", "name":"goal", "args":"Improve the app"})
+                .to_string(),
+        );
+        buffer.push_system(&serde_json::json!({"type":"inferay.goal", "status":"active", "objective":"Improve the app", "turns":0}).to_string());
+        buffer.push_system(
+            &serde_json::json!({"type":"inferay.command", "name":"review"}).to_string(),
+        );
+        let command = buffer.messages[0].render.as_ref().unwrap();
+        assert!(command.hidden);
+        assert!(command.command.is_none());
+        let goal = buffer.messages[1].render.as_ref().unwrap();
+        assert!(!goal.hidden);
+        assert!(goal.goal.is_some());
+        let other = buffer.messages[2].render.as_ref().unwrap();
+        assert!(!other.hidden);
+        assert!(other.command.is_some());
+        let mut restored = ChatMessageBuffer::default();
+        restored.replace_messages(buffer.messages().to_vec());
+        assert!(restored.messages()[0].render.as_ref().unwrap().hidden);
+        assert!(
+            restored.messages()[1]
+                .render
+                .as_ref()
+                .unwrap()
+                .goal
+                .is_some()
+        );
+    }
 
     #[test]
     fn reconnect_replay_is_contiguous_and_bounded_by_count_and_bytes() {
