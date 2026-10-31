@@ -15,7 +15,7 @@ pub const GRAPH_LANES: &[&str] = &[
     "#76d33c", "#36c894",
 ];
 pub const ADDED: u32 = 0x55d68b;
-pub const MODIFIED: u32 = 0x8e8e6e;
+pub const MODIFIED: u32 = 0xe5a447;
 pub const DELETED: u32 = 0xff6868;
 pub const RENAMED: u32 = 0x7a8fb5;
 

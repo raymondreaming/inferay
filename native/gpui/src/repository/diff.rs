@@ -487,9 +487,14 @@ impl RepositoryView {
                             .p(ui(2.))
                             .children([(true, "Split"), (false, "Unified")].into_iter().map(
                                 |(mode, label)| {
-                                    button(if mode { "diff-split" } else { "diff-unified" }, label)
-                                        .h(ui(20.))
-                                        .px(ui(7.))
+                                    button(if mode { "diff-split" } else { "diff-unified" }, "")
+                                        .size(ui(20.))
+                                        .p(ui(3.))
+                                        .justify_center()
+                                        .child(
+                                            icon(if mode { "DiffSplit" } else { "DiffUnified" })
+                                                .size(ui(14.)),
+                                        )
                                         .rounded(ui(3.))
                                         .text_size(ui(11.))
                                         .role(Role::RadioButton)

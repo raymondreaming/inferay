@@ -2064,6 +2064,15 @@ impl WorkspaceView {
         let columns = inferay_presentation::dock::responsive_columns(
             &serde_json::json!({"width": self.chat_width, "columns":3}),
         );
+        if let Some(repository) = &self.repository_view {
+            repository.update(cx, |repository, cx| {
+                let single_column = columns.as_u64() == Some(1);
+                if repository.single_chat_column != single_column {
+                    repository.single_chat_column = single_column;
+                    cx.notify();
+                }
+            });
+        }
         let layout = inferay_presentation::dock::project(&serde_json::json!({"ids": ids, "columns":3,"visibleColumns":columns,"saved":self.projects[self.project].dock})).expect("valid chat layout");
         let dimensions = layout["canvas"]["minHeight"]
             .as_str()
@@ -2771,6 +2780,38 @@ impl Render for WorkspaceView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[gpui::test]
+    fn repository_side_panel_follows_chat_grid_columns(cx: &mut gpui::TestAppContext) {
+        let directory = tempfile::tempdir().unwrap();
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            let mut view = WorkspaceView::empty(cx.focus_handle(), cx.new(TextInput::new), cx);
+            view.repository = true;
+            view.repository_width = 800.;
+            view.open_repository(directory.path().to_string_lossy().into_owned(), cx);
+            view
+        });
+        cx.run_until_parked();
+        for (width, single_column) in [(2000., false), (1500., true), (2000., false)] {
+            cx.simulate_resize(size(px(width), px(800.)));
+            for _ in 0..3 {
+                cx.draw(point(px(0.), px(0.)), size(px(width), px(800.)), |_, _| {
+                    view.clone().into_any_element()
+                });
+            }
+            view.read_with(cx, |workspace, cx| {
+                assert_eq!(
+                    workspace
+                        .repository_view
+                        .as_ref()
+                        .unwrap()
+                        .read(cx)
+                        .single_chat_column,
+                    single_column
+                );
+            });
+        }
+    }
 
     #[gpui::test]
     fn workspace_tabs_close_and_reopen_without_deleting_chats(cx: &mut gpui::TestAppContext) {

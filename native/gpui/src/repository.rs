@@ -63,6 +63,7 @@ pub struct RepositoryView {
     syntax_theme: String,
     presentation: Value,
     available_width: f32,
+    pub(crate) single_chat_column: bool,
     git_operations_bounds: Bounds<Pixels>,
     node_background: u32,
     status: Option<GitStatusResult>,
@@ -113,7 +114,7 @@ impl RepositoryView {
     }
 
     fn changes_on_right(&self) -> bool {
-        self.expanded || self.available_width >= 760.
+        self.expanded || self.single_chat_column
     }
 
     fn changes_panel_width(&self) -> f32 {
@@ -176,6 +177,7 @@ impl RepositoryView {
             preferences: inferay_presentation::graph::preferences(&preferences),
             presentation: Value::Null,
             available_width: 584.,
+            single_chat_column: false,
             git_operations_bounds: Bounds::default(),
             node_background,
             status: None,
@@ -1054,15 +1056,17 @@ mod tests {
             )
         });
         cx.run_until_parked();
-        for (width, expanded) in [
-            (600., false),
-            (800., false),
-            (1800., true),
-            (700., false),
-            (2000., true),
+        for (width, expanded, single_chat_column) in [
+            (600., false, false),
+            (800., false, false),
+            (900., false, true),
+            (1800., true, false),
+            (700., false, false),
+            (2000., true, false),
         ] {
             view.update(cx, |s, cx| {
                 s.expanded = expanded;
+                s.single_chat_column = single_chat_column;
                 s.changes = true;
                 s.graph_scroll
                     .0
@@ -1084,7 +1088,7 @@ mod tests {
             });
             let unstaged = cx.debug_bounds("unstaged-files").unwrap();
             let staged = cx.debug_bounds("staged-files").unwrap();
-            if expanded || width >= 760. {
+            if expanded || single_chat_column {
                 assert_eq!(unstaged.left(), staged.left());
                 assert!(staged.top() >= unstaged.bottom());
             } else {

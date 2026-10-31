@@ -153,11 +153,11 @@ impl RepositoryView {
                 |(i, (path, status, additions, deletions, staged))| {
                     let selected =
                         self.file.as_ref() == Some(&path) && self.selected_staged == staged;
-                    let tint = match status.as_str() {
-                        "A" | "?" | "??" => colors::ADDED,
-                        "D" => colors::DELETED,
-                        "R" => colors::RENAMED,
-                        _ => colors::MODIFIED,
+                    let (glyph, tint, change) = match status.as_str() {
+                        "A" | "?" | "??" => ("Plus", colors::ADDED, "Added"),
+                        "D" => ("Minus", colors::DELETED, "Deleted"),
+                        status if status.starts_with('R') => ("Rename", colors::RENAMED, "Renamed"),
+                        _ => ("Pencil", colors::MODIFIED, "Modified"),
                     };
                     let mut directories = Vec::new();
                     let mut hidden = false;
@@ -209,7 +209,7 @@ impl RepositoryView {
                     let row = div()
                         .id(SharedString::from(format!("changed-file-{staged}-{i}")))
                         .role(Role::Button)
-                        .aria_label(label.clone())
+                        .aria_label(format!("{change}: {path}"))
                         .h(ui(26.))
                         .flex()
                         .items_center()
@@ -220,8 +220,30 @@ impl RepositoryView {
                         .text_size(ui(11.))
                         .when(selected, |d| d.bg(rgba(0xebebeb17)))
                         .hover(|d| d.bg(rgba(0xebebeb0d)))
-                        .child(div().text_color(rgb(tint)).child(status))
-                        .child(div().flex_1().min_w_0().text_ellipsis().child(label))
+                        .child(
+                            icon(glyph)
+                                .size(ui(12.))
+                                .flex_shrink_0()
+                                .text_color(rgb(tint)),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_ellipsis()
+                                .text_color(rgb(colors::TEXT))
+                                .child(StyledText::new(label.clone()).with_highlights(
+                                    label.rfind('/').map(|end| {
+                                        (
+                                            0..end + 1,
+                                            HighlightStyle {
+                                                color: Some(rgba(0xebebeb80).into()),
+                                                ..Default::default()
+                                            },
+                                        )
+                                    }),
+                                )),
+                        )
                         .child(
                             div()
                                 .text_color(rgb(colors::ADDED))
