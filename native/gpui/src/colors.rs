@@ -18,3 +18,7 @@ pub const ADDED: u32 = 0x55d68b;
 pub const MODIFIED: u32 = 0x8e8e6e;
 pub const DELETED: u32 = 0xff6868;
 pub const RENAMED: u32 = 0x7a8fb5;
+
+pub const MENU: u32 = 0x181818;
+pub const DIFF_ADDED_BACKGROUND: u32 = (ADDED << 8) | 0x18;
+pub const DIFF_REMOVED_BACKGROUND: u32 = (DELETED << 8) | 0x18;

@@ -138,7 +138,7 @@ fn menu_surface(id: impl Into<ElementId>) -> Stateful<Div> {
         .overflow_y_scroll()
         .p(crate::zoom::ui(4.))
         .rounded(crate::zoom::ui(8.))
-        .bg(rgb(colors::SHELL))
+        .bg(rgb(colors::MENU))
         .border_1()
         .border_color(rgba(0xebebeb20))
         .shadow_lg()

@@ -34,7 +34,7 @@ pub struct Session {
     pub background: serde_json::Value,
     pub font: String,
     pub syntax_theme: String,
-    pub graph_preferences: serde_json::Value,
+    pub repository_graph_preferences: HashMap<String, serde_json::Value>,
 }
 pub fn profile() -> PathBuf {
     std::env::var_os("INFERAY_USER_DATA_DIR")
@@ -269,7 +269,7 @@ pub fn load(root: &Path) -> Result<Session> {
         font: value("inferay-app-font")?.unwrap_or_else(|| "vscode".into()),
         syntax_theme: value("inferay-syntax-highlight-theme")?
             .unwrap_or_else(|| "vscode-black".into()),
-        graph_preferences: value("commit-graph-columns-v13:global")?
+        repository_graph_preferences: value("commit-graph-columns-v14:repositories")?
             .map(|v| serde_json::from_str(&v))
             .transpose()?
             .unwrap_or_default(),

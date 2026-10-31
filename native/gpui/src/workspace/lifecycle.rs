@@ -196,7 +196,7 @@ impl WorkspaceView {
         let project = self.projects[self.project].id.clone().unwrap_or_default();
         let pane = self.conversations[self.selected].pane.clone();
         let entries = json!({
-            "commit-graph-columns-v13:global":serde_json::to_string(&self.graph_preferences).unwrap(),
+            "commit-graph-columns-v14:repositories":serde_json::to_string(&self.repository_graph_preferences).unwrap(),
             "inferay-selected-project-id":project,
             "inferay-closed-project-tabs":serde_json::to_string(&self.closed_projects).unwrap(),
             "inferay-closed-repositories":serde_json::to_string(&self.closed_repositories).unwrap(),
@@ -577,6 +577,10 @@ mod tests {
             view.sidebar = false;
             view.sidebar_width = 280.;
             view.closed_projects.insert("closed-project".into());
+            view.repository_graph_preferences
+                .insert("/first".into(), json!({"widths":{"refs":420}}));
+            view.repository_graph_preferences
+                .insert("/second".into(), json!({"widths":{"refs":180}}));
             view.persist_workspace_preferences(None, cx);
             view
         });
@@ -599,6 +603,14 @@ mod tests {
         assert!(restored.sidebar_collapsed);
         assert_eq!(restored.sidebar_width, 280.);
         assert!(restored.closed_projects.contains("closed-project"));
+        assert_eq!(
+            restored.repository_graph_preferences["/first"]["widths"]["refs"],
+            420
+        );
+        assert_eq!(
+            restored.repository_graph_preferences["/second"]["widths"]["refs"],
+            180
+        );
         window
             .update(cx, |view, _, _| {
                 assert!(!view.status.starts_with("Could not save"))

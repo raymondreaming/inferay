@@ -432,10 +432,39 @@ impl RepositoryView {
                         .when(!enabled, |d| d.opacity(0.4))
                         .when(enabled && action == "checkout", |d| {
                             let view = cx.entity();
+                            let reference = refs.iter().find(|r| {
+                                r.full_name == target
+                                    || r.full_name == format!("refs/heads/{target}")
+                            });
+                            let color = self
+                                .graph
+                                .commits
+                                .iter()
+                                .find(|commit| commit.hash == *hash)
+                                .map_or(0, |commit| commit.color_index);
+                            let badge = graph::BranchBadge {
+                                label: reference
+                                    .map_or_else(|| target.clone(), |r| r.label.clone()),
+                                tint: u32::from_str_radix(
+                                    &colors::GRAPH_LANES[color % colors::GRAPH_LANES.len()][1..],
+                                    16,
+                                )
+                                .unwrap(),
+                                is_head: reference.is_some_and(|r| r.is_head),
+                                companion: reference.is_some_and(|r| {
+                                    r.kind != GitGraphRefKind::RemoteBranch
+                                        && refs.iter().any(|other| {
+                                            other.kind == GitGraphRefKind::RemoteBranch
+                                                && other.label == r.label
+                                        })
+                                }),
+                                ghost: false,
+                            };
                             d.on_drag(
                                 graph::BranchDrag {
                                     cwd: self.cwd.clone(),
                                     name: target.clone(),
+                                    badge,
                                 },
                                 move |drag, _, _, cx| {
                                     view.update(cx, |s, cx| {

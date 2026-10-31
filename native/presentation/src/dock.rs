@@ -88,9 +88,11 @@ pub struct DockLayout {
     saved: DockSaved,
 }
 
+pub const MIN_COLUMN_WIDTH: f64 = 300.;
+
 pub fn responsive_columns(input: &Value) -> Value {
     json!(
-        (number(&input["width"]) / 300.)
+        (number(&input["width"]) / MIN_COLUMN_WIDTH)
             .floor()
             .min(number(&input["columns"]))
             .clamp(1., 4.) as usize

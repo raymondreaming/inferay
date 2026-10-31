@@ -5,43 +5,44 @@ use crate::zoom::ui;
 pub(super) struct BranchDrag {
     pub(super) cwd: String,
     pub(super) name: String,
+    pub(super) badge: BranchBadge,
+}
+
+#[derive(Clone)]
+pub(super) struct BranchBadge {
+    pub(super) label: String,
+    pub(super) tint: u32,
+    pub(super) is_head: bool,
+    pub(super) companion: bool,
+    pub(super) ghost: bool,
+}
+
+impl BranchBadge {
+    fn element(&self) -> Div {
+        div()
+            .flex()
+            .items_center()
+            .gap(ui(4.))
+            .min_w_0()
+            .max_w_full()
+            .overflow_hidden()
+            .px(ui(6.))
+            .h(ui(17.))
+            .rounded(ui(2.))
+            .bg(rgba((self.tint << 8) | if self.is_head { 128 } else { 64 }))
+            .text_color(rgba(if self.is_head { 0xffffffff } else { 0xffffff80 }))
+            .text_size(ui(colors::CHAT_DETAIL))
+            .when(self.ghost, |d| d.opacity(0.36))
+            .child(div().text_ellipsis().child(self.label.clone()))
+            .when(self.companion, |d| d.child("↗"))
+    }
 }
 
 impl Render for BranchDrag {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .px(ui(8.))
-            .py(ui(4.))
-            .bg(rgb(0x29384d))
-            .text_color(rgb(0xffffff))
-            .child(self.name.trim_start_matches("refs/remotes/").to_owned())
-    }
-}
-
-struct RefTooltip(GitGraphRef);
-impl Render for RefTooltip {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        let reference = &self.0;
-        div()
-            .p(ui(8.))
-            .rounded(ui(4.))
-            .bg(rgb(colors::SHELL))
-            .text_size(ui(11.))
-            .text_color(rgb(0xffffff))
-            .child(format!(
-                "{}{}{}",
-                reference.full_name,
-                if reference.is_head {
-                    " · checked out"
-                } else {
-                    ""
-                },
-                reference
-                    .upstream
-                    .as_ref()
-                    .map(|upstream| format!(" · tracks {upstream}"))
-                    .unwrap_or_default()
-            ))
+        self.badge
+            .element()
+            .debug_selector(|| "dragged-branch-badge".into())
     }
 }
 
@@ -202,7 +203,7 @@ impl RepositoryView {
             )
     }
 
-    pub(super) fn graph_table(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn graph_table(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let mut input = self.preferences.clone();
         input["maxColumn"] = self.presentation["maxColumn"].clone();
         input["pinnedColumns"] = self.presentation["pinnedColumns"].clone();
@@ -225,6 +226,18 @@ impl RepositoryView {
         let image_width =
             27. + (self.presentation["maxColumn"].as_u64().unwrap_or(0) + 2) as f32 * 18.;
         let width = layout["tableWidth"].as_f64().unwrap_or(584.) as f32;
+        let scroll = &self.graph_scroll.0.borrow().base_handle;
+        let offset = scroll.offset();
+        scroll.set_offset(point(
+            offset
+                .x
+                .max(-crate::zoom::pixels(
+                    (width - self.viewport_width()).max(0.),
+                    window,
+                ))
+                .min(px(0.)),
+            offset.y,
+        ));
         div()
             .id("history-table")
             .on_mouse_down(MouseButton::Left, cx.listener(|s, _, _, _| s.keyboard_scope = "graph"))
@@ -235,6 +248,7 @@ impl RepositoryView {
             .flex_col()
             .child(
                 div()
+                    .debug_selector(|| "graph-header".into())
                     .w(ui(width))
                     .ml(self.graph_scroll.0.borrow().base_handle.offset().x)
                     .h(ui(23.))
@@ -268,6 +282,13 @@ impl RepositoryView {
                     "commit-history",
                     self.graph.commits.len(),
                     cx.processor(move |s, range: std::ops::Range<usize>, _, cx| {
+                        if s.graph.has_more && !s.loading && s.error.is_none()
+                            && !s.graph.commits.is_empty()
+                            && range.end.saturating_add(20) >= s.graph.commits.len()
+                        {
+                            s.limit += 200;
+                            s.refresh(cx);
+                        }
                         range
                             .map(|index| {
                                 let commit = &s.graph.commits[index];
@@ -403,8 +424,9 @@ impl RepositoryView {
                                                         })
                                                         .count();
                                                     let extra = refs.len() - 1 - companion;
+                                                    let badge = BranchBadge { label: primary.label.clone(), tint, is_head: primary.is_head, companion: companion > 0, ghost: ghost_visible };
                                                     d.child(
-                                                        div()
+                                                        badge.element()
                                                             .id(("branch-label", index))
                                                             .role(Role::Button)
                                                             .aria_label(format!("Reference {}", primary.display_name))
@@ -419,7 +441,6 @@ impl RepositoryView {
                                                                     cx.notify();
                                                                 })
                                                             })
-                                                            .when(s.branch_menu.is_none(), |d| d.tooltip({ let reference = primary.clone(); move |_, cx| cx.new(|_| RefTooltip(reference.clone())).into() }))
                                                             .debug_selector({ let name = primary.full_name.clone(); move || format!("branch-label-{name}") })
                                                             .when(primary.full_name.starts_with("refs/heads/") || primary.kind == GitGraphRefKind::RemoteBranch, |d| {
                                                                 let name = primary.full_name.strip_prefix("refs/heads/").unwrap_or(&primary.full_name).to_owned();
@@ -432,48 +453,14 @@ impl RepositoryView {
                                                             })
                                                             .when((primary.full_name.starts_with("refs/heads/") || primary.kind == GitGraphRefKind::RemoteBranch) && !s.mutating, |d| {
                                                                 let name = primary.full_name.strip_prefix("refs/heads/").unwrap_or(&primary.full_name).to_owned();
-                                                                d.on_drag(BranchDrag { cwd: s.cwd.clone(), name: name.clone() }, |drag, _, _, cx| cx.new(|_| drag.clone()))
+                                                                d.on_drag(BranchDrag { cwd: s.cwd.clone(), name: name.clone(), badge: badge.clone() }, |drag, _, _, cx| cx.new(|_| drag.clone()))
                                                                     .drag_over::<BranchDrag>(|style, _, _, _| style.bg(rgb(0x405a80)))
                                                                     .on_drop(cx.listener(move |s, drag: &BranchDrag, window, cx| {
                                                                         s.branch_menu_position = window.mouse_position();
                                                                         cx.stop_propagation();
                                                                         if drag.cwd == s.cwd { s.open_branch_menu(drag.name.clone(), name.clone(), cx); }
                                                                     }))
-                                                            })
-                                                            .flex()
-                                                            .items_center()
-                                                            .gap(ui(4.))
-                                                            .min_w_0()
-                                                            .max_w_full()
-                                                            .overflow_hidden()
-                                                            .px(ui(6.))
-                                                            .h(ui(17.))
-                                                            .rounded(ui(2.))
-                                                            .bg(rgba(
-                                                                (tint << 8)
-                                                                    | if primary.is_head
-                                                                    {
-                                                                        128
-                                                                    } else {
-                                                                        64
-                                                                    },
-                                                            ))
-                                                            .text_color(rgba(
-                                                                if primary.is_head
-                                                                {
-                                                                    0xffffffff
-                                                                } else {
-                                                                    0xffffff80
-                                                                },
-                                                            ))
-                                                            .text_size(ui(colors::CHAT_DETAIL))
-                                                            .when(ghost_visible, |d| d.opacity(0.36))
-                                                            .child(
-                                                                div()
-                                                                    .text_ellipsis()
-                                                                    .child(primary.label.clone()),
-                                                            )
-                                                            .when(companion > 0, |d| d.child("↗")),
+                                                            }),
                                                     )
                                                     .when(extra > 0, |d| {
                                                         d.child(
@@ -550,17 +537,6 @@ impl RepositoryView {
                 .flex_1()
                 .min_h_0(),
             )
-            .when(self.graph.has_more, |d| {
-                d.child(
-                    button("older-commits", "Load older commits").on_click(cx.listener(
-                        |s, _, _, cx| {
-                            s.limit += 200;
-                            s.refresh(cx);
-                            cx.notify();
-                        },
-                    )),
-                )
-            })
     }
 }
 
@@ -739,6 +715,14 @@ mod tests {
                 "branch drag did not start: {feature:?} -> {main:?}"
             )
         });
+        cx.update(|window, _| window.refresh());
+        assert_eq!(
+            cx.debug_bounds("dragged-branch-badge").unwrap().size,
+            cx.debug_bounds("branch-label-refs/heads/feature")
+                .unwrap()
+                .size,
+            "dragging must preserve the badge geometry",
+        );
         cx.simulate_mouse_move(main, MouseButton::Left, Modifiers::default());
         cx.draw(point(px(0.), px(0.)), size(px(1400.), px(700.)), |_, _| {
             view.clone().into_any_element()

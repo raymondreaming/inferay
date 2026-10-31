@@ -121,6 +121,10 @@ pub struct WorkspaceView {
     closed_projects: HashSet<String>,
     closed_repositories: std::collections::HashMap<String, HashSet<String>>,
     project_picker: bool,
+    new_menu: bool,
+    new_button_bounds: Bounds<Pixels>,
+    new_project_name: Option<Entity<TextInput>>,
+    new_project_task: Option<Task<()>>,
     profile: std::path::PathBuf,
     load_task: Option<Task<()>>,
     startup_window: Option<AnyWindowHandle>,
@@ -150,7 +154,7 @@ pub struct WorkspaceView {
     font: &'static str,
     syntax_theme: String,
     project_pages: project_pages::State,
-    graph_preferences: serde_json::Value,
+    repository_graph_preferences: std::collections::HashMap<String, serde_json::Value>,
     glass_opacity: f32,
     repository_view: Option<Entity<crate::repository::RepositoryView>>,
     repository_views: std::collections::HashMap<String, Entity<crate::repository::RepositoryView>>,
@@ -279,6 +283,10 @@ impl WorkspaceView {
             closed_projects: Default::default(),
             closed_repositories: Default::default(),
             project_picker: false,
+            new_menu: false,
+            new_button_bounds: Bounds::default(),
+            new_project_name: None,
+            new_project_task: None,
             profile: crate::session::profile(),
             load_task: None,
             startup_window: None,
@@ -312,7 +320,7 @@ impl WorkspaceView {
             font: ".SystemUIFont",
             syntax_theme: "vscode-black".into(),
             project_pages: project_pages::State::new(cx),
-            graph_preferences: serde_json::Value::Null,
+            repository_graph_preferences: Default::default(),
             glass_opacity: 0.75,
             repository_view: None,
             repository_views: Default::default(),
@@ -338,7 +346,7 @@ impl WorkspaceView {
         self.sidebar_width = session.sidebar_width;
         self.zoom = session.zoom;
         self.set_background(&session.background, cx);
-        self.graph_preferences = session.graph_preferences;
+        self.repository_graph_preferences = session.repository_graph_preferences;
         self.syntax_theme = session.syntax_theme;
         self.font = match session.font.as_str() {
             "geist" => "Geist",
@@ -699,6 +707,7 @@ impl WorkspaceView {
     }
     fn open_repository(&mut self, path: String, cx: &mut Context<Self>) {
         self.projects[self.project].selected_repository = Some(path.clone());
+        let repository_path = path.clone();
         let view = if let Some(view) = self.repository_views.get(&path) {
             let view = view.clone();
             view.update(cx, |view, cx| view.refresh(cx));
@@ -707,7 +716,10 @@ impl WorkspaceView {
             let view = cx.new(|cx| {
                 crate::repository::RepositoryView::new(
                     path.clone(),
-                    self.graph_preferences.clone(),
+                    self.repository_graph_preferences
+                        .get(&path)
+                        .cloned()
+                        .unwrap_or_default(),
                     self.syntax_theme.clone(),
                     if self.appearance == Appearance::Glass {
                         0x0d0d0d
@@ -727,17 +739,17 @@ impl WorkspaceView {
                 .filter(|(_, p)| self.repository_is_open(p))
                 .cloned()
                 .collect();
-            view.preferences = inferay_presentation::graph::preferences(&self.graph_preferences);
             view.has_closed_repositories =
                 view.repositories.len() < self.projects[self.project].repositories.len();
             self.repository_expanded = view.expanded;
         });
         self.repository_subscription = Some(cx.subscribe(
             &view,
-            |s, _, event: &crate::repository::RepositoryEvent, cx| {
+            move |s, _, event: &crate::repository::RepositoryEvent, cx| {
                 match event {
                     crate::repository::RepositoryEvent::GraphPreferences(preferences) => {
-                        s.graph_preferences = preferences.clone();
+                        s.repository_graph_preferences
+                            .insert(repository_path.clone(), preferences.clone());
                         s.persist_workspace_preferences(None, cx);
                     }
                     crate::repository::RepositoryEvent::Expand => {
@@ -882,6 +894,168 @@ impl WorkspaceView {
         self.settings = false;
         cx.notify();
     }
+    fn create_project(&mut self, cx: &mut Context<Self>) {
+        if self.new_project_task.is_some() {
+            return;
+        }
+        let Some(input) = &self.new_project_name else {
+            return;
+        };
+        let name = input.read(cx).content.trim().to_owned();
+        if name.is_empty() {
+            return;
+        }
+        let Some(backend) = self.backend.get().cloned() else {
+            self.status = "The workspace is still connecting. Try again shortly.".into();
+            cx.notify();
+            return;
+        };
+        let id = uuid::Uuid::new_v4().to_string();
+        let command = serde_json::json!({"type":"saveProject","definition":{
+            "schema":"inferay.project/1","id":id,"name":name,"description":"","instructions":"","repositories":[]
+        },"expectedHash":null});
+        let work = cx.background_executor().spawn(async move {
+            crate::backend::RUNTIME.block_on(backend.request(
+                reqwest::Method::POST,
+                "/api/projects/command",
+                Some(command),
+            ))
+        });
+        self.status.clear();
+        self.new_project_task = Some(cx.spawn(async move |this, cx| {
+            let result = work.await;
+            let _ = this.update(cx, |s, cx| {
+                s.new_project_task = None;
+                match result {
+                    Ok(_) => {
+                        let project = s.projects.len();
+                        s.projects.push(Project {
+                            id: Some(id),
+                            name,
+                            repositories: vec![],
+                            selected_repository: None,
+                            selected: s.conversations.len(),
+                            dock: serde_json::Value::Null,
+                            dock_workspace: None,
+                        });
+                        s.project = project;
+                        s.add_chat(cx);
+                        s.select_project(project, cx);
+                        s.new_project_name = None;
+                        s.persist_workspace_preferences(None, cx);
+                    }
+                    Err(error) => s.status = format!("Could not create project: {error}"),
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
+    fn new_popup(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let mut menu = crate::menu_surface("new-menu")
+            .relative()
+            .w(ui(240.))
+            .debug_selector(|| "new-menu".into())
+            .on_key_down(cx.listener(|s, event: &KeyDownEvent, window, cx| {
+                if event.keystroke.key == "escape" && s.new_project_task.is_none() {
+                    s.new_menu = false;
+                    s.new_project_name = None;
+                    window.focus(&s.focus, cx);
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+            }))
+            .on_mouse_down_out(cx.listener(|s, _, _, cx| {
+                s.new_menu = false;
+                cx.notify();
+            }));
+        if let Some(name) = &self.new_project_name {
+            menu = menu
+                .p(ui(10.))
+                .gap(ui(8.))
+                .child("New project")
+                .child(name.clone())
+                .when(!self.status.is_empty(), |d| d.child(self.status.clone()))
+                .child(
+                    div()
+                        .flex()
+                        .justify_end()
+                        .gap(ui(6.))
+                        .child(button("cancel-new-project", "Cancel").on_click(cx.listener(
+                            |s, _, _, cx| {
+                                if s.new_project_task.is_none() {
+                                    s.new_project_name = None;
+                                    cx.notify();
+                                }
+                            },
+                        )))
+                        .child(
+                            button(
+                                "create-new-project",
+                                if self.new_project_task.is_some() {
+                                    "Creating…"
+                                } else {
+                                    "Create"
+                                },
+                            )
+                            .debug_selector(|| "create-new-project".into())
+                            .on_click(cx.listener(|s, _, _, cx| s.create_project(cx))),
+                        ),
+                );
+        } else {
+            menu = menu
+                .child(
+                    button("new-chat", "Chat")
+                        .aria_label("New chat")
+                        .debug_selector(|| "new-chat".into())
+                        .on_click(cx.listener(|s, _, window, cx| {
+                            s.new_menu = false;
+                            s.new_chat(window, cx);
+                        })),
+                )
+                .child(
+                    button("new-project", "Project")
+                        .aria_label("New project")
+                        .debug_selector(|| "new-project".into())
+                        .on_click(cx.listener(|s, _, window, cx| {
+                            s.new_menu = false;
+                            s.status.clear();
+                            let input = cx.new(|cx| {
+                                let mut input = TextInput::field("Project name", cx);
+                                input.submit_on_enter = true;
+                                input.height_limits = (28., 28.);
+                                input
+                            });
+                            cx.subscribe(&input, |s, _, _: &crate::input::Submit, cx| {
+                                s.create_project(cx)
+                            })
+                            .detach();
+                            window.focus(&input.focus_handle(cx), cx);
+                            s.new_project_name = Some(input);
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    button("new-repository", "Repository")
+                        .aria_label("Add repository to current project")
+                        .debug_selector(|| "new-repository".into())
+                        .on_click(cx.listener(|s, _, _, cx| {
+                            s.new_menu = false;
+                            s.edit_repository(None, cx);
+                            cx.notify();
+                        })),
+                );
+        }
+        deferred(
+            anchored()
+                .position(self.new_button_bounds.bottom_left())
+                .snap_to_window()
+                .child(menu),
+        )
+        .with_priority(3)
+    }
+
     fn titlebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         crate::titlebar_surface()
             .debug_selector(|| "workspace-titlebar".into())
@@ -899,9 +1073,33 @@ impl WorkspaceView {
                     })),
             )
             .child(
-                button("new", "New")
-                    .child(icon("Plus"))
-                    .on_click(cx.listener(|s, _, w, cx| s.new_chat(w, cx))),
+                div()
+                    .relative()
+                    .child(
+                        button("new", "New")
+                            .debug_selector(|| "new-button".into())
+                            .child(icon("ChevronDown"))
+                            .relative()
+                            .child(
+                                canvas(
+                                    cx.processor(|s, bounds, _, _| {
+                                        s.new_button_bounds = bounds;
+                                    }),
+                                    |_, _, _, _| {},
+                                )
+                                .absolute()
+                                .top_0()
+                                .left_0()
+                                .size_full(),
+                            )
+                            .on_click(cx.listener(|s, _, _, cx| {
+                                s.new_menu = !s.new_menu;
+                                cx.notify();
+                            })),
+                    )
+                    .when(self.new_menu || self.new_project_name.is_some(), |d| {
+                        d.child(self.new_popup(cx))
+                    }),
             )
             .child(
                 div()
@@ -991,7 +1189,6 @@ impl WorkspaceView {
             .flex_col()
             .overflow_y_scroll()
             .px(ui(8.))
-            .pt(ui(8.))
             .children(
                 [
                     ("Bookmark", "Memory"),
@@ -1018,7 +1215,7 @@ impl WorkspaceView {
                     .h(ui(32.))
                     .gap(ui(10.))
                     .text_size(ui(colors::CHAT_SMALL))
-                    .text_color(rgba(0xebebeb80))
+                    .text_color(rgb(colors::TEXT))
                     .child(icon("GitBranch"))
                     .child("Repositories")
                     .child(div().flex_1())
@@ -1097,40 +1294,7 @@ impl WorkspaceView {
                             )
                     }),
             )
-            .when(
-                self.projects[self.project]
-                    .repositories
-                    .iter()
-                    .any(|(_, p)| !self.repository_is_open(p)),
-                |d| {
-                    d.child(
-                        button("reopen-repositories", "Reopen closed repositories")
-                            .on_click(cx.listener(|s, _, _, cx| s.reopen_repositories(cx))),
-                    )
-                },
-            )
-            .child(
-                button("add-sidebar-repository", "Add repository…")
-                    .child(icon("Plus"))
-                    .on_click(cx.listener(|s, _, _, cx| s.edit_repository(None, cx))),
-            )
             .child(div().h(ui(1.)).bg(rgba(0xebebeb0f)).my(ui(14.)))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .px(ui(9.))
-                    .mb(ui(10.))
-                    .text_color(rgba(0xebebeb80))
-                    .text_size(ui(colors::CHAT_SMALL))
-                    .child("Chats")
-                    .child(
-                        button("new-chat", "New chat")
-                            .child(icon("Plus"))
-                            .on_click(cx.listener(|s, _, w, cx| s.new_chat(w, cx))),
-                    ),
-            )
             .children(
                 self.conversations
                     .iter()
@@ -1139,13 +1303,15 @@ impl WorkspaceView {
                     .map(|(i, chat)| {
                         div()
                             .id(("chat", i))
+                            .debug_selector(move || format!("sidebar-chat-{i}"))
                             .role(Role::Button)
                             .aria_label(chat.title.clone())
                             .flex()
                             .items_center()
                             .gap(ui(8.))
                             .px(ui(9.))
-                            .h(ui(36.))
+                            .min_h(ui(36.))
+                            .py(ui(8.))
                             .mb(ui(3.))
                             .rounded(ui(6.))
                             .border_1()
@@ -1163,8 +1329,7 @@ impl WorkspaceView {
                                     .flex_1()
                                     .min_w_0()
                                     .text_size(ui(colors::CHAT_SMALL))
-                                    .overflow_hidden()
-                                    .text_ellipsis()
+                                    .line_height(ui(15.))
                                     .child(chat.title.clone()),
                             )
                             .child(
@@ -1878,6 +2043,16 @@ impl WorkspaceView {
             row
         }
     }
+    fn max_repository_width(&self, window: &Window) -> f32 {
+        let content = f32::from(window.viewport_size().width) / crate::zoom::factor(window)
+            - if self.sidebar {
+                self.sidebar_width + 8.
+            } else {
+                14.
+            };
+        (content - inferay_presentation::dock::MIN_COLUMN_WIDTH as f32).max(280.)
+    }
+
     fn chat_grid(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let ids: Vec<_> = self
             .conversations
@@ -2339,10 +2514,6 @@ impl WorkspaceView {
             .collect(),
         };
         crate::menu_surface(("composer-menu", index))
-            .bg(Rgba {
-                a: 1.,
-                ..self.appearance.composer_background()
-            })
             .bottom(ui(46.))
             .left(ui(12.))
             .w(ui(180.))
@@ -2434,7 +2605,7 @@ impl Render for WorkspaceView {
             .track_focus(&self.focus)
             .on_mouse_move(cx.listener(|s, event: &MouseMoveEvent, window, cx| {
                 if let Some((start, width)) = s.repository_resize {
-                    s.repository_width = (width + f32::from(start - event.position.x) / crate::zoom::factor(window)).max(280.);
+                    s.repository_width = (width + f32::from(start - event.position.x) / crate::zoom::factor(window)).clamp(280., s.max_repository_width(window));
                     cx.notify();
                 }
                 if let Some((start, width)) = s.sidebar_resize {
@@ -2571,10 +2742,7 @@ impl Render for WorkspaceView {
                                                                     .when(
                                                                         !self.repository_expanded,
                                                                         |d| {
-                                                                            d.w(ui(self.repository_width))
-                                                                                .max_w(relative(
-                                                                                    0.65,
-                                                                                ))
+                                                                            d.w(ui(self.repository_width.min(self.max_repository_width(window))))
                                                                                 .flex_shrink_0()
                                                                         },
                                                                     )
@@ -2582,8 +2750,8 @@ impl Render for WorkspaceView {
                                                                     .child(view)
                                                                     .when(!self.repository_expanded, |d| d.child(
                                                                         div().id("resize-repository").absolute().left_0().top_0().w(ui(6.)).h_full().cursor_col_resize()
-                                                                            .on_mouse_down(MouseButton::Left, cx.listener(|view, event: &MouseDownEvent, _, cx| {
-                                                                                view.repository_resize = Some((event.position.x, view.repository_width));
+                                                                            .on_mouse_down(MouseButton::Left, cx.listener(|view, event: &MouseDownEvent, window, cx| {
+                                                                                view.repository_resize = Some((event.position.x, view.repository_width.min(view.max_repository_width(window))));
                                                                                 cx.stop_propagation();
                                                                             }))
                                                                     )),
@@ -3408,10 +3576,19 @@ mod tests {
                     ("First".into(), first.clone()),
                     ("Second".into(), second.clone()),
                 ];
+                view.repository_graph_preferences
+                    .insert(first.clone(), serde_json::json!({"widths":{"refs":420}}));
+                view.repository_graph_preferences
+                    .insert(second.clone(), serde_json::json!({"widths":{"refs":180}}));
                 view.open_repository(first.clone(), cx);
                 let original = view.repository_view.clone().unwrap();
+                assert_eq!(original.read(cx).preferences["widths"]["refs"], 420.);
                 original.update(cx, |repo, _| repo.expanded = true);
                 view.open_repository(second.clone(), cx);
+                assert_eq!(
+                    view.repository_view.as_ref().unwrap().read(cx).preferences["widths"]["refs"],
+                    180.
+                );
                 assert_ne!(
                     view.repository_view.as_ref().unwrap().entity_id(),
                     original.entity_id()
@@ -3873,7 +4050,7 @@ mod tests {
                         background: serde_json::Value::Null,
                         font: "vscode".into(),
                         syntax_theme: "vscode-black".into(),
-                        graph_preferences: serde_json::Value::Null,
+                        repository_graph_preferences: Default::default(),
                     },
                     cx,
                 );
@@ -3905,6 +4082,92 @@ mod tests {
             })
             .unwrap();
     }
+    #[gpui::test]
+    fn new_menu_creates_a_project_and_scopes_chat_and_repository_actions(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let profile = tempfile::tempdir().unwrap();
+        let backend = crate::backend::RUNTIME
+            .block_on(crate::backend::Backend::connect(profile.path().to_owned()))
+            .unwrap();
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            let mut view = WorkspaceView::empty(cx.focus_handle(), cx.new(TextInput::new), cx);
+            view.profile = profile.path().to_owned();
+            view.backend = std::sync::Arc::new(tokio::sync::OnceCell::new_with(Some(backend)));
+            view.conversations[0].title =
+                "This long conversation title must wrap across several lines in the sidebar".into();
+            view
+        });
+        cx.simulate_resize(size(px(1400.), px(800.)));
+        cx.update(|window, _| window.refresh());
+        assert!(cx.debug_bounds("sidebar-chat-0").unwrap().size.height > px(36.));
+        let new = cx.debug_bounds("new-button").unwrap().center();
+        cx.simulate_click(new, Modifiers::default());
+        cx.update(|window, _| window.refresh());
+        let project = cx.debug_bounds("new-project").unwrap().center();
+        cx.simulate_click(project, Modifiers::default());
+        view.update(cx, |s, cx| {
+            assert_eq!(s.projects.len(), 1);
+            s.new_project_name
+                .as_ref()
+                .unwrap()
+                .update(cx, |input, cx| input.set_content("New workspace", cx));
+        });
+        cx.update(|window, _| window.refresh());
+        let create = cx.debug_bounds("create-new-project").unwrap().center();
+        cx.simulate_click(create, Modifiers::default());
+        cx.run_until_parked();
+        let id = view.read_with(cx, |s, _| {
+            assert_eq!(s.projects.len(), 2, "{}", s.status);
+            assert_eq!(s.project, 1);
+            assert_eq!(s.conversations[s.selected].project, 1);
+            assert!(s.new_project_name.is_none());
+            s.projects[1].id.clone().unwrap()
+        });
+        assert!(
+            profile
+                .path()
+                .join("projects")
+                .join(&id)
+                .join("project.json")
+                .is_file()
+        );
+        cx.update(|window, _| window.refresh());
+        cx.simulate_click(new, Modifiers::default());
+        cx.update(|window, _| window.refresh());
+        assert!(cx.debug_bounds("new-chat").is_some());
+        // Chat websocket delivery uses the real Tokio runtime; this test checks
+        // the menu's project scope, leaving that connection to live-chat tests.
+        cx.update(|window, cx| {
+            view.update(cx, |s, cx| {
+                s.new_chat(window, cx);
+                s.conversations[s.selected].task = None;
+                s.conversations[s.selected].loading = false;
+                s.new_menu = false;
+            })
+        });
+        view.read_with(cx, |s, _| {
+            assert_eq!(s.projects[s.project].id.as_deref(), Some(id.as_str()));
+            assert_eq!(s.conversations[s.selected].project, 1);
+        });
+        cx.update(|window, _| window.refresh());
+        cx.simulate_click(new, Modifiers::default());
+        cx.update(|window, _| window.refresh());
+        let repository = cx.debug_bounds("new-repository").unwrap().center();
+        cx.simulate_click(repository, Modifiers::default());
+        cx.run_until_parked();
+        assert!(cx.did_prompt_for_paths());
+        cx.simulate_path_prompt_response(|_| None);
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            view.read_with(cx, |s, _| {
+                let content = 1400. - s.sidebar_width - 8.;
+                assert_eq!(s.max_repository_width(window), content - 300.);
+                assert!(s.max_repository_width(window) > content * 0.65);
+            });
+        });
+    }
+
     #[gpui::test]
     fn new_chat_keeps_the_previous_draft(cx: &mut gpui::TestAppContext) {
         let profile = tempfile::tempdir().unwrap();

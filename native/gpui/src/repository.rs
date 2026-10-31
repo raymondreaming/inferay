@@ -63,6 +63,7 @@ pub struct RepositoryView {
     syntax_theme: String,
     presentation: Value,
     available_width: f32,
+    git_operations_bounds: Bounds<Pixels>,
     node_background: u32,
     status: Option<GitStatusResult>,
     graph: GitGraphSnapshot,
@@ -111,10 +112,19 @@ impl RepositoryView {
         self.minimap_drag = None;
     }
 
+    fn changes_on_right(&self) -> bool {
+        self.expanded || self.available_width >= 760.
+    }
+
+    fn changes_panel_width(&self) -> f32 {
+        self.changes_width
+            .min((self.available_width - 300.).max(180.))
+    }
+
     fn viewport_width(&self) -> f32 {
         (self.available_width
-            - if self.expanded && self.changes {
-                self.changes_width
+            - if self.changes_on_right() && self.changes {
+                self.changes_panel_width()
             } else {
                 0.
             })
@@ -166,6 +176,7 @@ impl RepositoryView {
             preferences: inferay_presentation::graph::preferences(&preferences),
             presentation: Value::Null,
             available_width: 584.,
+            git_operations_bounds: Bounds::default(),
             node_background,
             status: None,
             graph: Default::default(),
@@ -599,7 +610,7 @@ impl RepositoryView {
     }
 }
 impl Render for RepositoryView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let entity = cx.entity().downgrade();
         div()
             .relative()
@@ -618,7 +629,7 @@ impl Render for RepositoryView {
                     view.scroll_minimap(event.position.y, grab, window);
                 }
                 if let Some((start, size)) = view.changes_resize {
-                    if view.expanded {
+                    if view.changes_on_right() {
                         view.changes_width = (size
                             + f32::from(start.x - event.position.x) / crate::zoom::factor(window))
                         .clamp(180., (view.available_width - 180.).max(180.));
@@ -752,10 +763,10 @@ impl Render for RepositoryView {
                                 cx.notify();
                             })),
                     )
-                    .child(button("git-operations", if self.mutating { "Working…" } else { "Git" }).h(ui(24.)).px(ui(8.)).text_size(ui(11.)).aria_label("Git operations").debug_selector(|| "git-operations".into()).child(icon("ChevronDown"))
-                        .on_click(cx.listener(|s, event: &ClickEvent, _, cx| {
+                    .child(button("git-operations", if self.mutating { "Working…" } else { "Git" }).h(ui(24.)).px(ui(8.)).text_size(ui(11.)).aria_label("Git operations").debug_selector(|| "git-operations".into()).child(icon("ChevronDown")).relative().child(canvas(cx.processor(|s, bounds, _, _| { s.git_operations_bounds = bounds; }), |_, _, _, _| {}).absolute().top_0().left_0().size_full())
+                        .on_click(cx.listener(|s, _, _, cx| {
                             if s.git_menu.is_some() { s.git_menu = None; } else {
-                                s.git_menu = Some((event.position(), String::new(), vec![]));
+                                s.git_menu = Some((s.git_operations_bounds.bottom_left(), String::new(), vec![]));
                             }
                             s.branch_menu = None;
                             s.branch_menu_task = None;
@@ -818,7 +829,7 @@ impl Render for RepositoryView {
                     .flex_1()
                     .min_h_0()
                     .min_w_0()
-                    .when(!self.expanded, |d| d.flex_col())
+                    .when(!self.changes_on_right(), |d| d.flex_col())
                     .when(self.history || self.show_diff, |d| {
                         d.child(
                             div()
@@ -828,7 +839,7 @@ impl Render for RepositoryView {
                                 .min_h_0()
                                 .min_w_0()
                                 .when(self.history && !self.show_diff, |d| {
-                                    d.child(self.graph_table(cx))
+                                    d.child(self.graph_table(window, cx))
                                 })
                                 .when(self.show_diff, |d| d.child(self.diff_view(cx))),
                         )
@@ -842,10 +853,10 @@ impl Render for RepositoryView {
                                 .min_w_0()
                                 .flex_shrink_0()
                                 .when(!self.history && !self.show_diff, |d| d.size_full())
-                                .when((self.history || self.show_diff) && self.expanded, |d| {
-                                    d.w(ui(self.changes_width)).h_full().border_l_1()
+                                .when((self.history || self.show_diff) && self.changes_on_right(), |d| {
+                                    d.w(ui(self.changes_panel_width())).h_full().border_l_1()
                                 })
-                                .when((self.history || self.show_diff) && !self.expanded, |d| {
+                                .when((self.history || self.show_diff) && !self.changes_on_right(), |d| {
                                     d.h(ui(self.changes_height))
                                         .max_h(relative(0.8))
                                         .w_full()
@@ -853,6 +864,7 @@ impl Render for RepositoryView {
                                 })
                                 .border_color(rgba(0xebebeb0f))
                                 .relative()
+                                .debug_selector(|| "git-changes-panel".into())
                                 .child(self.changes_panel(cx))
                                 .when(self.history || self.show_diff, |d| {
                                     d.child(
@@ -861,10 +873,10 @@ impl Render for RepositoryView {
                                             .absolute()
                                             .top_0()
                                             .left_0()
-                                            .when(self.expanded, |d| {
+                                            .when(self.changes_on_right(), |d| {
                                                 d.w(ui(6.)).h_full().cursor_col_resize()
                                             })
-                                            .when(!self.expanded, |d| {
+                                            .when(!self.changes_on_right(), |d| {
                                                 d.h(ui(6.)).w_full().cursor_row_resize()
                                             })
                                             .on_mouse_down(
@@ -873,8 +885,8 @@ impl Render for RepositoryView {
                                                     |view, event: &MouseDownEvent, _, cx| {
                                                         view.changes_resize = Some((
                                                             event.position,
-                                                            if view.expanded {
-                                                                view.changes_width
+                                                            if view.changes_on_right() {
+                                                                view.changes_panel_width()
                                                             } else {
                                                                 view.changes_height
                                                             },
@@ -1024,6 +1036,126 @@ mod tests {
             assert!((total - s.viewport_width() as f64).abs() < 1.);
             assert!(layout["columnWidths"]["message"].as_f64().unwrap() > 340.);
         });
+    }
+
+    #[gpui::test]
+    fn graph_resize_clamps_horizontal_offset_before_rendering_header(cx: &mut TestAppContext) {
+        let directory = tempfile::tempdir().unwrap();
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            RepositoryView::new(
+                directory.path().to_string_lossy().into_owned(),
+                Value::Null,
+                "vscode-black".into(),
+                0,
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        for (width, expanded) in [(600., false), (1800., true), (700., false), (2000., true)] {
+            view.update(cx, |s, cx| {
+                s.expanded = expanded;
+                s.changes = true;
+                s.graph_scroll
+                    .0
+                    .borrow()
+                    .base_handle
+                    .set_offset(point(px(-1000.), px(0.)));
+                cx.notify();
+            });
+            cx.simulate_resize(size(px(width), px(700.)));
+            for _ in 0..3 {
+                cx.draw(point(px(0.), px(0.)), size(px(width), px(700.)), |_, _| {
+                    view.clone().into_any_element()
+                });
+            }
+            let header = cx.debug_bounds("graph-header").unwrap();
+            view.read_with(cx, |s, _| {
+                let offset = s.graph_scroll.0.borrow().base_handle.offset().x;
+                let viewport = px(s.viewport_width());
+                assert!(offset >= -(header.size.width - viewport).max(px(0.)));
+                assert!(
+                    header.right() >= viewport,
+                    "resize must not leave blank space at the right edge"
+                );
+                if expanded {
+                    assert_eq!(offset, px(0.));
+                }
+            });
+        }
+    }
+
+    #[gpui::test]
+    fn git_toolbar_menu_uses_the_button_anchor(cx: &mut TestAppContext) {
+        let directory = tempfile::tempdir().unwrap();
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            RepositoryView::new(
+                directory.path().to_string_lossy().into_owned(),
+                Value::Null,
+                "vscode-black".into(),
+                0,
+                cx,
+            )
+        });
+        cx.simulate_resize(size(px(1000.), px(700.)));
+        cx.run_until_parked();
+        cx.update(|window, _| window.refresh());
+        let button = cx.debug_bounds("git-operations").unwrap();
+        let mut origin = None;
+        for x in [button.left() + px(3.), button.right() - px(3.)] {
+            cx.simulate_click(point(x, button.center().y), Modifiers::default());
+            cx.update(|window, _| window.refresh());
+            let popup = cx.debug_bounds("git-context-menu").unwrap();
+            if let Some(origin) = origin {
+                assert_eq!(popup.origin, origin);
+            }
+            origin = Some(popup.origin);
+            view.read_with(cx, |s, _| {
+                assert_eq!(s.git_menu.as_ref().unwrap().0, button.bottom_left())
+            });
+            view.update(cx, |s, cx| {
+                s.git_menu = None;
+                cx.notify();
+            });
+            cx.update(|window, _| window.refresh());
+        }
+    }
+
+    #[gpui::test]
+    fn history_loads_more_when_scrolled_near_the_end(cx: &mut TestAppContext) {
+        let directory = tempfile::tempdir().unwrap();
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            RepositoryView::new(
+                directory.path().to_string_lossy().into_owned(),
+                Value::Null,
+                "vscode-black".into(),
+                0,
+                cx,
+            )
+        });
+        cx.run_until_parked();
+        view.update(cx, |s, cx| {
+            s.error = None;
+            s.changes = false;
+            s.limit = 240;
+            s.graph.commits = (0..240)
+                .map(|i| GraphCommit {
+                    id: format!("commit-{i}"),
+                    message: format!("Commit {i}"),
+                    ..Default::default()
+                })
+                .collect();
+            s.graph.has_more = true;
+            cx.notify();
+        });
+        cx.simulate_resize(size(px(1000.), px(500.)));
+        cx.update(|window, _| window.refresh());
+        view.read_with(cx, |s, _| assert_eq!(s.limit, 240));
+        view.update(cx, |s, cx| {
+            s.graph_scroll.scroll_to_item(230, ScrollStrategy::Top);
+            cx.notify();
+        });
+        cx.update(|window, _| window.refresh());
+        view.read_with(cx, |s, _| assert_eq!(s.limit, 440));
     }
 
     #[gpui::test]

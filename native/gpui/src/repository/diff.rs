@@ -319,7 +319,7 @@ impl RepositoryView {
             .role(Role::Button)
             .aria_label("Scroll diff overview")
             .cursor_pointer()
-            .w(ui(20.))
+            .w(ui(12.))
             .h_full()
             .flex_shrink_0()
             .relative()
@@ -352,7 +352,7 @@ impl RepositoryView {
                                 bounds.size.height * (segment.start_line as f32 / count as f32);
                             let height = (bounds.size.height
                                 * ((segment.end_line - segment.start_line) as f32 / count as f32))
-                                .max(crate::zoom::pixels(2., window));
+                                .max(crate::zoom::pixels(1., window));
                             let marker = Bounds::new(
                                 bounds.origin + point(bounds.size.width * left, top),
                                 size(
@@ -361,11 +361,11 @@ impl RepositoryView {
                                 ),
                             );
                             let color = if segment.r#type == "add" {
-                                colors::ADDED
+                                colors::DIFF_ADDED_BACKGROUND
                             } else {
-                                colors::DELETED
+                                colors::DIFF_REMOVED_BACKGROUND
                             };
-                            window.paint_quad(fill(marker, rgba((color << 8) | 0x99)));
+                            window.paint_quad(fill(marker, rgba(color)));
                         }
                         let thumb = minimap_thumb(bounds, &handle.0.borrow().base_handle, window);
                         window.paint_quad(quad(
@@ -595,8 +595,12 @@ impl RepositoryView {
                                                 .enumerate()
                                                 .map(|(side, line)| {
                                                     let tint = match line.map(|l| &l.line_type) {
-                                                        Some(GitDiffLineType::Add) => 0x55d68b18,
-                                                        Some(GitDiffLineType::Remove) => 0xff686818,
+                                                        Some(GitDiffLineType::Add) => {
+                                                            colors::DIFF_ADDED_BACKGROUND
+                                                        }
+                                                        Some(GitDiffLineType::Remove) => {
+                                                            colors::DIFF_REMOVED_BACKGROUND
+                                                        }
                                                         _ => 0,
                                                     };
                                                     div()
@@ -645,8 +649,12 @@ impl RepositoryView {
                                     } else {
                                         let line = data.inline.get(i);
                                         let tint = match line.map(|line| line.line_type) {
-                                            Some(GitDiffLineType::Add) => 0x55d68b18,
-                                            Some(GitDiffLineType::Remove) => 0xff686818,
+                                            Some(GitDiffLineType::Add) => {
+                                                colors::DIFF_ADDED_BACKGROUND
+                                            }
+                                            Some(GitDiffLineType::Remove) => {
+                                                colors::DIFF_REMOVED_BACKGROUND
+                                            }
                                             _ => 0,
                                         };
                                         row.bg(rgba(tint)).child(
