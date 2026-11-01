@@ -662,12 +662,30 @@ impl RepositoryView {
                                             }
                                             _ => 0,
                                         };
-                                        row.bg(rgba(tint)).child(
-                                            StyledText::new(
-                                                line.map(|l| l.content.clone()).unwrap_or_default(),
+                                        row.bg(rgba(tint))
+                                            .gap(ui(8.))
+                                            .child(
+                                                div()
+                                                    .w(ui(colors::DIFF_GUTTER))
+                                                    .text_size(ui(colors::DIFF_NUMBER))
+                                                    .text_right()
+                                                    .flex_shrink_0()
+                                                    .text_color(rgba(0xebebeb60))
+                                                    .child(
+                                                        line.and_then(|line| line.number)
+                                                            .map(|number| number.to_string())
+                                                            .unwrap_or_default(),
+                                                    ),
                                             )
-                                            .with_highlights(data.inline_styles(i).iter().cloned()),
-                                        )
+                                            .child(
+                                                StyledText::new(
+                                                    line.map(|l| l.content.clone())
+                                                        .unwrap_or_default(),
+                                                )
+                                                .with_highlights(
+                                                    data.inline_styles(i).iter().cloned(),
+                                                ),
+                                            )
                                     }
                                 })
                                 .collect()
