@@ -30,7 +30,6 @@ impl AssetSource for Assets {
             "GitBranch" => include_bytes!("../assets/icons/GitBranch.svg"),
             "CommitGraph" => include_bytes!("../assets/icons/CommitGraph.svg"),
             "Workflow" => include_bytes!("../assets/icons/Workflow.svg"),
-            "Mic" => include_bytes!("../assets/icons/Mic.svg"),
             "Wrench" => include_bytes!("../assets/icons/Wrench.svg"),
             "X" => include_bytes!("../assets/icons/X.svg"),
             "Folder" => include_bytes!("../assets/icons/Folder.svg"),
