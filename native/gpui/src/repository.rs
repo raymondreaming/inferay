@@ -33,6 +33,7 @@ pub struct RepositoryView {
     tree_files: bool,
     collapsed_directories: std::collections::HashSet<String>,
     diff_scroll: UniformListScrollHandle,
+    diff_horizontal: [ScrollHandle; 2],
     diff_change: Option<usize>,
     minimap_bounds: Bounds<Pixels>,
     minimap_drag: Option<Pixels>,
@@ -109,6 +110,9 @@ impl RepositoryView {
         self.diff_prefetch_task = None;
         self.theme_task = None;
         self.diff = None;
+        for scroll in &self.diff_horizontal {
+            scroll.set_offset(point(px(0.), px(0.)));
+        }
         self.diff_change = None;
         self.minimap_drag = None;
     }
@@ -147,6 +151,7 @@ impl RepositoryView {
             tree_files: false,
             collapsed_directories: Default::default(),
             diff_scroll: UniformListScrollHandle::new(),
+            diff_horizontal: Default::default(),
             diff_change: None,
             minimap_bounds: Bounds::default(),
             minimap_drag: None,
@@ -734,11 +739,13 @@ impl Render for RepositoryView {
                     )
                     .child(div().flex_1())
                     .child(
-                        crate::plain_button("history", "History")
+                        button("history", "")
+                            .child(icon("CommitGraph").size(ui(14.)))
+                            .child("History")
+                            .min_w(ui(80.))
                             .h(ui(24.))
                             .px(ui(8.))
                             .text_size(ui(11.))
-                            .hover(|s| s.text_color(rgb(0xffffff)))
                             .on_click(cx.listener(|s, _, _, cx| {
                                 if s.show_diff {
                                     s.show_diff = false;
@@ -755,11 +762,13 @@ impl Render for RepositoryView {
                             })),
                     )
                     .child(
-                        crate::plain_button("changes", "Changes")
+                        button("changes", "")
+                            .child(icon("DiffUnified").size(ui(14.)))
+                            .child("Changes")
+                            .min_w(ui(80.))
                             .h(ui(24.))
                             .px(ui(8.))
                             .text_size(ui(11.))
-                            .hover(|s| s.text_color(rgb(0xffffff)))
                             .on_click(cx.listener(|s, _, _, cx| {
                                 s.changes = !s.changes;
                                 if !s.changes {
@@ -768,7 +777,7 @@ impl Render for RepositoryView {
                                 cx.notify();
                             })),
                     )
-                    .child(button("git-operations", if self.mutating { "Working…" } else { "Git" }).h(ui(24.)).px(ui(8.)).text_size(ui(11.)).aria_label("Git operations").debug_selector(|| "git-operations".into()).child(icon("ChevronDown")).relative().child(canvas(cx.processor(|s, bounds, _, _| { s.git_operations_bounds = bounds; }), |_, _, _, _| {}).absolute().top_0().left_0().size_full())
+                    .child(button("git-operations", "").child(icon("GitBranch").size(ui(14.))).child(if self.mutating { "Working…" } else { "Git" }).min_w(ui(80.)).h(ui(24.)).px(ui(8.)).text_size(ui(11.)).aria_label("Git operations").debug_selector(|| "git-operations".into()).child(icon("ChevronDown").size(ui(12.))).relative().child(canvas(cx.processor(|s, bounds, _, _| { s.git_operations_bounds = bounds; }), |_, _, _, _| {}).absolute().top_0().left_0().size_full())
                         .on_click(cx.listener(|s, _, _, cx| {
                             if s.git_menu.is_some() { s.git_menu = None; } else {
                                 s.git_menu = Some((s.git_operations_bounds.bottom_left(), String::new(), vec![]));
@@ -779,16 +788,8 @@ impl Render for RepositoryView {
                             s.repository_menu = false;
                             cx.notify();
                         })))
-                    .child(button("graph-columns", "").aria_label("Show or hide Git columns").debug_selector(|| "graph-columns".into()).child(icon("Settings"))
+                    .child(button("graph-columns", "").size(ui(24.)).p(ui(5.)).aria_label("Show or hide Git columns").debug_selector(|| "graph-columns".into()).child(icon("Settings").size(ui(14.)))
                         .on_click(cx.listener(|s,_,_,cx| {s.columns_menu = !s.columns_menu; s.repository_menu = false; cx.notify();})))
-                    .child(
-                        button("refresh-git", "↻")
-                            .aria_label("Refresh repository")
-                            .on_click(cx.listener(|s, _, _, cx| {
-                                s.refresh(cx);
-                                cx.notify();
-                            })),
-                    )
                     .child(
                         button("expand-git", "")
                             .aria_label(if self.expanded {

@@ -23,8 +23,8 @@ enum Appearance {
 impl Appearance {
     fn composer_background(self) -> Rgba {
         match self {
-            Self::Dark => rgba(0x2f2f2fff),
-            _ => rgba(0x181818e0),
+            Self::Dark => rgba(0x282828ff),
+            _ => rgba(0x151515e0),
         }
     }
 }
@@ -2568,8 +2568,8 @@ impl Render for WorkspaceView {
         };
         let canvas = match self.appearance {
             Appearance::Dark => rgba((colors::CANVAS << 8) | 255),
-            Appearance::Glass => rgba(0x06060666),
-            Appearance::Scene => rgba(0x05050661),
+            Appearance::Glass => rgba(0x04040478),
+            Appearance::Scene => rgba(0x03030470),
         };
         if self.project_picker
             || self
@@ -2697,7 +2697,7 @@ impl Render for WorkspaceView {
                 )
             })
             .when(self.appearance == Appearance::Glass, |d| {
-                d.child(div().absolute().size_full().bg(rgba(0xebebeb0d)))
+                d.child(div().absolute().size_full().bg(rgba(0xebebeb08)))
             })
             .when(self.settings, |d| d.child(self.settings(canvas, cx)))
             .when(!self.settings, |d| {

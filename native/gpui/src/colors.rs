@@ -1,5 +1,5 @@
-pub const CANVAS: u32 = 0x202020;
-pub const SHELL: u32 = 0x303030;
+pub const CANVAS: u32 = 0x1b1b1b;
+pub const SHELL: u32 = 0x292929;
 pub const TEXT: u32 = 0xebebeb;
 pub const CHAT_BODY: f32 = 12.0;
 pub const INPUT_TEXT: f32 = 13.0;
@@ -9,7 +9,7 @@ pub const CHAT_DETAIL: f32 = 9.0;
 pub const DIFF_ROW: f32 = 14.0;
 pub const DIFF_TEXT: f32 = 10.0;
 pub const DIFF_NUMBER: f32 = 9.0;
-pub const DIFF_GUTTER: f32 = 36.0;
+pub const DIFF_GUTTER: f32 = 26.0;
 pub const GRAPH_LANES: &[&str] = &[
     "#1c97b5", "#0063f2", "#7f12b7", "#ba18ab", "#d00066", "#c40012", "#ed4e2f", "#f0c13a",
     "#76d33c", "#36c894",
@@ -19,6 +19,6 @@ pub const MODIFIED: u32 = 0xe5a447;
 pub const DELETED: u32 = 0xff6868;
 pub const RENAMED: u32 = 0x7a8fb5;
 
-pub const MENU: u32 = 0x181818;
+pub const MENU: u32 = 0x151515;
 pub const DIFF_ADDED_BACKGROUND: u32 = (ADDED << 8) | 0x18;
 pub const DIFF_REMOVED_BACKGROUND: u32 = (DELETED << 8) | 0x18;

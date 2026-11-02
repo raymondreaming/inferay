@@ -11,6 +11,7 @@ pub(super) struct PreparedDiff {
     pub(super) new: Arc<[LineStyles]>,
     pub(super) inline: Arc<[GitDiffLine]>,
     inline_sources: Arc<[Option<(bool, usize)>]>,
+    line_widths: [f32; 2],
     pub(super) colored: bool,
     split_ranges: Arc<[[usize; 2]]>,
     inline_ranges: Arc<[[usize; 2]]>,
@@ -95,7 +96,31 @@ impl PreparedDiff {
                     .map(|&index| (removed, index))
             })
             .collect();
+        let line_widths = [&diff.old_lines, &diff.new_lines].map(|lines| {
+            lines
+                .iter()
+                .map(|line| {
+                    line.content
+                        .chars()
+                        .map(|c| {
+                            if c == '\t' {
+                                4
+                            } else if c.is_ascii() {
+                                1
+                            } else {
+                                2
+                            }
+                        })
+                        .sum::<usize>()
+                })
+                .max()
+                .unwrap_or(0) as f32
+                * colors::DIFF_TEXT
+                * 0.61
+                + 8.
+        });
         Self {
+            line_widths,
             split_ranges,
             inline_ranges,
             split_minimap: split_minimap.into(),
@@ -405,6 +430,8 @@ impl RepositoryView {
 
     pub(super) fn diff_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let diff = self.diff.clone();
+        let horizontal = self.diff_horizontal.clone();
+        let redraw = cx.entity().downgrade();
         // Reuse the complete selected Git version, omitting alignment spacers.
         // Deleted files expose their previous version; staged and historical data
         // already come from the index and selected commit respectively.
@@ -633,6 +660,17 @@ impl RepositoryView {
                                                                 ),
                                                         )
                                                         .child(
+                                                            div()
+                                                                .id(("diff-code", side * count + i))
+                                                                .debug_selector(move || format!("diff-code-{side}-{i}"))
+                                                                .flex_1().min_w_0().h_full()
+                                                                .overflow_x_scroll()
+                                                                .track_scroll(&horizontal[side])
+                                                                .on_scroll_wheel({
+                                                                    let redraw = redraw.clone();
+                                                                    move |_, _, cx| { let _ = redraw.update(cx, |_, cx| cx.notify()); }
+                                                                })
+                                                                .child(div().w(ui(data.line_widths[side])).min_w_full().child(
                                                             StyledText::new(
                                                                 line.map(|l| l.content.clone())
                                                                     .unwrap_or_default(),
@@ -647,7 +685,7 @@ impl RepositoryView {
                                                                 .into_iter()
                                                                 .flatten()
                                                                 .cloned(),
-                                                            ),
+                                                            ))),
                                                         )
                                                 }),
                                         )
@@ -747,7 +785,7 @@ mod tests {
                 GitHunkDiff {
                     old_lines: vec![GitDiffLine {
                         number: Some(1),
-                        content: "old".into(),
+                        content: "old ".repeat(200),
                         line_type: GitDiffLineType::Remove,
                     }],
                     new_lines: vec![
@@ -781,6 +819,19 @@ mod tests {
             });
         };
         draw(cx);
+        let pane = cx.debug_bounds("diff-code-0-0").unwrap();
+        cx.simulate_event(ScrollWheelEvent {
+            position: pane.center(),
+            delta: ScrollDelta::Pixels(point(px(-120.), px(0.))),
+            modifiers: Modifiers::default(),
+            touch_phase: TouchPhase::Moved,
+        });
+        draw(cx);
+        view.read_with(cx, |s, _| {
+            assert!(s.diff_horizontal[0].offset().x < px(0.));
+            assert_eq!(s.diff_horizontal[1].offset().x, px(0.));
+        });
+        assert_eq!(cx.debug_bounds("diff-code-0-0").unwrap(), pane);
         let retained = view.read_with(cx, |s, _| s.diff.clone().unwrap());
         let button = cx.debug_bounds("diff-unified").unwrap().center();
         cx.simulate_click(button, Modifiers::default());
