@@ -1105,6 +1105,7 @@ impl WorkspaceView {
                 div()
                     .id("project-tabs")
                     .flex()
+                    .gap(ui(6.))
                     .flex_1()
                     .min_w_0()
                     .overflow_x_scroll()
