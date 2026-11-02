@@ -742,7 +742,6 @@ impl Render for RepositoryView {
                         button("history", "")
                             .child(icon("CommitGraph").size(ui(14.)))
                             .child("History")
-                            .min_w(ui(80.))
                             .h(ui(24.))
                             .px(ui(8.))
                             .text_size(ui(11.))
@@ -765,7 +764,6 @@ impl Render for RepositoryView {
                         button("changes", "")
                             .child(icon("DiffUnified").size(ui(14.)))
                             .child("Changes")
-                            .min_w(ui(80.))
                             .h(ui(24.))
                             .px(ui(8.))
                             .text_size(ui(11.))
@@ -777,7 +775,7 @@ impl Render for RepositoryView {
                                 cx.notify();
                             })),
                     )
-                    .child(button("git-operations", "").child(icon("GitBranch").size(ui(14.))).child(if self.mutating { "Working…" } else { "Git" }).min_w(ui(80.)).h(ui(24.)).px(ui(8.)).text_size(ui(11.)).aria_label("Git operations").debug_selector(|| "git-operations".into()).child(icon("ChevronDown").size(ui(12.))).relative().child(canvas(cx.processor(|s, bounds, _, _| { s.git_operations_bounds = bounds; }), |_, _, _, _| {}).absolute().top_0().left_0().size_full())
+                    .child(button("git-operations", "").child(icon("GitBranch").size(ui(14.))).child(if self.mutating { "Working…" } else { "Git" }).h(ui(24.)).px(ui(8.)).text_size(ui(11.)).aria_label("Git operations").debug_selector(|| "git-operations".into()).child(icon("ChevronDown").size(ui(12.))).relative().child(canvas(cx.processor(|s, bounds, _, _| { s.git_operations_bounds = bounds; }), |_, _, _, _| {}).absolute().top_0().left_0().size_full())
                         .on_click(cx.listener(|s, _, _, cx| {
                             if s.git_menu.is_some() { s.git_menu = None; } else {
                                 s.git_menu = Some((s.git_operations_bounds.bottom_left(), String::new(), vec![]));

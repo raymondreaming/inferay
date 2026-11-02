@@ -509,9 +509,7 @@ impl RepositoryView {
                         div()
                             .flex()
                             .items_center()
-                            .rounded(ui(5.))
-                            .bg(rgba(0xebebeb0a))
-                            .p(ui(2.))
+                            .gap(ui(2.))
                             .children([(true, "Split"), (false, "Unified")].into_iter().map(
                                 |(mode, label)| {
                                     button(if mode { "diff-split" } else { "diff-unified" }, "")

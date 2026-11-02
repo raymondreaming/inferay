@@ -34,6 +34,8 @@ impl AssetSource for Assets {
             "X" => include_bytes!("../assets/icons/X.svg"),
             "Folder" => include_bytes!("../assets/icons/Folder.svg"),
             "Rename" => include_bytes!("../assets/icons/Rename.svg"),
+            "FilePath" => include_bytes!("../assets/icons/FilePath.svg"),
+            "FileTree" => include_bytes!("../assets/icons/FileTree.svg"),
             "DiffSplit" => include_bytes!("../assets/icons/DiffSplit.svg"),
             "DiffUnified" => include_bytes!("../assets/icons/DiffUnified.svg"),
             "PanelLeft" => include_bytes!("../assets/icons/PanelLeft.svg"),

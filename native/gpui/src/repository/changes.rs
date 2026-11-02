@@ -200,11 +200,6 @@ impl RepositoryView {
                             depth += 1;
                         }
                     }
-                    let label = if self.tree_files {
-                        path.rsplit('/').next().unwrap_or(&path).to_owned()
-                    } else {
-                        path.clone()
-                    };
                     let action_path = path.clone();
                     let row = div()
                         .id(SharedString::from(format!("changed-file-{staged}-{i}")))
@@ -230,19 +225,34 @@ impl RepositoryView {
                             div()
                                 .flex_1()
                                 .min_w_0()
-                                .text_ellipsis()
-                                .text_color(rgb(colors::TEXT))
-                                .child(StyledText::new(label.clone()).with_highlights(
-                                    label.rfind('/').map(|end| {
-                                        (
-                                            0..end + 1,
-                                            HighlightStyle {
-                                                color: Some(rgba(0xebebeb80).into()),
-                                                ..Default::default()
-                                            },
-                                        )
-                                    }),
-                                )),
+                                .flex()
+                                .overflow_hidden()
+                                .text_color(rgb(0xffffff))
+                                .when(!self.tree_files, |d| {
+                                    d.child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .overflow_hidden()
+                                            .flex()
+                                            .justify_end()
+                                            .text_color(rgba(0xebebeb80))
+                                            .child(
+                                                div().flex_shrink_0().child(
+                                                    path.rfind('/')
+                                                        .map(|end| path[..end + 1].to_owned())
+                                                        .unwrap_or_default(),
+                                                ),
+                                            ),
+                                    )
+                                })
+                                .child(
+                                    div()
+                                        .flex_shrink_0()
+                                        .max_w_full()
+                                        .text_ellipsis()
+                                        .child(path.rsplit('/').next().unwrap_or(&path).to_owned()),
+                                ),
                         )
                         .child(
                             div()
@@ -303,9 +313,16 @@ impl RepositoryView {
                         [(false, "Path"), (true, "Tree")]
                             .into_iter()
                             .map(|(tree, label)| {
-                                button(label, label)
-                                    .h(ui(26.))
-                                    .when(self.tree_files == tree, |d| d.bg(rgba(0xebebeb17)))
+                                button(label, "")
+                                    .child(icon(if tree { "FileTree" } else { "FilePath" }).size(ui(14.)))
+                                    .child(label)
+                                    .h(ui(24.))
+                                    .px(ui(6.))
+                                    .text_size(ui(11.))
+                                    .role(Role::RadioButton)
+                                    .aria_label(label)
+                                    .aria_selected(self.tree_files == tree)
+                                    .when(self.tree_files == tree, |d| d.bg(rgba(0xebebeb20)).text_color(rgb(0xffffff)))
                                     .on_click(cx.listener(move |view, _, _, cx| {
                                         view.tree_files = tree;
                                         cx.notify();
