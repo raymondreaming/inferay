@@ -169,9 +169,14 @@ for line in sys.stdin:
   send({'id':m['id'],'method':'future/request','params':{}})
   answer=json.loads(sys.stdin.readline())
   assert answer['error']['code']==-32601
-  send({'id':m['id'],'result':{'config':{}}})
+  provider = 'inferay_openai_http' if 'model_provider="inferay_openai_http"' in sys.argv else 'openai'
+  if MODE=='resume-custom': provider='custom'
+  send({'id':m['id'],'result':{'config':{'model_provider':provider}}})
+ elif method=='thread/read':
+  send({'id':m['id'],'result':{'thread':{'id':m['params']['threadId'],'modelProvider':'openai' if MODE=='resume-openai' else 'inferay_openai_http'}}})
  elif method=='thread/resume':
-  if MODE=='resume-large':
+  assert ('model_provider="inferay_openai_http"' in sys.argv) == (MODE not in ['resume-openai','resume-custom'])
+  if MODE in ['resume-large','resume-openai','resume-custom']:
    turns=[] if m['params'].get('excludeTurns') else [{'image':'x'*(33*1024*1024)}]
    send({'id':m['id'],'result':{'thread':{'id':'saved-thread','turns':turns}}})
   elif MODE=='resume-oversize': send({'id':m['id'],'result':{'payload':'x'*(33*1024*1024)}})
@@ -180,8 +185,8 @@ for line in sys.stdin:
   tools=m['params']['dynamicTools']
   assert all(tool.get('type')=='function' for tool in tools), 'mixed canonical and legacy dynamic tools'
   assert any(tool['name']=='inferay_projects' for tool in tools)
-  assert m['params']['modelProvider']=='inferay_openai_http'
-  assert m['params']['config']['model_providers.inferay_openai_http']['supports_websockets']==False
+  assert 'model_provider="inferay_openai_http"' in sys.argv
+  assert any('supports_websockets=false' in arg for arg in sys.argv)
   send({'id':m['id'],'result':{'thread':{'id':'fixture-thread'}}})
  elif method=='mcpServerStatus/list': send({'id':m['id'],'result':{'data':[],'nextCursor':None}})
  elif method=='turn/start':
@@ -197,7 +202,7 @@ for line in sys.stdin:
    send({'method':'turn/completed','params':{'threadId':'fixture-thread','turn':{'id':'old-turn','status':'completed'}}})
    send({'method':'item/completed','params':{'threadId':'fixture-thread','turnId':'fixture-turn','item':{'type':'agentMessage','text':'root output'}}})
    send({'method':'turn/completed','params':{'threadId':'fixture-thread','turn':{'id':'fixture-turn','status':'completed'}}})
-  if MODE=='resume-large':
+  if MODE in ['resume-large','resume-openai','resume-custom']:
    send({'method':'item/completed','params':{'threadId':'saved-thread','turnId':'fixture-turn','item':{'type':'agentMessage','text':'resumed without history'}}})
    send({'method':'turn/completed','params':{'threadId':'saved-thread','turn':{'id':'fixture-turn','status':'completed'}}})
   if MODE=='questions':
@@ -351,7 +356,12 @@ async fn child_and_stale_turns_cannot_complete_or_contaminate_the_root_turn() {
 
 #[tokio::test]
 async fn resume_omits_large_history_and_reports_frame_failures_once() {
-    for mode in ["resume-large", "resume-oversize"] {
+    for mode in [
+        "resume-large",
+        "resume-openai",
+        "resume-custom",
+        "resume-oversize",
+    ] {
         let f = Fixture::new(mode);
         let invocation = f.invocation(true);
         let handle = f.handle();
@@ -395,7 +405,7 @@ async fn resume_omits_large_history_and_reports_frame_failures_once() {
                 }
             })
             .collect();
-        if mode == "resume-large" {
+        if mode != "resume-oversize" {
             assert_eq!(output, "resumed without history");
         } else {
             assert_eq!(messages.iter().filter(|m| m.contains("32 MiB")).count(), 1);
@@ -876,4 +886,95 @@ async fn stop_deadline_kills_provider_even_when_control_consumer_is_blocked() {
         .unwrap();
     handle.set_pid(None);
     assert!(!status.success());
+}
+
+#[tokio::test]
+#[ignore = "requires installed Codex; disposable profile and local model HTTP fixture"]
+async fn installed_codex_http_provider_survives_process_restart() {
+    let f = Fixture::new("unused");
+    let home = f.root.join("codex-home");
+    std::fs::create_dir_all(&home).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let app = axum::Router::new().route("/responses", axum::routing::post(|| async {
+        let item = json!({"type":"message","id":"msg_test","role":"assistant","status":"completed","content":[{"type":"output_text","text":"provider works","annotations":[]}]});
+        let events = [
+            json!({"type":"response.created","response":{"id":"resp_test"}}),
+            json!({"type":"response.output_item.done","output_index":0,"item":item}),
+            json!({"type":"response.completed","response":{"id":"resp_test","status":"completed","output":[item],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}),
+        ];
+        ([("content-type", "text/event-stream")], events.iter().map(|event| format!("data: {event}\n\n")).collect::<String>())
+    }));
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let config = format!("model = \"gpt-5.4\"\nopenai_base_url = \"http://{address}\"\n");
+    std::fs::write(home.join("config.toml"), &config).unwrap();
+    std::fs::write(
+        home.join("auth.json"),
+        r#"{"OPENAI_API_KEY":"local-fixture"}"#,
+    )
+    .unwrap();
+    let resolver =
+        crate::agent_command::AgentCommandResolver::new(&f.root, f.root.join("mcp.json"));
+    let binary = resolver.resolve_agent_binary(inferay_core::agent_kind::AgentKind::Codex);
+    let mut env = resolver.create_agent_env(inferay_core::agent_kind::AgentKind::Codex);
+    env.insert("CODEX_HOME".into(), home.clone().into_os_string());
+    for name in [
+        "OPENAI_API_KEY",
+        "CODEX_API_KEY",
+        "INFERAY_MCP_OVERRIDES",
+        "OPENAI_BASE_URL",
+    ] {
+        env.remove(OsStr::new(name));
+    }
+    let mut invocation = f.invocation(false);
+    invocation.mcp_servers = Some(vec![]);
+    let tracker = RuntimePidTracker::new(f.root.join("pids.json"));
+    for _ in 0..2 {
+        let handle = f.handle();
+        let mut context = AgentProtocolContext::new(f.root.clone());
+        let mut state = CodexProtocolState::default();
+        let (tx, mut rx) = protocol_channel();
+        let events = tokio::spawn(async move {
+            let mut errors = Vec::new();
+            while let Some((event, _)) = rx.recv().await {
+                if let ProtocolEmission::System(message) = event {
+                    errors.push(message);
+                }
+            }
+            errors
+        });
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(90),
+            run_codex(
+                ProviderRun {
+                    binary: &binary,
+                    invocation: &invocation,
+                    env: &env,
+                    prompt: "Say provider works.",
+                },
+                &handle,
+                &tracker,
+                &mut context,
+                &mut state,
+                &tx,
+            ),
+        )
+        .await
+        .expect("real Codex turn timed out");
+        drop(tx);
+        let errors = events.await.unwrap();
+        assert_eq!(output, "provider works", "{errors:?}");
+        assert!(context.session_id.is_some());
+        if let Some(previous) = &invocation.session_id {
+            assert_eq!(context.session_id.as_ref(), Some(previous));
+        }
+        invocation.session_id = context.session_id;
+    }
+    assert_eq!(
+        std::fs::read_to_string(home.join("config.toml")).unwrap(),
+        config
+    );
+    server.abort();
 }

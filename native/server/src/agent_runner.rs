@@ -653,7 +653,7 @@ async fn run_codex(
             is_loading: true,
         })
         .await;
-    let mut child = match spawn_codex_app_server(run.binary, &run.invocation.cwd, run.env) {
+    let mut child = match spawn_codex_app_server(run.binary, &run.invocation.cwd, run.env, &[]) {
         Ok(child) => child,
         Err(error) => {
             if !handle.is_cancelled() {
@@ -663,12 +663,12 @@ async fn run_codex(
             return String::new();
         }
     };
-    let pid = child.id();
+    let mut pid = child.id();
     handle.set_pid(pid);
     if let Some(pid) = pid {
         tracker.track_pid(pid);
     }
-    let stderr = tokio::spawn(drain_bounded(child.stderr.take().expect("piped stderr")));
+    let mut stderr = tokio::spawn(drain_bounded(child.stderr.take().expect("piped stderr")));
     let mut rpc = CodexConnection {
         stdin: child.stdin.take().expect("piped stdin"),
         stdout: ProviderFrames::new(child.stdout.take().expect("piped stdout")),
@@ -678,27 +678,69 @@ async fn run_codex(
     };
     handle.mark("processSpawned");
     let startup = async {
-        rpc.request(
-            "initialize",
-            json!({
-                "clientInfo": {
-                    "name": "inferay", "title": "Inferay", "version": env!("CARGO_PKG_VERSION")
-                },
-                "capabilities": {"experimentalApi": true}
-            }),
-            (&mut *context, &mut *state, emissions),
-        )
-        .await?;
-        rpc.write(&json!({"method":"initialized"})).await?;
-        handle.mark("initialized");
-        let _ = emissions.send(ProtocolEmission::Status { status: "Loading Codex configuration…".into(), is_loading: true }).await;
-        let config = rpc
-            .request(
-                "config/read",
-                json!({"cwd": run.invocation.cwd, "includeLayers": false}),
+        let mut selected_http = false;
+        let config = loop {
+            rpc.request(
+                "initialize",
+                json!({
+                    "clientInfo": {
+                        "name": "inferay", "title": "Inferay", "version": env!("CARGO_PKG_VERSION")
+                    },
+                    "capabilities": {"experimentalApi": true}
+                }),
                 (&mut *context, &mut *state, emissions),
             )
             .await?;
+            rpc.write(&json!({"method":"initialized"})).await?;
+            handle.mark("initialized");
+            let _ = emissions.send(ProtocolEmission::Status { status: "Loading Codex configuration…".into(), is_loading: true }).await;
+            let config = rpc
+                .request(
+                    "config/read",
+                    json!({"cwd": run.invocation.cwd, "includeLayers": false}),
+                    (&mut *context, &mut *state, emissions),
+                )
+                .await?;
+            if !selected_http && config["config"]["model_provider"].as_str().unwrap_or("openai") == "openai" {
+                // Codex validates the process provider before applying request overrides.
+                // Read metadata only so older built-in-provider chats keep their route.
+                let use_http = if let Some(thread_id) = &run.invocation.session_id {
+                    let thread = rpc.request(
+                        "thread/read",
+                        json!({"threadId": thread_id, "includeTurns": false}),
+                        (&mut *context, &mut *state, emissions),
+                    ).await.map_err(|error| format!("Could not resume Codex session {thread_id}: {error}"))?;
+                    thread["thread"]["modelProvider"] == "inferay_openai_http"
+                } else {
+                    true
+                };
+                if use_http {
+                    if let Some(old_pid) = pid { tree_kill(old_pid); }
+                    let _ = child.kill().await;
+                    if let Some(old_pid) = pid.take() { tracker.untrack_pid(old_pid); }
+                    handle.set_pid(None);
+                    if handle.is_cancelled() { return Err("Codex startup cancelled".into()); }
+                    child = spawn_codex_app_server(
+                        run.binary, &run.invocation.cwd, run.env,
+                        &codex_http_provider_overrides(&config["config"]),
+                    ).map_err(|error| error.to_string())?;
+                    pid = child.id();
+                    handle.set_pid(pid);
+                    if let Some(pid) = pid { tracker.track_pid(pid); }
+                    stderr = tokio::spawn(drain_bounded(child.stderr.take().expect("piped stderr")));
+                    rpc = CodexConnection {
+                        stdin: child.stdin.take().expect("piped stdin"),
+                        stdout: ProviderFrames::new(child.stdout.take().expect("piped stdout")),
+                        read_failed: false,
+                        request_id: 0,
+                        pending_notifications: VecDeque::new(),
+                    };
+                    selected_http = true;
+                    continue;
+                }
+            }
+            break config;
+        };
         handle.mark("configurationRead");
         let mut start_params = codex_thread_params(run.invocation);
         configure_codex_session(&mut start_params, &config["config"], run.env, run.invocation.mcp_servers.as_deref())?;
@@ -948,10 +990,22 @@ async fn run_codex(
     .await
 }
 
-// Inferay currently creates an app-server per turn. Codex's WebSocket -> HTTP
-// fallback lives only in that process, so restarting it repeats the entire retry
-// budget. Use HTTP for the built-in OpenAI provider; leave custom providers alone.
-// Built-in providers cannot be overridden, hence the separate provider ID.
+// Provider selection must be process-wide: recent Codex versions reject a
+// request-only provider override at both resume and turn admission.
+fn codex_http_provider_overrides(config: &Value) -> Vec<String> {
+    let mut overrides = vec![
+        "model_provider=\"inferay_openai_http\"".into(),
+        r#"model_providers.inferay_openai_http={name="OpenAI",wire_api="responses",requires_openai_auth=true,supports_websockets=false,supports_standalone_web_search=true,env_http_headers={OpenAI-Organization="OPENAI_ORGANIZATION",OpenAI-Project="OPENAI_PROJECT"}}"#.into(),
+    ];
+    if let Some(base_url) = config["openai_base_url"].as_str() {
+        overrides.push(format!(
+            "model_providers.inferay_openai_http.base_url={}",
+            json!(base_url)
+        ));
+    }
+    overrides
+}
+
 fn configure_codex_session(
     params: &mut Value,
     config: &Value,
@@ -959,28 +1013,7 @@ fn configure_codex_session(
     wanted: Option<&[String]>,
 ) -> Result<(), String> {
     params["config"] = json!({});
-    crate::agent_mcp::codex(params, config, &crate::agent_mcp::overrides(env), wanted)?;
-    let provider = config["model_provider"].as_str().unwrap_or("openai");
-    if provider != "openai" {
-        return Ok(());
-    }
-    let mut http_provider = json!({
-        "name": "OpenAI",
-        "wire_api": "responses",
-        "requires_openai_auth": true,
-        "supports_websockets": false,
-        "supports_standalone_web_search": true,
-        "env_http_headers": {
-            "OpenAI-Organization": "OPENAI_ORGANIZATION",
-            "OpenAI-Project": "OPENAI_PROJECT"
-        }
-    });
-    if let Some(base_url) = config["openai_base_url"].as_str() {
-        http_provider["base_url"] = json!(base_url);
-    }
-    params["modelProvider"] = json!("inferay_openai_http");
-    params["config"]["model_providers.inferay_openai_http"] = http_provider;
-    Ok(())
+    crate::agent_mcp::codex(params, config, &crate::agent_mcp::overrides(env), wanted)
 }
 
 fn codex_thread_params(invocation: &CodexInvocationContext) -> Value {
@@ -1032,7 +1065,7 @@ pub(crate) async fn inspect_codex_mcp(
     env: &HashMap<OsString, OsString>,
     wanted: Option<&[String]>,
 ) -> Result<(Value, Vec<Value>), String> {
-    let mut child = spawn_codex_app_server(binary, cwd, env).map_err(|e| e.to_string())?;
+    let mut child = spawn_codex_app_server(binary, cwd, env, &[]).map_err(|e| e.to_string())?;
     let stderr = tokio::spawn(drain_bounded(child.stderr.take().expect("piped stderr")));
     let mut rpc = CodexConnection {
         stdin: child.stdin.take().expect("piped stdin"),
@@ -1380,9 +1413,11 @@ fn spawn_codex_app_server(
     binary: &Path,
     cwd: &Path,
     env: &HashMap<OsString, OsString>,
+    overrides: &[String],
 ) -> std::io::Result<tokio::process::Child> {
     provider_command(binary)
         .args(["app-server", "--listen", "stdio://"])
+        .args(overrides.iter().flat_map(|value| ["-c", value.as_str()]))
         .current_dir(cwd)
         .env_clear()
         .envs(env)

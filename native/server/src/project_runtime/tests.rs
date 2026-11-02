@@ -2797,8 +2797,12 @@ for line in sys.stdin:
     m = json.loads(line)
     method = m.get('method')
     if method == 'initialize': send({'id':m['id'],'result':{}})
-    elif method == 'config/read': send({'id':m['id'],'result':{'config':{}}})
+    elif method == 'config/read':
+        provider = 'inferay_openai_http' if 'model_provider="inferay_openai_http"' in sys.argv else 'openai'
+        send({'id':m['id'],'result':{'config':{'model_provider':provider}}})
+    elif method == 'thread/read': send({'id':m['id'],'result':{'thread':{'id':'automation-codex','modelProvider':'inferay_openai_http'}}})
     elif method in ['thread/start','thread/resume']:
+        assert 'model_provider="inferay_openai_http"' in sys.argv
         p = m['params']
         assert p['sandbox'] == 'danger-full-access', p
         assert p['config'].get('features', {}).get('shell_tool') != False, p
