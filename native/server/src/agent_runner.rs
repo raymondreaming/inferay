@@ -820,10 +820,16 @@ async fn run_codex(
             .ok_or("Codex App Server did not return a turn id")?
             .to_owned();
         handle.mark("turnAccepted");
-        Ok::<_, String>((thread_id, turn_id))
+        let root_turn_id = turn_response["turn"]["rootTurnId"].as_str().unwrap_or(&turn_id).to_owned();
+        Ok::<_, String>((thread_id, turn_id, root_turn_id))
     }
     .await;
-    if let Ok((thread_id, turn_id)) = &startup {
+    if let Ok((thread_id, initial_turn_id, root_turn_id)) = &startup {
+        let mut turn_id = initial_turn_id.clone();
+        let mut waiting_for_continuation = false;
+        let mut goal_check = None;
+        let mut continuation_deadline = None;
+        let mut seen_turns = std::collections::HashSet::from([turn_id.clone()]);
         let (control_tx, mut control_rx) = mpsc::unbounded_channel();
         handle.set_codex_control(control_tx);
         let mut pending_steers = HashMap::<u64, oneshot::Sender<Result<(), String>>>::new();
@@ -831,6 +837,16 @@ async fn run_codex(
         let mut interrupt_deadline = None;
         loop {
             tokio::select! {
+                _ = async {
+                    match continuation_deadline {
+                        Some(deadline) => tokio::time::sleep_until(deadline).await,
+                        None => std::future::pending::<()>().await,
+                    }
+                } => {
+                    emit_error(context, "Codex did not confirm goal continuation; stopped without marking the work complete.".into());
+                    completed = false;
+                    break;
+                }
                 _ = async {
                     match interrupt_deadline {
                         Some(deadline) => tokio::time::sleep_until(deadline).await,
@@ -843,6 +859,10 @@ async fn run_codex(
                 control = control_rx.recv() => {
                     match control {
                         Some(CodexControl::Steer { text, images, response }) => {
+                            if waiting_for_continuation {
+                                let _ = response.send(Err("Codex is between goal turns; retry when the next turn starts.".into()));
+                                continue;
+                            }
                             state.prepare_for_steering(context);
                             flush_emissions(context, emissions).await;
                             match rpc.send("turn/steer", json!({
@@ -883,6 +903,51 @@ async fn run_codex(
                 read = rpc.read() => {
                     let Some(message) = read else { break };
                     if message.get("method").is_none()
+                        && goal_check.is_some()
+                        && message["id"].as_u64() == goal_check
+                    {
+                        goal_check = None;
+                        match rpc_result(message) {
+                            Ok(result) if result["goal"]["status"] == "active" => {
+                                let _ = emissions.send(ProtocolEmission::Status {
+                                    status: "Continuing Codex goal…".into(), is_loading: true,
+                                }).await;
+                            }
+                            Ok(_) => { completed = true; break; }
+                            Err(error) => {
+                                emit_error(context, format!("Could not check Codex goal continuation: {error}"));
+                                break;
+                            }
+                        }
+                        continue;
+                    }
+                    // Automatic goal turns have new turn IDs on the same thread.
+                    // Accept that transition only after our current turn completed.
+                    let params = &message["params"];
+                    if params["threadId"].as_str() == Some(thread_id.as_str()) {
+                        if message["method"] == "turn/started" && waiting_for_continuation
+                            && let Some(next) = params["turn"]["id"].as_str()
+                                && params["turn"]["rootTurnId"].as_str().is_none_or(|root| root == next || root == root_turn_id)
+                                && seen_turns.insert(next.to_owned())
+                            {
+                                state.finalize_open_block(context);
+                                flush_emissions(context, emissions).await;
+                                *state = CodexProtocolState::default();
+                                turn_id = next.to_owned();
+                                waiting_for_continuation = false;
+                                goal_check = None;
+                                continuation_deadline = None;
+                        }
+                        if waiting_for_continuation && goal_check.is_none()
+                            && (message["method"] == "thread/goal/cleared"
+                                || (message["method"] == "thread/goal/updated"
+                                    && params["goal"]["status"].as_str().is_some_and(|status| status != "active")))
+                        {
+                            completed = true;
+                            break;
+                        }
+                    }
+                    if message.get("method").is_none()
                         && let Some(id) = message.get("id").and_then(Value::as_u64)
                         && let Some(response) = pending_steers.remove(&id)
                     {
@@ -894,7 +959,7 @@ async fn run_codex(
                     // an approval or invoking a host tool on its behalf.
                     if message.get("id").is_some() && message.get("method").is_some()
                         && (message["params"]["threadId"].as_str().is_some_and(|id| id != thread_id)
-                            || message["params"]["turnId"].as_str().is_some_and(|id| id != turn_id))
+                            || message["params"]["turnId"].as_str().is_some_and(|id| id != turn_id.as_str()))
                     {
                         let _ = rpc.write(&json!({"id":message["id"],"error":{"code":-32000,"message":"Request does not belong to the active turn"}})).await;
                         continue;
@@ -950,7 +1015,7 @@ async fn run_codex(
                     let event_turn = params["turnId"].as_str()
                         .or_else(|| params.pointer("/turn/id").and_then(Value::as_str));
                     if event_thread.is_some_and(|id| id != thread_id)
-                        || event_turn.is_some_and(|id| id != turn_id)
+                        || event_turn.is_some_and(|id| id != turn_id.as_str())
                     {
                         continue;
                     }
@@ -964,8 +1029,18 @@ async fn run_codex(
                         flush_emissions(context, emissions).await;
                     }
                     if is_completed {
-                        completed = true;
-                        break;
+                        if interrupt_deadline.is_some() || handle.is_cancelled()
+                            || params["turn"]["status"].as_str().is_some_and(|status| status != "completed")
+                        {
+                            completed = true;
+                            break;
+                        }
+                        waiting_for_continuation = true;
+                        continuation_deadline = Some(tokio::time::Instant::now() + CODEX_RPC_TIMEOUT);
+                        match rpc.send("thread/goal/get", json!({"threadId":thread_id})).await {
+                            Ok(id) => goal_check = Some(id),
+                            Err(error) => { emit_error(context, error); break; }
+                        }
                     }
                 }
             }

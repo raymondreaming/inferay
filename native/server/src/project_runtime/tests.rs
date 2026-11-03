@@ -2813,6 +2813,7 @@ for line in sys.stdin:
         resumed = method == 'thread/resume'
         if resumed: assert p['threadId'] == 'automation-codex'
         send({'id':m['id'],'result':{'thread':{'id':'automation-codex'}}})
+    elif method == 'thread/goal/get': send({'id':m['id'],'result':{'goal':None}})
     elif method == 'mcpServerStatus/list': send({'id':m['id'],'result':{'data':[],'nextCursor':None}})
     elif method == 'turn/start':
         assert m['params']['sandboxPolicy']['type'] == 'dangerFullAccess'

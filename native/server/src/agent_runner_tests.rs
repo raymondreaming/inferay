@@ -153,6 +153,7 @@ impl Fixture {
         let script = r##"#!/usr/bin/python3
 import json,sys,time
 MODE = '__MODE__'
+goal_checks = 0
 def send(value):
  print(json.dumps(value), flush=True)
 for line in sys.stdin:
@@ -188,6 +189,31 @@ for line in sys.stdin:
   assert 'model_provider="inferay_openai_http"' in sys.argv
   assert any('supports_websockets=false' in arg for arg in sys.argv)
   send({'id':m['id'],'result':{'thread':{'id':'fixture-thread'}}})
+ elif method=='thread/goal/get':
+  goal_checks += 1
+  if MODE.startswith('goal-') and goal_checks == 1:
+   def next_turn():
+    send({'method':'turn/started','params':{'threadId':'child','turn':{'id':'child-turn','rootTurnId':'child-turn'}}})
+    send({'method':'turn/started','params':{'threadId':'fixture-thread','turn':{'id':'nested','rootTurnId':'other-root'}}})
+    send({'method':'turn/started','params':{'threadId':'fixture-thread','turn':{'id':'fixture-turn','rootTurnId':'fixture-turn'}}})
+    send({'method':'turn/started','params':{'threadId':'fixture-thread','turn':{'id':'goal-turn','rootTurnId':'fixture-turn'}}})
+    send({'method':'item/completed','params':{'threadId':'fixture-thread','turnId':'goal-turn','item':{'type':'agentMessage','text':'goal finished'}}})
+    if MODE != 'goal-control':
+     send({'method':'turn/completed','params':{'threadId':'fixture-thread','turn':{'id':'fixture-turn','status':'completed'}}})
+     send({'method':'turn/completed','params':{'threadId':'fixture-thread','turn':{'id':'goal-turn','status':'completed'}}})
+    open('continued','w').write('ready')
+   if MODE=='goal-early': next_turn()
+   send({'id':m['id'],'result':{'goal':{'status':'active'}}})
+   if MODE in ['goal-late','goal-control']:
+    time.sleep(0.05)
+    next_turn()
+   elif MODE not in ['goal-early']:
+    status=MODE.removeprefix('goal-')
+    send({'method':'thread/goal/updated','params':{'threadId':'fixture-thread','goal':{'status':status}}})
+  else: send({'id':m['id'],'result':{'goal':None}})
+ elif method=='turn/steer':
+  assert m['params']['expectedTurnId']=='goal-turn'
+  send({'id':m['id'],'result':{}})
  elif method=='mcpServerStatus/list': send({'id':m['id'],'result':{'data':[],'nextCursor':None}})
  elif method=='turn/start':
   if MODE=='early':
@@ -196,7 +222,7 @@ for line in sys.stdin:
    send({'method':'item/completed','params':{'threadId':'fixture-thread','turnId':'fixture-turn','item':{'type':'agentMessage','text':'root output'}}})
    send({'method':'turn/completed','params':{'threadId':'fixture-thread','turn':{'id':'fixture-turn','status':'completed'}}})
   send({'id':m['id'],'result':{'turn':{'id':'fixture-turn'}}})
-  if MODE=='children':
+  if MODE=='children' or MODE.startswith('goal-'):
    send({'method':'item/completed','params':{'threadId':'child','turnId':'child-turn','item':{'type':'agentMessage','text':'child output'}}})
    send({'method':'turn/completed','params':{'threadId':'child','turn':{'id':'child-turn','status':'completed'}}})
    send({'method':'turn/completed','params':{'threadId':'fixture-thread','turn':{'id':'old-turn','status':'completed'}}})
@@ -215,7 +241,12 @@ for line in sys.stdin:
   assert m['result']['decision']=='decline'
   send({'method':'item/completed','params':{'item':{'type':'agentMessage','text':'answered separately'}}})
   send({'method':'turn/completed','params':{'turn':{'id':'fixture-turn','status':'completed'}}})
- elif method=='turn/interrupt': pass # Simulate an unresponsive model request.
+ elif method=='turn/interrupt':
+  if MODE=='goal-control':
+   assert m['params']['turnId']=='goal-turn'
+   send({'id':m['id'],'result':{}})
+   send({'method':'turn/completed','params':{'threadId':'fixture-thread','turn':{'id':'goal-turn','status':'interrupted'}}})
+  # Other modes simulate an unresponsive model request.
  elif m.get('id')=='server-question':
   assert m['error']['code']==-32601
   send({'method':'item/completed','params':{'item':{'type':'agentMessage','text':'recovered'}}})
@@ -317,7 +348,17 @@ async fn unsupported_server_requests_receive_replies_during_startup_and_turns() 
 
 #[tokio::test]
 async fn child_and_stale_turns_cannot_complete_or_contaminate_the_root_turn() {
-    for mode in ["children", "early"] {
+    for mode in [
+        "children",
+        "early",
+        "goal-early",
+        "goal-late",
+        "goal-paused",
+        "goal-blocked",
+        "goal-budgetLimited",
+        "goal-usageLimited",
+        "goal-complete",
+    ] {
         let f = Fixture::new(mode);
         let invocation = f.invocation(false);
         let handle = f.handle();
@@ -344,7 +385,14 @@ async fn child_and_stale_turns_cannot_complete_or_contaminate_the_root_turn() {
         )
         .await
         .unwrap();
-        assert_eq!(result, "root output");
+        assert_eq!(
+            result,
+            if matches!(mode, "goal-early" | "goal-late") {
+                "goal finished"
+            } else {
+                "root output"
+            }
+        );
         while let Ok(emission) = rx.try_recv() {
             if let ProtocolEmission::Chat(event) = emission.0 {
                 assert!(!event.to_string().contains("child output"));
@@ -890,21 +938,30 @@ async fn stop_deadline_kills_provider_even_when_control_consumer_is_blocked() {
 
 #[tokio::test]
 #[ignore = "requires installed Codex; disposable profile and local model HTTP fixture"]
-async fn installed_codex_http_provider_survives_process_restart() {
+async fn installed_codex_goals_continue_and_resume() {
     let f = Fixture::new("unused");
     let home = f.root.join("codex-home");
     std::fs::create_dir_all(&home).unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
-    let app = axum::Router::new().route("/responses", axum::routing::post(|| async {
-        let item = json!({"type":"message","id":"msg_test","role":"assistant","status":"completed","content":[{"type":"output_text","text":"provider works","annotations":[]}]});
+    let requests = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = requests.clone();
+    let app = axum::Router::new().route("/responses", axum::routing::post(move || {
+      let counter = counter.clone();
+      async move {
+        let index = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let item = if index == 0 {
+            json!({"type":"function_call","id":"fc_create","call_id":"call_create","name":"create_goal","arguments":"{\"objective\":\"Return provider works after continuing automatically.\"}"})
+        } else if index == 2 {
+            json!({"type":"function_call","id":"fc_complete","call_id":"call_complete","name":"update_goal","arguments":"{\"status\":\"complete\"}"})
+        } else { json!({"type":"message","id":"msg_test","role":"assistant","status":"completed","content":[{"type":"output_text","text":if index == 1 { "partial progress" } else { "provider works" },"annotations":[]}]}) };
         let events = [
             json!({"type":"response.created","response":{"id":"resp_test"}}),
             json!({"type":"response.output_item.done","output_index":0,"item":item}),
             json!({"type":"response.completed","response":{"id":"resp_test","status":"completed","output":[item],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}),
         ];
         ([("content-type", "text/event-stream")], events.iter().map(|event| format!("data: {event}\n\n")).collect::<String>())
-    }));
+    }}));
     let server = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
@@ -976,5 +1033,67 @@ async fn installed_codex_http_provider_survives_process_restart() {
         std::fs::read_to_string(home.join("config.toml")).unwrap(),
         config
     );
+    assert!(
+        requests.load(std::sync::atomic::Ordering::SeqCst) >= 5,
+        "goal continuation must make another model request before the resumed turn"
+    );
     server.abort();
+}
+
+#[tokio::test]
+async fn goal_continuation_accepts_steering_and_stop_on_the_new_turn() {
+    let f = Fixture::new("goal-control");
+    let invocation = f.invocation(false);
+    let handle = f.handle();
+    let tracker = RuntimePidTracker::new(f.root.join("pids.json"));
+    let mut context = AgentProtocolContext::new(f.root.clone());
+    let mut state = CodexProtocolState::default();
+    let (tx, mut rx) = protocol_channel();
+    let env = HashMap::new();
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        tokio::join!(
+            run_codex(
+                ProviderRun {
+                    binary: &f.binary,
+                    invocation: &invocation,
+                    env: &env,
+                    prompt: "continue"
+                },
+                &handle,
+                &tracker,
+                &mut context,
+                &mut state,
+                &tx
+            ),
+            async {
+                loop {
+                    if f.root.join("continued").exists() {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+                handle
+                    .steer_codex("Keep working".into(), vec![])
+                    .await
+                    .unwrap();
+                assert!(handle.stop_codex());
+            }
+        );
+    })
+    .await
+    .unwrap();
+    assert!(handle.pid().is_none());
+    let errors = std::iter::from_fn(|| rx.try_recv().ok().map(|item| item.0))
+        .filter_map(|event| {
+            if let ProtocolEmission::System(message) = event {
+                Some(message)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+    assert!(errors.is_empty(), "{errors:?}");
+    let requests = std::fs::read_to_string(f.root.join("requests.jsonl")).unwrap();
+    assert!(requests.contains("turn/steer"));
+    assert!(requests.contains("turn/interrupt"));
 }
