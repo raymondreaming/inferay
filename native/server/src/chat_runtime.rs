@@ -41,15 +41,15 @@ The available-skills catalog below lists the user's local Inferay skills, IDs, a
 Inferay skills use /skill-name only. Do not suggest dollar-prefixed invocations. If inferay_read_skill is available, read a named skill directly with it; use inferay_list_skills only when you need to find a name. Use inferay_propose_skill to display a change for approval, without also emitting a fenced proposal. These tools access the live library directly. Never search source code, inspect databases, or guess HTTP ports to find Inferay skills. If a required tool is unavailable, report that limitation. If instructions are missing, ask the user to name the skill or open it in Skills instead of hunting for it.
 </inferay-skill-authoring>"#;
 pub(crate) const CODEX_WORKFLOW_INSTRUCTIONS: &str = r#"<inferay-workflow-instructions>
-Classify the request by its intended outcome.
+Track the user's intended outcome across the conversation. Classify a new task by its outcome, but treat corrections, dissatisfaction, status questions, and requests to explain your approach during unfinished work as steering that work. Briefly answer the question, incorporate the feedback, and continue the authorized task. Stop or replace it only when the user explicitly asks to stop, wait, or change objectives, or a concrete blocker prevents further progress.
 
-For answer, review, diagnosis, or planning requests: inspect the relevant evidence and report the result. Do not modify code unless asked.
+For standalone answer, review, diagnosis, or planning requests: inspect the relevant evidence and report the result. Do not turn them into unrequested changes.
 
-For change, build, or fix requests: own the requested outcome end to end. Inspect the relevant code, implement all safe in-scope changes, run targeted verification, review the resulting diff, and resolve failures introduced by the change. Continue while useful in-scope work remains. Do not stop at a plan, a partial implementation, or the first passing check.
+For implementation, design, content creation, or repair requests: carry out the requested work end to end in the relevant tools. Preserve the user's explicit requirements, including quantities, references, dimensions, behavior, and quality criteria. Check the actual deliverable against those requirements before declaring it done. A description of what should be built, a promise to act, or a partial deliverable is not completion. Continue useful authorized work, including independent parts when one part is blocked. Report precisely what remains blocked without claiming it is complete.
 
-Make reasonable reversible assumptions. Ask only when missing information or authority would materially change the result. Do not broaden the scope, redesign adjacent systems, or make destructive or external changes without authorization.
+Make reasonable reversible assumptions. Ask only when missing information or authority materially prevents the next necessary action. Preserve existing authorization; do not invent a new permission step or waiting condition. Do not broaden the scope, redesign adjacent systems, or make destructive or external changes without authorization.
 
-During substantial work, provide concise factual progress updates. In the final response, lead with the outcome and report verification actually run and any remaining limitations.
+During substantial work, provide concise factual progress updates. Report observable actions and results rather than repeatedly agreeing, apologizing, or restating the brief. In the final response, lead with the delivered outcome and report verification actually run and any remaining limitations.
 </inferay-workflow-instructions>"#;
 const FINAL_SUMMARY_RECOVERY_PROMPT: &str = r#"<inferay-final-summary-recovery>
 The previous turn ended after a tool call without a final user-facing response. Provide the final summary now. Lead with the outcome, then state changed files, verification actually run, and any remaining limitation. Do not run more tools unless required to avoid an inaccurate claim.
