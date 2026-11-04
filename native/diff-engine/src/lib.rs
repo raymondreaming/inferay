@@ -4,6 +4,8 @@ pub use prepared_diff::{
     change_ranges, minimap_segments, prepare_conflict_lines, prepare_edit_diff,
 };
 mod git_exec;
+mod remote;
+pub use remote::fetch_git_remotes_if_due;
 mod worktree_index;
 use worktree_index::WorktreeIndex;
 mod graph_semantics;
@@ -99,7 +101,7 @@ fn diff_operations<T: PartialEq>(old_lines: &[T], new_lines: &[T]) -> Vec<DiffOp
     diff_ops
 }
 
-const MAX_UNTRACKED_FILE_BYTES: u64 = 500_000;
+const MAX_UNTRACKED_FILE_BYTES: u64 = 8 * 1024 * 1024;
 // Bound retained source rows/bytes; the UI mounts only its visible window.
 const MAX_RENDERED_DIFF_LINES: usize = 100_000;
 const MAX_DIFF_TEXT_BYTES: usize = 8 * 1024 * 1024;
@@ -355,19 +357,6 @@ fn build_hunk_diff_from_versions(
 
     let old_file_lines: Vec<_> = content_lines(old_content).collect();
     let new_file_lines: Vec<_> = content_lines(new_content).collect();
-    if old_file_lines
-        .iter()
-        .chain(new_file_lines.iter())
-        .any(|line| line.encode_utf16().count() > MAX_RENDERED_LINE_CHARS)
-    {
-        let mut result = too_large_diff(
-            "Diff contains a very long line and cannot render safely",
-            false,
-        );
-        result.raw_patch = Some(raw_patch);
-        return result;
-    }
-
     let old_file_lines = if is_new && !is_deleted {
         Vec::new()
     } else {
@@ -401,7 +390,11 @@ fn build_hunk_diff_from_versions(
         let line = |source: &[&str], index: usize, take: bool, changed, change_type| GitDiffLine {
             number: take.then_some(index + 1),
             content: if take {
-                source[index].to_owned()
+                let text = source[index];
+                match text.char_indices().nth(MAX_RENDERED_LINE_CHARS) {
+                    Some((end, _)) => format!("{} … [line preview truncated]", &text[..end]),
+                    None => text.to_owned(),
+                }
             } else {
                 String::new()
             },
@@ -1672,6 +1665,22 @@ pub fn perform_git_graph_action_with_targets(
     name: Option<&str>,
     message: Option<&str>,
 ) -> GitOperationResult {
+    let remote_state = remote::state(cwd);
+    let mut remote_state = remote_state.lock().unwrap();
+    if action == "fetch" {
+        return match remote_state.fetch(cwd) {
+            Ok(()) => GitOperationResult {
+                ok: true,
+                operation: action.into(),
+                outcome: GitOperationOutcome::Completed,
+                head: current_git_head(cwd),
+                conflicts: vec![],
+                error_kind: None,
+                error: None,
+            },
+            Err(error) => git_operation_error(cwd, action, error),
+        };
+    }
     let target = target.unwrap_or_default();
     let name = name.unwrap_or_default().trim();
     let operation = get_git_repository_operation_state(cwd);
@@ -1872,9 +1881,6 @@ pub fn perform_git_graph_action_with_targets(
             };
             command.args(["reset", mode, target]);
         }
-        "fetch" => {
-            command.args(["fetch", "--all", "--prune"]);
-        }
         "pull" | "push" | "forcePushWithLease" => {
             let Some(status) = git_status(cwd, false) else {
                 return git_operation_error(cwd, action, "Repository status is unavailable");
@@ -1896,10 +1902,37 @@ pub fn perform_git_graph_action_with_targets(
                     .args(["pull", "--no-edit", "--autostash"])
                     .env("GIT_EDITOR", "true");
             } else {
+                let upstream = run_git(
+                    &[
+                        "for-each-ref",
+                        "--format=%(upstream:remotename)%09%(upstream:remoteref)",
+                        &format!("refs/heads/{}", status.branch),
+                    ],
+                    cwd,
+                )
+                .unwrap_or_default();
+                let Some((remote, reference)) = upstream.trim().split_once('\t') else {
+                    return git_operation_error(
+                        cwd,
+                        action,
+                        "Unable to resolve the configured upstream destination",
+                    );
+                };
                 command.arg("push");
                 if force {
-                    command.arg("--force-with-lease");
+                    let Some(expected) = run_git(&["rev-parse", "@{upstream}"], cwd) else {
+                        return git_operation_error(
+                            cwd,
+                            action,
+                            "Fetch the upstream before force pushing",
+                        );
+                    };
+                    command.arg(format!(
+                        "--force-with-lease={reference}:{}",
+                        expected.trim()
+                    ));
                 }
+                command.args(["--", remote, &format!("HEAD:{reference}")]);
             }
         }
         _ => return git_operation_error(cwd, action, "Unsupported graph action"),
@@ -2248,11 +2281,7 @@ pub fn stash_git_file(cwd: &str, file_path: &str) -> Result<(), String> {
     git_exec::run_git_bytes(&args, cwd, Duration::from_secs(30)).map(|_| ())
 }
 
-pub fn commit_git(cwd: &str, message: &str) -> GitCommitResult {
-    commit_git_mode(cwd, message, false)
-}
-
-fn commit_git_mode(cwd: &str, message: &str, amend: bool) -> GitCommitResult {
+pub fn commit_git(cwd: &str, message: &str, amend: bool) -> GitCommitResult {
     if message.trim().is_empty() {
         return GitCommitResult {
             success: false,
@@ -2265,23 +2294,17 @@ fn commit_git_mode(cwd: &str, message: &str, amend: bool) -> GitCommitResult {
     } else {
         vec!["commit", "-m", message]
     };
-    let Some(result) = run_git(&arguments, cwd) else {
+    let state = remote::state(cwd);
+    let _guard = state.lock().unwrap();
+    if let Err(error) = git_exec::run_git_bytes(&arguments, cwd, Duration::from_secs(120)) {
         return GitCommitResult {
             success: false,
             hash: None,
-            error: Some("Commit failed".to_string()),
+            error: Some(error),
         };
-    };
-    let hash = result.lines().find_map(|line| {
-        let inside = line.strip_prefix('[')?.split_once(']')?.0;
-        let (branch, hash) = inside.split_once(' ')?;
-        (branch
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
-            && !hash.is_empty()
-            && hash.bytes().all(|byte| byte.is_ascii_hexdigit()))
-        .then(|| hash.to_string())
-    });
+    }
+    let hash = current_git_head(cwd);
+
     GitCommitResult {
         success: true,
         hash,
@@ -4127,6 +4150,72 @@ mod image_diff_tests {
         assert!(deleted.old_image.unwrap().contains("rev=INDEX"));
 
         assert_eq!(git_blob_bytes(cwd, &head, "icon.png").unwrap(), changed);
+    }
+}
+
+#[cfg(test)]
+mod commit_preview_tests {
+    use super::*;
+
+    #[test]
+    fn commits_only_staged_changes_and_amends_without_adding_history() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(temp.path()).unwrap();
+        let cwd = root.to_str().unwrap();
+        let git = |args: &[&str]| run_git(args, cwd).unwrap();
+        git(&["init", "-b", "main"]);
+        git(&["config", "user.email", "fixture@example.invalid"]);
+        git(&["config", "user.name", "Fixture"]);
+        git(&["config", "commit.gpgsign", "false"]);
+        std::fs::write(root.join("file.txt"), "staged").unwrap();
+        git(&["add", "file.txt"]);
+        std::fs::write(root.join("file.txt"), "unstaged").unwrap();
+        let commit = commit_git(cwd, "Initial message", false);
+        assert!(commit.success, "{:?}", commit.error);
+        assert_eq!(commit.hash, current_git_head(cwd));
+        assert_eq!(git(&["show", "HEAD:file.txt"]), "staged");
+        let amended = commit_git(cwd, "Amended message", true);
+        assert!(amended.success, "{:?}", amended.error);
+        assert_ne!(commit.hash, amended.hash);
+        assert_eq!(git(&["rev-list", "--count", "HEAD"]).trim(), "1");
+        assert_eq!(git(&["log", "-1", "--format=%s"]).trim(), "Amended message");
+        assert_eq!(
+            std::fs::read_to_string(root.join("file.txt")).unwrap(),
+            "unstaged"
+        );
+        let empty = commit_git(cwd, "Nothing staged", false);
+        assert!(!empty.success);
+        assert!(empty.error.unwrap().contains("no changes added"));
+    }
+
+    #[test]
+    fn large_text_and_long_unicode_lines_remain_viewable() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(temp.path()).unwrap();
+        let cwd = root.to_str().unwrap();
+        run_git(&["init"], cwd).unwrap();
+        let allowed = AllowedPaths::new(&root, &root, &root).unwrap();
+        let text = format!(
+            "{}\n{}",
+            "é".repeat(10_000),
+            "ordinary text line\n".repeat(32_000)
+        );
+        assert!(text.len() > 500_000);
+        std::fs::write(root.join("large.txt"), &text).unwrap();
+        let diff = get_git_hunk_diff(&allowed, cwd, "large.txt", false);
+        assert!(!diff.is_binary);
+        assert!(diff.new_lines.len() >= 32_000);
+        assert!(
+            diff.new_lines[0]
+                .content
+                .ends_with("[line preview truncated]")
+        );
+        assert!(diff.new_lines[1].content.contains("ordinary text"));
+        std::fs::write(root.join("icon.svg"),r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>"#).unwrap();
+        let svg = get_git_hunk_diff(&allowed, cwd, "icon.svg", false);
+        assert_eq!(svg.is_image, Some(true));
+        assert!(svg.old_image.is_none());
+        assert!(svg.new_image.is_some());
     }
 }
 

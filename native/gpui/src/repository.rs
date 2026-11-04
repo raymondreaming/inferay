@@ -1,6 +1,7 @@
 use crate::zoom::ui;
 mod actions;
 mod changes;
+mod commit;
 mod diff;
 mod diff_cache;
 use diff::PreparedDiff;
@@ -25,6 +26,12 @@ impl EventEmitter<RepositoryEvent> for RepositoryView {}
 
 /// Repository reads and staging use the shared Git engine.
 pub struct RepositoryView {
+    pub(crate) backend: Arc<tokio::sync::OnceCell<Arc<crate::backend::Backend>>>,
+    commit_drafts: std::collections::HashMap<String, commit::Draft>,
+    commit_prepare_task: Option<Task<()>>,
+    commit_generating: bool,
+    diff_images: [Option<Result<Arc<RenderImage>, String>>; 2],
+    image_task: Option<Task<()>>,
     focus: FocusHandle,
     keyboard_scope: &'static str,
     show_diff: bool,
@@ -106,6 +113,8 @@ impl RepositoryView {
     }
 
     fn clear_diff(&mut self) {
+        self.image_task = None;
+        self.diff_images = Default::default();
         self.diff_task = None;
         self.diff_prefetch_task = None;
         self.theme_task = None;
@@ -143,6 +152,12 @@ impl RepositoryView {
         cx: &mut Context<Self>,
     ) -> Self {
         let mut view = Self {
+            backend: Default::default(),
+            commit_drafts: Default::default(),
+            commit_prepare_task: None,
+            commit_generating: false,
+            diff_images: Default::default(),
+            image_task: None,
             focus: cx.focus_handle(),
             keyboard_scope: "graph",
             show_diff: false,
@@ -337,7 +352,7 @@ impl RepositoryView {
         cx.notify();
     }
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
-        if self.loading {
+        if self.loading || self.mutating {
             return;
         }
         self.loading = true;

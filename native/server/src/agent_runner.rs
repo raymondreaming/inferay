@@ -628,17 +628,6 @@ fn claude_invocation_args(run: &ProviderRun<'_>, mcp_config: Option<&Path>) -> V
 }
 
 pub(crate) const DIRECT_INTEGRATIONS: &str = "You are running inside Inferay through the installed provider harness. Inferay owns the conversation, project bindings, queue and approval cards. Use native Inferay tools for app-owned resources; ordinary coding needs no app tools. A proposal is pending user action, not a saved change. Use absolute Markdown file links for local outputs. Inferay uses local Git and the GitHub CLI directly. GitKraken tools are disabled in Inferay. Use the direct Linear MCP tools for Linear; discover the available tools before claiming access is missing. If a direct integration is unavailable, report that specific connection failure rather than asking the user to connect GitKraken.";
-/// Config with no MCP servers, for turns that cannot use them.
-pub(crate) fn write_empty_mcp_config() -> Option<tempfile::NamedTempFile> {
-    let file = tempfile::Builder::new()
-        .prefix("inferay-mcp-")
-        .suffix(".json")
-        .tempfile()
-        .ok()?;
-    serde_json::to_writer(&file, &serde_json::json!({ "mcpServers": {} })).ok()?;
-    Some(file)
-}
-
 async fn run_codex(
     run: ProviderRun<'_>,
     handle: &AgentProcessHandle,

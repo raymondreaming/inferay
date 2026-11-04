@@ -39,13 +39,11 @@ impl EditDiff {
     pub fn retheme(&self, theme: &str) -> Self {
         let mut next = self.clone();
         if let Ok(data) = &self.data {
-            let old = crate::syntax::line_highlights(
-                &self.source.old_string.split('\n').collect::<Vec<_>>(),
-                &self.source.file_path,
-                theme,
-            );
-            let new = crate::syntax::line_highlights(
-                &self.source.new_string.split('\n').collect::<Vec<_>>(),
+            let [old, new] = crate::syntax::diff_highlights(
+                [
+                    &self.source.old_string.split('\n').collect::<Vec<_>>(),
+                    &self.source.new_string.split('\n').collect::<Vec<_>>(),
+                ],
                 &self.source.file_path,
                 theme,
             );

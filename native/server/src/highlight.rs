@@ -127,7 +127,7 @@ pub struct Classified {
     pub lines: Vec<Vec<SyntaxRun>>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SyntaxRun {
     pub utf16_len: usize,
     pub kind: SyntaxKind,
@@ -165,7 +165,6 @@ pub fn classify(path: &str, text: &str) -> Option<Classified> {
     let syntax = syntax(path).or_else(|| {
         syntaxes().find_syntax_by_first_line(text.lines().next().unwrap_or_default())
     })?;
-    let set = syntaxes();
     let mut state = ParseState::new(syntax);
     let mut stack = ScopeStack::new();
     let mut lines = Vec::new();
@@ -173,30 +172,97 @@ pub fn classify(path: &str, text: &str) -> Option<Classified> {
         if lines.len() >= MAX_LINES {
             return None;
         }
-        let ops = state.parse_line(line, set).ok()?;
-        let mut runs: Vec<SyntaxRun> = Vec::new();
-        for (piece, op) in ScopeRegionIterator::new(&ops, line) {
-            stack.apply(op).ok()?;
-            let piece = piece.trim_end_matches('\n');
-            if piece.is_empty() {
-                continue;
-            }
-            let current = kind(&stack);
-            match runs.last_mut() {
-                Some(run) if run.kind == current => run.utf16_len += units(piece),
-                _ => runs.push(SyntaxRun {
-                    utf16_len: units(piece),
-                    kind: current,
-                }),
-            }
-        }
-        lines.push(runs);
+        lines.push(classify_line(&mut state, &mut stack, line)?);
     }
     Some(Classified {
         version: 3,
         language: syntax.name.clone(),
         lines,
     })
+}
+
+fn classify_line(
+    state: &mut ParseState,
+    stack: &mut ScopeStack,
+    line: &str,
+) -> Option<Vec<SyntaxRun>> {
+    let ops = state.parse_line(line, syntaxes()).ok()?;
+    let mut runs: Vec<SyntaxRun> = Vec::new();
+    for (piece, op) in ScopeRegionIterator::new(&ops, line) {
+        stack.apply(op).ok()?;
+        let piece = piece.trim_end_matches('\n');
+        if piece.is_empty() {
+            continue;
+        }
+        let current = kind(stack);
+        match runs.last_mut() {
+            Some(run) if run.kind == current => run.utf16_len += units(piece),
+            _ => runs.push(SyntaxRun {
+                utf16_len: units(piece),
+                kind: current,
+            }),
+        }
+    }
+    Some(runs)
+}
+
+/// Parse shared text once, reusing the common suffix only when both grammar
+/// and scope state agree. No document or parser state survives this call.
+pub fn classify_pair(path: &str, before: &str, after: &str) -> [Option<Classified>; 2] {
+    let paired = (|| -> Option<[Classified; 2]> {
+        let syntax = syntax(path)?;
+        let sources = [before, after];
+        if sources.iter().any(|text| {
+            text.len() > MAX_BYTES || text.lines().any(|line| line.len() > MAX_LINE_BYTES)
+        }) {
+            return None;
+        }
+        let [old, new] = sources.map(|text| text.split_inclusive('\n').collect::<Vec<_>>());
+        if old.len().max(new.len()) > MAX_LINES {
+            return None;
+        }
+        let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
+        let suffix = old[prefix..]
+            .iter()
+            .rev()
+            .zip(new[prefix..].iter().rev())
+            .take_while(|(a, b)| a == b)
+            .count();
+        let mut state = ParseState::new(syntax);
+        let mut stack = ScopeStack::new();
+        let mut old_runs = Vec::with_capacity(old.len());
+        for line in &old[..prefix] {
+            old_runs.push(classify_line(&mut state, &mut stack, line)?);
+        }
+        let mut new_runs = old_runs.clone();
+        let (mut new_state, mut new_stack) = (state.clone(), stack.clone());
+        for line in &old[prefix..old.len() - suffix] {
+            old_runs.push(classify_line(&mut state, &mut stack, line)?);
+        }
+        for line in &new[prefix..new.len() - suffix] {
+            new_runs.push(classify_line(&mut new_state, &mut new_stack, line)?);
+        }
+        let mut shared_suffix = false;
+        for line in &old[old.len() - suffix..] {
+            shared_suffix = shared_suffix || state == new_state && stack == new_stack;
+            let runs = classify_line(&mut state, &mut stack, line)?;
+            new_runs.push(if shared_suffix {
+                runs.clone()
+            } else {
+                classify_line(&mut new_state, &mut new_stack, line)?
+            });
+            old_runs.push(runs);
+        }
+        Some([old_runs, new_runs].map(|lines| Classified {
+            version: 3,
+            language: syntax.name.clone(),
+            lines,
+        }))
+    })();
+    match paired {
+        Some(pair) => pair.map(Some),
+        None => [classify(path, before), classify(path, after)],
+    }
 }
 
 /// Diff headers are not source, and before/after revisions have independent
@@ -263,6 +329,102 @@ pub fn classify_diff(path: &str, text: &str, types: &[String]) -> Option<Classif
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn paired_classification_matches_independent_revisions() {
+        let fixtures = [
+            (
+                "rs",
+                "fn main() {\n    let value = 1;\n}\n",
+                "fn main() {\n    let value = 2;\n}\n",
+            ),
+            ("rs", "let a = 1;\nlet b = 2;\n", "/*\nlet b = 2;\n"),
+            (
+                "js",
+                "const value = `old\ntext`;\nreturn value;",
+                "const value = `new\ntext`;\nreturn value;",
+            ),
+            ("py", "a = 1\nb = 2\nc = 3\n", "a = 1\n'''\nc = 3\n"),
+            (
+                "tsx",
+                "<div>\n  text\n</div>\n",
+                "<div>\n  <span>text</span>\n</div>\n",
+            ),
+            ("rs", "// café 😀\nlet x = 1;", "// café 😀\nlet x = 2;"),
+            ("rs", "same\n", "same"),
+            ("rs", "", "let x = 1;\n"),
+            ("rs", "let x = 1;\n", ""),
+            ("rs", "same\n", "same\n"),
+            ("unknown", "plain\n", "other\n"),
+        ];
+        for (path, before, after) in fixtures {
+            let pair = classify_pair(path, before, after);
+            for (source, actual) in [before, after].into_iter().zip(pair) {
+                assert_eq!(
+                    serde_json::to_value(actual).unwrap(),
+                    serde_json::to_value(classify(path, source)).unwrap(),
+                    "{path}: {source}"
+                );
+            }
+        }
+        // Insert/remove delimiters at each row: unchanged text may acquire a
+        // different meaning until the multiline grammar states converge.
+        for (path, source) in [
+            (
+                "rs",
+                "fn main() {\n/* comment\ncontinued */\nlet x = \"hello\";\n}\n",
+            ),
+            ("js", "const x = `hello\n${value}\nworld`;\n// done\n"),
+        ] {
+            let rows = source.split_inclusive('\n').collect::<Vec<_>>();
+            for index in 0..rows.len() {
+                for replacement in ["", "/*\n", "*/\n", "`\n", "// inserted\n"] {
+                    let changed = format!(
+                        "{}{}{}",
+                        rows[..index].concat(),
+                        replacement,
+                        rows[index + 1..].concat()
+                    );
+                    for (source, actual) in [source, changed.as_str()]
+                        .into_iter()
+                        .zip(classify_pair(path, source, &changed))
+                    {
+                        assert_eq!(
+                            serde_json::to_value(actual).unwrap(),
+                            serde_json::to_value(classify(path, source)).unwrap()
+                        );
+                    }
+                }
+            }
+        }
+        let oversized = "x".repeat(MAX_LINE_BYTES + 1);
+        let pair = classify_pair("rs", &oversized, "let x = 1;");
+        assert!(pair[0].is_none());
+        assert!(pair[1].is_some());
+    }
+
+    #[test]
+    #[ignore = "manual syntax latency measurement"]
+    fn benchmark_source_highlighting() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        for path in [
+            "native/gpui/src/workspace.rs",
+            "native/server/src/lib.rs",
+            "native/gpui/src/repository/diff.rs",
+        ] {
+            let source = std::fs::read_to_string(root.join(path)).unwrap();
+            for pass in 0..3 {
+                let start = std::time::Instant::now();
+                let result = classify(path, &source).unwrap();
+                eprintln!(
+                    "syntax {path} pass={pass} lines={} elapsed={:?}",
+                    result.lines.len(),
+                    start.elapsed()
+                );
+                std::hint::black_box(result);
+            }
+        }
+    }
 
     #[test]
     fn typed_runs_preserve_the_flat_http_contract() {

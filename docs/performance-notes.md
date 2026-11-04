@@ -63,6 +63,26 @@ The same real Origin commit subsequently took 13.6–14.9 ms in Git and 0.025–
 cargo test --locked --release --manifest-path native/gpui/Cargo.toml benchmark_diff_navigation -- --ignored --nocapture --test-threads=1
 ```
 
+## Shared before/after syntax parsing
+
+Git and inline chat diffs classify their two revisions together. The classifier parses their common prefix once, processes changed regions independently, and shares the common suffix only after both grammar and scope states match. If a changed delimiter affects subsequent lines, both sides keep parsing until their states converge. Parser state exists only for the current preparation; existing diff cache freshness and memory limits are unchanged.
+
+The paired release benchmark compares independent before/after classification against shared parsing, including native style conversion and row projection. It uses two excluded warmups and 12 alternating measured samples on Apple M5 Pro, macOS 27.0.1. The baseline includes the Oniguruma parser improvement and the staged working tree at `0865ad92423905b7c156272c24237e416cc65685`, rather than the pristine commit. Inputs are 300 TypeScript lines and the 4,346-line native workspace source; equality is checked before timing. Complete rewrites are measured separately because they offer little shared text.
+
+| Syntax workload | Independent p50 / p95 | Shared p50 / p95 |
+|---|---|---|
+| 300-line TypeScript, localized edit | 19.496 / 20.044 ms | 9.966 / 11.469 ms |
+| 300-line TypeScript, every line changed | 19.360 / 20.127 ms | 19.471 / 19.881 ms |
+| 4,346-line Rust file, comment inserted near start | 153.142 / 154.027 ms | 78.637 / 80.103 ms |
+
+Localized edits improve about 1.95×; the complete rewrite remains essentially unchanged. Regression checks compare the complete classification against independent parsing for Unicode, additions/deletions, trailing newlines, size limits, and inserted/removed multiline delimiters.
+
+These measurements cover syntax preparation, not Git reads, event delivery, layout, or display presentation. Initial plain-text publication remains asynchronous from coloring. They do not establish a whole-diff or whole-application 2× speedup.
+
+```sh
+cargo test --release --manifest-path native/gpui/Cargo.toml benchmark_paired_diff_coloring -- --ignored --nocapture --test-threads=1
+```
+
 ## Measurement rules
 
 Use equivalent release builds/workloads, alternate baseline and candidate runs, exclude warmups, and report p50/p95 plus sample counts. Do not benchmark alongside compilation. Use disposable profiles and repositories, disable real providers and remote access, and verify output equivalence and failure behavior.

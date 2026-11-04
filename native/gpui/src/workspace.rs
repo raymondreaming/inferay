@@ -150,6 +150,7 @@ pub struct WorkspaceView {
     repository_subscription: Option<Subscription>,
     repository_edit_task: Option<Task<()>>,
     repository_stats_task: Option<Task<()>>,
+    repository_fetch_task: Option<Task<()>>,
     repository_stats: std::collections::HashMap<String, inferay_core::repository::GitChangeSummary>,
     font: &'static str,
     syntax_theme: String,
@@ -316,6 +317,7 @@ impl WorkspaceView {
             repository_subscription: None,
             repository_edit_task: None,
             repository_stats_task: None,
+            repository_fetch_task: None,
             repository_stats: Default::default(),
             font: ".SystemUIFont",
             syntax_theme: "vscode-black".into(),
@@ -445,6 +447,7 @@ impl WorkspaceView {
                 self.project_picker = true;
                 self.repository = false;
                 self.repository_stats_task = None;
+                self.repository_fetch_task = None;
             }
         }
         self.persist_workspace_preferences(None, cx);
@@ -494,6 +497,48 @@ impl WorkspaceView {
         cx.notify();
     }
     fn refresh_repository_stats(&mut self, cx: &mut Context<Self>) {
+        self.repository_fetch_task = Some(cx.spawn(async move |this, cx| {
+            loop {
+                let Ok(fetch_paths) = this.read_with(cx, |s, _| {
+                    s.projects[s.project]
+                        .repositories
+                        .iter()
+                        .filter(|(_, path)| s.repository_is_open(path))
+                        .map(|(_, path)| path.clone())
+                        .collect::<Vec<_>>()
+                }) else {
+                    return;
+                };
+                for path in &fetch_paths {
+                    let path = path.clone();
+                    let result = cx
+                        .background_executor()
+                        .spawn(async move {
+                            let result = inferay_native_diff::fetch_git_remotes_if_due(&path);
+                            (path, result)
+                        })
+                        .await;
+                    if this
+                        .update(cx, |s, cx| {
+                            if let (path, Some(Ok(()))) = result
+                                && s.repository
+                                && !s.settings
+                                && s.projects[s.project].selected_repository.as_ref() == Some(&path)
+                                && let Some(view) = s.repository_views.get(&path)
+                            {
+                                view.update(cx, |view, cx| view.refresh(cx));
+                            }
+                        })
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+                cx.background_executor()
+                    .timer(std::time::Duration::from_secs(60))
+                    .await;
+            }
+        }));
         let paths = self.projects[self.project]
             .repositories
             .iter()
@@ -733,6 +778,7 @@ impl WorkspaceView {
             view
         };
         view.update(cx, |view, _| {
+            view.backend = self.backend.clone();
             view.repositories = self.projects[self.project]
                 .repositories
                 .iter()
@@ -3559,6 +3605,59 @@ mod tests {
                 "keep"
             );
         }
+    }
+
+    #[gpui::test]
+    fn automatic_fetch_covers_open_repositories_in_the_selected_project(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let root = tempfile::tempdir().unwrap();
+        let remote = root.path().join("remote.git");
+        let git = |path: &std::path::Path, args: &[&str]| {
+            let result = inferay_native_diff::git_command()
+                .current_dir(path)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "{}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+        };
+        git(
+            root.path(),
+            &["init", "--bare", "-q", remote.to_str().unwrap()],
+        );
+        let paths: Vec<_> = (0..3)
+            .map(|index| {
+                let path = root.path().join(format!("repo-{index}"));
+                git(root.path(), &["init", "-q", path.to_str().unwrap()]);
+                git(
+                    &path,
+                    &["remote", "add", "origin", remote.to_str().unwrap()],
+                );
+                path
+            })
+            .collect();
+        let _window = cx.add_window(|_, cx| {
+            let input = cx.new(TextInput::new);
+            let mut view = WorkspaceView::empty(cx.focus_handle(), input, cx);
+            view.projects[0].repositories = paths
+                .iter()
+                .map(|path| ("Repository".into(), path.to_string_lossy().into_owned()))
+                .collect();
+            view.closed_repositories
+                .entry(String::new())
+                .or_default()
+                .insert(paths[2].to_string_lossy().into_owned());
+            view.refresh_repository_stats(cx);
+            view
+        });
+        cx.run_until_parked();
+        assert!(paths[0].join(".git/FETCH_HEAD").exists());
+        assert!(paths[1].join(".git/FETCH_HEAD").exists());
+        assert!(!paths[2].join(".git/FETCH_HEAD").exists());
     }
 
     #[gpui::test]

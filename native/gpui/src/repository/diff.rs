@@ -1,6 +1,6 @@
 use super::*;
 
-type LineStyles = Vec<(std::ops::Range<usize>, HighlightStyle)>;
+use crate::syntax::LineStyles;
 
 #[derive(Clone)]
 pub(super) struct PreparedDiff {
@@ -19,8 +19,8 @@ pub(super) struct PreparedDiff {
     inline_minimap: Arc<[inferay_native_diff::MinimapSegment]>,
 }
 impl PreparedDiff {
-    pub(super) fn classify(lines: &[GitDiffLine], path: &str, theme: &str) -> Vec<LineStyles> {
-        let source: Vec<_> = lines
+    fn source_lines(lines: &[GitDiffLine]) -> Vec<&str> {
+        lines
             .iter()
             .map(|line| {
                 if matches!(
@@ -32,8 +32,12 @@ impl PreparedDiff {
                     line.content.as_str()
                 }
             })
-            .collect();
-        crate::syntax::line_highlights(&source, path, theme)
+            .collect()
+    }
+
+    #[cfg(test)]
+    pub(super) fn classify(lines: &[GitDiffLine], path: &str, theme: &str) -> Vec<LineStyles> {
+        crate::syntax::line_highlights(&Self::source_lines(lines), path, theme)
     }
 
     #[cfg(test)]
@@ -137,8 +141,16 @@ impl PreparedDiff {
     }
     pub(super) fn retheme(&self, theme: &str) -> Self {
         let mut next = self.clone();
-        next.old = Self::classify(&self.diff.old_lines, &self.path, theme).into();
-        next.new = Self::classify(&self.diff.new_lines, &self.path, theme).into();
+        let [old, new] = crate::syntax::diff_highlights(
+            [
+                &Self::source_lines(&self.diff.old_lines),
+                &Self::source_lines(&self.diff.new_lines),
+            ],
+            &self.path,
+            theme,
+        );
+        next.old = old.into();
+        next.new = new.into();
         next.theme = theme.into();
         next.colored = true;
         next
@@ -199,6 +211,118 @@ impl PreparedDiff {
 }
 
 impl RepositoryView {
+    fn load_diff_images(&mut self, data: Arc<PreparedDiff>, cx: &mut Context<Self>) {
+        self.diff_images = [None, None];
+        let Some(backend) = self.backend.get().cloned() else {
+            self.diff_images = std::array::from_fn(|_| {
+                Some(Err("Inferay services are not connected yet.".into()))
+            });
+            return;
+        };
+        let renderer = cx.svg_renderer();
+        let work = cx.background_executor().spawn(async move {
+            let mut images = [None, None];
+            for (side, endpoint) in [data.diff.old_image.as_ref(), data.diff.new_image.as_ref()]
+                .into_iter()
+                .enumerate()
+            {
+                if let Some(endpoint) = endpoint {
+                    images[side] = Some(
+                        (|| -> anyhow::Result<Arc<RenderImage>> {
+                            let bytes =
+                                crate::backend::RUNTIME.block_on(backend.image_bytes(endpoint))?;
+                            let format = if data.path.to_ascii_lowercase().ends_with(".svg") {
+                                ImageFormat::Svg
+                            } else {
+                                match image::guess_format(&bytes)? {
+                                    image::ImageFormat::Png => ImageFormat::Png,
+                                    image::ImageFormat::Jpeg => ImageFormat::Jpeg,
+                                    image::ImageFormat::Gif => ImageFormat::Gif,
+                                    image::ImageFormat::WebP => ImageFormat::Webp,
+                                    image::ImageFormat::Bmp => ImageFormat::Bmp,
+                                    image::ImageFormat::Ico => ImageFormat::Ico,
+                                    _ => anyhow::bail!("Unsupported image format"),
+                                }
+                            };
+                            Image::from_bytes(format, bytes).to_image_data(renderer.clone())
+                        })()
+                        .map_err(|error| error.to_string()),
+                    );
+                }
+            }
+            (data, images)
+        });
+        self.image_task = Some(cx.spawn(async move |this, cx| {
+            let (data, images) = work.await;
+            let _ = this.update(cx, |s, cx| {
+                if s.diff
+                    .as_ref()
+                    .is_some_and(|current| Arc::ptr_eq(&current.diff, &data.diff))
+                {
+                    s.diff_images = images;
+                    cx.notify();
+                }
+            });
+        }));
+    }
+
+    fn image_preview(&self, _cx: &mut Context<Self>) -> AnyElement {
+        let Some(data) = &self.diff else {
+            return div().into_any_element();
+        };
+        let endpoints = [&data.diff.old_image, &data.diff.new_image];
+        div()
+            .id("diff-images")
+            .debug_selector(|| "diff-images".into())
+            .flex()
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .gap(ui(8.))
+            .p(ui(8.))
+            .when(!self.split_diff, |d| d.flex_col())
+            .children(
+                (0..2)
+                    .filter(|&side| {
+                        endpoints[side].is_some()
+                            && (!self.file_view || side == usize::from(endpoints[1].is_some()))
+                    })
+                    .map(|side| {
+                        div()
+                            .id(("diff-image", side))
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_h_0()
+                            .min_w_0()
+                            .gap(ui(6.))
+                            .child(
+                                div()
+                                    .text_size(ui(11.))
+                                    .text_color(rgba(0xebebeb99))
+                                    .child(if side == 0 { "Before" } else { "After" }),
+                            )
+                            .child(match &self.diff_images[side] {
+                                Some(Ok(image)) => img(image.clone())
+                                    .object_fit(ObjectFit::Contain)
+                                    .w_full()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .into_any_element(),
+                                Some(Err(error)) => div()
+                                    .text_size(ui(12.))
+                                    .child(format!("Could not preview image: {error}"))
+                                    .into_any_element(),
+                                None => div()
+                                    .text_size(ui(12.))
+                                    .child("Loading image…")
+                                    .into_any_element(),
+                            })
+                    }),
+            )
+            .into_any_element()
+    }
+
     pub(super) fn diff_key(&self, path: String, staged: bool) -> DiffKey {
         DiffKey {
             cwd: self.selected_worktree.as_ref().unwrap_or(&self.cwd).clone(),
@@ -215,11 +339,17 @@ impl RepositoryView {
             Arc::new(data.uncolored(&self.syntax_theme))
         };
         self.diff = Some(data.clone());
+        if data.diff.is_image == Some(true) {
+            self.load_diff_images(data.clone(), cx);
+        }
         self.jump_diff_change(0);
         self.color_diff(data, cx);
     }
 
     pub(super) fn color_diff(&mut self, data: Arc<PreparedDiff>, cx: &mut Context<Self>) {
+        if data.diff.is_binary {
+            return;
+        }
         if data.colored && data.theme == self.syntax_theme {
             return;
         }
@@ -228,7 +358,7 @@ impl RepositoryView {
         let cache = self.diff_cache.clone();
         let work = cx
             .background_executor()
-            .spawn_with_priority(Priority::Low, async move {
+            .spawn_with_priority(Priority::High, async move {
                 let prepared = Arc::new(data.retheme(&theme));
                 cache.lock().unwrap().publish_colors(key, prepared.clone());
                 prepared
@@ -430,6 +560,9 @@ impl RepositoryView {
 
     pub(super) fn diff_view(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let diff = self.diff.clone();
+        let image_diff = diff
+            .as_ref()
+            .is_some_and(|data| data.diff.is_image == Some(true));
         let horizontal = self.diff_horizontal.clone();
         let redraw = cx.entity().downgrade();
         // Reuse the complete selected Git version, omitting alignment spacers.
@@ -563,10 +696,13 @@ impl RepositoryView {
                             })),
                     ),
             )
-            .when(diff.as_ref().is_some_and(|d| d.diff.is_binary), |d| {
+            .when(diff.as_ref().is_some_and(|d| d.diff.is_binary && d.diff.is_image != Some(true)), |d| {
                 d.child(div().p(ui(12.)).child("Binary file"))
             })
-            .child(
+            .when(diff.as_ref().is_some_and(|d| d.diff.is_image == Some(true)), |d| {
+                d.child(self.image_preview(cx))
+            })
+            .when(!image_diff, |d| d.child(
                 div()
                     .flex()
                     .flex_1()
@@ -732,7 +868,7 @@ impl RepositoryView {
                         .min_w_0(),
                     )
                     .when(!file_view, |d| d.child(self.diff_minimap(cx))),
-            )
+            ))
     }
 }
 
@@ -762,6 +898,59 @@ fn minimap_thumb(bounds: Bounds<Pixels>, handle: &ScrollHandle, window: &Window)
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui::test]
+    fn svg_previews_load_authenticated_before_and_after_images(cx: &mut TestAppContext) {
+        let profile = tempfile::tempdir().unwrap();
+        let root = profile.path().join("projects").join("image-fixture");
+        std::fs::create_dir_all(&root).unwrap();
+        let root = root.canonicalize().unwrap();
+        let git = |args: &[&str]| {
+            let output = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&root)
+                .output()
+                .unwrap();
+            assert!(output.status.success());
+        };
+        git(&["init", "-b", "main"]);
+        git(&["config", "user.name", "UI test"]);
+        git(&["config", "user.email", "test@example.invalid"]);
+        git(&["config", "commit.gpgsign", "false"]);
+        let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="red"/></svg>"#;
+        std::fs::write(root.join("icon.svg"), svg).unwrap();
+        git(&["add", "icon.svg"]);
+        git(&["commit", "-m", "Add icon"]);
+        std::fs::write(root.join("icon.svg"), svg.replace("red", "blue")).unwrap();
+        let backend = crate::backend::RUNTIME
+            .block_on(crate::backend::Backend::connect(profile.path().into()))
+            .unwrap();
+        let cwd = root.to_string_lossy().into_owned();
+        let allowed = inferay_core::path_security::AllowedPaths::new(&root, &root, &root).unwrap();
+        let diff = inferay_native_diff::get_git_hunk_diff(&allowed, &cwd, "icon.svg", false);
+        let (view, cx) = cx.add_window_view(|_, cx| {
+            let mut view = RepositoryView::new(cwd, Value::Null, "vscode-black".into(), 0, cx);
+            view.backend.set(backend).ok().unwrap();
+            view.show_diff = true;
+            view.file = Some("icon.svg".into());
+            view.show_prepared_diff(
+                Arc::new(PreparedDiff::new(diff, "icon.svg", "vscode-black")),
+                cx,
+            );
+            view
+        });
+        cx.run_until_parked();
+        view.read_with(cx, |s, _| {
+            for image in &s.diff_images {
+                assert!(image.as_ref().unwrap().is_ok(), "{image:?}");
+            }
+        });
+        cx.simulate_resize(size(px(900.), px(600.)));
+        cx.draw(point(px(0.), px(0.)), size(px(900.), px(600.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        assert!(cx.debug_bounds("diff-images").is_some());
+    }
 
     #[gpui::test]
     fn segmented_diff_modes_and_file_view_reuse_full_contents(cx: &mut TestAppContext) {

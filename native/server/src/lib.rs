@@ -72,7 +72,9 @@ mod database_explorer;
 mod forge;
 pub use forge::{AuthorIdentityRequest, ForgeState};
 mod highlight;
-pub use highlight::classify as classify_syntax;
+pub use highlight::{
+    Classified, classify as classify_syntax, classify_pair as classify_syntax_pair,
+};
 mod json_file;
 mod markdown;
 pub use markdown::{MdBlock, MdInlineToken, prepare as prepare_markdown};
@@ -1170,7 +1172,7 @@ async fn git_commit(state: &ServerState, request: Request) -> ApiResult {
         body.message.filter(|s| !s.is_empty()),
         "Missing message parameter",
     )?;
-    let task = tokio::task::spawn_blocking(move || commit_git(&cwd, &message));
+    let task = tokio::task::spawn_blocking(move || commit_git(&cwd, &message, false));
     match tokio::time::timeout(std::time::Duration::from_secs(30), task).await {
         Ok(result) => Ok(json!(result?)),
         Err(_) => Ok(json!({"success":false,"error":"Commit failed"})),

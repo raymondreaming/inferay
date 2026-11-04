@@ -172,6 +172,12 @@ pub(crate) fn run_git_bytes_with_index(
         return Err(failure("timed out", "request deadline exceeded"));
     }
     let mut command_builder = command();
+    if args.first() == Some(&"fetch") {
+        command_builder
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .env("GCM_INTERACTIVE", "Never")
+            .stdin(Stdio::null());
+    }
     if let Some(index) = index {
         command_builder.env("GIT_INDEX_FILE", index);
     }
@@ -225,7 +231,21 @@ pub(crate) fn run_git_bytes_with_index(
         .map_err(|_| failure("returned invalid output", "stdout reader failed"))?;
     let stderr = stderr_reader.join().unwrap_or_default();
     if !status.success() {
-        return Err(failure("failed", &sanitized_git_error(&stderr)));
+        let detail = if stderr.is_empty() && args.first() == Some(&"commit") {
+            // Git prints status-only commit failures (such as nothing staged) to stdout.
+            let output = String::from_utf8_lossy(&stdout);
+            sanitized_git_error(
+                output
+                    .lines()
+                    .rev()
+                    .find(|line| !line.trim().is_empty())
+                    .unwrap_or_default()
+                    .as_bytes(),
+            )
+        } else {
+            sanitized_git_error(&stderr)
+        };
+        return Err(failure("failed", &detail));
     }
     Ok(stdout)
 }

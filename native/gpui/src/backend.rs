@@ -268,6 +268,26 @@ impl Backend {
             .context("Could not reach Inferay services")?;
         Self::response(response).await
     }
+    pub async fn image_bytes(&self, path: &str) -> Result<Vec<u8>> {
+        if !(path.starts_with("/api/git/image?") || path.starts_with("/api/file?"))
+            || path.contains('#')
+        {
+            bail!("Invalid image endpoint");
+        }
+        let response = self
+            .client
+            .get(format!("{}{path}", self.origin))
+            .header(header::ORIGIN, &self.origin)
+            .header("x-inferay-auth", self.auth.clone())
+            .send()
+            .await?
+            .error_for_status()?;
+        let bytes = response.bytes().await?;
+        if bytes.len() > 32 * 1024 * 1024 {
+            bail!("Image exceeds the 32 MiB preview limit");
+        }
+        Ok(bytes.to_vec())
+    }
     async fn response(response: reqwest::Response) -> Result<Value> {
         let status = response.status();
         let bytes = response.bytes().await?;

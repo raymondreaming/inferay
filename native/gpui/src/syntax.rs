@@ -3,18 +3,38 @@ use gpui::*;
 use inferay_core::syntax::SyntaxKind;
 use std::{collections::HashMap, ops::Range, sync::LazyLock};
 
+pub(crate) type LineStyles = Vec<(Range<usize>, HighlightStyle)>;
+
 /// Classify a whole source once, then project spans to UTF-8 row ranges.
-pub(crate) fn line_highlights(
-    lines: &[&str],
-    path: &str,
-    theme: &str,
-) -> Vec<Vec<(Range<usize>, HighlightStyle)>> {
+#[cfg(test)]
+pub(crate) fn line_highlights(lines: &[&str], path: &str, theme: &str) -> Vec<LineStyles> {
     let extension = std::path::Path::new(path)
         .extension()
         .and_then(|s| s.to_str())
         .unwrap_or("text");
     let text = lines.join("\n");
     let spans = crate::syntax::highlights(&text, extension, theme);
+    project_lines(lines, &spans)
+}
+
+/// Before/after sources share parser work where their text and state agree.
+pub(crate) fn diff_highlights(
+    lines: [&[&str]; 2],
+    path: &str,
+    theme: &str,
+) -> [Vec<LineStyles>; 2] {
+    let source = lines.map(|lines| lines.join("\n"));
+    let classified = inferay_server::classify_syntax_pair(path, &source[0], &source[1]);
+    let mut result = classified.into_iter().enumerate().map(|(i, classified)| {
+        let spans = classified
+            .map(|classified| style_runs(&source[i], classified, theme))
+            .unwrap_or_default();
+        project_lines(lines[i], &spans)
+    });
+    [result.next().unwrap(), result.next().unwrap()]
+}
+
+fn project_lines(lines: &[&str], spans: &[(Range<usize>, HighlightStyle)]) -> Vec<LineStyles> {
     let mut offset = 0;
     let mut cursor = 0;
     lines
@@ -113,6 +133,14 @@ pub(crate) fn highlights(
     let Some(classified) = inferay_server::classify_syntax(extension, text) else {
         return vec![];
     };
+    style_runs(text, classified, theme)
+}
+
+fn style_runs(
+    text: &str,
+    classified: inferay_server::Classified,
+    theme: &str,
+) -> Vec<(Range<usize>, HighlightStyle)> {
     let palette = PALETTES.get(theme).unwrap_or(&PALETTES[""]);
     let mut highlights = Vec::new();
     let mut offset = 0;
@@ -162,6 +190,48 @@ pub(crate) fn highlights(
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[test]
+    #[ignore = "paired release benchmark"]
+    fn benchmark_paired_diff_coloring() {
+        let typescript: String = (0..300)
+            .map(|i| format!("export const value_{i}: string = \"before {i}\";\n"))
+            .collect();
+        let rust = include_str!("workspace.rs").to_owned();
+        for (path, before, after) in [
+            (
+                "fixture.ts",
+                typescript.clone(),
+                typescript.replace("before 150", "after 150"),
+            ),
+            (
+                "rewrite.ts",
+                typescript.clone(),
+                typescript.replace("before", "after"),
+            ),
+            (
+                "fixture.rs",
+                rust.clone(),
+                rust.replacen("use ", "// adjacent edit\nuse ", 1),
+            ),
+        ] {
+            let lines = [&before, &after].map(|s| s.split('\n').collect::<Vec<_>>());
+            let independent = || {
+                [
+                    line_highlights(&lines[0], path, "vscode-black"),
+                    line_highlights(&lines[1], path, "vscode-black"),
+                ]
+            };
+            let paired = || diff_highlights([&lines[0], &lines[1]], path, "vscode-black");
+            assert_eq!(independent(), paired());
+            crate::performance::compare(
+                &format!("diff_coloring_{path}_{}_lines", lines[0].len()),
+                |candidate| {
+                    std::hint::black_box(if candidate { paired() } else { independent() });
+                },
+            );
+        }
+    }
+
     #[test]
     fn syntax_spans_remain_valid_utf8_ranges() {
         let source = "let emoji = \"😀\"; // café\n";

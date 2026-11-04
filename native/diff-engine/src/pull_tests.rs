@@ -57,6 +57,85 @@ fn pull(local: &Path) -> GitOperationResult {
 }
 
 #[test]
+fn push_targets_only_the_configured_upstream_and_preserves_lease_rejections() {
+    let (_root, remote, local) = fixture(false);
+    git(&remote, &["checkout", "-b", "elsewhere"]);
+    git(&local, &["branch", "-m", "topic"]);
+    git(&local, &["config", "push.default", "matching"]);
+    // A second configured push refspec must not cause partial success/failure.
+    git(
+        &local,
+        &["config", "remote.origin.push", "missing:refs/heads/missing"],
+    );
+    git(&local, &["commit", "--allow-empty", "-m", "local"]);
+    let push = |action| {
+        perform_git_graph_action_with_targets(
+            local.to_str().unwrap(),
+            action,
+            Some("topic"),
+            &[],
+            None,
+            None,
+        )
+    };
+    let result = push("push");
+    assert!(result.ok, "{:?}", result.error);
+    assert_eq!(
+        git(&remote, &["rev-parse", "main"]),
+        git(&local, &["rev-parse", "HEAD"])
+    );
+    git(
+        &local,
+        &["commit", "--amend", "--allow-empty", "-m", "rewritten"],
+    );
+    assert!(!push("push").ok);
+    assert!(push("forcePushWithLease").ok);
+    git(&remote, &["checkout", "main"]);
+    git(
+        &remote,
+        &["commit", "--allow-empty", "-m", "unseen remote work"],
+    );
+    git(&remote, &["checkout", "elsewhere"]);
+    let before = git(&remote, &["rev-parse", "main"]);
+    assert!(!push("forcePushWithLease").ok);
+    assert_eq!(git(&remote, &["rev-parse", "main"]), before);
+}
+
+#[test]
+fn automatic_fetch_is_throttled_and_shared_with_worktrees_and_manual_fetch() {
+    let (root, remote, local) = fixture(false);
+    let cwd = local.to_str().unwrap();
+    assert!(fetch_git_remotes_if_due(cwd).unwrap().is_ok());
+    git(
+        &remote,
+        &["commit", "--allow-empty", "-m", "new remote work"],
+    );
+    assert!(fetch_git_remotes_if_due(cwd).is_none());
+    let worktree = root.path().join("linked");
+    git(
+        &local,
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "linked",
+            worktree.to_str().unwrap(),
+        ],
+    );
+    assert!(fetch_git_remotes_if_due(worktree.to_str().unwrap()).is_none());
+    let result = perform_git_graph_action_with_targets(cwd, "fetch", None, &[], None, None);
+    assert!(result.ok, "{:?}", result.error);
+    assert_eq!(
+        git(&local, &["rev-parse", "origin/main"]),
+        git(&remote, &["rev-parse", "HEAD"])
+    );
+    assert!(fetch_git_remotes_if_due(cwd).is_none());
+    let state = remote::state(cwd);
+    let _guard = state.lock().unwrap();
+    assert!(fetch_git_remotes_if_due(cwd).is_none());
+}
+
+#[test]
 fn pull_reapplies_nonoverlapping_wip_above_updated_head() {
     for rebase in [false, true] {
         let (_root, remote, local) = fixture(rebase);

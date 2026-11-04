@@ -293,8 +293,9 @@ impl RepositoryView {
                 },
             ))
     }
-    pub(super) fn changes_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn changes_panel(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let historical = self.selected.is_some();
+        let composer = (!historical).then(|| self.commit_panel(cx));
         div()
             .flex()
             .flex_col()
@@ -504,5 +505,6 @@ impl RepositoryView {
                         }))
                     }),
             )
+            .when_some(composer, |d, composer| d.child(composer))
     }
 }
