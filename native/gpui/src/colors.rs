@@ -1,5 +1,9 @@
-pub const CANVAS: u32 = 0x1b1b1b;
-pub const SHELL: u32 = 0x292929;
+// Neutral surfaces: canvas, controls/menus, and raised cards. Translucency
+// derives from these shades rather than introducing independent gray values.
+pub const CANVAS: u32 = 0x0d0d0d;
+pub const SURFACE: u32 = 0x151515;
+pub const RAISED: u32 = 0x1b1b1b;
+pub const COMPOSER: u32 = (SURFACE << 8) | 0xe0;
 pub const TEXT: u32 = 0xebebeb;
 pub const CHAT_BODY: f32 = 12.0;
 pub const INPUT_TEXT: f32 = 13.0;
@@ -19,6 +23,5 @@ pub const MODIFIED: u32 = 0xe5a447;
 pub const DELETED: u32 = 0xff6868;
 pub const RENAMED: u32 = 0x7a8fb5;
 
-pub const MENU: u32 = 0x151515;
 pub const DIFF_ADDED_BACKGROUND: u32 = (ADDED << 8) | 0x18;
 pub const DIFF_REMOVED_BACKGROUND: u32 = (DELETED << 8) | 0x18;

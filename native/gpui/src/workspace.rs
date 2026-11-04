@@ -20,14 +20,7 @@ enum Appearance {
     Glass,
     Scene,
 }
-impl Appearance {
-    fn composer_background(self) -> Rgba {
-        match self {
-            Self::Dark => rgba(0x282828ff),
-            _ => rgba(0x151515e0),
-        }
-    }
-}
+
 struct Project {
     id: Option<String>,
     name: String,
@@ -766,11 +759,7 @@ impl WorkspaceView {
                         .cloned()
                         .unwrap_or_default(),
                     self.syntax_theme.clone(),
-                    if self.appearance == Appearance::Glass {
-                        0x0d0d0d
-                    } else {
-                        colors::CANVAS
-                    },
+                    colors::CANVAS,
                     cx,
                 )
             });
@@ -1529,7 +1518,7 @@ impl WorkspaceView {
                             .rounded_full()
                             .border_1()
                             .border_color(rgba(0xebebeb26))
-                            .bg(rgb(0x202020))
+                            .bg(rgb(crate::colors::RAISED))
                             .child(icon("ChevronDown").size(ui(12.)))
                             .on_click(cx.listener(move |view, _, _, cx| {
                                 view.conversations[index]
@@ -1701,7 +1690,11 @@ impl WorkspaceView {
                         } else {
                             rgba(0xebebeb50)
                         })
-                        .bg(if active { rgb(0x8ab4f8) } else { rgb(0x202020) }),
+                        .bg(if active {
+                            rgb(0x8ab4f8)
+                        } else {
+                            rgb(crate::colors::RAISED)
+                        }),
                 )
                 .child(
                     button(SharedString::from(format!("step-{id}")), "")
@@ -1836,7 +1829,7 @@ impl WorkspaceView {
                         .top(ui(9.))
                         .size(ui(6.))
                         .rounded_full()
-                        .bg(rgb(0x202020))
+                        .bg(rgb(crate::colors::RAISED))
                         .border_1()
                         .border_color(rgba(0xebebeb40))
                         .when(message.is_streaming == Some(true), |dot| {
@@ -2370,51 +2363,8 @@ impl WorkspaceView {
                                 .on_click(cx.listener(move |s, _, _, cx| { s.conversations[index].images.remove(i); cx.notify(); })))
                     }))
             ))
-            .child(div().debug_selector(|| "chat-input-shell".into()).relative().flex().flex_col().flex_shrink_0().rounded(ui(12.)).border_1().border_color(rgba(0xebebeb0f)).pt(ui(8.)).pb(ui(8.))
-                .when(chat.run.is_loading || chat.input.focus_handle(cx).is_focused(window), |d| d.child(
-                    div().absolute().inset_0().rounded(ui(12.)).overflow_hidden().with_animation(("composer-beam", index), Animation::new(std::time::Duration::from_millis(2500)).repeat(), |d, phase| d.child(
-                        canvas(|_, _, _| (), move |bounds, _, window, _| {
-                            let width = f32::from(bounds.size.width);
-                            let height = f32::from(bounds.size.height);
-                            let radius = (11. * crate::zoom::factor(window)).min(width / 2.).min(height / 2.);
-                            let horizontal = width - radius * 2.;
-                            let vertical = height - radius * 2.;
-                            let arc = std::f32::consts::FRAC_PI_2 * radius;
-                            let perimeter = 2. * (horizontal + vertical) + 4. * arc;
-                            let position = |mut distance: f32| {
-                                let lengths = [horizontal, arc, vertical, arc, horizontal, arc, vertical, arc];
-                                let mut part = 0;
-                                while part < 7 && distance > lengths[part] { distance -= lengths[part]; part += 1; }
-                                let (x, y) = match part {
-                                    0 => (radius + distance, 0.),
-                                    2 => (width, radius + distance),
-                                    4 => (width - radius - distance, height),
-                                    6 => (0., height - radius - distance),
-                                    _ => {
-                                        let corner = part / 2;
-                                        let angle = -std::f32::consts::FRAC_PI_2 + corner as f32 * std::f32::consts::FRAC_PI_2 + distance / radius;
-                                        let (x, y) = [(width-radius,radius),(width-radius,height-radius),(radius,height-radius),(radius,radius)][corner];
-                                        (x + radius * angle.cos(), y + radius * angle.sin())
-                                    }
-                                };
-                                bounds.origin + point(px(x), px(y))
-                            };
-                            for segment in 0..240 {
-                                let progress = segment as f32 / 240.;
-                                let tail = (progress - phase).rem_euclid(1.);
-                                let alpha = (1. - ((tail - 0.66) / 0.14).abs()).max(0.);
-                                if alpha == 0. { continue; }
-                                for (stroke, opacity) in [(36., 0.015), (20., 0.025), (10., 0.04), (5., 0.08), (2., 0.2), (1., 0.65)] {
-                                    let mut path = PathBuilder::stroke(crate::zoom::pixels(stroke, window));
-                                    path.move_to(position(progress * perimeter));
-                                    path.line_to(position((segment + 1) as f32 / 240. * perimeter));
-                                    if let Ok(path) = path.build() { window.paint_path(path, hsla((progress + phase * 0.1) % 1., 0.8, 0.65, alpha * opacity)); }
-                                }
-                            }
-                        }).size_full()
-                    ))
-                ))
-                .bg(self.appearance.composer_background())
+            .child(crate::composer_surface(("composer-beam", index), chat.run.is_loading || chat.input.focus_handle(cx).is_focused(window))
+                .debug_selector(|| "chat-input-shell".into())
                 .when(!chat.requests.is_empty(), |d| d.child(
                     div().id(("provider-requests", index)).debug_selector(|| "provider-requests".into())
                         .max_h(ui(240.)).overflow_y_scroll().p(ui(10.)).flex().flex_col().gap(ui(8.))
@@ -2609,7 +2559,7 @@ impl Render for WorkspaceView {
             self.zoom.apply(window);
         }
         let shell = match self.appearance {
-            Appearance::Dark => rgba((colors::SHELL << 8) | 255),
+            Appearance::Dark => rgba((colors::SURFACE << 8) | 255),
             Appearance::Glass => rgba((self.glass_opacity * 255.) as u32),
             Appearance::Scene => rgba(0x18212a88),
         };

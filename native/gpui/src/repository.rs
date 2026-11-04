@@ -262,7 +262,12 @@ impl RepositoryView {
             cx.notify();
             return;
         }
-        if self.git_prompt.is_some() {
+        if self.git_prompt.is_some()
+            || self
+                .commit_drafts
+                .values()
+                .any(|draft| draft.input.focus_handle(cx).is_focused(window))
+        {
             return;
         }
         let key = match event.keystroke.key.as_str() {
@@ -884,7 +889,7 @@ impl Render for RepositoryView {
                                 .border_color(rgba(0xebebeb0f))
                                 .relative()
                                 .debug_selector(|| "git-changes-panel".into())
-                                .child(self.changes_panel(cx))
+                                .child(self.changes_panel(window, cx))
                                 .when(self.history || self.show_diff, |d| {
                                     d.child(
                                         div()

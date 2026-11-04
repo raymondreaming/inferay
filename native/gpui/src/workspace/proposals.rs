@@ -93,7 +93,7 @@ impl WorkspaceView {
             .p(ui(16.))
             .bg(Rgba {
                 a: 1.,
-                ..self.appearance.composer_background()
+                ..rgba(colors::COMPOSER)
             })
             .border_1()
             .border_color(rgba(0xebebeb18))

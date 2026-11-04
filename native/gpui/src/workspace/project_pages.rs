@@ -181,7 +181,7 @@ fn card() -> Div {
         .gap(ui(12.))
         .p(ui(18.))
         .rounded(ui(12.))
-        .bg(rgb(0x202020))
+        .bg(rgb(crate::colors::RAISED))
         .border_1()
         .border_color(rgba(0xebebeb16))
 }

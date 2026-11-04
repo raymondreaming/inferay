@@ -630,7 +630,7 @@ impl WorkspaceView {
                     .flex()
                     .flex_col()
                     .rounded(ui(12.))
-                    .bg(rgb(colors::SHELL))
+                    .bg(rgb(colors::SURFACE))
                     .border_1()
                     .border_color(rgba(0xebebeb0f))
                     .child(div().p(ui(16.)).child(state.fields["instructions"].clone()))

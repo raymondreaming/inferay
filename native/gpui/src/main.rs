@@ -142,7 +142,7 @@ fn menu_surface(id: impl Into<ElementId>) -> Stateful<Div> {
         .overflow_y_scroll()
         .p(crate::zoom::ui(4.))
         .rounded(crate::zoom::ui(8.))
-        .bg(rgb(colors::MENU))
+        .bg(rgb(colors::SURFACE))
         .border_1()
         .border_color(rgba(0xebebeb20))
         .shadow_lg()
@@ -178,4 +178,123 @@ fn plain_button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Sta
         .text_size(crate::zoom::ui(colors::CHAT_SMALL))
         .cursor_pointer()
         .when(!label.is_empty(), |d| d.child(label))
+}
+
+/// Shared chat and commit composer surface, including its active border beam.
+fn composer_surface(id: impl Into<ElementId>, active: bool) -> Div {
+    let id = id.into();
+    div()
+        .relative()
+        .flex()
+        .flex_col()
+        .flex_shrink_0()
+        .rounded(zoom::ui(12.))
+        .border_1()
+        .border_color(rgba(0xebebeb0f))
+        .pt(zoom::ui(8.))
+        .pb(zoom::ui(8.))
+        .when(active, |d| {
+            d.child(
+                div()
+                    .debug_selector(|| "composer-border-beam".into())
+                    .absolute()
+                    .inset_0()
+                    .rounded(zoom::ui(12.))
+                    .overflow_hidden()
+                    .with_animation(
+                        id,
+                        Animation::new(std::time::Duration::from_millis(2500)).repeat(),
+                        |d, phase| {
+                            d.child(
+                                canvas(
+                                    |_, _, _| (),
+                                    move |bounds, _, window, _| {
+                                        let width = f32::from(bounds.size.width);
+                                        let height = f32::from(bounds.size.height);
+                                        let radius = (11. * crate::zoom::factor(window))
+                                            .min(width / 2.)
+                                            .min(height / 2.);
+                                        let horizontal = width - radius * 2.;
+                                        let vertical = height - radius * 2.;
+                                        let arc = std::f32::consts::FRAC_PI_2 * radius;
+                                        let perimeter = 2. * (horizontal + vertical) + 4. * arc;
+                                        let position = |mut distance: f32| {
+                                            let lengths = [
+                                                horizontal, arc, vertical, arc, horizontal, arc,
+                                                vertical, arc,
+                                            ];
+                                            let mut part = 0;
+                                            while part < 7 && distance > lengths[part] {
+                                                distance -= lengths[part];
+                                                part += 1;
+                                            }
+                                            let (x, y) = match part {
+                                                0 => (radius + distance, 0.),
+                                                2 => (width, radius + distance),
+                                                4 => (width - radius - distance, height),
+                                                6 => (0., height - radius - distance),
+                                                _ => {
+                                                    let corner = part / 2;
+                                                    let angle = -std::f32::consts::FRAC_PI_2
+                                                        + corner as f32
+                                                            * std::f32::consts::FRAC_PI_2
+                                                        + distance / radius;
+                                                    let (x, y) = [
+                                                        (width - radius, radius),
+                                                        (width - radius, height - radius),
+                                                        (radius, height - radius),
+                                                        (radius, radius),
+                                                    ][corner];
+                                                    (
+                                                        x + radius * angle.cos(),
+                                                        y + radius * angle.sin(),
+                                                    )
+                                                }
+                                            };
+                                            bounds.origin + point(px(x), px(y))
+                                        };
+                                        for segment in 0..240 {
+                                            let progress = segment as f32 / 240.;
+                                            let tail = (progress - phase).rem_euclid(1.);
+                                            let alpha = (1. - ((tail - 0.66) / 0.14).abs()).max(0.);
+                                            if alpha == 0. {
+                                                continue;
+                                            }
+                                            for (stroke, opacity) in [
+                                                (36., 0.015),
+                                                (20., 0.025),
+                                                (10., 0.04),
+                                                (5., 0.08),
+                                                (2., 0.2),
+                                                (1., 0.65),
+                                            ] {
+                                                let mut path = PathBuilder::stroke(
+                                                    crate::zoom::pixels(stroke, window),
+                                                );
+                                                path.move_to(position(progress * perimeter));
+                                                path.line_to(position(
+                                                    (segment + 1) as f32 / 240. * perimeter,
+                                                ));
+                                                if let Ok(path) = path.build() {
+                                                    window.paint_path(
+                                                        path,
+                                                        hsla(
+                                                            (progress + phase * 0.1) % 1.,
+                                                            0.8,
+                                                            0.65,
+                                                            alpha * opacity,
+                                                        ),
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    },
+                                )
+                                .size_full(),
+                            )
+                        },
+                    ),
+            )
+        })
+        .bg(rgba(colors::COMPOSER))
 }

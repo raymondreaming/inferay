@@ -39,7 +39,7 @@ pub(super) fn photo(path: PathBuf, id: String, compact: bool) -> Div {
                         .size_full()
                         .overflow_hidden()
                         .rounded(ui(2.))
-                        .bg(rgb(0x202020))
+                        .bg(rgb(crate::colors::RAISED))
                         .child(
                             img(path)
                                 .id(SharedString::from(image_id))

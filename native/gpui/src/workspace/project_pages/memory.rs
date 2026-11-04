@@ -277,7 +277,7 @@ impl WorkspaceView {
                     .children(nodes.iter().filter_map(|node|state.positions.get(&text(node,"id")).map(|&(x,y)|{
                         let node=(*node).clone();let chosen=state.selected.as_deref()==node["id"].as_str();let item=node.clone();
                         div().absolute().left(relative(0.5)).top(relative(0.5)).ml(px(x*zoom)+pan.x).mt(px(y*zoom)+pan.y).child(
-                            action(SharedString::from(format!("memory-{}",node["id"])),"").ml(-ui(65.)).mt(-ui(16.)).w(ui(130.)).h(ui(32.)).bg(rgb(0x252525)).when(chosen,|d|d.border_color(rgb(0x8ab4f8))).child(icon(match node["kind"].as_str(){Some("source")=>"Bookmark",Some("image")=>"Folder",Some("file")=>"Folder",_=>"Bookmark"})).child(div().text_ellipsis().child(text(&node,"title")))
+                            action(SharedString::from(format!("memory-{}",node["id"])),"").ml(-ui(65.)).mt(-ui(16.)).w(ui(130.)).h(ui(32.)).bg(rgb(crate::colors::RAISED)).when(chosen,|d|d.border_color(rgb(0x8ab4f8))).child(icon(match node["kind"].as_str(){Some("source")=>"Bookmark",Some("image")=>"Folder",Some("file")=>"Folder",_=>"Bookmark"})).child(div().text_ellipsis().child(text(&node,"title")))
                                 .on_mouse_down(MouseButton::Left,|_,window,cx|{window.prevent_default();cx.stop_propagation();})
                                 .on_click(cx.listener(move |s,_,_,cx|s.select_memory(item.clone(),cx)))
                         )

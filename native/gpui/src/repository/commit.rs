@@ -2,12 +2,16 @@ use super::*;
 use crate::input::TextInput;
 
 pub(super) struct Draft {
-    input: Entity<TextInput>,
+    pub(super) input: Entity<TextInput>,
     amend: bool,
 }
 
 impl RepositoryView {
-    pub(super) fn commit_panel(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn commit_panel(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let cwd = self.selected_worktree.as_ref().unwrap_or(&self.cwd).clone();
         let draft = self
             .commit_drafts
@@ -16,7 +20,7 @@ impl RepositoryView {
                 input: cx.new(|cx| {
                     let mut input = TextInput::field("Commit message…", cx);
                     input.submit_on_enter = false;
-                    input.height_limits = (54., 110.);
+                    input.height_limits = (18., 110.);
                     input.typography = (12., 18.);
                     input
                 }),
@@ -24,65 +28,85 @@ impl RepositoryView {
             });
         let input = draft.input.clone();
         let amend = draft.amend;
+        let focus = input.focus_handle(cx);
         div()
             .id("commit-composer")
             .debug_selector(|| "commit-composer".into())
             .flex_shrink_0()
-            .border_t_1()
-            .border_color(rgba(0xebebeb0f))
             .p(ui(8.))
-            .flex()
-            .flex_col()
-            .gap(ui(6.))
-            .child(input)
             .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .gap(ui(6.))
-                    .items_center()
-                    .child(
-                        button("amend-commit", if amend { "✓ Amend" } else { "Amend" })
+                crate::composer_surface(
+                    "commit-border-beam",
+                    self.commit_generating || focus.is_focused(window),
+                )
+                .id("commit-input-shell")
+                .debug_selector(|| "commit-input-shell".into())
+                .px(ui(8.))
+                .gap(ui(4.))
+                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                    window.focus(&focus, cx);
+                    cx.stop_propagation();
+                })
+                .child(
+                    div()
+                        .debug_selector(|| "commit-message-input".into())
+                        .px(ui(4.))
+                        .py(ui(6.))
+                        .child(input),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .debug_selector(|| "commit-input-options".into())
+                        .gap(ui(4.))
+                        .items_center()
+                        .child(
+                            button("amend-commit", if amend { "✓ Amend" } else { "Amend" })
+                                .h(ui(24.))
+                                .px(ui(4.))
+                                .text_size(ui(11.))
+                                .role(Role::CheckBox)
+                                .aria_selected(amend)
+                                .aria_label("Amend last commit")
+                                .on_click(cx.listener(|s, _, _, cx| s.toggle_amend(cx))),
+                        )
+                        .child(div().flex_1())
+                        .child(
+                            button(
+                                "generate-commit-message",
+                                if self.commit_generating {
+                                    "Generating…"
+                                } else {
+                                    "Generate"
+                                },
+                            )
+                            .child(icon("Sparkles").size(ui(13.)))
                             .h(ui(24.))
+                            .px(ui(4.))
                             .text_size(ui(11.))
-                            .role(Role::CheckBox)
-                            .aria_selected(amend)
-                            .aria_label("Amend last commit")
-                            .on_click(cx.listener(|s, _, _, cx| s.toggle_amend(cx))),
-                    )
-                    .child(div().flex_1())
-                    .child(
-                        button(
-                            "generate-commit-message",
-                            if self.commit_generating {
-                                "Generating…"
-                            } else {
-                                "Generate"
-                            },
+                            .aria_label("Generate commit message with Codex Luna, low reasoning")
+                            .on_click(cx.listener(|s, _, _, cx| s.generate_commit_message(cx))),
                         )
-                        .child(icon("Sparkles").size(ui(13.)))
-                        .h(ui(24.))
-                        .text_size(ui(11.))
-                        .aria_label("Generate commit message with Codex Luna, low reasoning")
-                        .on_click(cx.listener(|s, _, _, cx| s.generate_commit_message(cx))),
-                    )
-                    .child(
-                        button(
-                            "commit-staged",
-                            if self.mutating {
-                                "Working…"
-                            } else if amend {
-                                "Amend commit"
-                            } else {
-                                "Commit"
-                            },
-                        )
-                        .debug_selector(|| "commit-staged".into())
-                        .child(icon("Check").size(ui(13.)))
-                        .h(ui(24.))
-                        .text_size(ui(11.))
-                        .on_click(cx.listener(|s, _, _, cx| s.submit_commit(cx))),
-                    ),
+                        .child(
+                            button(
+                                "commit-staged",
+                                if self.mutating {
+                                    "Working…"
+                                } else if amend {
+                                    "Amend commit"
+                                } else {
+                                    "Commit"
+                                },
+                            )
+                            .debug_selector(|| "commit-staged".into())
+                            .child(icon("Check").size(ui(13.)))
+                            .h(ui(24.))
+                            .px(ui(4.))
+                            .text_size(ui(11.))
+                            .on_click(cx.listener(|s, _, _, cx| s.submit_commit(cx))),
+                        ),
+                ),
             )
             .into_any_element()
     }
@@ -229,6 +253,7 @@ mod tests {
 
     #[gpui::test]
     fn composer_commits_staged_files_and_preloads_amend(cx: &mut TestAppContext) {
+        cx.update(crate::input::bind);
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().canonicalize().unwrap();
         let git = |args: &[&str]| {
@@ -263,11 +288,78 @@ mod tests {
             view.clone().into_any_element()
         });
         assert!(cx.debug_bounds("commit-composer").is_some());
-        view.update(cx, |s, cx| {
-            s.commit_drafts[&cwd].input.update(cx, |input, cx| {
-                input.set_content("Commit through composer", cx)
+        let empty_height = cx.debug_bounds("commit-input-shell").unwrap().size.height;
+        assert_eq!(
+            cx.debug_bounds("commit-message-input").unwrap().size.height,
+            px(30.)
+        );
+        assert!(cx.debug_bounds("composer-border-beam").is_none());
+        let composer = cx.debug_bounds("commit-composer").unwrap();
+        cx.simulate_click(
+            composer.origin + point(px(30.), px(18.)),
+            Modifiers::default(),
+        );
+        cx.simulate_input("Commit through composer");
+        view.read_with(cx, |s, cx| {
+            assert_eq!(
+                s.commit_drafts[&cwd].input.read(cx).content.as_ref(),
+                "Commit through composer"
+            )
+        });
+        cx.simulate_keystrokes("enter enter");
+        cx.simulate_input("Details");
+        cx.simulate_keystrokes("cmd-a cmd-c");
+        assert_eq!(
+            cx.read_from_clipboard()
+                .and_then(|item| item.text())
+                .as_deref(),
+            Some("Commit through composer\n\nDetails")
+        );
+        view.read_with(cx, |s, _| {
+            assert!(!s.mutating, "Enter edits the draft instead of committing");
+            assert!(
+                !s.show_diff,
+                "Editor keys must not activate repository navigation"
+            );
+        });
+        for width in [320., 900.] {
+            cx.simulate_resize(size(px(width), px(600.)));
+            cx.draw(point(px(0.), px(0.)), size(px(width), px(600.)), |_, _| {
+                view.clone().into_any_element()
+            });
+            assert!(cx.debug_bounds("composer-border-beam").is_some());
+            let shell = cx.debug_bounds("commit-input-shell").unwrap();
+            assert!(
+                shell.size.height > empty_height,
+                "Multiline messages grow beyond the one-line composer"
+            );
+            let options = cx.debug_bounds("commit-input-options").unwrap();
+            let submit = cx.debug_bounds("commit-staged").unwrap();
+            assert!(options.top() >= shell.top() && options.bottom() <= shell.bottom());
+            assert!(submit.left() >= shell.left() && submit.right() <= shell.right());
+        }
+        cx.update(|window, cx| {
+            view.update(cx, |s, cx| {
+                window.focus(&s.focus, cx);
+                s.commit_generating = true;
+                cx.notify();
             })
         });
+        cx.draw(point(px(0.), px(0.)), size(px(900.), px(600.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        assert!(
+            cx.debug_bounds("composer-border-beam").is_some(),
+            "Generation lights the border even without editor focus"
+        );
+        view.update(cx, |s, cx| {
+            s.commit_generating = false;
+            cx.notify();
+        });
+        cx.draw(point(px(0.), px(0.)), size(px(900.), px(600.)), |_, _| {
+            view.clone().into_any_element()
+        });
+        assert!(cx.debug_bounds("composer-border-beam").is_none());
         let commit = cx.debug_bounds("commit-staged").unwrap().center();
         cx.simulate_click(commit, Modifiers::default());
         cx.run_until_parked();
@@ -283,7 +375,7 @@ mod tests {
         view.update(cx, |s, cx| {
             assert_eq!(
                 s.commit_drafts[&cwd].input.read(cx).content.as_ref(),
-                "Commit through composer"
+                "Commit through composer\n\nDetails"
             );
             s.commit_drafts[&cwd].input.update(cx, |input, cx| {
                 input.set_content("Amend through composer", cx)
