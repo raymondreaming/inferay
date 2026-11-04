@@ -451,3 +451,9 @@ same key.
 This supports proposal capture, viewing and dismissal. Outbox, receipt and recovery storage exists, but handler
 binding, budgets, approval controls and the delivery/reconciliation worker remain planned. No external request is made by
 capturing or viewing an intent. Never include credentials in an intent payload.
+
+### Agent automation discovery and editing
+
+`inferay_projects` with `action: "listAutomations"` searches every project in the local profile; optional `query` and `projectId` narrow the results. `action: "readAutomation"` with the returned `id` reads the complete definition, source path and current source hash. This discovers files present on this machine; it does not synchronize computers. The ordinary `list` action also points agents to this discovery action.
+
+For standalone jobs, propose `saveDefinition` with the existing project ID, path, UUID and `expectedHash` from `automation.file.sourceHash`. The existing automation card requires user Save; the tool does not save or enable execution. For plugin-owned jobs, use `readPlugin` with the returned plugin ID and propose `updatePlugin` using that library revision and the changed definition file. Both flows reject stale revisions.

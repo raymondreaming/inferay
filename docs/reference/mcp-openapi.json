@@ -193,9 +193,21 @@
 																	"properties": {
 																		"action": {
 																			"type": "string",
-																			"enum": ["list", "help", "command"]
+																			"enum": [
+																				"list",
+																				"listAutomations",
+																				"readAutomation",
+																				"help",
+																				"command"
+																			]
 																		},
 																		"projectId": {
+																			"type": "string"
+																		},
+																		"query": {
+																			"type": "string"
+																		},
+																		"id": {
 																			"type": "string"
 																		},
 																		"command": {
@@ -207,9 +219,21 @@
 																		{
 																			"properties": {
 																				"action": {
-																					"enum": ["list", "help"]
+																					"enum": [
+																						"list",
+																						"help",
+																						"listAutomations"
+																					]
 																				}
 																			}
+																		},
+																		{
+																			"properties": {
+																				"action": {
+																					"const": "readAutomation"
+																				}
+																			},
+																			"required": ["id"]
 																		},
 																		{
 																			"properties": {

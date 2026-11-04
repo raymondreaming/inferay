@@ -287,7 +287,12 @@ impl AgentProcessHandle {
         if tool == "inferay_projects" {
             if let Some(projects) = &self.projects {
                 match args["action"].as_str() {
-                                    Some("list") => projects.catalog(args["projectId"].as_str().map(str::to_owned),None).await.map(|v|(json!(v),None)).map_err(|e|e.to_string()),
+                                    Some("listAutomations") => projects.discover_automations(args["projectId"].as_str().map(str::to_owned), args["query"].as_str().map(str::to_owned), None).await.map(|v|(v,None)).map_err(|e|e.to_string()),
+                                    Some("readAutomation") => {
+                                        let id = args["id"].as_str().filter(|id| !id.is_empty()).ok_or("An automation id from listAutomations is required")?;
+                                        projects.discover_automations(None,None,Some(id.to_owned())).await.map(|v|(v,None)).map_err(|e|e.to_string())
+                                    },
+                                    Some("list") => projects.catalog(args["projectId"].as_str().map(str::to_owned),None).await.map(|v| { let mut value = json!(v); value["automationDiscovery"] = json!({"action":"listAutomations","scope":"Search all local projects; optional query and projectId"}); (value,None) }).map_err(|e|e.to_string()),
                                     Some("help") => Ok((json!({"commands":include_str!("project_commands.json")}),None)),
                                     Some("command") => match serde_json::from_value::<inferay_core::project_files::ProjectFileCommand>(args["command"].clone()) {
                                         Ok(command @ (inferay_core::project_files::ProjectFileCommand::CreatePlugin {..} | inferay_core::project_files::ProjectFileCommand::UpdatePlugin {..})) => {
@@ -305,7 +310,7 @@ impl AgentProcessHandle {
                                         Ok(command) => projects.command(command,false).await.map(|v|(v,None)).map_err(|e|e.to_string()),
                                         Err(error) => Err(error.to_string()),
                                     },
-                                    _ => Err("Use list, help, or command".into()),
+                                    _ => Err("Use list, listAutomations, readAutomation, help, or command".into()),
                                 }
             } else {
                 Err("Project tools unavailable".into())

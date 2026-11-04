@@ -139,6 +139,40 @@ impl ProjectRuntime {
             Ok(ProjectWorkspace {catalog,history,conversation_projects,root:store.root.to_string_lossy().into()})
         }).await?
     }
+    pub async fn discover_automations(
+        self: &Arc<Self>,
+        project: Option<String>,
+        query: Option<String>,
+        id: Option<String>,
+    ) -> Result<Value> {
+        let skills = self.prompts.lock().await.load()?;
+        let this = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut store = this.store()?;
+            let projects = store.catalog(None, &skills)?.projects;
+            let query = query.unwrap_or_default().to_lowercase();
+            let mut results = Vec::new();
+            for owner in projects.iter().filter(|owner| project.as_ref().is_none_or(|project| project == &owner.id)) {
+                let catalog = crate::project_index::catalog(&store.db, Some(&owner.id))?;
+                for automation in catalog.automations {
+                    let file = &automation.file;
+                    let name = file.definition.as_ref().map(|definition| definition.name.as_str()).unwrap_or(&file.source_path);
+                    if let Some(id) = &id {
+                        if &file.id != id { continue; }
+                        let directory = store.project_dir(&file.project_id)?;
+                        let bytes = crate::project_definitions::read(&directory, &file.source_path, inferay_core::project_files::MANIFEST_LIMIT)?;
+                        return Ok(json!({"automation":automation,"projectName":owner.definition.as_ref().map(|p| &p.name),"content":String::from_utf8(bytes)?,"editAction":"command","editCommand":if file.plugin_id.is_some() { "readPlugin then updatePlugin" } else { "saveDefinition" },"requiresUserSave":true}));
+                    }
+                    if !query.is_empty() && !format!("{} {} {}", file.id, name, owner.definition.as_ref().map(|p| p.name.as_str()).unwrap_or("")).to_lowercase().contains(&query) { continue; }
+                    results.push(json!({"id":file.id,"name":name,"projectId":file.project_id,"projectName":owner.definition.as_ref().map(|p| &p.name),"pluginId":file.plugin_id,"sourcePath":file.source_path,"sourceHash":file.source_hash,"enabled":automation.enabled,"archived":file.definition.as_ref().is_some_and(|d| d.archived),"error":file.error}));
+                }
+            }
+            if id.is_some() { return Err("Automation not found in this local Inferay profile. Definitions on another computer must be present here to be discoverable.".into()); }
+            let total = results.len();
+            results.truncate(100);
+            Ok(json!({"automations":results,"total":total,"hasMore":total > 100,"scope":"local Inferay profile; all projects unless projectId is supplied","next":"Use readAutomation with an id; narrow query or projectId when hasMore is true."}))
+        }).await?
+    }
     pub async fn document_bytes(
         self: &Arc<Self>,
         project_id: String,

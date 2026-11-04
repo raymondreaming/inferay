@@ -395,6 +395,94 @@ async fn standalone_automation_proposal_is_read_only_and_conflict_checked() {
 }
 
 #[tokio::test]
+async fn agents_discover_read_and_propose_local_automation_edits() {
+    let profile = tempfile::tempdir().unwrap();
+    let (project, plugin_job) = definition_files(profile.path(), "print('{}')");
+    let (other_project, _) = definition_files(profile.path(), "print('{}')");
+    let runtime = runtime(profile.path());
+    let handle = crate::agent_runner::AgentProcessHandle::with_skills(runtime.prompts.clone())
+        .with_projects(runtime.clone());
+    let id = uuid::Uuid::new_v4().to_string();
+    let path = format!("automations/{id}/automation.json");
+    let content = json!({"schema":"inferay.automation/1","id":id,"name":"Daily briefing","trigger":{"kind":"manual"},"overlap":"skip","execution":{"kind":"agent","provider":"codex","instructions":"Summarize recent work","skills":[],"resources":[],"repositories":[],"workingDirectory":{"base":"project","path":"."},"timeoutSeconds":300},"may":[]}).to_string();
+    runtime
+        .command(
+            ProjectFileCommand::SaveDefinition {
+                project_id: project.clone(),
+                path: path.clone(),
+                content: content.clone(),
+                expected_hash: None,
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    let (all, _) = handle
+        .call_tool("inferay_projects", json!({"action":"listAutomations"}))
+        .await
+        .unwrap();
+    assert_eq!(all["total"], 3);
+    assert!(
+        all["automations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a["projectId"] == other_project)
+    );
+    let (found, _) = handle
+        .call_tool(
+            "inferay_projects",
+            json!({"action":"listAutomations","query":"BRIEFING"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(found["total"], 1);
+    let (read, _) = handle
+        .call_tool(
+            "inferay_projects",
+            json!({"action":"readAutomation","id":id}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(read["content"], content);
+    let file = &read["automation"]["file"];
+    assert_eq!(file["sourcePath"], path);
+    let command = json!({"type":"saveDefinition","projectId":project,"path":path,"content":content.replace("Daily briefing","Updated briefing"),"expectedHash":file["sourceHash"]});
+    let (result, card) = handle
+        .call_tool(
+            "inferay_projects",
+            json!({"action":"command","command":command}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(result["status"], "proposed");
+    assert_eq!(
+        card.unwrap()["type"],
+        "inferay.automation-definition-proposal"
+    );
+    let target = profile.path().join("projects").join(&project).join(&path);
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), content);
+    std::fs::write(&target, content.replace("Daily briefing", "External edit")).unwrap();
+    assert!(
+        handle
+            .call_tool(
+                "inferay_projects",
+                json!({"action":"command","command":command})
+            )
+            .await
+            .is_err()
+    );
+    let (plugin, _) = handle
+        .call_tool(
+            "inferay_projects",
+            json!({"action":"readAutomation","id":plugin_job}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(plugin["editCommand"], "readPlugin then updatePlugin");
+}
+
+#[tokio::test]
 async fn library_update_proposal_requires_user_save_and_revokes_approval() {
     let profile = tempfile::tempdir().unwrap();
     let (project, _) = definition_files(profile.path(), "print('{}')");
