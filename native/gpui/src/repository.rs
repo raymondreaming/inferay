@@ -127,7 +127,8 @@ impl RepositoryView {
     }
 
     fn changes_on_right(&self) -> bool {
-        self.expanded || self.single_chat_column
+        // Keep enough room for the graph and a readable file list, even in fullscreen.
+        (self.expanded || self.single_chat_column) && self.available_width >= 900.
     }
 
     fn changes_panel_width(&self) -> f32 {
@@ -1078,7 +1079,10 @@ mod tests {
         for (width, expanded, single_chat_column) in [
             (600., false, false),
             (800., false, false),
-            (900., false, true),
+            (899., false, true),
+            (901., false, true),
+            (600., true, false),
+            (901., true, false),
             (1800., true, false),
             (700., false, false),
             (2000., true, false),
@@ -1107,10 +1111,16 @@ mod tests {
             });
             let unstaged = cx.debug_bounds("unstaged-files").unwrap();
             let staged = cx.debug_bounds("staged-files").unwrap();
-            if expanded || single_chat_column {
+            let on_right = (expanded || single_chat_column) && width >= 900.;
+            let panel = cx.debug_bounds("git-changes-panel").unwrap();
+            let graph = cx.debug_bounds("graph-header").unwrap();
+            if on_right {
+                assert!(panel.left() >= graph.left() + px(width - 341.));
                 assert_eq!(unstaged.left(), staged.left());
                 assert!(staged.top() >= unstaged.bottom());
             } else {
+                assert!(panel.top() >= graph.bottom());
+                assert_eq!(panel.size.width, px(width - 1.));
                 assert_eq!(unstaged.top(), staged.top());
                 assert!(staged.left() >= unstaged.right());
             }
