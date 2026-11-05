@@ -280,7 +280,7 @@ impl RepositoryView {
             .min_w_0()
             .gap(ui(8.))
             .p(ui(8.))
-            .when(!self.split_diff, |d| d.flex_col())
+            .when(!self.effective_split_diff(), |d| d.flex_col())
             .children(
                 (0..2)
                     .filter(|&side| {
@@ -411,12 +411,21 @@ impl RepositoryView {
         ));
     }
 
+    fn effective_split_diff(&self) -> bool {
+        self.split_diff
+            && !self.file_entries().iter().any(|file| {
+                self.file.as_deref() == Some(file.0.as_str())
+                    && file.4 == self.selected_staged
+                    && matches!(file.1.as_str(), "A" | "D" | "?" | "??")
+            })
+    }
+
     fn diff_ranges(&self) -> &[[usize; 2]] {
         if self.file_view {
             return &[];
         }
         self.diff.as_ref().map_or(&[], |data| {
-            if self.split_diff {
+            if self.effective_split_diff() {
                 &data.split_ranges
             } else {
                 &data.inline_ranges
@@ -465,7 +474,7 @@ impl RepositoryView {
 
     fn diff_minimap(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let data = self.diff.clone();
-        let split = self.split_diff;
+        let split = self.effective_split_diff();
         let handle = self.diff_scroll.clone();
         let entity = cx.weak_entity();
         div()
@@ -592,13 +601,13 @@ impl RepositoryView {
         let count = diff.as_ref().map_or(0, |d| {
             if file_view {
                 file_rows.len()
-            } else if self.split_diff {
+            } else if self.effective_split_diff() {
                 d.diff.old_lines.len().max(d.diff.new_lines.len())
             } else {
                 d.inline.len()
             }
         });
-        let split = self.split_diff;
+        let split = self.effective_split_diff();
         let active = self
             .diff_change
             .and_then(|i| self.diff_ranges().get(i))
@@ -1043,6 +1052,21 @@ mod tests {
         let button = cx.debug_bounds("diff-split").unwrap().center();
         cx.simulate_click(button, Modifiers::default());
         view.read_with(cx, |s, _| assert!(s.split_diff && !s.file_view));
+        // Added/deleted files use unified rows without changing the saved preference.
+        for status in ["A", "D", "?", "??", "M"] {
+            view.update(cx, |s, _| {
+                s.status = Some(serde_json::from_value(json!({
+                    "cwd":"", "name":"", "branch":"main", "upstream":null, "ahead":0, "behind":0,
+                    "files":[{"path":"file.rs", "status":status, "staged":false}]
+                })).unwrap());
+            });
+            draw(cx);
+            view.read_with(cx, |s, _| {
+                assert!(s.split_diff);
+                assert_eq!(s.effective_split_diff(), status == "M");
+            });
+            assert_eq!(cx.debug_bounds("diff-code-1-0").is_some(), status == "M");
+        }
         // An emptied file must not show the old contents as though it was deleted.
         view.update(cx, |s, _| {
             s.file_view = true;
