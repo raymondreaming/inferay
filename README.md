@@ -38,7 +38,7 @@ Open a repository, start a chat, and choose an agent. Add another pane when you 
 
 ## Built for the desktop
 
-Inferay’s active desktop UI is GPUI, backed by the shared Rust application services. All future UI development targets GPUI. The older Solid/webview implementation has been removed; Git history preserves the pre-cutover version. Feature parity is incomplete; see the [GPUI capabilities and remaining work](native/gpui/README.md).
+Inferay is a native macOS app written in Rust. Its interface is built with [Rune](https://github.com/anomalyco/rune), a GPU-rendered Rust UI framework, on top of shared Rust services for chats, repositories and projects. See the [desktop app's capabilities and remaining work](native/rune/README.md).
 
 For how Inferay is built and how its projects, plugins and automations work, start at [docs](docs/README.md). For development setup, checks and releases, see [Contributing](CONTRIBUTING.md).
 

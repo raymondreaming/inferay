@@ -408,9 +408,9 @@ mod tests {
     fn benchmark_source_highlighting() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         for path in [
-            "native/gpui/src/workspace.rs",
+            "native/rune/src/workspace.rs",
             "native/server/src/lib.rs",
-            "native/gpui/src/repository/diff.rs",
+            "native/rune/src/repository/diff.rs",
         ] {
             let source = std::fs::read_to_string(root.join(path)).unwrap();
             for pass in 0..3 {

@@ -1,6 +1,5 @@
 //! Shared workbench transitions. The native server is the durable writer.
-use crate::json_wire;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 #[serde(
@@ -49,13 +48,6 @@ fn file_source(value: &Value) -> DiffSource {
     })
 }
 
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
-#[serde(rename_all = "camelCase")]
-pub struct FileContent {
-    pub content: String,
-    pub cwd: String,
-    pub path: String,
-}
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct DetachedFilePanel {
@@ -561,94 +553,4 @@ pub struct PanelPresentation {
     pub graph_drill_in: bool,
     pub historical_diff: bool,
     pub sidebar_content: SidebarContent,
-}
-
-/// Optimistic panel metadata. File bodies remain in the renderer's cache.
-
-#[derive(Default)]
-pub struct PanelReplica {
-    workspaces: std::collections::HashMap<String, PanelPending>,
-    sequence: u32,
-}
-struct PanelPending {
-    canonical: PanelSession,
-    pending: Vec<(u32, PanelAction, u64)>,
-    revision: u32,
-}
-impl Default for PanelPending {
-    fn default() -> Self {
-        Self {
-            canonical: PanelSession::read(&Value::Null),
-            pending: Vec::new(),
-            revision: 0,
-        }
-    }
-}
-impl PanelPending {
-    fn session(&self) -> PanelSession {
-        let mut session = self.canonical.clone();
-        for (_, action, now) in &self.pending {
-            session.apply(action.clone(), *now);
-        }
-        session
-    }
-}
-
-impl PanelReplica {
-    pub fn new() -> Self {
-        Self::default()
-    }
-    pub fn revision(&mut self, workspace: &str) -> u32 {
-        self.workspaces
-            .entry(workspace.into())
-            .or_default()
-            .revision
-    }
-    pub fn preview(
-        &mut self,
-        workspace: &str,
-        action: &str,
-        now: f64,
-        current: &str,
-    ) -> Result<String, String> {
-        let action: PanelAction = json_wire::parse(action)?;
-        let current: PanelSession = json_wire::parse(current)?;
-        let state = self.workspaces.entry(workspace.into()).or_default();
-        let mut next = current.clone();
-        next.apply(action.clone(), now as u64);
-        if state.pending.is_empty() {
-            state.canonical = current;
-        }
-        self.sequence += 1;
-        state.pending.push((self.sequence, action, now as u64));
-        Ok(json!({"sequence": self.sequence, "session": next}).to_string())
-    }
-    pub fn load(
-        &mut self,
-        workspace: &str,
-        revision: u32,
-        session: &str,
-    ) -> Result<String, String> {
-        let session = json_wire::parse(session)?;
-        let state = self.workspaces.entry(workspace.into()).or_default();
-        if state.revision == revision {
-            state.canonical = session;
-        }
-        Ok(json_wire::stringify(&state.session(), "panel session"))
-    }
-    pub fn settle(
-        &mut self,
-        workspace: &str,
-        sequence: u32,
-        session: Option<String>,
-    ) -> Result<String, String> {
-        let canonical = session.map(|s| json_wire::parse(&s)).transpose()?;
-        let state = self.workspaces.entry(workspace.into()).or_default();
-        state.pending.retain(|(id, _, _)| *id != sequence);
-        if let Some(canonical) = canonical {
-            state.canonical = canonical;
-            state.revision += 1;
-        }
-        Ok(json_wire::stringify(&state.session(), "panel session"))
-    }
 }

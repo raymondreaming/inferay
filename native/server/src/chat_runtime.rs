@@ -344,15 +344,6 @@ impl ChatRuntime {
                         return;
                     }
                 }
-                if !input.images.is_empty() {
-                    if !input.text.is_empty() {
-                        input.text.push_str("\n\n");
-                    }
-                    input.text.push_str("Here are the images at these paths:\n");
-                    input
-                        .text
-                        .push_str(&paths_to_strings(&input.images).join("\n"));
-                }
                 input.expand_commands = false;
             }
 
@@ -600,6 +591,18 @@ impl ChatRuntime {
                 && let Some(command) = parse_goal_command(&input.text)
             {
                 self.handle_goal_command(&session, command).await
+            } else if input.agent_kind != "codex" && !input.images.is_empty() {
+                // Claude sees attachments only through their paths; without them an
+                // image-only turn resumes with an empty prompt and Claude rejects it.
+                let paths = paths_to_strings(&input.images).join("\n");
+                Some(
+                    format!(
+                        "{}\n\nHere are the images at these paths:\n{paths}",
+                        input.text
+                    )
+                    .trim_start()
+                    .to_owned(),
+                )
             } else {
                 Some(input.text.clone())
             };

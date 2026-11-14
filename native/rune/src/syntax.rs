@@ -1,0 +1,337 @@
+//! Native syntax preparation shared by chat and repository diffs.
+use crate::colors::{rgb, rgba};
+use inferay_core::syntax::SyntaxKind;
+use rune::{Color, Span};
+use std::{collections::HashMap, ops::Range, sync::LazyLock};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Paint {
+    pub color: Option<Color>,
+    pub background: Option<Color>,
+    pub underline: Option<Color>,
+    pub weight: Option<f32>,
+    pub italic: bool,
+    pub strike: bool,
+}
+
+static CURRENT_THEME: std::sync::RwLock<String> = std::sync::RwLock::new(String::new());
+
+pub fn current_theme() -> String {
+    let theme = CURRENT_THEME.read().unwrap_or_else(|e| e.into_inner());
+    if theme.is_empty() {
+        "vscode-black".into()
+    } else {
+        theme.clone()
+    }
+}
+
+pub fn set_current_theme(theme: &str) {
+    *CURRENT_THEME.write().unwrap_or_else(|e| e.into_inner()) = theme.to_owned();
+}
+
+pub(crate) type LineStyles = Vec<(Range<usize>, Paint)>;
+
+pub fn span(range: &Range<usize>, paint: &Paint) -> Span {
+    let mut span = Span::new(range.start, range.end);
+    span.color = paint.color;
+    span.bg = paint.background;
+    span.underline = paint.underline;
+    span.weight = paint.weight;
+    span.italic = paint.italic;
+    span
+}
+
+pub fn spans(runs: &[(Range<usize>, Paint)]) -> Vec<Span> {
+    runs.iter()
+        .map(|(range, paint)| span(range, paint))
+        .collect()
+}
+
+/// Classify a whole source once, then project spans to UTF-8 row ranges.
+#[cfg(test)]
+pub(crate) fn line_highlights(lines: &[&str], path: &str, theme: &str) -> Vec<LineStyles> {
+    let extension = std::path::Path::new(path)
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("text");
+    let text = lines.join("\n");
+    let spans = crate::syntax::highlights(&text, extension, theme);
+    project_lines(lines, &spans)
+}
+
+/// Before/after sources share parser work where their text and state agree.
+pub(crate) fn diff_highlights(
+    lines: [&[&str]; 2],
+    path: &str,
+    theme: &str,
+) -> [Vec<LineStyles>; 2] {
+    let source = lines.map(|lines| lines.join("\n"));
+    let classified = inferay_server::classify_syntax_pair(path, &source[0], &source[1]);
+    let mut result = classified.into_iter().enumerate().map(|(i, classified)| {
+        let spans = classified
+            .map(|classified| style_runs(&source[i], classified, theme))
+            .unwrap_or_default();
+        project_lines(lines[i], &spans)
+    });
+    [result.next().unwrap(), result.next().unwrap()]
+}
+
+fn project_lines(lines: &[&str], spans: &[(Range<usize>, Paint)]) -> Vec<LineStyles> {
+    let mut offset = 0;
+    let mut cursor = 0;
+    lines
+        .iter()
+        .map(|line| {
+            let end = offset + line.len();
+            let mut runs = Vec::new();
+            while cursor < spans.len() && spans[cursor].0.start < end {
+                let (range, style) = &spans[cursor];
+                if range.end > offset {
+                    runs.push((
+                        range.start.max(offset) - offset..range.end.min(end) - offset,
+                        *style,
+                    ));
+                }
+                cursor += 1;
+            }
+            offset = end + 1;
+            runs
+        })
+        .collect()
+}
+
+// These are immutable bundled assets, not a cache of documents or user input.
+static PALETTES: LazyLock<HashMap<&'static str, HashMap<&'static str, Color>>> =
+    LazyLock::new(|| {
+        let mut palettes: HashMap<&'static str, HashMap<&'static str, Color>> = HashMap::new();
+        for block in include_str!("../assets/syntax-themes.css").split('}') {
+            let Some((selector, body)) = block.split_once('{') else {
+                continue;
+            };
+            let name = if selector.contains(":root") {
+                ""
+            } else if let Some((_, tail)) = selector.split_once("[data-inferay-syntax-theme=\"") {
+                tail.split_once("\"]")
+                    .expect("bundled syntax theme selector")
+                    .0
+            } else {
+                continue;
+            };
+            let mut colors: HashMap<_, _> = body
+                .lines()
+                .filter_map(|line| {
+                    let (key, value) = line
+                        .trim()
+                        .strip_prefix("--color-syntax-")?
+                        .split_once(": #")?;
+                    let hex = value.strip_suffix(';')?;
+                    let color = u32::from_str_radix(hex, 16).expect("bundled syntax color");
+                    Some((
+                        key,
+                        if hex.len() == 8 {
+                            rgba(color)
+                        } else {
+                            rgb(color)
+                        },
+                    ))
+                })
+                .collect();
+            if let Some(base) = palettes.get("") {
+                for (&kind, &color) in base {
+                    if !matches!(kind, "control" | "variable") {
+                        colors.entry(kind).or_insert(color);
+                    }
+                }
+            }
+            // Semantic kinds can specialize their palette's declaration/plain colors.
+            let keyword = colors["keyword"];
+            let plain = colors["plain"];
+            colors.entry("control").or_insert(keyword);
+            colors.entry("variable").or_insert(plain);
+            palettes.insert(name, colors);
+        }
+        palettes
+    });
+
+pub(crate) fn highlights(text: &str, language: &str, theme: &str) -> Vec<(Range<usize>, Paint)> {
+    let extension = match language.to_ascii_lowercase().as_str() {
+        "rust" => "rs",
+        "javascript" => "js",
+        "typescript" => "ts",
+        "python" => "py",
+        "shell" | "bash" | "zsh" | "sh" => "sh",
+        "ruby" => "rb",
+        "csharp" | "c#" => "cs",
+        "cpp" | "c++" => "cpp",
+        "yaml" => "yml",
+        "markdown" => "md",
+        "golang" => "go",
+        _ => language,
+    };
+    let Some(classified) = inferay_server::classify_syntax(extension, text) else {
+        return vec![];
+    };
+    style_runs(text, classified, theme)
+}
+
+fn style_runs(
+    text: &str,
+    classified: inferay_server::Classified,
+    theme: &str,
+) -> Vec<(Range<usize>, Paint)> {
+    let palette = PALETTES.get(theme).unwrap_or(&PALETTES[""]);
+    let mut highlights = Vec::new();
+    let mut offset = 0;
+    for (line, runs) in text.split_inclusive('\n').zip(classified.lines) {
+        let mut chars = line.char_indices().peekable();
+        for run in runs {
+            let start = chars.peek().map_or(line.len(), |(i, _)| *i);
+            let mut units = 0;
+            while units < run.utf16_len {
+                let Some((_, c)) = chars.next() else {
+                    break;
+                };
+                units += c.len_utf16();
+            }
+            let end = chars.peek().map_or(line.len(), |(i, _)| *i);
+            let kind = match run.kind {
+                SyntaxKind::Attribute => "attr",
+                SyntaxKind::Comment => "comment",
+                SyntaxKind::Constant => "constant",
+                SyntaxKind::Control => "control",
+                SyntaxKind::Variable => "variable",
+                SyntaxKind::Function => "function",
+                SyntaxKind::Keyword => "keyword",
+                SyntaxKind::Number => "number",
+                SyntaxKind::Operator => "operator",
+                SyntaxKind::Plain => "plain",
+                SyntaxKind::Punctuation => "punctuation",
+                SyntaxKind::String => "string",
+                SyntaxKind::Tag => "tag",
+                SyntaxKind::Type => "type",
+            };
+            highlights.push((
+                offset + start..offset + end,
+                Paint {
+                    color: Some(palette[kind]),
+                    italic: run.kind == SyntaxKind::Comment,
+                    ..Default::default()
+                },
+            ));
+        }
+        offset += line.len();
+    }
+    highlights
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+    #[test]
+    #[ignore = "paired release benchmark"]
+    fn benchmark_paired_diff_coloring() {
+        let typescript: String = (0..300)
+            .map(|i| format!("export const value_{i}: string = \"before {i}\";\n"))
+            .collect();
+        let rust = include_str!("workspace.rs").to_owned();
+        for (path, before, after) in [
+            (
+                "fixture.ts",
+                typescript.clone(),
+                typescript.replace("before 150", "after 150"),
+            ),
+            (
+                "rewrite.ts",
+                typescript.clone(),
+                typescript.replace("before", "after"),
+            ),
+            (
+                "fixture.rs",
+                rust.clone(),
+                rust.replacen("use ", "// adjacent edit\nuse ", 1),
+            ),
+        ] {
+            let lines = [&before, &after].map(|s| s.split('\n').collect::<Vec<_>>());
+            let independent = || {
+                [
+                    line_highlights(&lines[0], path, "vscode-black"),
+                    line_highlights(&lines[1], path, "vscode-black"),
+                ]
+            };
+            let paired = || diff_highlights([&lines[0], &lines[1]], path, "vscode-black");
+            assert_eq!(independent(), paired());
+            crate::performance::compare(
+                &format!("diff_coloring_{path}_{}_lines", lines[0].len()),
+                |candidate| {
+                    std::hint::black_box(if candidate { paired() } else { independent() });
+                },
+            );
+        }
+    }
+
+    #[test]
+    fn syntax_spans_remain_valid_utf8_ranges() {
+        let source = "let emoji = \"😀\"; // café\n";
+        let spans = highlights(source, "rust", "vscode-black");
+        assert!(
+            spans
+                .iter()
+                .all(|(range, _)| source.get(range.clone()).is_some())
+        );
+        assert!(
+            spans
+                .iter()
+                .any(|(_, style)| style.color == Some(rgb(0x569cd6)))
+        );
+    }
+    #[test]
+    fn selected_palette_preserves_control_variables_comments_and_alpha() {
+        let code = "const value = \"hello\";\nif (value) { return value; } // comment\n";
+        let black = highlights(code, "js", "vscode-black");
+        let contrast = highlights(code, "js", "contrast");
+        for color in [0xc586c0, 0x9cdcfe, 0xce9178] {
+            assert!(
+                black
+                    .iter()
+                    .any(|(_, style)| style.color == Some(rgb(color))),
+                "missing {color:x}"
+            );
+        }
+        assert!(black.iter().any(|(_, style)| style.italic));
+        assert!(
+            contrast
+                .iter()
+                .any(|(_, style)| style.color == Some(rgb(0xff9492)))
+        );
+        assert!(
+            !contrast
+                .iter()
+                .any(|(_, style)| style.color == Some(rgb(0xc586c0)))
+        );
+        let vitesse = highlights("let value = 1;", "js", "vitesse");
+        assert!(
+            vitesse
+                .iter()
+                .any(|(_, style)| style.color == Some(rgba(0xdbd7caee)))
+        );
+    }
+
+    #[test]
+    fn theme_fallbacks_use_the_selected_palette() {
+        for theme in ["vitesse", "one-dark", "dracula", "slack", "unknown"] {
+            let actual = highlights("if (value) { return value; }", "js", theme);
+            let palette = PALETTES.get(theme).unwrap_or(&PALETTES[""]);
+            assert!(
+                actual
+                    .iter()
+                    .any(|(_, style)| style.color == Some(palette["keyword"]))
+            );
+            assert!(
+                actual
+                    .iter()
+                    .any(|(_, style)| style.color == Some(palette["plain"]))
+            );
+        }
+    }
+}

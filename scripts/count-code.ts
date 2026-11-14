@@ -91,7 +91,7 @@ export function rustProductionLines(source: string): number {
 
 if (import.meta.main) {
 	const categories = [
-		"gpui",
+		"rune",
 		"core",
 		"presentation",
 		"diff-engine",

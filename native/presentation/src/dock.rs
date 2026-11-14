@@ -1,64 +1,6 @@
 //! Pure dock layout shared by the renderer preview and native persistence.
-use crate::{flag, number, string};
+use crate::number;
 use serde_json::{Value, json};
-
-#[derive(serde::Serialize, ts_rs::TS)]
-#[serde(rename_all = "camelCase")]
-pub struct DockPointerTarget {
-    id: String,
-    #[ts(type = "'center' | 'left' | 'right' | 'top' | 'bottom'")]
-    edge: String,
-}
-
-pub fn pointer_target(input: &Value) -> Option<DockPointerTarget> {
-    if number(&input["panelCount"]) > if flag(&input["insert"]) { 0. } else { 1. } {
-        let edge = hit(&json!({"x":input["x"],"y":input["y"],"rect":input["root"],"outer":true}));
-        if let Some(edge) = edge.as_str() {
-            return Some(DockPointerTarget {
-                id: "__workspace-root__".into(),
-                edge: edge.into(),
-            });
-        }
-    }
-    let id = input["cellId"].as_str().filter(|id| !id.is_empty())?;
-    if !flag(&input["insert"]) && input["source"] == id {
-        return None;
-    }
-    Some(DockPointerTarget {
-        id: id.into(),
-        edge: string(&hit(
-            &json!({"x":input["x"],"y":input["y"],"rect":input["cell"]}),
-        ))
-        .into(),
-    })
-}
-
-#[derive(serde::Serialize, ts_rs::TS)]
-pub struct DockWheel {
-    capture: bool,
-    delta: f64,
-}
-
-pub fn wheel(input: &Value) -> DockWheel {
-    let dy = number(&input["deltaY"]);
-    let mut result = DockWheel {
-        capture: false,
-        delta: 0.,
-    };
-    if dy != 0. {
-        let inner = &input["inner"];
-        let can_scroll = if dy < 0. {
-            number(&inner["offset"]) > 0.
-        } else {
-            number(&inner["offset"]) + number(&inner["size"]) < number(&inner["extent"]) - 1.
-        };
-        result.capture = !flag(&input["selected"]) || inner.is_null() || !can_scroll;
-        if result.capture {
-            result.delta = dy;
-        }
-    }
-    result
-}
 
 #[derive(serde::Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
@@ -432,40 +374,4 @@ pub fn project(body: &Value) -> Result<Value, String> {
         tree,
         canvas,
     }))
-}
-
-/// Resolve a pointer against measured bounds; event/DOM access stays in the renderer.
-fn hit(body: &Value) -> Value {
-    let number = |key: &str| body["rect"][key].as_f64().unwrap_or_default();
-    let x = body["x"].as_f64().unwrap_or_default() - number("left");
-    let y = body["y"].as_f64().unwrap_or_default() - number("top");
-    let width = number("width");
-    let height = number("height");
-    let outer = body["outer"] == true;
-    let (x, y, right, bottom) = if outer {
-        (x, y, width - x, height - y)
-    } else {
-        let x = x / width.max(1.);
-        let y = y / height.max(1.);
-        (x, y, 1. - x, 1. - y)
-    };
-    let (edge, distance) = [
-        ("left", x),
-        ("right", right),
-        ("top", y),
-        ("bottom", bottom),
-    ]
-    .into_iter()
-    .reduce(|a, b| if b.1 < a.1 { b } else { a })
-    .expect("four edges");
-    if outer {
-        let band = (width.min(height) * 0.1).clamp(28., 72.);
-        if distance >= 0. && distance <= band {
-            json!(edge)
-        } else {
-            Value::Null
-        }
-    } else {
-        json!(if distance > 0.28 { "center" } else { edge })
-    }
 }

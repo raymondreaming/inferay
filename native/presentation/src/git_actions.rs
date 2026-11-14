@@ -272,22 +272,6 @@ pub fn operation_payload(
     })
 }
 
-pub fn failed_operation(input: &Value) -> Value {
-    use inferay_core::repository::{GitOperationOutcome, GitOperationResult};
-    operation_payload(
-        GitOperationResult {
-            ok: false,
-            operation: crate::string(&input["operation"]).into(),
-            outcome: GitOperationOutcome::Failed,
-            head: None,
-            conflicts: Vec::new(),
-            error_kind: serde_json::from_value(input["errorKind"].clone()).ok(),
-            error: Some(crate::string(&input["error"]).into()),
-        },
-        false,
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

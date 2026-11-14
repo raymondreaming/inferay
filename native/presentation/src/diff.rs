@@ -1,5 +1,4 @@
 //! Pure diff presentation, request translation, and change navigation.
-use crate::{array, flag, number, string};
 use serde_json::{Value, json};
 
 #[derive(Clone, serde::Serialize, serde::Deserialize, ts_rs::TS)]
@@ -7,67 +6,6 @@ use serde_json::{Value, json};
 pub enum DiffViewMode {
     Split,
     Hunks,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, ts_rs::TS)]
-#[serde(rename_all = "camelCase")]
-pub struct DiffRequest {
-    cwd: String,
-    file: String,
-    staged: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    revision: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    commit_hash: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    commit_parent: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    comparison_from: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    comparison_to: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional, type = "'full' | 'review'")]
-    view: Option<String>,
-}
-
-#[derive(serde::Serialize, ts_rs::TS)]
-#[serde(rename_all = "camelCase")]
-pub struct EditDiffWindow {
-    start: usize,
-    end: usize,
-    r#virtual: bool,
-    padding_top: usize,
-    padding_bottom: usize,
-}
-
-/// Scroll projections take row counts only; native diff contents stay in the renderer.
-pub fn edit_window(input: &Value) -> EditDiffWindow {
-    let count = number(&input["count"]) as usize;
-    let virtualized = flag(&input["virtualized"]);
-    let start = if virtualized {
-        (number(&input["first"]) as usize)
-            .min(count - 1)
-            .saturating_sub(8)
-    } else {
-        0
-    };
-    let end = if virtualized {
-        count.min(start.saturating_add(40))
-    } else {
-        count
-    };
-    EditDiffWindow {
-        start,
-        end,
-        r#virtual: virtualized,
-        padding_top: start.saturating_mul(15),
-        padding_bottom: (count - end).saturating_mul(15),
-    }
 }
 
 #[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS)]
@@ -132,22 +70,6 @@ pub fn navigation(input: &Value) -> Result<Value, String> {
     } else {
         json!(next)
     })
-}
-
-pub fn next_change(input: &Value) -> Value {
-    let ranges = array(&input["ranges"]);
-    if ranges.is_empty() {
-        return Value::Null;
-    }
-    let ranges: Vec<_> = ranges
-        .iter()
-        .map(|range| [number(&range[0]) as usize, number(&range[1]) as usize])
-        .collect();
-    json!(next_change_index(
-        &ranges,
-        number(&input["line"]),
-        number(&input["direction"]) as i32
-    ))
 }
 
 pub fn next_change_index(ranges: &[[usize; 2]], line: f64, direction: i32) -> Option<usize> {
@@ -252,36 +174,6 @@ pub fn viewer(
         message,
         markdown,
     }
-}
-
-pub fn diff_request(i: &Value) -> Value {
-    if !flag(&i["active"]) || string(&i["cwd"]).is_empty() || i["selectedFile"].is_null() {
-        return Value::Null;
-    }
-    let source = &i["fileSource"];
-    let parameter = |kind: &str, key: &str| {
-        (source["kind"] == kind)
-            .then(|| source[key].as_str().map(str::to_owned))
-            .flatten()
-    };
-    json!(DiffRequest {
-        cwd: string(&i["cwd"]).into(),
-        file: string(&i["selectedFile"]["path"]).into(),
-        staged: flag(&i["selectedFile"]["staged"]),
-        revision: i["revision"].as_str().map(str::to_owned),
-        commit_hash: parameter("commit", "commitHash"),
-        commit_parent: parameter("commit", "commitParent"),
-        comparison_from: parameter("comparison", "comparisonFrom"),
-        comparison_to: parameter("comparison", "comparisonTo"),
-        view: Some(
-            if i["viewMode"] == "split" {
-                "full"
-            } else {
-                "review"
-            }
-            .into()
-        ),
-    })
 }
 
 /// Warm adjacent keyboard targets in the caller's visible order.

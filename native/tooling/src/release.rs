@@ -303,8 +303,8 @@ impl Paths {
         let artifacts_dir = root.join("artifacts");
         Self {
             package_json: cli_dir.join("package.json"),
-            native_app_cargo_toml: root.join("native/gpui/Cargo.toml"),
-            native_app_info_plist: root.join("native/gpui/Info.plist"),
+            native_app_cargo_toml: root.join("native/rune/Cargo.toml"),
+            native_app_info_plist: root.join("native/rune/Info.plist"),
             installer_dmg: artifacts_dir.join("inferay-installer.dmg"),
             platform_dmg: artifacts_dir.join("inferay-macos-arm64.dmg"),
             checksums: artifacts_dir.join("checksums.txt"),
@@ -406,9 +406,9 @@ fn commit_and_tag(paths: &Paths, version: &str) -> Result<(), String> {
         &command(&[
             "git",
             "add",
-            "native/gpui/Cargo.toml",
-            "native/gpui/Cargo.lock",
-            "native/gpui/Info.plist",
+            "native/rune/Cargo.toml",
+            "native/rune/Cargo.lock",
+            "native/rune/Info.plist",
             "packages/inferay/package.json",
         ]),
         None,
@@ -574,7 +574,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             "cargo",
             "check",
             "--manifest-path",
-            "native/gpui/Cargo.toml",
+            "native/rune/Cargo.toml",
         ]),
         None,
         false,

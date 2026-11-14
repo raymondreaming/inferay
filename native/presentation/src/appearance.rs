@@ -198,64 +198,6 @@ pub fn normalize_background_settings(text: &str) -> String {
     .expect("background serialization")
 }
 
-#[derive(serde::Serialize, ts_rs::TS)]
-#[serde(rename_all = "camelCase")]
-pub struct DropdownPosition {
-    top: f64,
-    bottom: f64,
-    left: f64,
-    width: f64,
-    max_h: f64,
-    #[ts(type = "'top' | 'bottom'")]
-    placement: &'static str,
-}
-pub fn dropdown_position(input: &serde_json::Value) -> DropdownPosition {
-    if !input["rect"].is_object() {
-        return DropdownPosition {
-            top: 0.,
-            bottom: 0.,
-            left: 0.,
-            width: 0.,
-            max_h: 300.,
-            placement: "bottom",
-        };
-    }
-    let value = |key: &str| input[key].as_f64().unwrap_or_default();
-    let rect = |key: &str| input["rect"][key].as_f64().unwrap_or_default();
-    let above = rect("top") - 4.;
-    let below = value("height") - rect("bottom") - 4.;
-    let top = input["placement"] == "top" || (input["placement"] == "auto" && above > below);
-    let count = value("count");
-    let visible = if value("maxVisible") > 0. {
-        count.min(value("maxVisible"))
-    } else {
-        count
-    };
-    let content = input["contentHeight"]
-        .as_f64()
-        .unwrap_or(visible * value("rowHeight") + if count > 5. { 38. } else { 0. } + 2.);
-    let content = if value("maxVisible") > 0. {
-        content
-    } else {
-        content.min(400.)
-    };
-    let width = rect("width").max(value("minWidth"));
-    DropdownPosition {
-        top: if top { 0. } else { rect("bottom") + 4. },
-        bottom: if top {
-            value("height") - rect("top") + 4.
-        } else {
-            0.
-        },
-        left: rect("left")
-            .max(8.)
-            .min((value("width") - width - 8.).max(8.)),
-        width,
-        max_h: content.min(if top { above } else { below }).max(0.),
-        placement: if top { "top" } else { "bottom" },
-    }
-}
-
 #[derive(Clone, Copy, Deserialize, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct SidebarResize {

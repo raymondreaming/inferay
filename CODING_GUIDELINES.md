@@ -21,15 +21,15 @@ When choices are comparable, prefer fewer concepts, fewer execution paths, fewer
 
 ## Formatting
 
-Rust formatting is owned by `rustfmt.toml`. Run `bun run format` for both the shared Rust workspace and the separate GPUI crate; vendored dependencies are excluded. Use the standard formatter output instead of manually compressing code or adding formatting skips. Repository editor settings enable Rust format-on-save with rust-analyzer. The commit hook formats staged first-party Rust files without following their child modules, preserving lint-staged's handling of partially staged files. `bun run format:check` is the read-only gate and runs first in `bun run check`.
+Rust formatting is owned by `rustfmt.toml`. Run `bun run format` for both the shared Rust workspace and the separate desktop crate (`native/rune`); vendored dependencies are excluded. Use the standard formatter output instead of manually compressing code or adding formatting skips. Repository editor settings enable Rust format-on-save with rust-analyzer. The commit hook formats staged first-party Rust files without following their child modules, preserving lint-staged's handling of partially staged files. `bun run format:check` is the read-only gate and runs first in `bun run check`.
 
 JavaScript, TypeScript, JSON, and CSS retain the existing Bun formatter and lint-staged configuration.
 
 ## Architecture
 
-GPUI (`native/gpui`) is Inferay's only desktop UI. The Solid renderer and webview host were removed at the GPUI-only cutover. Implement future features, fixes, and performance work in GPUI and the existing shared Rust owners. Known feature gaps are tracked in `native/gpui/README.md`; validate changes incrementally without recreating a second UI.
+The Rune desktop app (`native/rune`) is Inferay's only desktop UI. Implement features, fixes, and performance work there and in the existing shared Rust owners. Known feature gaps and the layout rules that keep its rendering exact are documented in `native/rune/README.md`; validate changes incrementally without recreating a second UI.
 
-Dependencies flow inward: GPUI → server/diff engine/presentation → core. Core remains pure: no filesystem, process, network, persistence, or renderer dependencies. Presentation owns pure layout and interaction models. Server owns authenticated APIs, persistence, provider processes, projects, and outbound network operations. GPUI owns native rendering, input, focus, viewport state, and background task lifetimes.
+Dependencies flow inward: desktop app → server/diff engine/presentation → core. Core remains pure: no filesystem, process, network, persistence, or renderer dependencies. Presentation owns pure layout and interaction models. Server owns authenticated APIs, persistence, provider processes, projects, and outbound network operations. The desktop app owns native rendering, input, focus, viewport state, and background task lifetimes.
 
 Keep Git work, parsing, image decoding, and I/O off the UI thread. Retain opened views and stable identities. Publish coherent background results, preserve drafts and scroll anchors, and cancel work when its owner no longer needs it. Do not duplicate canonical shared state in renderer-specific models.
 
@@ -37,8 +37,8 @@ Use the shared native button/menu surfaces, design tokens, and semantic feature 
 
 ## Network boundary
 
-Agents use local Git, GitHub CLI, and direct service connectors. Outbound HTTP belongs in `native/server`; GPUI's backend adapter communicates only with the authenticated loopback service. Never start two backend owners against one profile. Do not edit the user database directly.
+Agents use local Git, GitHub CLI, and direct service connectors. Outbound HTTP belongs in `native/server`; The desktop app's backend adapter communicates only with the authenticated loopback service. Never start two backend owners against one profile. Do not edit the user database directly.
 
 ## Verification
 
-Run the smallest relevant Rust tests while changing an area, then `bun run check` for the cutover gates. `bun run code` counts production Rust source without tests or vendors. Build GPUI with `bun run build`; `bun run dev` builds and opens the development bundle. Keep product behavior and known limitations documented; compilation alone does not establish UI parity.
+Run the smallest relevant Rust tests while changing an area, then `bun run check` for the cutover gates. `bun run code` counts production Rust source without tests or vendors. Build the app with `bun run build`; `bun run dev` builds and opens the development bundle. Keep product behavior and known limitations documented; compilation alone does not establish UI parity.

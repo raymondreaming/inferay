@@ -496,7 +496,7 @@ async fn dispatch_request(State(state): State<ServerState>, request: Request) ->
             if head_only {
                 Body::empty()
             } else {
-                Body::from("{\"app\":\"inferay\",\"ui\":\"gpui\"}")
+                Body::from("{\"app\":\"inferay\",\"ui\":\"rune\"}")
             },
             "application/json",
             "no-store",
@@ -3144,7 +3144,7 @@ mod file_http_tests {
         );
         assert_eq!(
             serde_json::from_slice::<Value>(&response.bytes().await.unwrap()).unwrap()["ui"],
-            "gpui"
+            "rune"
         );
         assert_eq!(
             client

@@ -6,25 +6,6 @@ use serde::Deserialize;
 use ts_rs::TS;
 
 #[derive(Deserialize, TS)]
-pub struct ProposalPath {
-    pub path: String,
-    #[serde(default)]
-    pub removal: bool,
-}
-
-pub fn proposal_path(input: ProposalPath) -> Result<String, String> {
-    let path = input.path.trim();
-    inferay_core::project_files::relative_path(path)?;
-    if path.split('/').any(|part| part == ".") {
-        return Err("Use a relative file path inside this library.".into());
-    }
-    if input.removal && path == "plugin.json" {
-        return Err("The library needs its plugin.json manifest.".into());
-    }
-    Ok(path.into())
-}
-
-#[derive(Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct NewAutomation {
     pub id: String,
@@ -165,22 +146,4 @@ pub fn skill_choices(input: SkillChoices) -> Vec<SkillOption> {
         }
     }
     options
-}
-#[derive(Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-pub struct EditToolGrant {
-    pub grants: Vec<inferay_core::project_files::AgentToolGrant>,
-    pub grant: inferay_core::project_files::AgentToolGrant,
-    pub enabled: bool,
-}
-pub fn edit_tool_grant(
-    mut input: EditToolGrant,
-) -> Vec<inferay_core::project_files::AgentToolGrant> {
-    input.grants.retain(|grant| {
-        grant.plugin_id != input.grant.plugin_id || grant.tool_id != input.grant.tool_id
-    });
-    if input.enabled {
-        input.grants.push(input.grant);
-    }
-    input.grants
 }

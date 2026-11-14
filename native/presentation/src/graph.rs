@@ -100,20 +100,6 @@ pub fn viewport(input: &Value) -> GraphViewport {
     }
 }
 
-pub fn reveal(input: &Value) -> Value {
-    let row_top = number(&input["index"]) * ROW_HEIGHT;
-    let scroll = number(&input["scrollTop"]);
-    let height = number(&input["height"]);
-    let padding = ROW_HEIGHT * 2.;
-    json!(if row_top < scroll + padding {
-        (row_top - padding).max(0.)
-    } else if row_top + ROW_HEIGHT > scroll + height - padding {
-        row_top + ROW_HEIGHT - height + padding
-    } else {
-        scroll
-    })
-}
-
 fn column_width(index: usize, width: f64) -> f64 {
     let width = width.max(MIN_WIDTHS[index]);
     if COLUMNS[index] == "message" {
@@ -190,38 +176,6 @@ pub fn preferences(stored: &Value) -> Value {
     json!({"columns":columns,
         "widths":widths, "compactWidths":compact_widths, "order":order,
         "hiddenRefs":refs("hiddenRefs"), "soloRefs":refs("soloRefs"), "pinnedRefs":refs("pinnedRefs")})
-}
-pub fn move_column(i: &Value) -> Value {
-    let mut order = array(&i["order"]).to_vec();
-    if let (Some(source), Some(target)) = (
-        order.iter().position(|c| c == &i["source"]),
-        order.iter().position(|c| c == &i["target"]),
-    ) {
-        if matches!(string(&i["source"]), "refs" | "graph") {
-            if !matches!(string(&i["target"]), "refs" | "graph") {
-                let pair: Vec<_> = ["refs", "graph"]
-                    .into_iter()
-                    .filter(|column| order.iter().any(|value| value == column))
-                    .map(Value::from)
-                    .collect();
-                order.retain(|column| !matches!(string(column), "refs" | "graph"));
-                let target_index = order
-                    .iter()
-                    .position(|column| column == &i["target"])
-                    .unwrap();
-                order.splice(
-                    target_index + usize::from(source < target)
-                        ..target_index + usize::from(source < target),
-                    pair,
-                );
-            }
-        } else {
-            let column = order.remove(source);
-            order.insert(target, column);
-        }
-    }
-    keep_branch_before_graph(&mut order);
-    json!(order)
 }
 pub fn layout(i: &Value) -> Value {
     let max_column = (number(&i["maxColumn"]) as usize).min(100_000);
@@ -429,82 +383,6 @@ pub fn lines(i: &Value) -> GraphLines {
 #[cfg(test)]
 mod column_layout_tests {
     use super::*;
-
-    #[test]
-    fn branch_stays_immediately_before_graph_after_restore_reorder_and_resize() {
-        let saved = json!({"order": ["date", "graph", "message", "sha", "refs", "author"]});
-        let restored = preferences(&saved);
-        assert_eq!(
-            restored["order"],
-            json!(["date", "refs", "graph", "message", "sha", "author"])
-        );
-        for source in COLUMNS {
-            for target in COLUMNS {
-                let moved = move_column(
-                    &json!({"order": restored["order"], "source": source, "target": target}),
-                );
-                let order = moved.as_array().unwrap();
-                let graph = order.iter().position(|column| column == "graph").unwrap();
-                assert!(graph > 0);
-                assert_eq!(order[graph - 1], "refs");
-            }
-        }
-        for width in [360., 520., 1200.] {
-            let mut input = restored.clone();
-            input["order"] = saved["order"].clone();
-            input["availableWidth"] = json!(width);
-            let result = layout(&input);
-            let order = result["visibleOrder"].as_array().unwrap();
-            let graph = order.iter().position(|column| column == "graph").unwrap();
-            assert_eq!(order[graph - 1], "refs");
-            input["columns"]["refs"] = json!(false);
-            assert!(
-                !layout(&input)["visibleOrder"]
-                    .as_array()
-                    .unwrap()
-                    .contains(&json!("refs"))
-            );
-        }
-    }
-
-    #[test]
-    fn sidebar_column_dragging_survives_restore_and_expansion() {
-        let mut input =
-            preferences(&json!({"compactWidths": {"refs": 180., "message": 240., "date": 190.}}));
-        input["order"] =
-            move_column(&json!({"order": input["order"], "source": "date", "target": "message"}));
-        input["availableWidth"] = json!(520.);
-        let compact = layout(&input);
-        assert_eq!(
-            compact["visibleOrder"],
-            json!(["refs", "graph", "date", "message", "author", "sha"])
-        );
-        assert_eq!(compact["columnWidths"]["refs"], 180.);
-        assert_eq!(compact["columnWidths"]["message"], 240.);
-        assert_eq!(compact["columnWidths"]["date"], 190.);
-        input["availableWidth"] = json!(1200.);
-        let expanded = layout(&input);
-        assert_eq!(expanded["visibleOrder"], compact["visibleOrder"]);
-        assert_eq!(expanded["columnWidths"]["refs"], 216.);
-        assert_eq!(expanded["columnWidths"]["date"], 132.);
-        assert_eq!(preferences(&input)["compactWidths"], input["compactWidths"]);
-        for source in ["refs", "graph"] {
-            assert_eq!(
-                move_column(
-                    &json!({"order": input["order"], "source": source, "target": "message"})
-                ),
-                json!(["date", "message", "refs", "graph", "author", "sha"])
-            );
-        }
-    }
-
-    #[test]
-    fn rows_use_the_scroll_viewport_without_a_header_offset() {
-        let view = viewport(&json!({"count":100,"scrollTop":230,"height":46}));
-        assert_eq!((view.visible_start, view.visible_end), (4, 18));
-        assert_eq!(reveal(&json!({"index":10,"scrollTop":0,"height":92})), 207.);
-        assert_eq!(reveal(&json!({"index":0,"scrollTop":230,"height":92})), 0.);
-    }
 
     #[test]
     fn dashed_rails_stop_at_node_outlines() {

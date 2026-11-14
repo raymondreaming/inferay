@@ -1,6 +1,6 @@
 # Rust models with Solid views
 
-Status: Superseded by the GPUI-only cutover. The Solid renderer, webview host, and WebAssembly UI bridge have been removed. Shared Rust domain ownership remains. See [current architecture](../architecture.md).
+Status: Superseded by the native desktop app (`native/rune`). The Solid renderer, webview host, and WebAssembly UI bridge have been removed. Shared Rust domain ownership remains. See [current architecture](../architecture.md).
 
 
 Application behavior belongs in Rust. The native core and server own persistence, provider execution, and repository operations; `native/presentation` owns shared workbench transitions, renderer projections, transcript reconciliation, and liquid simulation. Solid components retain typed TSX for rendering and browser interaction. The presentation crate also compiles to WebAssembly so typing, selection, and animation can use Rust synchronously without a server request per interaction. Its generated bindings and contracts live under `build/presentation`; the renderer build regenerates them. New application models belong in Rust, with generated TypeScript contracts consumed by the views. Solid components, local UI state management, browser adapters, and build tooling remain TypeScript. Views import generated contracts using their canonical Rust names; a distinct view model name is warranted only when its shape differs.

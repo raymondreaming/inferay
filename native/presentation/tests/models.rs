@@ -1,25 +1,7 @@
-use inferay_presentation::{panels, project};
+mod support;
+use inferay_presentation::panels;
 use serde_json::{Value, json};
-fn render(op: &str, input: Value) -> Value {
-    project(op, &input).unwrap()
-}
-
-#[test]
-fn dropdown_fits_ten_measured_repository_rows_but_stays_compact_for_short_lists() {
-    let mut input = json!({"placement":"auto","count":12,"maxVisible":10,
-        "rowHeight":30,"contentHeight":522,"width":1400,"height":900,"minWidth":220,
-        "rect":{"top":50,"bottom":80,"left":900,"width":300}});
-    let menu = render("dropdownPosition", input.clone());
-    assert_eq!(menu["maxH"], 522.);
-    assert_eq!(menu["placement"], "bottom");
-    input["count"] = json!(2);
-    input["contentHeight"] = json!(98);
-    assert_eq!(render("dropdownPosition", input.clone())["maxH"], 98.);
-    input["count"] = json!(12);
-    input["contentHeight"] = json!(522);
-    input["height"] = json!(300);
-    assert_eq!(render("dropdownPosition", input)["maxH"], 216.);
-}
+use support::project;
 
 #[test]
 fn added_and_deleted_files_use_full_width_but_modified_files_stay_split() {
@@ -40,68 +22,6 @@ fn added_and_deleted_files_use_full_width_but_modified_files_stay_split() {
     }
 }
 
-#[test]
-fn conversation_grid_keeps_repository_contexts_together_and_isolates_projects() {
-    let key = |group: &str, scope: &str| json!([group, scope]).to_string();
-    let mut input = json!({
-        "scopeId":"aivre",
-        "groups":[{"id":"first", "selectedPaneId":"a", "panes":[
-            {"id":"a", "cwd":"/core"},
-            {"id":"b", "cwd":"/web"},
-            {"id":"c", "cwd":"/project"},
-            {"id":"loose", "cwd":null}
-        ]}],
-        "activeKey":key("first", "aivre"),
-        "previous":[key("first", "other-project")]
-    });
-    let expected = json!([{
-        "key":key("first", "aivre"), "groupIndex":0, "paneIndices":[0,1,2,3]
-    }]);
-    assert_eq!(render("retainedWorkspaces", input.clone()), expected);
-    input["groups"][0]["selectedPaneId"] = json!("b");
-    assert_eq!(render("retainedWorkspaces", input.clone()), expected);
-    input["groups"][0]["panes"]
-        .as_array_mut()
-        .unwrap()
-        .remove(1);
-    assert_eq!(
-        render("retainedWorkspaces", input.clone())[0]["paneIndices"],
-        json!([0, 1, 2])
-    );
-    input["activeKey"] = json!(key("missing", "aivre"));
-    assert_eq!(render("retainedWorkspaces", input), json!([]));
-}
-
-#[test]
-fn retained_workspaces_evict_only_inactive_views() {
-    let key = |group: &str| json!([group, "project"]).to_string();
-    let mut input = json!({"scopeId":"project", "groups":[], "previous":[]});
-    for i in 0..10 {
-        let group = format!("group-{i}");
-        input["groups"]
-            .as_array_mut()
-            .unwrap()
-            .push(json!({"id":group,"panes":[]}));
-        input["previous"]
-            .as_array_mut()
-            .unwrap()
-            .push(json!(key(&group)));
-    }
-    input["activeKey"] = json!(key("group-0"));
-    let retained = render("retainedWorkspaces", input.clone());
-    assert_eq!(retained.as_array().unwrap().len(), 8);
-    assert_eq!(retained[0]["groupIndex"], 3);
-    assert_eq!(retained[7]["groupIndex"], 0);
-    for i in 0..25 {
-        input["groups"][0]["panes"]
-            .as_array_mut()
-            .unwrap()
-            .push(json!({"id":format!("pane-{i}")}));
-    }
-    let retained = render("retainedWorkspaces", input);
-    assert_eq!(retained.as_array().unwrap().len(), 1);
-    assert_eq!(retained[0]["paneIndices"].as_array().unwrap().len(), 25);
-}
 #[test]
 fn panel_transitions_preserve_historical_context_and_validate_commands() {
     use panels::{MainView, PanelAction, PanelSession, SelectionIntent};
@@ -189,34 +109,4 @@ fn saved_panels_migrate_diff_sources_and_restore_valid_documents() {
     );
     assert!(session.detached_file_panels.is_empty());
     assert_eq!(panels::PanelSession::read(&json!(session)), session);
-}
-#[test]
-fn diff_change_navigation_is_strict_and_wraps_at_both_ends() {
-    for (line, direction, expected) in [
-        (0, 1, 0),
-        (10, 1, 1),
-        (20, -1, 0),
-        (40, 1, 0),
-        (0, -1, 2),
-        (21, -1, 1),
-    ] {
-        assert_eq!(
-            project(
-                "nextDiffChange",
-                &json!({
-                    "ranges":[[10,11],[20,22],[40,45]], "line":line, "direction":direction
-                })
-            )
-            .unwrap(),
-            expected
-        );
-    }
-    assert_eq!(
-        project(
-            "nextDiffChange",
-            &json!({"ranges":[], "line":0, "direction":1})
-        )
-        .unwrap(),
-        json!(null)
-    );
 }

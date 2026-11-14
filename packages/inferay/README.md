@@ -3,6 +3,9 @@
 A macOS AI workspace for Claude, Codex, agent workspaces, project context, slash
 commands, git diffs, and image-aware agent work.
 
+Inferay is a native macOS app written in Rust, with its interface built on
+[Rune](https://github.com/anomalyco/rune).
+
 ```sh
 npx inferay
 ```

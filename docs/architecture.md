@@ -1,19 +1,19 @@
 # Architecture
 
-## GPUI-only desktop
+## Native desktop
 
-The GPUI-only cutover removes the Solid renderer, WebAssembly UI bridge, and Tao/Wry host. GPUI owns the desktop window, native input, and rendering. It starts the shared Rust backend or attaches to an existing authenticated loopback backend. Only one backend may own a profile.
+The desktop app (`native/rune`) is built on [Rune](https://github.com/anomalyco/rune), a GPU-rendered Rust UI framework. It owns the desktop window, native input, and rendering. It starts the shared Rust backend or attaches to an existing authenticated loopback backend. Only one backend may own a profile.
 
 | Owner | Responsibility |
 |---|---|
-| `native/gpui` | Native views, input, window, retained UI state and task lifetimes |
+| `native/rune` | Native views, input, window, retained UI state and task lifetimes |
 | `native/core` | Pure domain vocabulary and transitions |
 | `native/presentation` | Pure layout, transcript, dock, and interaction models |
 | `native/diff-engine` | Local Git reads, operations, diffs, and graph projection |
 | `native/server` | HTTP/WebSocket APIs, providers, persistence, projects, and network integrations |
 | `native/tooling` | API reference and release tooling |
 
-There is no browser renderer or HTML fallback route. Shared media and authenticated APIs remain available. See [GPUI](../native/gpui/README.md) for capabilities, remaining feature gaps, and native build instructions.
+There is no browser renderer or HTML fallback route. Shared media and authenticated APIs remain available. See [the desktop app](../native/rune/README.md) for capabilities, remaining feature gaps, and native build instructions.
 
 ## Provider runner
 
@@ -39,7 +39,7 @@ Native Inferay tools use the shared agent dispatcher. Codex receives dynamic too
 
 ## Chat runtime and storage
 
-`native/core/src/chat_status.rs` owns the shared activity value and transitions for local submission, provider acknowledgement, terminal events, reconnects, and failed submissions. The server, transcript replica, and GPUI use that value directly; JSON conversion happens at the transport. `native/gpui/src/transcript.rs` owns immutable prepared rows and viewport publication, while background tasks prepare or recolor content.
+`native/core/src/chat_status.rs` owns the shared activity value and transitions for local submission, provider acknowledgement, terminal events, reconnects, and failed submissions. The server, transcript replica, and desktop app use that value directly; JSON conversion happens at the transport. `native/rune/src/transcript.rs` owns immutable prepared rows and publication; Rune's virtual rows keep the reading anchor and follow the tail, while background tasks prepare or recolor content.
 
 Chat submission IDs are claimed durably before execution. Concurrent or later retries restore the existing conversation instead of starting another provider turn; reusing an ID for a different request is rejected. Receipts retain a request hash, not another copy of the prompt. A receipt means the submission was handled (including queue admission), not that its task succeeded. Unsettled receipts from an earlier backend instance produce a recovery notice. Inferay does not automatically retry uncertain provider effects after a crash.
 
@@ -49,7 +49,7 @@ Provider changes carry bounded conversation excerpts including the opening reque
 
 `GET /api/chat-diagnostics/{pane}` returns the last run's context byte counts by source and provider startup milestones (elapsed milliseconds from handle creation). Counts exclude prompt contents; provider timing records initialization, configuration, thread open/resume, tool readiness, turn acceptance and first delta when observed. The `diagnostics` pane document is also visible in Settings → Database. These measurements do not estimate tokens or claim model-quality gains; provider process reuse remains deliberately unchanged.
 
-Short reconnects replay contiguous transcript splices from an in-memory window bounded to 128 updates and 1 MiB of serialized updates. Epoch changes, missing history, oversized gaps, or a backend restart fall back to the existing retained transcript snapshot. GPUI requests a recent window (initially 200 messages); Load older messages expands it by 200. Snapshot start offsets translate subsequent global splice positions into local positions. Prefix eviction or out-of-window edits trigger a bounded resync. Scroll anchors follow message IDs when a window expands. Repeated connection failures use exponential backoff capped at 30 s plus jitter, resetting after a 30 s connection. Lagging WebSocket subscribers reconnect instead of silently losing events. Native events carry canonical transcript updates without a duplicate raw provider body.
+Short reconnects replay contiguous transcript splices from an in-memory window bounded to 128 updates and 1 MiB of serialized updates. Epoch changes, missing history, oversized gaps, or a backend restart fall back to the existing retained transcript snapshot. The desktop app requests a recent window (initially 200 messages); Load older messages expands it by 200. Snapshot start offsets translate subsequent global splice positions into local positions. Prefix eviction or out-of-window edits trigger a bounded resync. Scroll anchors follow message IDs when a window expands. Repeated connection failures use exponential backoff capped at 30 s plus jitter, resetting after a 30 s connection. Lagging WebSocket subscribers reconnect instead of silently losing events. Native events carry canonical transcript updates without a duplicate raw provider body.
 
 Model-facing text and schemas have a separate [behavior eval suite](../evals/agent-tools/README.md), with mocked tool effects and explicit Claude/OpenAI model selection. It imports production contracts and supports repeated baseline comparisons; API credentials are needed for live model results.
 
@@ -97,4 +97,4 @@ Bundled skills ship in the app (`data/prompts.json`). Global custom skills live 
 
 ## Checks
 
-`bun run check` runs native dependency boundaries, Clippy, and Rust tests for the shared workspace and GPUI. Native tests use temporary profiles and repositories. Visual/input changes additionally require native UI verification.
+`bun run check` runs native dependency boundaries, Clippy, and Rust tests for the shared workspace and the desktop app. Native tests use temporary profiles and repositories. Visual/input changes additionally require native UI verification.

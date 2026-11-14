@@ -1,5 +1,6 @@
-use inferay_presentation::project;
+mod support;
 use serde_json::{Value, json};
+use support::project;
 
 fn panel_session(saved: &Value) -> Value {
     json!(inferay_presentation::panels::PanelSession::read(saved))
@@ -68,37 +69,6 @@ fn graph_navigation_opens_wip_and_preserves_branch_and_boundary_rules() {
     assert_eq!(
         project("graphNavigation", &json!({"key":"Home","items":[]})).unwrap()["handled"],
         false
-    );
-}
-
-#[test]
-fn graph_file_open_waits_for_history_then_restarts_at_the_first_sidebar_file() {
-    let mut input = json!({"request":"wip","mainViewMode":"graph","selectedCommitHash":"wip","selectedCommitCount":1,
-        "selectedGraphItem":{"itemKind":"worktreeWip"},"workingTreeCwd":"/linked",
-        "file":{"path":"b","staged":false},"loading":true});
-    let first = project("graphFileOpen", &input).unwrap();
-    assert_eq!(first["ready"], true);
-    assert_eq!(
-        first["action"],
-        json!({"type":"workingTreeFile","cwd":"/linked","path":"b","staged":false})
-    );
-    input["selectedFile"] = json!({"path":"a","staged":true});
-    assert_eq!(
-        project("graphFileOpen", &input).unwrap()["action"]["path"],
-        "b"
-    );
-    let mut refreshing = input.clone();
-    refreshing["file"] = Value::Null;
-    assert_eq!(
-        project("graphFileOpen", &refreshing).unwrap(),
-        json!({"ready":false,"action":null})
-    );
-    input["selectedGraphItem"] = json!({"itemKind":"commit","hash":"commit"});
-    assert_eq!(project("graphFileOpen", &input).unwrap()["ready"], false);
-    input["selectedCommitHash"] = json!("different");
-    assert_eq!(
-        project("graphFileOpen", &input).unwrap(),
-        json!({"ready":true,"action":null})
     );
 }
 
@@ -376,146 +346,6 @@ fn sidebar_left_reopens_hidden_graph_after_browsing_files() {
     assert_eq!(session["graphVisible"], true);
     assert_eq!(session["mainViewMode"], "graph");
     assert_eq!(session["selectedCommitHash"], "commit");
-}
-
-#[test]
-fn graph_keys_route_from_window_focus_without_a_clicked_row() {
-    for key in ["ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"] {
-        let mut input = json!({"key":key,"windowFocused":true,"mainViewMode":"graph",
-            "graphVisible":true,"sidebarVisible":true,"focusedPanelId":null});
-        assert_eq!(
-            project("repositoryKeyboardAction", &input).unwrap(),
-            json!({"type":"navigateGraph"})
-        );
-        for guard in ["editable", "overlay", "blocked", "chatFocused"] {
-            input[guard] = json!(true);
-            assert_ne!(
-                project("repositoryKeyboardAction", &input).unwrap(),
-                json!({"type":"navigateGraph"})
-            );
-            input[guard] = json!(false);
-        }
-        input["windowFocused"] = json!(false);
-        input["button"] = json!(true);
-        for tab in [false, true] {
-            input["repositoryTabFocused"] = json!(tab);
-            assert_eq!(
-                project("repositoryKeyboardAction", &input).unwrap(),
-                json!({"type":"navigateGraph"})
-            );
-        }
-        input["sidebarFocused"] = json!(true);
-        assert_ne!(
-            project("repositoryKeyboardAction", &input).unwrap(),
-            json!({"type":"navigateGraph"})
-        );
-    }
-    assert_eq!(
-        project(
-            "graphFileOpen",
-            &json!({"request":"wip","selectedCommitHash":"wip",
-        "mainViewMode":"graph","selectedGraphItem":{"itemKind":"worktreeWip"},
-        "workingTreeCwd":"/repo","file":{"path":"only-staged.rs","staged":true}})
-        )
-        .unwrap()["action"],
-        json!({"type":"workingTreeFile","cwd":"/repo","path":"only-staged.rs","staged":true})
-    );
-}
-
-#[test]
-fn chat_visibility_uses_canonical_panes_and_normalized_repository_paths() {
-    let mut state = json!({"selectedGroupId":"a", "groups":[
-        {"id":"a", "selectedPaneId":"p2", "panes":[
-            {"id":"p1", "cwd":" /repo/ "}, {"id":"p2", "cwd":"/repo"},
-            {"id":"draft"}, {"id":"root", "cwd":"/"}]},
-        {"id":"b", "selectedPaneId":"p3", "panes":[
-            {"id":"p3", "cwd":"/repo\\"}, {"id":"empty", "cwd":" "}]}
-    ]});
-    assert_eq!(
-        project("workspaceChatEntries", &state).unwrap(),
-        json!([[0, 0], [0, 1], [1, 0]])
-    );
-    state["groups"][0]["selectedPaneId"] = json!("draft");
-    assert_eq!(
-        project("workspaceChatEntries", &state).unwrap(),
-        json!([[0, 2], [1, 1]])
-    );
-    state["groups"][0]["selectedPaneId"] = json!("root");
-    assert_eq!(
-        project("workspaceChatEntries", &state).unwrap(),
-        json!([[0, 3]])
-    );
-    state["groups"][0]["selectedPaneId"] = json!("missing");
-    assert_eq!(
-        project("workspaceChatEntries", &state).unwrap(),
-        json!([[0, 0], [0, 1], [1, 0]])
-    );
-    assert_eq!(
-        project("workspaceChatEntries", &Value::Null).unwrap(),
-        json!([])
-    );
-}
-
-#[test]
-fn repository_selection_prefers_current_group_then_remembered_pane() {
-    use inferay_presentation::workspace_session::WorkspaceReplica;
-    let pane = |id: &str, cwd: &str| json!({"id":id,"title":"Codex","agentKind":"codex","cwd":cwd,"pendingCwd":false,"referencePaths":[]});
-    let mut state = json!({"selectedGroupId":"a", "groups":[
-        {"id":"a", "name":"A", "columns":1,"rows":1,"selectedPaneId":"a1", "panes":[pane("a1", "/other")]},
-        {"id":"b", "name":"B", "columns":1,"rows":1,"selectedPaneId":"b2", "panes":[pane("b1", " /repo/ "),pane("b2", "/repo")]}
-    ]});
-    let action = r#"{"type":"selectRepository","cwd":"/repo"}"#;
-    let mut replica = WorkspaceReplica::new();
-    replica.accept(&state.to_string(), None).unwrap();
-    let request: Value = serde_json::from_str(&replica.begin(action).unwrap()).unwrap();
-    let snapshot: Value = serde_json::from_str(&replica.snapshot()).unwrap();
-    assert_eq!(snapshot["state"]["selectedGroupId"], "b");
-    assert_eq!(snapshot["state"]["groups"][1]["selectedPaneId"], "b2");
-    let failed: Value =
-        serde_json::from_str(&replica.fail(Some(request["id"].as_u64().unwrap() as u32))).unwrap();
-    assert_eq!(failed["state"], state);
-    state["selectedGroupId"] = json!("b");
-    replica.accept(&state.to_string(), None).unwrap();
-    replica.begin(action).unwrap();
-    let snapshot: Value = serde_json::from_str(&replica.snapshot()).unwrap();
-    assert_eq!(snapshot["state"]["groups"][1]["selectedPaneId"], "b1");
-    assert_eq!(
-        project("workspaceChatEntries", &snapshot["state"]).unwrap(),
-        json!([[1, 0], [1, 1]])
-    );
-    // A structural acknowledgement can remove the target of a newer selection.
-    // Keep the valid acknowledged pane until that selection succeeds or fails.
-    replica.accept(&state.to_string(), None).unwrap();
-    let removing: Value = serde_json::from_str(
-        &replica
-            .begin(r#"{"type":"removePane","paneId":"b1"}"#)
-            .unwrap(),
-    )
-    .unwrap();
-    let selecting: Value = serde_json::from_str(
-        &replica
-            .begin(r#"{"type":"selectPane","paneId":"b1"}"#)
-            .unwrap(),
-    )
-    .unwrap();
-    state["groups"][1]["panes"]
-        .as_array_mut()
-        .unwrap()
-        .remove(0);
-    let next: Value = serde_json::from_str(
-        &replica
-            .accept(
-                &state.to_string(),
-                Some(removing["id"].as_u64().unwrap() as u32),
-            )
-            .unwrap(),
-    )
-    .unwrap();
-    assert_eq!(next["state"], state);
-    let failed: Value =
-        serde_json::from_str(&replica.fail(Some(selecting["id"].as_u64().unwrap() as u32)))
-            .unwrap();
-    assert_eq!(failed["state"], state);
 }
 
 #[test]

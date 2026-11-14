@@ -1,5 +1,6 @@
-use inferay_presentation::project;
+mod support;
 use serde_json::json;
+use support::project;
 
 #[test]
 fn proposal_paths_stay_inside_the_library_and_keep_the_manifest() {
@@ -133,28 +134,6 @@ fn skill_selection_preserves_qualified_and_unavailable_references() {
         project("skillChoices", &unqualified).unwrap()[1]["id"],
         "same"
     );
-}
-
-#[test]
-fn editing_one_tool_grant_preserves_unavailable_and_other_library_grants() {
-    let grant = json!({"pluginId":"own","toolId":"run","required":false});
-    let other = json!({"pluginId":"other","toolId":"run","required":true});
-    let missing = json!({"pluginId":"missing","toolId":"gone","required":true});
-    for enabled in [false, true] {
-        let result = project(
-            "editToolGrant",
-            &json!({"grants":[grant,other,grant,missing],"grant":grant,"enabled":enabled}),
-        )
-        .unwrap();
-        assert_eq!(
-            result,
-            if enabled {
-                json!([other, missing, {"pluginId":"own","toolId":"run"}])
-            } else {
-                json!([other, missing])
-            }
-        );
-    }
 }
 
 #[test]
