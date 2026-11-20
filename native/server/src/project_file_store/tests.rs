@@ -961,3 +961,40 @@ fn repository_commands_preserve_definitions_and_reject_stale_duplicate_or_used_r
     );
     assert!(checkout.path().is_dir() && replacement.path().is_dir());
 }
+
+#[test]
+fn every_project_chat_receives_all_linked_repository_paths() {
+    let profile = tempfile::tempdir().unwrap();
+    let first = tempfile::tempdir().unwrap();
+    let second = tempfile::tempdir().unwrap();
+    let project = uuid::Uuid::new_v4().to_string();
+    let first_id = uuid::Uuid::new_v4().to_string();
+    let second_id = uuid::Uuid::new_v4().to_string();
+    let mut store = FileProjectStore::open(profile.path(), &[]).unwrap();
+    store.command(ProjectFileCommand::SaveProject {
+        definition: serde_json::from_value(json!({"schema":"inferay.project/1","id":project,"name":"App","description":"","instructions":"","repositories":[{"id":first_id,"name":"Frontend"},{"id":second_id,"name":"Backend"}]})).unwrap(),
+        expected_hash: None,
+        repository_paths: [(first_id, first.path().display().to_string()), (second_id, second.path().display().to_string())].into_iter().collect(),
+    }, true, &[]).unwrap();
+    for pane in ["first-chat", "new-chat"] {
+        store
+            .command(
+                ProjectFileCommand::AssociateConversation {
+                    project_id: project.clone(),
+                    pane_id: pane.into(),
+                },
+                true,
+                &[],
+            )
+            .unwrap();
+        for cwd in [first.path(), second.path(), profile.path()] {
+            let (id, instructions, _) = store.context(pane, cwd, &[]).unwrap().unwrap();
+            assert_eq!(id, project);
+            for folder in [first.path(), second.path()] {
+                assert!(instructions.contains(folder.canonicalize().unwrap().to_str().unwrap()));
+            }
+            assert!(instructions.contains("Frontend"));
+            assert!(instructions.contains("Backend"));
+        }
+    }
+}

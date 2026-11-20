@@ -133,6 +133,7 @@ pub struct Workspace {
     pub(crate) project_picker: bool,
     pub(crate) new_menu: bool,
     pub(crate) new_project_name: Option<TextInput>,
+    pub(crate) new_project_repository: Option<std::path::PathBuf>,
     pub(crate) new_project_task: Option<Task>,
     pub(crate) profile: std::path::PathBuf,
     pub(crate) load_task: Option<Task>,
@@ -257,6 +258,7 @@ impl Workspace {
             project_picker: false,
             new_menu: false,
             new_project_name: None,
+            new_project_repository: None,
             new_project_task: None,
             profile: crate::session::profile(),
             load_task: None,
@@ -607,7 +609,13 @@ impl Workspace {
         if self.repository_edit_task.is_some() {
             return;
         }
-        if self.projects[self.project].id.is_none() || self.backend.get().is_none() {
+        if self.projects[self.project].id.is_none() {
+            self.begin_project_creation();
+            self.status = "Create a project to share repositories across its chats.".into();
+            return;
+        }
+        if self.backend.get().is_none() {
+            self.status = "The workspace is still connecting. Try again shortly.".into();
             return;
         }
         self.status.clear();
@@ -946,6 +954,17 @@ impl Workspace {
         self.settings = false;
     }
 
+    pub(crate) fn begin_project_creation(&mut self) {
+        self.new_menu = false;
+        self.status.clear();
+        let mut input = TextInput::field("Project name");
+        input.submit_on_enter = true;
+        input.height_limits = (28., 28.);
+        input.focus();
+        self.new_project_name = Some(input);
+        self.new_project_repository = None;
+    }
+
     pub(crate) fn create_project(&mut self, tx: &mut Tx) {
         if self.new_project_task.is_some() {
             return;
@@ -962,31 +981,50 @@ impl Workspace {
             return;
         };
         let id = uuid::Uuid::new_v4().to_string();
-        let command = serde_json::json!({"type":"saveProject","definition":{
-            "schema":"inferay.project/1","id":id,"name":name,"description":"","instructions":"","repositories":[]
-        },"expectedHash":null});
+        let repository = self.new_project_repository.clone();
+        let project_id = id.clone();
+        let project_name = name.clone();
         self.status.clear();
         let _ = tx;
         self.new_project_task = Some(crate::task::spawn(
             async move {
+                let mut repositories = Vec::new();
+                let mut bindings = serde_json::Map::new();
+                let mut linked = Vec::new();
+                if let Some(path) = repository {
+                    let path = path.canonicalize()?;
+                    let name = path
+                        .file_name()
+                        .ok_or_else(|| anyhow::anyhow!("Choose a repository folder"))?
+                        .to_string_lossy()
+                        .into_owned();
+                    let path = path.to_string_lossy().into_owned();
+                    let id = uuid::Uuid::new_v4().to_string();
+                    repositories.push(serde_json::json!({"id":id,"name":name}));
+                    bindings.insert(id, path.clone().into());
+                    linked.push((name, path));
+                }
                 backend
                     .request(
                         reqwest::Method::POST,
                         "/api/projects/command",
-                        Some(command),
+                        Some(serde_json::json!({"type":"saveProject","definition":{
+                            "schema":"inferay.project/1","id":project_id,"name":project_name,"description":"","instructions":"","repositories":repositories
+                        },"repositoryPaths":bindings,"expectedHash":null})),
                     )
-                    .await
+                    .await?;
+                Ok::<_, anyhow::Error>(linked)
             },
             move |s: &mut Workspace, result, tx| {
                 s.new_project_task = None;
                 match result {
-                    Ok(_) => {
+                    Ok(repositories) => {
                         let project = s.projects.len();
                         s.projects.push(Project {
                             id: Some(id),
                             name,
-                            repositories: vec![],
-                            selected_repository: None,
+                            selected_repository: repositories.first().map(|(_, path)| path.clone()),
+                            repositories,
                             selected: s.conversations.len(),
                             dock: serde_json::Value::Null,
                             dock_workspace: None,
@@ -995,6 +1033,7 @@ impl Workspace {
                         s.add_chat();
                         s.select_project(project, tx);
                         s.new_project_name = None;
+                        s.new_project_repository = None;
                         s.persist_workspace_preferences(None);
                     }
                     Err(error) => s.status = format!("Could not create project: {error}"),

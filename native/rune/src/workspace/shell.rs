@@ -261,11 +261,16 @@ impl Workspace {
             if s.new_project_task.is_none() {
                 s.new_menu = false;
                 s.new_project_name = None;
+                s.new_project_repository = None;
             }
         };
         let mut menu = menu_surface()
             .key("new-menu")
-            .w(ui(240.))
+            .w(ui(if self.new_project_name.is_some() {
+                320.
+            } else {
+                240.
+            }))
             .anchored("new-button", rune::Side::Bottom, rune::Align::Start, 0.)
             .modal(true, close);
         if let Some(name) = &self.new_project_name {
@@ -280,6 +285,59 @@ impl Workspace {
                 .gap(ui(8.))
                 .child(body.text("New project"))
                 .child(input::frame(name, field));
+            menu = menu.child(
+                button(if self.new_project_repository.is_some() {
+                    "Change repository folder…"
+                } else {
+                    "Choose repository folder…"
+                })
+                .key("new-project-repository")
+                .on_press(|s: &mut Workspace| {
+                    if s.new_project_task.is_some() {
+                        return;
+                    }
+                    crate::platform::prompt_for_paths(
+                        crate::platform::PathPrompt {
+                            files: false,
+                            directories: true,
+                            multiple: false,
+                            prompt: Some("Choose repository"),
+                        },
+                        |s, paths, _| {
+                            if s.new_project_task.is_some() {
+                                return;
+                            }
+                            let Some(name) = s.new_project_name.as_mut() else {
+                                return;
+                            };
+                            if let Some(path) = paths.and_then(|paths| paths.into_iter().next()) {
+                                if name.content().trim().is_empty()
+                                    && let Some(folder) = path.file_name()
+                                {
+                                    name.set_content(&folder.to_string_lossy());
+                                }
+                                s.new_project_repository = Some(path);
+                            }
+                        },
+                    );
+                }),
+            );
+            if let Some(path) = &self.new_project_repository {
+                menu = menu
+                    .child(Ink::small().text(path.to_string_lossy().into_owned()))
+                    .child(
+                        button("Remove folder")
+                            .key("clear-project-repository")
+                            .on_press(|s: &mut Workspace| {
+                                if s.new_project_task.is_none() {
+                                    s.new_project_repository = None;
+                                }
+                            }),
+                    );
+            }
+            menu = menu.child(Ink::small().text(
+                "Optional. Linked repositories are available to every chat in this project.",
+            ));
             if !self.status.is_empty() {
                 menu = menu.child(body.text(self.status.clone()));
             }
@@ -291,6 +349,7 @@ impl Workspace {
                         |s: &mut Workspace| {
                             if s.new_project_task.is_none() {
                                 s.new_project_name = None;
+                                s.new_project_repository = None;
                             }
                         },
                     ))
@@ -321,18 +380,10 @@ impl Workspace {
                         .key("new-project")
                         .label("New project")
                         .w_full()
-                        .on_press(|s: &mut Workspace| {
-                            s.new_menu = false;
-                            s.status.clear();
-                            let mut input = TextInput::field("Project name");
-                            input.submit_on_enter = true;
-                            input.height_limits = (28., 28.);
-                            input.focus();
-                            s.new_project_name = Some(input);
-                        }),
+                        .on_press(|s: &mut Workspace| s.begin_project_creation()),
                 )
                 .child(
-                    button("Repository")
+                    button("Add repository…")
                         .key("new-repository")
                         .label("Add repository to current project")
                         .w_full()
@@ -393,6 +444,32 @@ impl Workspace {
                 }))
                 .on_press(|s: &mut Workspace| s.repositories_collapsed = !s.repositories_collapsed),
         );
+        content = content.child(
+            button(if self.repository_edit_task.is_some() {
+                "Updating repositories…"
+            } else {
+                "Add repository…"
+            })
+            .key("sidebar-add-repository")
+            .label("Add repository to current project")
+            .h(ui(32.))
+            .child(icon(&icons::PLUS))
+            .on_press_tx(|s: &mut Workspace, tx| s.edit_repository(None, tx)),
+        );
+        if !self.repositories_collapsed {
+            content = content.child(
+                small
+                    .text(if self.projects[self.project].id.is_none() {
+                        "Create a project to share repositories across chats."
+                    } else if self.projects[self.project].repositories.is_empty() {
+                        "Link a folder to share it with every chat in this project."
+                    } else {
+                        "All linked repositories are available to every chat in this project."
+                    })
+                    .px(ui(10.))
+                    .py(ui(4.)),
+            );
+        }
         for (i, (name, path)) in self.projects[self.project].repositories.iter().enumerate() {
             if self.repositories_collapsed || !self.repository_is_open(path) {
                 continue;
