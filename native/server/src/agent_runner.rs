@@ -1,4 +1,4 @@
-//! Direct Claude and Codex child-process runners.
+//! Direct Claude, Codex and AFK child-process runners.
 //!
 //! This is a faithful process-boundary port of the former Bun adapters. The
 //! caller owns transport-specific broadcasting by draining `ProtocolEmission`s;
@@ -467,6 +467,9 @@ pub struct ProviderRun<'a> {
     pub env: &'a HashMap<OsString, OsString>,
 }
 
+#[path = "agent_runner_afk.rs"]
+mod afk;
+
 pub async fn run_agent(
     run: ProviderRun<'_>,
     kind: inferay_core::agent_kind::AgentKind,
@@ -489,6 +492,9 @@ pub async fn run_agent(
         }
         inferay_core::agent_kind::AgentKind::Claude => {
             run_claude(run, handle, context, emissions).await
+        }
+        inferay_core::agent_kind::AgentKind::Afk => {
+            afk::run_afk(run, handle, tracker, context, emissions).await
         }
     }
 }
@@ -1391,6 +1397,23 @@ fn provider_request_reply(
                 return Err("Provider does not offer that decision".into());
             }
             json!({"decision":decision})
+        }
+        // Approve once and decline map onto the options AFK offered; an
+        // "always" grant is deliberately not exposed through this card.
+        "session/request_permission" => {
+            let kind = match answer.as_str() {
+                Some("accept") => "allow_once",
+                Some("decline") => "reject_once",
+                _ => return Err("Choose approve once or decline".into()),
+            };
+            let option = request.params["options"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|option| option["kind"] == kind)
+                .and_then(|option| option["optionId"].as_str())
+                .ok_or("Provider does not offer that decision")?;
+            json!({"outcome":{"outcome":"selected","optionId":option}})
         }
         _ => return Err("Unsupported provider request".into()),
     };

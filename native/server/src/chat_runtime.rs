@@ -696,7 +696,7 @@ impl ChatRuntime {
             (state.agent_kind.clone(), state.current_handle.clone())
         };
         if let Some(handle) = handle {
-            if agent_kind == "codex" {
+            if matches!(agent_kind.as_str(), "codex" | "afk") {
                 if !handle.stop_codex() {
                     handle.kill();
                 }
@@ -1412,10 +1412,10 @@ impl ChatRuntime {
         }
         let executed = crate::agent_runner::drive_protocol(
             |emission_tx| async move {
-                let kind = if agent_kind == "codex" {
-                    AgentKind::Codex
-                } else {
-                    AgentKind::Claude
+                let kind = match agent_kind.as_str() {
+                    "codex" => AgentKind::Codex,
+                    "afk" => AgentKind::Afk,
+                    _ => AgentKind::Claude,
                 };
                 let binary = self.resolver.resolve_agent_binary(kind);
                 let environment = self.resolver.create_agent_env(kind);

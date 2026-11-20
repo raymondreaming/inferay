@@ -58,6 +58,7 @@ pub(crate) fn status(state: &ServerState, kind: AgentKind, refresh: bool) -> Mcp
                         }
                         codex_connections(&config, servers)
                     }),
+                AgentKind::Afk => Err("AFK manages its own MCP servers".into()),
                 AgentKind::Claude => {
                     let command = Command::new(binary)
                         .args([

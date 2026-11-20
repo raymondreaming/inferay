@@ -8,20 +8,20 @@ use std::sync::Arc;
 
 #[derive(Debug, PartialEq, Eq, Serialize, ts_rs::TS)]
 pub(crate) struct AgentAccountProviderStatus {
-    #[ts(type = "'claude' | 'codex'")]
+    #[ts(type = "'claude' | 'codex' | 'afk'")]
     kind: &'static str,
     #[ts(type = "'ready' | 'needs-login' | 'missing-cli'")]
     health: &'static str,
 }
 
 pub(super) async fn account_status(state: &ServerState) -> ApiResult {
-    let [claude, codex] = [AgentKind::Claude, AgentKind::Codex].map(|kind| {
+    let [claude, codex, afk] = [AgentKind::Claude, AgentKind::Codex, AgentKind::Afk].map(|kind| {
         let resolver = Arc::clone(&state.agent_command_resolver);
         let home = state.allowed_paths.home_directory().to_path_buf();
         tokio::task::spawn_blocking(move || provider_status(&resolver, &home, kind))
     });
-    let (claude, codex) = tokio::join!(claude, codex);
-    Ok(json!({"providers": [claude?, codex?]}))
+    let (claude, codex, afk) = tokio::join!(claude, codex, afk);
+    Ok(json!({"providers": [claude?, codex?, afk?]}))
 }
 
 fn provider_status(
@@ -60,5 +60,7 @@ fn auth_config_candidates(home: &Path, kind: AgentKind) -> Vec<PathBuf> {
             home.join(".codex/config.toml"),
             home.join(".config/codex"),
         ],
+        // AFK reads model credentials from its own configuration directory.
+        AgentKind::Afk => vec![home.join(".afk/config")],
     }
 }

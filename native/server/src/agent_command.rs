@@ -58,7 +58,7 @@ pub(crate) fn resolve_local_program(program: &str, search_path: &OsStr) -> Resul
 pub struct AgentCommandResolver {
     home_directory: PathBuf,
     is_windows: bool,
-    availability_cache: Mutex<[Option<bool>; 2]>,
+    availability_cache: Mutex<[Option<bool>; 3]>,
     mcp_preferences_path: PathBuf,
     mcp_preferences: Mutex<HashMap<String, HashMap<String, bool>>>,
 }
@@ -68,7 +68,7 @@ impl AgentCommandResolver {
         Self {
             home_directory: home_directory.into(),
             is_windows: cfg!(target_os = "windows"),
-            availability_cache: Mutex::new([None, None]),
+            availability_cache: Mutex::new([None; 3]),
             mcp_preferences: Mutex::new(crate::json_file::read_lossy(&mcp_preferences_path)),
             mcp_preferences_path,
         }
@@ -85,6 +85,7 @@ impl AgentCommandResolver {
             .get(OsStr::new(match kind {
                 AgentKind::Claude => "CLAUDE_PATH",
                 AgentKind::Codex => "CODEX_PATH",
+                AgentKind::Afk => "AFK_PATH",
             }))
             .filter(|value| !value.is_empty())
             .map(PathBuf::from);
@@ -110,6 +111,16 @@ impl AgentCommandResolver {
                 Some(home.join(".bun/bin").join(binary)),
                 Some(PathBuf::from("/opt/homebrew/bin/codex")),
                 Some(PathBuf::from("/usr/local/bin/codex")),
+            ],
+            AgentKind::Afk => vec![
+                configured,
+                nvm_bin.as_ref().map(|directory| directory.join(binary)),
+                nvm_version,
+                Some(home.join(".npm-global/bin").join(binary)),
+                Some(home.join(".local/bin").join(binary)),
+                Some(home.join(".bun/bin").join(binary)),
+                Some(PathBuf::from("/opt/homebrew/bin/afk")),
+                Some(PathBuf::from("/usr/local/bin/afk")),
             ],
         };
         candidates
