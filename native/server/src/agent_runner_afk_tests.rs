@@ -198,7 +198,7 @@ async fn auto_allowed_read_shows_its_tool_call_and_result() {
         .filter(|event| event["type"] == "inferay.tool")
         .collect();
     assert_eq!(tools.len(), 2);
-    assert_eq!(tools[0]["name"], "read_file");
+    assert_eq!(tools[0]["name"], "read_file /workspace/a.txt");
     assert_eq!(tools[0]["input"]["file_path"], "/workspace/a.txt");
     assert_eq!(tools[0]["done"], false);
     assert_eq!(tools[1]["output"], "old\n");
@@ -217,7 +217,13 @@ async fn edit_shows_its_tool_call_and_changed_file_once() {
     let frames: Vec<Value> = recorded
         .lines()
         .map(|line| serde_json::from_str::<Value>(line).unwrap())
-        .filter(|line| line["frame"]["id"] != "acp:1")
+        // Strip the permission round-trip (request + response) to simulate
+        // an "always allow" grant, without hardcoding a specific RPC id.
+        .filter(|line| {
+            let frame = &line["frame"];
+            frame["method"].as_str() != Some("session/request_permission")
+                && !frame["id"].is_string()
+        })
         .collect();
     let transcript = afk.write_transcript(&frames);
     let (output, emissions, _) = afk.run(&transcript, "", |_, _| {}).await;
@@ -227,7 +233,7 @@ async fn edit_shows_its_tool_call_and_changed_file_once() {
         .filter(|event| event["type"] == "inferay.tool")
         .collect();
     assert_eq!(tools.first().unwrap()["done"], false);
-    assert_eq!(tools.first().unwrap()["name"], "edit_file");
+    assert_eq!(tools.first().unwrap()["name"], "edit_file /workspace/a.txt");
     assert_eq!(tools.first().unwrap()["input"]["old_string"], "old");
     let last = tools.last().unwrap();
     assert_eq!(last["done"], true);

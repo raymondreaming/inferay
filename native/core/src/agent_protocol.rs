@@ -634,6 +634,8 @@ pub struct AfkProtocolState {
     changed: HashSet<(String, PathBuf)>,
     thought: Option<usize>,
     thoughts: usize,
+    /// A3: set after the first assistant title has been emitted so it fires once.
+    title_emitted: bool,
 }
 
 impl AfkProtocolState {
@@ -653,6 +655,29 @@ impl AfkProtocolState {
         let text = update.pointer("/content/text").and_then(Value::as_str);
         match kind {
             "agent_message_chunk" => {
+                // A3: derive a session title from the first ~60 chars of the
+                // first assistant message chunk, emitted exactly once.
+                if !self.title_emitted {
+                    if let Some(chunk) = text.filter(|s| !s.is_empty()) {
+                        let raw = self.text.last_assistant_message.clone() + chunk;
+                        let candidate = raw.trim();
+                        if !candidate.is_empty() {
+                            let title: String = candidate
+                                .find('\n')
+                                .map(|i| &candidate[..i])
+                                .unwrap_or(candidate)
+                                .chars()
+                                .take(60)
+                                .collect();
+                            if !title.is_empty() {
+                                self.title_emitted = true;
+                                context
+                                    .emissions
+                                    .push(ProtocolEmission::Title(title));
+                            }
+                        }
+                    }
+                }
                 self.text.assistant_delta(context, text.unwrap_or_default());
                 self.text.emit_status(context, "responding", true);
             }
@@ -663,6 +688,18 @@ impl AfkProtocolState {
                 });
                 context.emissions.push(ProtocolEmission::Chat(json!({
                     "type":"inferay.progress", "id":format!("afk-thought:{}:{index}", context.session_id.as_deref().unwrap_or_default()), "delta":text
+                })));
+            }
+            // A1: wire usage_update to inferay.usage
+            "usage_update" => {
+                let used = update["used"].as_u64().unwrap_or(0);
+                let size = update["size"].as_u64().unwrap_or(0);
+                let cost = &update["cost"];
+                context.emissions.push(ProtocolEmission::Chat(json!({
+                    "type": "inferay.usage",
+                    "provider": "afk",
+                    "usage": { "contextTokens": used, "contextLimit": size },
+                    "cost": cost
                 })));
             }
             "tool_call" | "tool_call_update" => self.tool_update(context, update),
@@ -681,7 +718,9 @@ impl AfkProtocolState {
             tool[key] = value.clone();
         }
         let tool = tool.clone();
-        let name = first_string(&tool, &["name", "title"]);
+        // A2: prefer the richer `title` field (e.g. "skill review \"Find callers\"")
+        // over the bare `name` field (e.g. "skill"), falling back gracefully.
+        let name = first_string(&tool, &["title", "name"]);
         let event = |done: bool, output: Value| {
             ProtocolEmission::Chat(json!({
                 "type":"inferay.tool", "id":format!("afk-tool:{id}"), "name":name,
@@ -694,6 +733,17 @@ impl AfkProtocolState {
             self.text
                 .emit_status(context, &format!("tool:{name}"), true);
             context.emissions.push(event(false, Value::Null));
+            // A4: plan mode — `exit_plan_mode` / `switch_mode` signals the agent
+            // is committing a plan; surface it via the same progress renderer
+            // Codex uses for turn plans.
+            let raw_name = string_field(&tool, "name");
+            if raw_name == "switch_mode" || raw_name == "exit_plan_mode" {
+                context.emissions.push(ProtocolEmission::Chat(json!({
+                    "type": "inferay.progress",
+                    "id": "afk-mode",
+                    "text": "Mode: plan"
+                })));
+            }
         }
         // ACP diffs are render-only hunks; the checkpointed file on disk is the
         // source for Inferay's inline diff, as for Codex file changes.

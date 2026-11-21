@@ -81,9 +81,18 @@ pub(super) async fn run_afk(
             is_loading: true,
         })
         .await;
-    let spawn = provider_command(run.binary)
-        .arg("acp")
-        .current_dir(&run.invocation.cwd)
+    let mut cmd = provider_command(run.binary);
+    cmd.arg("acp");
+    if let Some(model) = run.invocation.model.as_deref() {
+        cmd.args(["--model", model]);
+    }
+    let cwd = if run.invocation.cwd.as_os_str().is_empty() {
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"))
+    } else {
+        run.invocation.cwd.clone()
+    };
+    let spawn = cmd
+        .current_dir(&cwd)
         .env_clear()
         .envs(run.env)
         .stdin(Stdio::piped())
@@ -127,17 +136,27 @@ pub(super) async fn run_afk(
             return Err(UPDATE_AFK.to_owned());
         }
         handle.mark("initialized");
-        let cwd = run.invocation.cwd.to_string_lossy();
+        let cwd = cwd.to_string_lossy();
         let session_id = if let Some(id) = &run.invocation.session_id {
-            rpc.request(
-                "session/resume",
-                json!({"sessionId":id,"cwd":cwd,"mcpServers":[]}),
-            )
-            .await
-            .map_err(|error| format!("Could not resume AFK session {id}: {error}"))?;
-            id.clone()
+            let resumed = rpc
+                .request(
+                    "session/resume",
+                    json!({"sessionId":id,"cwd":cwd,"mcpServers":[]}),
+                )
+                .await
+                .map_err(|error| format!("Could not resume AFK session {id}: {error}"))?;
+            // Use the returned sessionId (AFK may remap on expiry); fall back to the input id.
+            resumed["sessionId"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+                .unwrap_or_else(|| id.clone())
         } else {
-            rpc.request("session/new", json!({"cwd":cwd,"mcpServers":[]}))
+            let mut new_params = json!({"cwd":cwd,"mcpServers":[]});
+            if let Some(instructions) = &run.invocation.developer_instructions {
+                new_params["systemPrompt"] = json!(instructions);
+            }
+            rpc.request("session/new", new_params)
                 .await?["sessionId"]
                 .as_str()
                 .filter(|id| !id.is_empty())
@@ -250,7 +269,11 @@ pub(super) async fn run_afk(
                             }
                             (Some("session/request_permission"), Some(rpc_id)) if params["sessionId"] == session_id.as_str() => {
                                 let mut params = params.clone();
-                                params["message"] = params["toolCall"]["title"].clone();
+                                params["message"] = params["toolCall"]["title"]
+                                    .as_str()
+                                    .or_else(|| params["toolCall"]["name"].as_str())
+                                    .map(|s| json!(s))
+                                    .unwrap_or(json!("Permission requested"));
                                 handle.requests.lock().expect("provider requests").insert(
                                     uuid::Uuid::new_v4().to_string(),
                                     PendingProviderRequest { rpc_id: rpc_id.clone(), method: "session/request_permission".into(), params },

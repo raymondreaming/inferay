@@ -269,7 +269,10 @@ impl Workspace {
             ("provider", provider),
             ("model", model),
             ("reasoning", reasoning),
-        ] {
+        ]
+        .into_iter()
+        .filter(|(_, v)| !v.is_empty())
+        {
             let mut option = button("")
                 .key(format!("{name}-{index}"))
                 .label(format!("{name}: {value}"))

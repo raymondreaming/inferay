@@ -453,15 +453,23 @@ fn catalog() -> &'static AgentCatalog {
             })
             .collect(),
         },
-        // AFK chooses its own configured model; Inferay does not duplicate its catalog.
+        // AFK accepts any model via `--model`; show the same Claude catalog
+        // it uses by default plus its named slots.
         afk: AgentDefinition {
             kind: WorkspaceAgentKind::Afk,
             label: "AFK".into(),
             icon_key: AgentIconKey::Agent,
             commands: vec![],
             native_slash_commands: vec![],
-            models: vec![],
-            default_model: String::new(),
+            models: models(&[
+                ("claude-opus-5-5", "Opus 5.5", "Most capable", Some("Opus")),
+                ("claude-sonnet-4-6", "Sonnet 4.6", "★ Default", Some("Sonnet")),
+                ("claude-haiku-5-5", "Haiku 5.5", "Fastest Claude", Some("Haiku")),
+                ("gpt-6-astra", "GPT-6 Astra", "Complex agentic work", Some("Astra")),
+                ("gpt-6-sol", "GPT-6 Sol", "Everyday coding", Some("Sol")),
+                ("gpt-6-luna", "GPT-6 Luna", "Fast & affordable", Some("Luna")),
+            ]),
+            default_model: "claude-sonnet-4-6".into(),
             reasoning_levels: vec![],
         },
     });
@@ -483,7 +491,7 @@ pub fn resolve(input: &Value) -> ProviderSettings {
     let defaults = &input["defaults"];
     let default_kind = defaults["agentKind"]
         .as_str()
-        .filter(|kind| matches!(*kind, "claude" | "codex"))
+        .filter(|kind| matches!(*kind, "claude" | "codex" | "afk"))
         .unwrap_or("codex");
     let agent = input["agentKind"]
         .as_str()
@@ -513,7 +521,13 @@ pub fn resolve(input: &Value) -> ProviderSettings {
     ProviderSettings {
         agent_kind: agent.kind.clone(),
         model: model.into(),
-        reasoning_level: reasoning.into(),
+        // AFK has no reasoning levels; suppress the value so the composer
+        // bar does not show a stale "low" selector.
+        reasoning_level: if agent.reasoning_levels.is_empty() {
+            String::new()
+        } else {
+            reasoning.into()
+        },
     }
 }
 
