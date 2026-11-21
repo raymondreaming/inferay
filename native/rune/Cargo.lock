@@ -1997,7 +1997,7 @@ dependencies = [
 
 [[package]]
 name = "inferay-rune"
-version = "0.1.121"
+version = "0.1.122"
 dependencies = [
  "anyhow",
  "block2 0.5.1",
