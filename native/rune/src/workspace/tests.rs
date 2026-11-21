@@ -202,7 +202,11 @@ fn project_creation_saves_repository_and_new_chat_association() {
     assert!(restored.projects.iter().any(|p| {
         p.repositories.len() == 2
             && p.id.as_ref() == Some(&id)
-            && p.panes.iter().any(|c| Some(&c.id) == chat.pane.as_ref())
+            && p.panes.iter().any(|c| {
+                Some(&c.id) == chat.pane.as_ref()
+                    && c.cwd.as_deref()
+                        == Some(profile.path().join("projects").join(&id).to_str().unwrap())
+            })
     }));
 }
 
@@ -242,4 +246,26 @@ fn adding_repository_from_other_chats_opens_project_creation() {
     assert!(rt.find("new-project-repository").is_some());
     assert!(rt.state.new_project_name.is_some());
     assert!(rt.state.status.contains("Create a project"));
+}
+
+#[test]
+fn repository_manager_includes_closed_links_and_project_directory() {
+    let _serial = serial();
+    let mut view = Workspace::empty();
+    view.projects[0].id = Some("project".into());
+    view.projects[0]
+        .repositories
+        .push(("App".into(), "/app".into()));
+    view.closed_repositories
+        .entry("project".into())
+        .or_default()
+        .insert("/app".into());
+    let mut rt = view_runtime(view, (1000., 900.));
+    rt.frame(1. / 60.);
+    assert!(rt.find("repo-0").is_none());
+    click(&mut rt, "manage-repositories");
+    assert!(rt.find("repository-manager").is_some());
+    assert!(rt.find("unlink-repository-0").is_some());
+    click(&mut rt, "manage-repositories");
+    assert!(rt.find("repository-manager").is_none());
 }

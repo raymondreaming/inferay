@@ -470,6 +470,31 @@ impl Workspace {
                     .py(ui(4.)),
             );
         }
+        content = content.child(
+            button("Manage repositories…")
+                .key("manage-repositories")
+                .on_press(|s: &mut Workspace| s.managing_repositories = !s.managing_repositories),
+        );
+        if self.managing_repositories {
+            let mut manager = col().key("repository-manager").padding(ui(10.)).gap(ui(8.));
+            if let Some(id) = &self.projects[self.project].id {
+                manager = manager
+                    .child(small.text("New chats start in:"))
+                    .child(small.text(self.profile.join("projects").join(id).display().to_string()))
+                    .child(small.text("Every chat receives all linked repositories below. Removing a link keeps its files."));
+            }
+            for (i, (name, path)) in self.projects[self.project].repositories.iter().enumerate() {
+                let path = path.clone();
+                manager = manager.child(small.text(format!("{name}\n{path}"))).child(
+                    button("Remove from project")
+                        .key(format!("unlink-repository-{i}"))
+                        .on_press_tx(move |s: &mut Workspace, tx| {
+                            s.edit_repository(Some(path.clone()), tx)
+                        }),
+                );
+            }
+            content = content.child(manager);
+        }
         for (i, (name, path)) in self.projects[self.project].repositories.iter().enumerate() {
             if self.repositories_collapsed || !self.repository_is_open(path) {
                 continue;
