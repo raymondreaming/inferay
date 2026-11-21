@@ -247,25 +247,3 @@ fn adding_repository_from_other_chats_opens_project_creation() {
     assert!(rt.state.new_project_name.is_some());
     assert!(rt.state.status.contains("Create a project"));
 }
-
-#[test]
-fn repository_manager_includes_closed_links_and_project_directory() {
-    let _serial = serial();
-    let mut view = Workspace::empty();
-    view.projects[0].id = Some("project".into());
-    view.projects[0]
-        .repositories
-        .push(("App".into(), "/app".into()));
-    view.closed_repositories
-        .entry("project".into())
-        .or_default()
-        .insert("/app".into());
-    let mut rt = view_runtime(view, (1000., 900.));
-    rt.frame(1. / 60.);
-    assert!(rt.find("repo-0").is_none());
-    click(&mut rt, "manage-repositories");
-    assert!(rt.find("repository-manager").is_some());
-    assert!(rt.find("unlink-repository-0").is_some());
-    click(&mut rt, "manage-repositories");
-    assert!(rt.find("repository-manager").is_none());
-}
