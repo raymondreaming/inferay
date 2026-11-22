@@ -247,3 +247,45 @@ fn adding_repository_from_other_chats_opens_project_creation() {
     assert!(rt.state.new_project_name.is_some());
     assert!(rt.state.status.contains("Create a project"));
 }
+
+#[test]
+fn long_queued_messages_keep_actions_visible_and_preserve_edit_text() {
+    let _serial = serial();
+    for text in ["longword".repeat(2000), "Line one\nLine two\n".repeat(1000)] {
+        let mut view = Workspace::empty();
+        view.conversations[0].queue = vec![serde_json::json!({"id":"queued","text":text})];
+        let mut rt = view_runtime(view, (780., 560.));
+        for _ in 0..4 {
+            rt.frame(1. / 60.);
+        }
+        let queue = rt
+            .elements()
+            .into_iter()
+            .find(|e| e.key.as_deref() == Some("chat-queue-0"))
+            .unwrap()
+            .rect;
+        for key in ["edit-queued-0-0", "remove-queued-0-0"] {
+            let rect = rt
+                .elements()
+                .into_iter()
+                .find(|e| e.key.as_deref() == Some(key))
+                .unwrap()
+                .rect;
+            assert!(
+                rect[0] >= queue[0] && rect[0] + rect[2] <= queue[0] + queue[2] + 1.,
+                "{key}: {rect:?} outside {queue:?}"
+            );
+            assert!(rect[1] >= queue[1] && rect[1] + rect[3] <= queue[1] + queue[3] + 1.);
+        }
+        click(&mut rt, "edit-queued-0-0");
+        assert_eq!(
+            rt.state.conversations[0]
+                .queue_editor
+                .as_ref()
+                .unwrap()
+                .1
+                .content(),
+            text
+        );
+    }
+}

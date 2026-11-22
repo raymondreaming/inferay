@@ -421,7 +421,7 @@ impl Workspace {
                         .w(ui(20.))
                         .child(muted.line_text((position + 1).to_string())),
                 );
-            let mut content = col().grow(1.).min_w(0.);
+            let mut content = col().grow(1.).shrink().min_w(0.).clip_rounded(0.);
             if let Some((_, input)) = editing {
                 let field = input::field(
                     input,
@@ -451,7 +451,10 @@ impl Workspace {
                 });
                 content = content.child(input::frame(input, field));
             } else {
-                content = content.child(ink.line_text(text).shrink());
+                content = content.child(
+                    ink.line_text(text.split_whitespace().collect::<Vec<_>>().join(" "))
+                        .shrink(),
+                );
             }
             row_el = row_el.child(content);
             if message["interrupted"] == true {
