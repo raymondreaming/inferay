@@ -3184,3 +3184,89 @@ async fn resumed_chat_refreshes_custom_skill_catalog_without_inlining_bodies() {
     assert!(!last.contains("NEW_PRIVATE_BODY"));
     assert!(!first.contains("OLD_PRIVATE_BODY"));
 }
+
+#[tokio::test]
+async fn sending_while_a_stop_unwinds_runs_first_then_resumes_the_queue() {
+    let profile = tempfile::tempdir().unwrap();
+    let (project, _) = chat_fixture(profile.path());
+    let binary = profile.path().join(".local/bin/claude");
+    // Like Claude, the fixture finishes its interrupted turn a moment after SIGINT.
+    let script = std::fs::read_to_string(&binary)
+        .unwrap()
+        .replace(
+            "assert 'Captured skill instructions' in str(args), args",
+            "# ordinary chat fixture",
+        )
+        .replace(
+            "import json, sys, time",
+            "import json, sys, time, signal\nsignal.signal(signal.SIGINT, lambda *_: (time.sleep(1), sys.exit(130)))",
+        );
+    std::fs::write(binary, script).unwrap();
+    let runtime = runtime(profile.path());
+    let chat = chats(&runtime, profile.path());
+    let cwd = profile.path().join("projects").join(project);
+    std::fs::write(cwd.join("block"), "").unwrap();
+    let message = |text: &str| crate::chat_runtime::SendMessageInput {
+        pane_id: "stop-queue".into(),
+        agent_kind: "claude".into(),
+        text: text.into(),
+        client_message_id: Some(text.into()),
+        cwd: cwd.clone(),
+        cwd_provided: true,
+        ..Default::default()
+    };
+    let owner = chat.clone();
+    let first = message("First task");
+    let running = tokio::spawn(async move { owner.send_message(first).await });
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while !cwd.join("started").exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    chat.send_message(message("Queued one")).await;
+    chat.send_message(message("Queued two")).await;
+    chat.stop_generation("stop-queue").await;
+    std::fs::remove_file(cwd.join("block")).unwrap();
+    chat.send_message(message("After stop")).await;
+    let persistence = crate::chat_persistence::ChatPersistence::new(profile.path().into());
+    let queue = persistence.read_queue("stop-queue").await.unwrap();
+    assert_eq!(
+        queue
+            .iter()
+            .map(|item| item.text.as_str())
+            .collect::<Vec<_>>(),
+        ["After stop", "Queued one", "Queued two"]
+    );
+    tokio::time::timeout(std::time::Duration::from_secs(20), running)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        persistence
+            .read_queue("stop-queue")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let order: Vec<_> = std::fs::read_to_string(cwd.join("invocations.jsonl"))
+        .unwrap()
+        .lines()
+        .map(|line| {
+            ["First task", "After stop", "Queued one", "Queued two"]
+                .into_iter()
+                .filter(|task| line.contains(task))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    assert_eq!(
+        order,
+        [
+            vec!["First task"],
+            vec!["After stop"],
+            vec!["Queued one"],
+            vec!["Queued two"]
+        ]
+    );
+}

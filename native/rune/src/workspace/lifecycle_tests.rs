@@ -205,7 +205,8 @@ fn queued_store(
     RUNTIME
         .block_on(store.enqueue_runtime(
             "queue-pane",
-            serde_json::from_value(queued.clone()).unwrap(),
+            vec![serde_json::from_value(queued.clone()).unwrap()],
+            false,
         ))
         .unwrap();
     (store, queued)

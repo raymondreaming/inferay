@@ -469,13 +469,17 @@ impl ChatPersistence {
         .await
     }
 
+    /// Appends `messages` in order, or places them ahead of existing work when
+    /// `front` resumes a stopped pipeline.
     pub async fn enqueue_runtime(
         &self,
         pane_id: &str,
-        message: QueuedMessageInfo,
+        messages: Vec<QueuedMessageInfo>,
+        front: bool,
     ) -> Result<(), String> {
         self.edit_queue(pane_id, move |queue| {
-            queue.push(message);
+            let at = if front { 0 } else { queue.len() };
+            queue.splice(at..at, messages);
             Ok(())
         })
         .await
@@ -931,7 +935,7 @@ mod tests {
         }))
         .unwrap();
         store
-            .enqueue_runtime("pane", message.clone())
+            .enqueue_runtime("pane", vec![message.clone()], false)
             .await
             .unwrap();
         let claimed = store

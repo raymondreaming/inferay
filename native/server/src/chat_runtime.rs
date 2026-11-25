@@ -155,6 +155,8 @@ struct ChatSession {
     message_buffer: ChatMessageBuffer,
     disconnected_at: Option<u64>,
     cancelled: bool,
+    /// A message sent while a stop was still unwinding resumes the queue.
+    resume_after_stop: bool,
     goal: Option<GoalState>,
 
     session_instructions: Option<String>,
@@ -436,7 +438,10 @@ impl ChatRuntime {
             let system_prefix = {
                 let mut state = session.lock().await;
                 if !already_admitted && state.turn_active {
-                    let queued = QueuedMessageInfo {
+                    // Sent after Stop but before the provider exited: this is the
+                    // user resuming, so it runs next and the queue continues after it.
+                    let resuming = state.cancelled;
+                    let mut queued = vec![QueuedMessageInfo {
                         id: pending_steer_id
                             .take()
                             .or_else(|| input.client_message_id.clone())
@@ -449,10 +454,14 @@ impl ChatRuntime {
                         images: (!input.images.is_empty()).then(|| input.images.clone()),
                         execution: Some(execution.clone()),
                         interrupted: false,
-                    };
+                    }];
+                    queued.extend(chain_messages(
+                        std::mem::take(&mut chained_steps),
+                        &execution,
+                    ));
                     if let Err(error) = self
                         .persistence
-                        .enqueue_runtime(&input.pane_id, queued)
+                        .enqueue_runtime(&input.pane_id, queued, resuming)
                         .await
                     {
                         drop(state);
@@ -463,21 +472,8 @@ impl ChatRuntime {
                         .await;
                         return;
                     }
+                    state.resume_after_stop |= resuming;
                     drop(state);
-                    if let Err(error) = self
-                        .enqueue_chain(
-                            &input.pane_id,
-                            std::mem::take(&mut chained_steps),
-                            &execution,
-                        )
-                        .await
-                    {
-                        self.emit_system(
-                            &session,
-                            &format!("Chained skills could not be queued: {error}"),
-                        )
-                        .await;
-                    }
                     self.broadcast_queue(&input.pane_id).await;
                     return;
                 }
@@ -516,10 +512,11 @@ impl ChatRuntime {
             // follows it finds them already in order.
             if !chained_steps.is_empty() {
                 if let Err(error) = self
-                    .enqueue_chain(
+                    .persistence
+                    .enqueue_runtime(
                         &input.pane_id,
-                        std::mem::take(&mut chained_steps),
-                        &execution,
+                        chain_messages(std::mem::take(&mut chained_steps), &execution),
+                        false,
                     )
                     .await
                 {
@@ -563,6 +560,7 @@ impl ChatRuntime {
                     }
                 }
                 state.cancelled = false;
+                state.resume_after_stop = false;
             }
             self.ensure_summary(&session).await;
             if let Some(message_id) = pending_steer_id {
@@ -650,9 +648,10 @@ impl ChatRuntime {
             // A stop ends the pipeline, not just the turn it interrupted.
             // Queued messages stay queued for the user to send deliberately;
             // draining them here is indistinguishable from ignoring the stop.
+            // Sending during the stop is that deliberate resume.
             {
                 let mut state = session.lock().await;
-                if state.cancelled {
+                if state.cancelled && !std::mem::take(&mut state.resume_after_stop) {
                     state.turn_active = false;
                     break;
                 }
@@ -690,6 +689,7 @@ impl ChatRuntime {
         let (agent_kind, handle) = {
             let mut state = session.lock().await;
             state.cancelled = true;
+            state.resume_after_stop = false;
             state.goal = None;
             // Borrowed, not taken: the run clears it when it actually ends, so
             // a second stop still reaches a turn the first one failed to end.
@@ -1176,6 +1176,7 @@ impl ChatRuntime {
             message_buffer: buffer,
             disconnected_at: None,
             cancelled: false,
+            resume_after_stop: false,
             goal: None,
 
             session_instructions: self.persistence.read_agent_context(&input.pane_id).await,
@@ -1864,31 +1865,6 @@ impl ChatRuntime {
         }
     }
 
-    /// Queues the tail of a skill chain, preserving the order it was written in.
-    async fn enqueue_chain(
-        &self,
-        pane_id: &str,
-        steps: Vec<ChainStep>,
-        execution: &QueuedExecution,
-    ) -> Result<(), String> {
-        for step in steps {
-            self.persistence
-                .enqueue_runtime(
-                    pane_id,
-                    QueuedMessageInfo {
-                        id: Uuid::new_v4().to_string(),
-                        text: step.text,
-                        display_text: step.display,
-                        images: None,
-                        execution: Some(execution.clone()),
-                        interrupted: false,
-                    },
-                )
-                .await?;
-        }
-        Ok(())
-    }
-
     async fn next_queued_message(
         &self,
         session: &Arc<Mutex<ChatSession>>,
@@ -2063,6 +2039,21 @@ fn paths_to_strings(paths: &[PathBuf]) -> Vec<String> {
         .map(|p| p.to_string_lossy().into_owned())
         .collect()
 }
+/// The tail of a skill chain as queued work, in the order it was written.
+fn chain_messages(steps: Vec<ChainStep>, execution: &QueuedExecution) -> Vec<QueuedMessageInfo> {
+    steps
+        .into_iter()
+        .map(|step| QueuedMessageInfo {
+            id: Uuid::new_v4().to_string(),
+            text: step.text,
+            display_text: step.display,
+            images: None,
+            execution: Some(execution.clone()),
+            interrupted: false,
+        })
+        .collect()
+}
+
 fn queued_input(pane: String, next: QueuedMessageInfo, state: &ChatSession) -> SendMessageInput {
     let execution = next.execution.unwrap_or_else(|| QueuedExecution {
         provider: state.agent_kind.clone(),
