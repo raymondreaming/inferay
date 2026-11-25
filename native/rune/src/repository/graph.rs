@@ -411,8 +411,19 @@ impl RepositoryView {
             });
         }
         let hover_id = id.clone();
+        // Only real pointer movement lights the band: rows that keyboard navigation
+        // scrolls under a resting pointer stay unhovered beside the selection.
+        let band_hover = std::rc::Rc::new(band_hover);
+        let band_leave = band_hover.clone();
         line = line
-            .on_hover_change_any(band_hover)
+            .on_pointer_move_any(move |_, tx| band_hover(true, tx))
+            .on_hover_change_any(move |inside, tx| {
+                if inside {
+                    tx.live_only();
+                } else {
+                    band_leave(false, tx);
+                }
+            })
             .on_press_tx(act(&self.path, move |view, _| {
                 view.keyboard_scope = "graph";
                 view.keyboard_active = true;

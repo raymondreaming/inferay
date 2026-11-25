@@ -539,3 +539,51 @@ fn diff_highlights_keep_multiline_context_and_utf8_row_ranges() {
             .any(|(_, style)| style.color == Some(crate::colors::rgb(0x569cd6)))
     );
 }
+
+#[test]
+fn keyboard_scrolling_under_a_resting_pointer_lights_only_the_selection() {
+    let _serial = serial();
+    let directory = tempfile::tempdir().unwrap();
+    let mut view_state = idle_view(directory.path());
+    view_state.error = None;
+    view_state.changes = false;
+    view_state.graph.commits = (0..120)
+        .map(|i| GraphCommit {
+            id: format!("commit-{i}"),
+            message: format!("Commit {i}"),
+            ..Default::default()
+        })
+        .collect();
+    view_state.presentation =
+        json!({"selectableItems": (0..120).map(|i| format!("commit-{i}")).collect::<Vec<_>>()});
+    let mut rt = harness(view_state, (1000., 500.));
+    let lit = |rt: &rune::Runtime<Workspace>| {
+        let mut rows: Vec<_> = rt
+            .elements()
+            .into_iter()
+            .filter(|e| !e.exiting && e.fill.a > 0.3 && (e.rect[3] - 23.).abs() < 1.)
+            .filter_map(|e| {
+                e.path
+                    .split('/')
+                    .find_map(|part| part.strip_prefix("commit-commit-").map(str::to_owned))
+            })
+            .collect();
+        rows.sort();
+        rows
+    };
+    let (x, y) = center(&rt, "commit-commit-5");
+    rt.pointer_move(x, y);
+    frames(&mut rt, 3);
+    assert_eq!(lit(&rt), ["5"]);
+    update(&mut rt, |_, tx| tx.focus("repository", false));
+    for _ in 0..60 {
+        rt.key(plain(Key::Down));
+        rt.frame(1. / 120.);
+    }
+    frames(&mut rt, 10);
+    assert_eq!(repo(&rt).selected_item.as_deref(), Some("commit-59"));
+    assert_eq!(lit(&rt), ["59"]);
+    rt.pointer_move(x, y + 2.);
+    frames(&mut rt, 3);
+    assert_eq!(lit(&rt).len(), 2);
+}
