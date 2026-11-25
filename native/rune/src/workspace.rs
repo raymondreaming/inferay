@@ -68,6 +68,9 @@ pub(crate) struct Conversation {
     pub(crate) title: String,
     pub(crate) input: TextInput,
     pub(crate) transcript: Transcript,
+    /// History rail: hover state and the landmark at the top of the viewport.
+    pub(crate) history_open: bool,
+    pub(crate) history_at: usize,
     pub(crate) theme_task: Option<Task>,
     pub(crate) loaded: bool,
     pub(crate) config: inferay_core::provider_config::ProviderSettings,
@@ -109,6 +112,8 @@ impl Conversation {
             draft_task: None,
             title: "New chat".into(),
             transcript: Transcript::new(),
+            history_open: false,
+            history_at: 0,
             theme_task: None,
             loaded: false,
         }

@@ -436,3 +436,60 @@ fn first_live_messages_are_visible_after_an_empty_transcript() {
     assert!(bounds(&rt, &transcript_key(0))[3] > 100.);
     assert!(rect(&rt, &row_key(0, "help")).is_some());
 }
+
+#[test]
+fn history_rail_outlines_turns_and_jumps_to_earlier_prompts() {
+    let _serial = serial();
+    let mut state = workspace();
+    let rows = messages((0..30).flat_map(|i| {
+        [
+            json!({"id":format!("prompt-{i}"),"role":"user","content":format!("Prompt number {i}\nMore detail")}),
+            json!({"id":format!("read-{i}"),"role":"tool","toolName":"Read","content":"source"}),
+            json!({"id":format!("answer-{i}"),"role":"assistant","content":format!("## Answer {i}\n\nA paragraph long enough to take real vertical space in the transcript.")}),
+        ]
+    }));
+    publish(&mut state, &rows);
+    let mut rt = runtime(state, (800., 560.));
+    assert!(rect(&rt, &row_key(0, "prompt-0")).is_none());
+    assert!(rect(&rt, "history-outline-0").is_none());
+    let (x, y) = center(bounds(&rt, "history-tick-59"));
+    rt.pointer_move(x, y);
+    for _ in 0..30 {
+        rt.frame(1. / 60.);
+    }
+    assert!(rect(&rt, "history-outline-0").is_some());
+    let labels: Vec<_> = rt
+        .elements()
+        .into_iter()
+        .filter_map(|e| e.label.clone())
+        .collect();
+    assert!(
+        labels
+            .iter()
+            .any(|label| label == "Prompt: Prompt number 0")
+    );
+    assert!(labels.iter().any(|label| label == "Answer: Answer 29"));
+    assert!(
+        rt.elements()
+            .into_iter()
+            .any(|e| e.text.as_deref() == Some("30 turns"))
+    );
+    assert!(
+        rt.elements()
+            .into_iter()
+            .any(|e| e.text.as_deref() == Some("· 30 steps"))
+    );
+    rt.update(|_, tx| tx.scroll_to_y("history-outline-0", 0.));
+    settle(&mut rt);
+    click(&mut rt, "history-entry-0-0");
+    for _ in 0..90 {
+        rt.frame(1. / 60.);
+    }
+    assert!(rect(&rt, &row_key(0, "prompt-0")).is_some());
+    assert_eq!(rt.state.conversations[0].history_at, 0);
+    rt.pointer_move(700., 300.);
+    for _ in 0..30 {
+        rt.frame(1. / 60.);
+    }
+    assert!(rect(&rt, "history-outline-0").is_none());
+}

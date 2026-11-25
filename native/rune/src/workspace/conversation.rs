@@ -119,7 +119,16 @@ impl Workspace {
                 },
                 move |s: &Workspace, i| s.transcript_row(index, i),
             )
-            .virtual_rows_version(chat.transcript.revision());
+            .virtual_rows_version(chat.transcript.revision())
+            .on_visible_rows(move |s: &mut Workspace, visible| {
+                let chat = &mut s.conversations[index];
+                let at = chat
+                    .transcript
+                    .landmarks()
+                    .partition_point(|landmark| landmark.row <= visible.start)
+                    .saturating_sub(1);
+                std::mem::replace(&mut chat.history_at, at) != at
+            });
         let mut pane = col()
             .key(format!("transcript-pane-{index}"))
             .grow(1.)
@@ -146,6 +155,9 @@ impl Workspace {
                     })
                     .child(rows),
             );
+        if chat.transcript.landmarks().len() > 1 {
+            pane = pane.child(self.history_rail(index));
+        }
         if count > 0 && !following(index) {
             pane = pane.child(
                 crate::ui::swap_fill(
@@ -172,6 +184,137 @@ impl Workspace {
             );
         }
         pane
+    }
+
+    /// Left-edge ticks for each prompt and answer; hovering opens the session
+    /// outline, and either jumps the transcript to that message.
+    fn history_rail(&self, index: usize) -> El {
+        let chat = &self.conversations[index];
+        let transcript = &chat.transcript;
+        let landmarks = transcript.landmarks();
+        let at = if following(index) {
+            landmarks.len() - 1
+        } else {
+            chat.history_at.min(landmarks.len() - 1)
+        };
+        let jump = |landmark: usize| {
+            let id = transcript.rows()[landmarks[landmark].row]
+                .message
+                .id
+                .clone();
+            move |_: &mut Workspace, tx: &mut rune::Tx| {
+                tx.scroll_center_in(transcript_key(index), row_key(index, &id));
+            }
+        };
+        // At most 40 ticks, windowed around the reading position.
+        let start = at
+            .saturating_sub(20)
+            .min(landmarks.len().saturating_sub(40));
+        let mut ticks = col().py(ui(6.));
+        for (i, landmark) in landmarks.iter().enumerate().skip(start).take(40) {
+            let (width, hex) = match (i == at, landmark.user) {
+                (true, _) => (14., 0xebebebf0),
+                (false, true) => (8., 0xebebeb70),
+                (false, false) => (4., 0xebebeb40),
+            };
+            ticks = ticks.child(
+                row()
+                    .key(format!("history-tick-{i}"))
+                    .label(if landmark.user {
+                        "Jump to prompt"
+                    } else {
+                        "Jump to answer"
+                    })
+                    .role("button")
+                    .cursor(rune::Cursor::Pointer)
+                    .items_center()
+                    .w(ui(22.))
+                    .h(ui(8.))
+                    .pl(ui(4.))
+                    .child(el().w(ui(width)).h(ui(2.)).radius(9999.).fill(rgba(hex)))
+                    .on_press_tx(jump(i)),
+            );
+        }
+        let mut rail = row()
+            .key(format!("history-rail-{index}"))
+            .pin(Some(0.), Some(0.), None, Some(0.))
+            .items_center()
+            .gap(ui(4.))
+            .child(ticks)
+            .hover_delays(
+                std::time::Duration::from_millis(60),
+                std::time::Duration::from_millis(180),
+            )
+            .on_hover_change(move |s: &mut Workspace, inside, tx| {
+                s.conversations[index].history_open = inside;
+                if inside {
+                    tx.scroll_into_view(format!(
+                        "history-entry-{index}-{}",
+                        s.conversations[index].history_at
+                    ));
+                }
+            });
+        if !chat.history_open {
+            return rail;
+        }
+        let turns = landmarks.iter().filter(|landmark| landmark.user).count();
+        let steps = transcript.total_steps();
+        let plural = |n: usize, word: &str| format!("{n} {word}{}", if n == 1 { "" } else { "s" });
+        let mut outline = crate::ui::menu_surface()
+            .key(format!("history-outline-{index}"))
+            .w(ui(280.))
+            .max_h(ui(360.))
+            .child(
+                row()
+                    .h(ui(28.))
+                    .px(ui(8.))
+                    .gap(ui(6.))
+                    .items_center()
+                    .child(Ink::small().weight(MEDIUM).line_text(plural(turns, "turn")))
+                    .child(
+                        Ink::new(CHAT_DETAIL)
+                            .hex(0xebebeb70)
+                            .line_text(format!("· {}", plural(steps, "step"))),
+                    ),
+            );
+        for (i, landmark) in landmarks.iter().enumerate() {
+            let message = &transcript.rows()[landmark.row].message;
+            let preview = message
+                .content
+                .lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty())
+                .map_or("Image", |line| {
+                    line.trim_start_matches(['#', '>', '*', '-', ' '])
+                });
+            let preview: String = preview.chars().take(120).collect();
+            let entry = button("")
+                .key(format!("history-entry-{index}-{i}"))
+                .label(format!(
+                    "{}: {preview}",
+                    if landmark.user { "Prompt" } else { "Answer" }
+                ))
+                .w_full()
+                .pl(ui(if landmark.user { 8. } else { 20. }))
+                .child(
+                    Ink::small()
+                        .hex(if landmark.user {
+                            0xebebebdd
+                        } else {
+                            0xebebeb80
+                        })
+                        .line_text(preview)
+                        .shrink(),
+                )
+                .on_press_tx(jump(i));
+            outline = outline.child(if i == at {
+                entry.fill(rgba(0xffffff0d))
+            } else {
+                entry
+            });
+        }
+        rail = rail.child(outline);
+        rail
     }
 
     pub(crate) fn transcript_row(&self, index: usize, message_index: usize) -> El {

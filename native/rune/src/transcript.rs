@@ -65,6 +65,13 @@ pub struct Activity {
     pub steps: usize,
 }
 
+/// A message the history rail jumps to: each user prompt and the final agent
+/// answer of the response that follows it.
+pub struct Landmark {
+    pub row: usize,
+    pub user: bool,
+}
+
 pub struct PreparedTranscript {
     pub start: usize,
     pub theme: String,
@@ -137,6 +144,7 @@ pub struct Transcript {
     current_activity: Option<usize>,
     // Overrides apply only in the phase (running or finished) where chosen.
     activity_overrides: HashMap<String, (bool, bool)>,
+    landmarks: Vec<Landmark>,
     revision: u64,
 }
 
@@ -154,6 +162,7 @@ impl Transcript {
             activity_owners: vec![],
             current_activity: None,
             activity_overrides: HashMap::new(),
+            landmarks: vec![],
             revision: 0,
         }
     }
@@ -169,6 +178,15 @@ impl Transcript {
     }
     pub fn last_visible(&self) -> Option<usize> {
         self.last_visible
+    }
+
+    pub fn landmarks(&self) -> &[Landmark] {
+        &self.landmarks
+    }
+
+    /// Activity steps across every loaded response.
+    pub fn total_steps(&self) -> usize {
+        self.activities.iter().map(|activity| activity.steps).sum()
     }
 
     pub fn step(&self, row: usize) -> Option<&Step> {
@@ -365,6 +383,29 @@ impl Transcript {
                 .iter()
                 .any(|step| self.rows[step.start].message.id == *id)
         });
+        // Each response contributes its last assistant text outside the activity
+        // fold, which is the answer the reader sees.
+        self.landmarks.clear();
+        let mut answer = None;
+        for (index, row) in self.rows.iter().enumerate() {
+            if row.ends_response() {
+                self.landmarks
+                    .extend(answer.take().map(|row| Landmark { row, user: false }));
+            }
+            if row.hidden() {
+                continue;
+            }
+            if row.message.role == "user" {
+                self.landmarks.push(Landmark {
+                    row: index,
+                    user: true,
+                });
+            } else if row.message.role == "assistant" && self.activity_owners[index].is_none() {
+                answer = Some(index);
+            }
+        }
+        self.landmarks
+            .extend(answer.map(|row| Landmark { row, user: false }));
         self.last_visible = self.rows.iter().rposition(|row| !row.hidden());
         self.revision += 1;
     }
@@ -420,6 +461,13 @@ mod tests {
             None,
         );
         assert_eq!(transcript.activities.len(), 2);
+        let landmarks: Vec<_> = transcript
+            .landmarks()
+            .iter()
+            .map(|landmark| (landmark.row, landmark.user))
+            .collect();
+        assert_eq!(landmarks, [(0, true), (8, false), (10, true), (12, false)]);
+        assert_eq!(transcript.total_steps(), 3);
         let first = transcript.activity(2).unwrap();
         assert_eq!((first.start, first.end, first.steps), (2, 8, 2));
         assert_eq!(transcript.activity(4).unwrap().start, 2);
