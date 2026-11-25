@@ -320,3 +320,44 @@ fn preserves_shared_paths_pinned_lanes_and_each_node_shape() {
     assert!(svg[3].contains(transition));
     assert!(svg[3].contains(convergence));
 }
+
+#[test]
+fn clicking_another_row_leaves_no_fading_fill_in_the_previous_graph_cell() {
+    let _serial = serial();
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().canonicalize().unwrap();
+    init_repo(&root, "main");
+    for i in 0..6 {
+        std::fs::write(root.join("file.txt"), format!("{i}\n")).unwrap();
+        git(&root, &["add", "."]);
+        git(&root, &["commit", "-m", &format!("Commit {i}")]);
+    }
+    let mut rt = loaded(&root);
+    let rows: Vec<String> = rt
+        .elements()
+        .into_iter()
+        .filter_map(|e| e.key)
+        .filter(|key| key.starts_with("commit-") && key != "commit-rows" && key != "commit-history")
+        .collect();
+    let (previous, next) = (rows[2].clone(), rows[4].clone());
+    click(&mut rt, &previous);
+    let (from, to) = (center(&rt, &previous), center(&rt, &next));
+    for step in 1..=4 {
+        rt.pointer_move(from.0, from.1 + (to.1 - from.1) * step as f32 / 4.);
+        rt.frame(1. / 60.);
+    }
+    rt.pointer_down(to.0, to.1);
+    rt.frame(1. / 60.);
+    rt.pointer_up(to.0, to.1);
+    rt.frame(1. / 60.);
+    let lingering: Vec<_> = rt
+        .elements()
+        .into_iter()
+        .filter(|e| !e.exiting && e.path.contains(&previous) && e.fill.a > 0.01)
+        .map(|e| (e.path, e.rect, e.fill.a))
+        .collect();
+    assert!(
+        lingering.is_empty(),
+        "previous row still painted: {lingering:?}"
+    );
+}

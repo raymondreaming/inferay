@@ -308,16 +308,19 @@ impl RepositoryView {
             let cell = row().w(ui(w)).h(ui(23.)).items_center();
             line = line.child(match column.as_str() {
                 "graph" => {
+                    // Keyed so the selection-only connector never hands its fill
+                    // transition to the lane image when it disappears.
                     let mut cell = cell.clip_rounded(0.);
                     if has_connector {
                         cell = cell.child(
-                            el().pin(Some(0.), Some(ui(11.)), None, None)
+                            el().key("graph-connector")
+                                .pin(Some(0.), Some(ui(11.)), None, None)
                                 .w(ui(center))
                                 .h(ui(1.))
                                 .fill(rgb(tint)),
                         );
                     }
-                    let mut image = el().w(ui(layout.image_width)).h(ui(23.));
+                    let mut image = el().key("graph-lanes").w(ui(layout.image_width)).h(ui(23.));
                     if let Some(picture) = self.graph_images.get(index) {
                         image = image.pixels(&picture.pixels);
                     }
