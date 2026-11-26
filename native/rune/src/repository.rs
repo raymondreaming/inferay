@@ -359,6 +359,9 @@ impl RepositoryView {
                 view.graph = graph;
                 view.presentation = presentation;
                 view.graph_images = images;
+                if view.keyboard_active && view.keyboard_scope == "graph" {
+                    view.select_current();
+                }
                 view.load_avatars();
             },
         ));

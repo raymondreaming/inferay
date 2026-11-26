@@ -503,11 +503,19 @@ impl Workspace {
                 tokio::time::sleep(std::time::Duration::from_secs(60)).await;
             }
         }));
-        let paths = self.projects[self.project]
-            .repositories
+        // Every open project tab shows its totals, not only the current one.
+        let mut paths = self
+            .projects
             .iter()
-            .map(|(_, path)| path.clone())
+            .filter(|project| {
+                !self
+                    .closed_projects
+                    .contains(project.id.as_deref().unwrap_or(""))
+            })
+            .flat_map(|project| project.repositories.iter().map(|(_, path)| path.clone()))
             .collect::<Vec<_>>();
+        paths.sort();
+        paths.dedup();
         self.repository_stats_task = Some(crate::task::guarded(move |stats_alive| async move {
             while stats_alive.load(std::sync::atomic::Ordering::Acquire) {
                 let paths = paths.clone();
@@ -828,13 +836,12 @@ impl Workspace {
         self.repository_view = Some(path);
     }
 
-    /// Opens the selected repository's graph, keeping the current full-screen
-    /// choice, and hands the arrow keys to it.
-    pub(crate) fn show_graph(&mut self, tx: &mut Tx) -> bool {
+    /// Opens `path`, or the selected repository, in the graph's current
+    /// full-screen choice and hands the arrow keys to it.
+    pub(crate) fn show_graph(&mut self, path: Option<String>, tx: &mut Tx) -> bool {
         let project = &self.projects[self.project];
-        let Some(path) = self
-            .repository_view
-            .clone()
+        let Some(path) = path
+            .or_else(|| self.repository_view.clone())
             .filter(|path| project.repositories.iter().any(|(_, p)| p == path))
             .or_else(|| project.selected_repository.clone())
             .or_else(|| project.repositories.first().map(|(_, p)| p.clone()))

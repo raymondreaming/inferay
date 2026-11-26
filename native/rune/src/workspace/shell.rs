@@ -204,7 +204,45 @@ impl Workspace {
             };
             tab = tab
                 .child(icon(&icons::FOLDER))
-                .child(Ink::small().weight(MEDIUM).line_text(name.clone()))
+                .child(Ink::small().weight(MEDIUM).line_text(name.clone()));
+            // Each tab carries its repositories' total changes; none when unchanged.
+            {
+                let (additions, deletions) = project
+                    .repositories
+                    .iter()
+                    .filter_map(|(_, path)| self.repository_stats.get(path))
+                    .fold((0, 0), |(a, d), stats| {
+                        (a + stats.additions, d + stats.deletions)
+                    });
+                if additions + deletions > 0 {
+                    tab = tab.child(
+                        row()
+                            .key(format!("project-changes-{i}"))
+                            .gap(ui(4.))
+                            .child(
+                                Ink::new(11.)
+                                    .color(rgb(0x4fbd83))
+                                    .line_text(format!("+{additions}")),
+                            )
+                            .child(
+                                Ink::new(11.)
+                                    .color(rgb(0xdf6464))
+                                    .line_text(format!("−{deletions}")),
+                            ),
+                    );
+                }
+            }
+            if self
+                .conversations
+                .iter()
+                .any(|chat| !chat.closed && chat.project == i && chat.run.is_loading)
+            {
+                tab = tab.child(
+                    crate::ui::border_beam(&format!("project-{i}"), ui(7.))
+                        .key(format!("project-beam-{i}")),
+                );
+            }
+            tab = tab
                 .child(
                     button("")
                         .key(format!("close-project-{i}"))
@@ -487,10 +525,8 @@ impl Workspace {
             content = content.child(
                 row()
                     .items_center()
-                    .child(entry.on_press(move |s: &mut Workspace| {
-                        s.project_pages.page = None;
-                        s.repository = true;
-                        s.open_repository(selected_path.clone());
+                    .child(entry.on_press_tx(move |s: &mut Workspace, tx| {
+                        s.show_graph(Some(selected_path.clone()), tx);
                     }))
                     .child(
                         button("")

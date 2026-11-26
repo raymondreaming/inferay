@@ -289,3 +289,57 @@ fn long_queued_messages_keep_actions_visible_and_preserve_edit_text() {
         );
     }
 }
+
+#[test]
+fn project_tabs_show_change_totals_and_glow_while_running() {
+    let _serial = serial();
+    let mut view = Workspace::empty();
+    view.projects[0].name = "Origin".into();
+    view.projects[0].repositories = vec![
+        ("app".into(), "/repos/app".into()),
+        ("site".into(), "/repos/site".into()),
+    ];
+    for (path, additions, deletions) in [("/repos/app", 12, 3), ("/repos/site", 5, 0)] {
+        view.repository_stats.insert(
+            path.into(),
+            inferay_core::repository::GitChangeSummary {
+                files: 1,
+                additions,
+                deletions,
+            },
+        );
+    }
+    view.sidebar = false;
+    let mut rt = view_runtime(view, (1200., 700.));
+    rt.frame(1. / 60.);
+    let texts = |rt: &Runtime<Workspace>| -> Vec<String> {
+        rt.elements()
+            .into_iter()
+            .filter(|e| e.path.contains("project-changes-0"))
+            .filter_map(|e| e.text)
+            .collect()
+    };
+    assert_eq!(texts(&rt), ["+17", "−3"]);
+    assert!(rt.find("project-beam-0").is_none());
+    rt.update(|s, _| s.conversations[0].run.is_loading = true);
+    rt.frame(1. / 60.);
+    rt.frame(1. / 60.);
+    assert!(
+        rt.find("project-beam-0").is_some(),
+        "a running chat lights its project tab"
+    );
+    rt.update(|s, _| {
+        s.conversations[0].run.is_loading = false;
+        s.sidebar = true;
+    });
+    rt.frame(1. / 60.);
+    assert_eq!(
+        texts(&rt),
+        ["+17", "−3"],
+        "totals show with the sidebar open too"
+    );
+    assert!(rt.find("project-beam-0").is_none());
+    rt.update(|s, _| s.repository_stats.clear());
+    rt.frame(1. / 60.);
+    assert!(texts(&rt).is_empty(), "no numbers when nothing changed");
+}

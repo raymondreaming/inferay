@@ -233,7 +233,9 @@ const BEAM_FRAMES: usize = 120;
 const BEAM_SLOT: f32 = 1. / BEAM_FRAMES as f32;
 static BEAM_STOPS: [(f32, f32); 4] = [(0., 1.), (BEAM_SLOT, 1.), (BEAM_SLOT + 1e-4, 0.), (1., 0.)];
 
-fn beam_point(width: f32, height: f32, radius: f32, mut distance: f32) -> [f32; 2] {
+/// The point `distance` along the rounded outline, clockwise from the top
+/// left, and the unit normal pointing into the shape there.
+fn beam_point(width: f32, height: f32, radius: f32, mut distance: f32) -> ([f32; 2], [f32; 2]) {
     let horizontal = width - radius * 2.;
     let vertical = height - radius * 2.;
     let arc = std::f32::consts::FRAC_PI_2 * radius;
@@ -246,10 +248,10 @@ fn beam_point(width: f32, height: f32, radius: f32, mut distance: f32) -> [f32; 
         part += 1;
     }
     match part {
-        0 => [radius + distance, 0.],
-        2 => [width, radius + distance],
-        4 => [width - radius - distance, height],
-        6 => [0., height - radius - distance],
+        0 => ([radius + distance, 0.], [0., 1.]),
+        2 => ([width, radius + distance], [-1., 0.]),
+        4 => ([width - radius - distance, height], [0., -1.]),
+        6 => ([0., height - radius - distance], [1., 0.]),
         _ => {
             let corner = part / 2;
             let angle = -std::f32::consts::FRAC_PI_2
@@ -261,13 +263,14 @@ fn beam_point(width: f32, height: f32, radius: f32, mut distance: f32) -> [f32; 
                 (radius, height - radius),
                 (radius, radius),
             ][corner];
-            [x + radius * angle.cos(), y + radius * angle.sin()]
+            let (sin, cos) = angle.sin_cos();
+            ([x + radius * cos, y + radius * sin], [-cos, -sin])
         }
     }
 }
 
-fn beam_frame(width: f32, height: f32, phase: f32) -> rune::Shape {
-    let radius = ui(11.).min(width / 2.).min(height / 2.);
+fn beam_frame(width: f32, height: f32, radius: f32, phase: f32) -> rune::Shape {
+    let radius = radius.min(width / 2.).min(height / 2.);
     let perimeter = 2. * (width - radius * 2. + height - radius * 2.)
         + 4. * std::f32::consts::FRAC_PI_2 * radius;
     let mut shape = rune::Shape::new();
@@ -278,13 +281,16 @@ fn beam_frame(width: f32, height: f32, phase: f32) -> rune::Shape {
         if alpha == 0. {
             continue;
         }
-        let from = beam_point(width, height, radius, progress * perimeter);
-        let to = beam_point(
+        let (from, from_in) = beam_point(width, height, radius, progress * perimeter);
+        let (to, to_in) = beam_point(
             width,
             height,
             radius,
             (segment + 1) as f32 / 240. * perimeter,
         );
+        // Each glow layer is a band that follows the outline: neighbouring pieces
+        // share edges instead of overlapping, and inside a corner the band stops
+        // at the corner's centre, so wide layers no longer fan into a spark.
         for (stroke, opacity) in [
             (36., 0.015),
             (20., 0.025),
@@ -293,11 +299,18 @@ fn beam_frame(width: f32, height: f32, phase: f32) -> rune::Shape {
             (2., 0.2),
             (1., 0.65),
         ] {
-            shape = shape.line(
-                from,
-                to,
-                ui(stroke),
-                rune::LineCap::Butt,
+            let outer = ui(stroke) / 2.;
+            let inner = outer.min(radius);
+            let offset = |point: [f32; 2], normal: [f32; 2], by: f32| {
+                [point[0] + normal[0] * by, point[1] + normal[1] * by]
+            };
+            shape = shape.fill(
+                vec![
+                    offset(from, from_in, -outer),
+                    offset(to, to_in, -outer),
+                    offset(to, to_in, inner),
+                    offset(from, from_in, inner),
+                ],
                 colors::hsla((progress + phase * 0.1) % 1., 0.8, 0.65, alpha * opacity),
             );
         }
@@ -305,21 +318,19 @@ fn beam_frame(width: f32, height: f32, phase: f32) -> rune::Shape {
     shape
 }
 
-pub fn composer_beam(key: &str) -> El {
+/// The animated running border for the element keyed `key`, whose corners
+/// are rounded by `radius` (already zoomed).
+pub fn border_beam(key: &str, radius: f32) -> El {
     let Some([width, height]) = rune::memo::layout_size(key) else {
         return pin_fill();
     };
-    let version = (
-        width.to_bits(),
-        height.to_bits(),
-        crate::zoom::factor().to_bits(),
-    );
+    let version = (width.to_bits(), height.to_bits(), radius.to_bits());
     rune::memo(format!("{key}/beam"), version, || {
-        let mut frames = pin_fill().radius(ui(12.)).clip_rounded(ui(12.)).inert();
+        let mut frames = pin_fill().radius(radius).clip_rounded(radius).inert();
         for frame in 0..BEAM_FRAMES {
             let phase = frame as f32 / BEAM_FRAMES as f32;
             frames = frames.child(
-                rune::canvas(beam_frame(width, height, phase))
+                rune::canvas(beam_frame(width, height, radius - ui(1.), phase))
                     .pin(Some(0.), Some(0.), Some(0.), Some(0.))
                     .cycle(rune::Cycle {
                         period: 2.5,
@@ -345,7 +356,7 @@ pub fn composer_surface(key: &str, active: bool) -> El {
     )
     .fill(rgba(colors::COMPOSER));
     if active {
-        surface = surface.child(composer_beam(key));
+        surface = surface.child(border_beam(key, ui(12.)));
     }
     surface
 }
@@ -361,4 +372,30 @@ pub fn text_baseline(style: &TextStyle) -> f32 {
         line,
         matches!(style.family, Family::Mono | Family::SystemMono),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn beam_outline_normals_point_inward_and_turn_smoothly_through_corners() {
+        let (width, height, radius) = (200., 60., 11.);
+        let perimeter = 2. * (width - radius * 2. + height - radius * 2.)
+            + 4. * std::f32::consts::FRAC_PI_2 * radius;
+        let mut previous: Option<[f32; 2]> = None;
+        for step in 0..=2000 {
+            let (point, normal) =
+                super::beam_point(width, height, radius, step as f32 / 2000. * perimeter);
+            assert!((normal[0].hypot(normal[1]) - 1.).abs() < 1e-4);
+            // A point a radius inward stays inside the rounded box: corners aim at
+            // their centre, which is what keeps wide glow bands from fanning out.
+            let inside = [point[0] + normal[0] * radius, point[1] + normal[1] * radius];
+            assert!(inside[0] >= radius - 1e-3 && inside[0] <= width - radius + 1e-3);
+            assert!(inside[1] >= radius - 1e-3 && inside[1] <= height - radius + 1e-3);
+            if let Some(last) = previous {
+                let turn = last[0] * normal[0] + last[1] * normal[1];
+                assert!(turn > 0.99, "normal jumps at step {step}");
+            }
+            previous = Some(normal);
+        }
+    }
 }

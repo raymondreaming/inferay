@@ -598,6 +598,7 @@ fn repository_workspace(root: &std::path::Path) -> (rune::Runtime<Workspace>, St
     for name in ["first", "second"] {
         let path = root.join(name);
         std::fs::create_dir_all(&path).unwrap();
+        let path = path.canonicalize().unwrap();
         init_repo(&path, "main");
         for i in 0..3 {
             std::fs::write(path.join("file.txt"), format!("{i}\n")).unwrap();
@@ -790,4 +791,52 @@ fn renamed_files_show_where_they_came_from_in_the_diff_header() {
     });
     assert_eq!(text(&rt, "diff-original-path").as_deref(), Some("old.sql"));
     assert_eq!(text(&rt, "diff-path").as_deref(), Some("new.sql"));
+}
+
+#[test]
+fn the_graph_starts_on_the_current_row_and_keys_keep_working_after_clicks() {
+    let _serial = serial();
+    let directory = tempfile::tempdir().unwrap();
+    let (mut rt, first, second) = repository_workspace(directory.path());
+    std::fs::write(
+        std::path::Path::new(&first).join("file.txt"),
+        "work in progress\n",
+    )
+    .unwrap();
+    let arrow = |rt: &mut rune::Runtime<Workspace>, key: Key| press(rt, key, Mods::default());
+    let selected = |rt: &rune::Runtime<Workspace>| current(&rt.state).selected_item.clone();
+    let head = |path: &str| git(std::path::Path::new(path), &["rev-parse", "HEAD"]);
+
+    // → from the chat starts on this checkout's work in progress.
+    arrow(&mut rt, Key::Right);
+    wait_for_graph(&mut rt);
+    assert_eq!(selected(&rt).as_deref(), Some("wip"));
+    arrow(&mut rt, Key::Down);
+    assert_eq!(
+        selected(&rt),
+        Some(head(&first)),
+        "↓ moves from work in progress to HEAD"
+    );
+
+    // A clean repository opened from the sidebar starts on HEAD, and keys work at once.
+    click(&mut rt, "repo-1");
+    wait_for_graph(&mut rt);
+    assert_eq!(selected(&rt), Some(head(&second)));
+    arrow(&mut rt, Key::Down);
+    let below = selected(&rt);
+    assert!(below.is_some() && below != Some(head(&second)));
+
+    // A focused toolbar button does not take the arrow keys away from the graph.
+    click(&mut rt, "expand-git");
+    arrow(&mut rt, Key::Up);
+    assert_eq!(selected(&rt), Some(head(&second)));
+
+    // ← closes to the chat, → reopens on the same row, and keys still move.
+    arrow(&mut rt, Key::Left);
+    assert!(!rt.state.repository);
+    arrow(&mut rt, Key::Right);
+    assert!(rt.state.repository);
+    assert_eq!(selected(&rt), Some(head(&second)));
+    arrow(&mut rt, Key::Down);
+    assert_eq!(selected(&rt), below);
 }

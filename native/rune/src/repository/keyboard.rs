@@ -24,12 +24,40 @@ fn key_name(event: &KeyEvent) -> Option<String> {
 }
 
 impl RepositoryView {
-    /// Shows the graph with the arrow keys on it.
+    /// Shows the graph with the arrow keys on it, starting on the current row.
     pub(crate) fn focus_graph(&mut self) {
         self.show_diff = false;
         self.history = true;
         self.keyboard_scope = "graph";
         self.keyboard_active = true;
+        self.select_current();
+    }
+
+    /// Keeps a selection that is still in the graph; otherwise starts on this
+    /// checkout's work in progress, or else the commit HEAD points at.
+    pub(super) fn select_current(&mut self) {
+        let commits = &self.graph.commits;
+        if self
+            .selected_item
+            .as_ref()
+            .is_some_and(|id| commits.iter().any(|commit| &commit.id == id))
+        {
+            return;
+        }
+        let current = commits
+            .iter()
+            .position(|commit| {
+                commit.item_kind == GitGraphItemKind::WorktreeWip
+                    && commit.worktree_path.as_deref() == Some(self.path.as_str())
+            })
+            .or_else(|| {
+                commits
+                    .iter()
+                    .position(|commit| commit.refs.iter().any(|reference| reference.is_head))
+            });
+        if let Some(index) = current {
+            self.select_commit(index);
+        }
     }
 
     pub(super) fn navigate_file(&mut self, direction: i32, tx: &mut Tx) {
@@ -151,24 +179,24 @@ pub fn on_key(s: &mut Workspace, event: &KeyEvent, tx: &mut Tx) -> bool {
     if s.settings || s.project_pages.page.is_some() {
         return false;
     }
+    // Text fields use the arrows themselves, so a key that reaches the window
+    // came from a button or from nothing; only a chat composer keeps it.
+    if s.conversations.iter().any(|chat| chat.input.is_focused()) {
+        return false;
+    }
     if !s.repository {
-        // → with nothing focused opens the graph; the composer handles its own.
         return matches!(event.key, Key::Right)
             && event.mods == rune::Mods::default()
-            && tx.focused().is_none()
-            && s.show_graph(tx);
+            && s.show_graph(None, tx);
     }
     let Some(path) = s.repository_view.clone() else {
         return false;
     };
-    let Some(view) = s.repository_views.get_mut(&path) else {
-        return false;
-    };
-    if tx.focused().is_some() {
-        view.keyboard_active = false;
-        return false;
-    }
-    if !view.keyboard_active {
+    if !s
+        .repository_views
+        .get(&path)
+        .is_some_and(|view| view.keyboard_active)
+    {
         return false;
     }
     handle_key(s, &path, event, tx)
