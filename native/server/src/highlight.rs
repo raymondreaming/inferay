@@ -206,8 +206,8 @@ fn classify_line(
     Some(runs)
 }
 
-/// Parse shared text once, reusing the common suffix only when both grammar
-/// and scope state agree. No document or parser state survives this call.
+/// Parse aligned rows once wherever both revisions hold the same text in the
+/// same grammar and scope state. No document or parser state survives this call.
 pub fn classify_pair(path: &str, before: &str, after: &str) -> [Option<Classified>; 2] {
     let paired = (|| -> Option<[Classified; 2]> {
         let syntax = syntax(path)?;
@@ -221,37 +221,32 @@ pub fn classify_pair(path: &str, before: &str, after: &str) -> [Option<Classifie
         if old.len().max(new.len()) > MAX_LINES {
             return None;
         }
-        let prefix = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
-        let suffix = old[prefix..]
-            .iter()
-            .rev()
-            .zip(new[prefix..].iter().rev())
-            .take_while(|(a, b)| a == b)
-            .count();
         let mut state = ParseState::new(syntax);
         let mut stack = ScopeStack::new();
-        let mut old_runs = Vec::with_capacity(old.len());
-        for line in &old[..prefix] {
-            old_runs.push(classify_line(&mut state, &mut stack, line)?);
-        }
-        let mut new_runs = old_runs.clone();
         let (mut new_state, mut new_stack) = (state.clone(), stack.clone());
-        for line in &old[prefix..old.len() - suffix] {
-            old_runs.push(classify_line(&mut state, &mut stack, line)?);
-        }
-        for line in &new[prefix..new.len() - suffix] {
-            new_runs.push(classify_line(&mut new_state, &mut new_stack, line)?);
-        }
-        let mut shared_suffix = false;
-        for line in &old[old.len() - suffix..] {
-            shared_suffix = shared_suffix || state == new_state && stack == new_stack;
-            let runs = classify_line(&mut state, &mut stack, line)?;
-            new_runs.push(if shared_suffix {
-                runs.clone()
-            } else {
-                classify_line(&mut new_state, &mut new_stack, line)?
-            });
-            old_runs.push(runs);
+        let mut old_runs = Vec::with_capacity(old.len());
+        let mut new_runs = Vec::with_capacity(new.len());
+        let mut converged = true;
+        for row in 0..old.len().max(new.len()) {
+            match (old.get(row), new.get(row)) {
+                (Some(a), Some(b)) if a == b && converged => {
+                    let runs = classify_line(&mut state, &mut stack, a)?;
+                    new_runs.push(runs.clone());
+                    old_runs.push(runs);
+                }
+                (a, b) => {
+                    if converged {
+                        (new_state, new_stack) = (state.clone(), stack.clone());
+                    }
+                    if let Some(a) = a {
+                        old_runs.push(classify_line(&mut state, &mut stack, a)?);
+                    }
+                    if let Some(b) = b {
+                        new_runs.push(classify_line(&mut new_state, &mut new_stack, b)?);
+                    }
+                    converged = state == new_state && stack == new_stack;
+                }
+            }
         }
         Some([old_runs, new_runs].map(|lines| Classified {
             version: 3,

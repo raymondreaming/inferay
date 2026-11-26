@@ -312,3 +312,99 @@ fn space_wraps_changes_and_minimap_clicks_scroll_the_same_view() {
     press(&mut rt, Key::Text(" ".into()), Mods::default());
     assert_eq!(repo(&rt).diff_change, Some(1));
 }
+
+#[test]
+fn long_file_lists_mount_visible_rows_and_keys_reach_the_last_file() {
+    let _serial = serial();
+    let mut view = RepositoryView::new(
+        "/not-a-repository".into(),
+        json!({}),
+        "vscode-black".into(),
+        crate::colors::CANVAS,
+    );
+    view.task = None;
+    view.loading = false;
+    view.selected = Some("0123456789012345678901234567890123456789".into());
+    view.details = Some(
+        serde_json::from_value(json!({
+            "hash": "0123456789012345678901234567890123456789",
+            "message": "", "body": "", "author": "", "authorEmail": "", "authoredAt": "",
+            "files": (0..300).map(|i| json!({"path": format!("src/file_{i:03}.rs"), "status": "M", "additions": 1, "deletions": 0})).collect::<Vec<_>>(),
+        }))
+        .unwrap(),
+    );
+    view.history = false;
+    view.changes = true;
+    let mut rt = harness(view, (900., 600.));
+    assert!(rect(&rt, "changed-file-false-0").is_some());
+    assert!(rect(&rt, "changed-file-false-299").is_none());
+    update(&mut rt, |view, tx| {
+        view.file = Some("src/file_298.rs".into());
+        view.navigate_file(1, tx);
+    });
+    frames(&mut rt, 2);
+    assert_eq!(repo(&rt).file.as_deref(), Some("src/file_299.rs"));
+    let list = rect(&rt, "changed-files-0").unwrap();
+    let last = rect(&rt, "changed-file-false-299").expect("the last file is mounted");
+    assert!(last[1] >= list[1] && last[1] + last[3] <= list[1] + list[3] + 0.5);
+    assert!(rect(&rt, "changed-file-false-0").is_none());
+}
+
+#[test]
+fn rows_near_the_first_change_are_colored_before_the_whole_diff() {
+    let _serial = serial();
+    let lines: Vec<_> = (0..1000)
+        .map(|i| GitDiffLine {
+            number: Some(i + 1),
+            content: format!("let value_{i} = {i};"),
+            line_type: if i == 10 {
+                GitDiffLineType::Remove
+            } else {
+                GitDiffLineType::Context
+            },
+        })
+        .collect();
+    let diff = GitHunkDiff {
+        old_lines: lines.clone(),
+        new_lines: lines,
+        ..Default::default()
+    };
+    let mut view = RepositoryView::new(
+        "/not-a-repository".into(),
+        json!({}),
+        "vscode-black".into(),
+        crate::colors::CANVAS,
+    );
+    view.task = None;
+    view.file = Some("file.rs".into());
+    let mut rt = crate::task::testing::runtime(Workspace::empty());
+    rt.state.repository_views.insert(view.path.clone(), view);
+    let path = "/not-a-repository".to_owned();
+    rt.update(|s, tx| {
+        let view = s.repository_views.get_mut(&path).unwrap();
+        view.show_prepared_diff(
+            Arc::new(PreparedDiff::plain(diff, "file.rs", "vscode-black")),
+            tx,
+        );
+    });
+    let mut updates = Vec::new();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while updates.len() < 2 {
+        assert!(std::time::Instant::now() < deadline);
+        updates.extend(crate::task::headless::drain());
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let mut updates = updates.into_iter();
+    rt.update(updates.next().unwrap());
+    rt.frame(1. / 60.);
+    let early = rt.state.repository_views[&path].diff.clone().unwrap();
+    assert!(!early.colored);
+    assert_eq!(early.old.len(), 210);
+    assert!(!early.old[10].is_empty());
+    rt.update(updates.next().unwrap());
+    rt.frame(1. / 60.);
+    let full = rt.state.repository_views[&path].diff.clone().unwrap();
+    assert!(full.colored);
+    assert_eq!(full.old.len(), 1000);
+    assert_eq!(full.old[..210], early.old[..]);
+}

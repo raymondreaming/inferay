@@ -4,6 +4,8 @@ use crate::icons;
 use crate::ui::{Ink, button, icon_sized, plain_button};
 use crate::zoom::ui;
 use rune::{El, ScrollSpec, col, el, row};
+use std::borrow::Cow;
+use std::rc::Rc;
 
 /// Path, status, additions, deletions, staged, and the path a rename came from.
 pub(super) type FileEntry = (String, String, usize, usize, bool, Option<String>);
@@ -35,6 +37,170 @@ pub(super) fn border_bottom(el: El, hex: u32) -> El {
 
 pub(super) fn border_right(el: El, hex: u32) -> El {
     el.border_sides([0., 1., 0., 0.], rgba(hex)).border_layout()
+}
+
+enum FileRow {
+    Directory {
+        name: String,
+        directory: String,
+        collapsed: bool,
+        staged: bool,
+        depth: usize,
+    },
+    File {
+        index: usize,
+        file: FileEntry,
+        depth: usize,
+    },
+}
+
+struct FileList {
+    path: String,
+    rows: Vec<FileRow>,
+    selected: Option<(String, bool)>,
+    stageable: bool,
+    mutating: bool,
+    tree: bool,
+}
+
+impl FileList {
+    fn key(&self, i: usize) -> String {
+        match &self.rows[i] {
+            FileRow::Directory {
+                directory, staged, ..
+            } => format!("directory-{staged}-{directory}"),
+            FileRow::File { index, file, .. } => format!("changed-file-{}-{index}", file.4),
+        }
+    }
+
+    fn row(&self, i: usize) -> El {
+        let (index, (path, status, additions, deletions, staged, original), depth) =
+            match &self.rows[i] {
+                FileRow::Directory {
+                    name,
+                    directory,
+                    collapsed,
+                    depth,
+                    ..
+                } => {
+                    let directory = directory.clone();
+                    return button(name)
+                        .key(self.key(i))
+                        .h(ui(26.))
+                        .pl(ui(12. + *depth as f32 * 14.))
+                        .child(crate::ui::icon(if *collapsed {
+                            &icons::CHEVRON_RIGHT
+                        } else {
+                            &icons::CHEVRON_DOWN
+                        }))
+                        .on_press_tx(act(&self.path, move |view, _| {
+                            if !view.collapsed_directories.remove(&directory) {
+                                view.collapsed_directories.insert(directory.clone());
+                            }
+                            view.keyboard_scope = "sidebar";
+                        }));
+                }
+                FileRow::File { index, file, depth } => (index, file, depth),
+            };
+        let staged = *staged;
+        let selected = self
+            .selected
+            .as_ref()
+            .is_some_and(|(file, in_index)| file == path && *in_index == staged);
+        let (glyph, tint, change) = match status.as_str() {
+            "A" | "?" | "??" => (&icons::PLUS, colors::ADDED, "Added"),
+            "D" => (&icons::MINUS, colors::DELETED, "Deleted"),
+            status if status.starts_with('R') => (&icons::RENAME, colors::RENAMED, "Renamed"),
+            _ => (&icons::PENCIL, colors::MODIFIED, "Modified"),
+        };
+        let ink = Ink::new(11.);
+        let mut name = row().grow(1.).shrink().clip_rounded(0.).items_center();
+        if !self.tree {
+            name = name.child(
+                row()
+                    .grow(1.)
+                    .shrink()
+                    .clip_rounded(0.)
+                    .justify_end()
+                    .child(label(
+                        ink.hex(0xebebeb80),
+                        path.rfind('/')
+                            .map(|end| path[..end + 1].to_owned())
+                            .unwrap_or_default(),
+                    )),
+            );
+        }
+        name = name.child(
+            ink.color(rgb(0xffffff))
+                .line_text(path.rsplit('/').next().unwrap_or(path).to_owned())
+                .shrink(),
+        );
+        let fill_key = format!("changed-file-{staged}-{index}");
+        let mut file_row = row()
+            .key(fill_key.clone())
+            .role("button")
+            .label(match original {
+                Some(original) => format!("{change}: {original} → {path}"),
+                None => format!("{change}: {path}"),
+            })
+            .h(ui(26.))
+            .items_center()
+            .gap(ui(8.))
+            .pr(ui(12.))
+            .pl(ui(12. + *depth as f32 * 14.))
+            .cursor(rune::Cursor::Pointer);
+        file_row = if selected {
+            crate::ui::swap_fill(
+                file_row,
+                &fill_key,
+                Some(rgba(0xebebeb17)),
+                rgba(0xebebeb0d),
+            )
+        } else {
+            file_row.hover(rgba(0xebebeb0d))
+        };
+        file_row = file_row
+            .child(icon_sized(glyph, 12.).color(rgb(tint)))
+            .child(name)
+            .child(label(
+                ink.color(rgb(colors::ADDED)),
+                format!("+{additions}"),
+            ))
+            .child(label(
+                ink.color(rgb(colors::DELETED)),
+                format!("−{deletions}"),
+            ));
+        if self.stageable {
+            let action_path = path.clone();
+            let mut stage = button("")
+                .key(format!("stage-{staged}-{index}"))
+                .label(format!(
+                    "{} {action_path}",
+                    if staged { "Unstage" } else { "Stage" }
+                ))
+                .h(ui(22.))
+                .w(ui(22.))
+                .padding(ui(4.))
+                .justify_center()
+                .child(icon_sized(
+                    if staged { &icons::MINUS } else { &icons::PLUS },
+                    14.,
+                ))
+                .on_press_tx(act(&self.path, move |view, _| {
+                    view.keyboard_scope = "sidebar";
+                    view.stage(Some(action_path.clone()), staged)
+                }));
+            if self.mutating {
+                stage = stage.opacity(0.4);
+            }
+            file_row = file_row.child(stage);
+        }
+        let open_path = path.clone();
+        file_row.on_press_tx(act(&self.path, move |view, tx| {
+            view.keyboard_scope = "sidebar";
+            view.open_file(open_path.clone(), staged, tx)
+        }))
+    }
 }
 
 impl RepositoryView {
@@ -162,156 +328,7 @@ impl RepositoryView {
             .into_iter()
             .filter(|file| staged.is_none_or(|value| file.4 == value))
             .collect();
-        let mut seen_directories = HashSet::new();
-        let mut content = col();
-        if files.is_empty() {
-            content = content.child(col().padding(ui(16.)).child(
-                Ink::new(12.).hex(0xebebeb80).text(
-                    if self.selected.is_some() && self.details.is_none() {
-                        "Loading commit…"
-                    } else {
-                        "No changes"
-                    },
-                ),
-            ));
-        }
-        for (i, (path, status, additions, deletions, staged, original)) in
-            files.into_iter().enumerate()
-        {
-            let selected = self.file.as_ref() == Some(&path) && self.selected_staged == staged;
-            let (glyph, tint, change) = match status.as_str() {
-                "A" | "?" | "??" => (&icons::PLUS, colors::ADDED, "Added"),
-                "D" => (&icons::MINUS, colors::DELETED, "Deleted"),
-                status if status.starts_with('R') => (&icons::RENAME, colors::RENAMED, "Renamed"),
-                _ => (&icons::PENCIL, colors::MODIFIED, "Modified"),
-            };
-            let mut hidden = false;
-            let mut depth = 0;
-            if self.tree_files {
-                let mut prefix = String::new();
-                let parts: Vec<_> = path.split('/').collect();
-                for part in &parts[..parts.len().saturating_sub(1)] {
-                    if !prefix.is_empty() {
-                        prefix.push('/');
-                    }
-                    prefix.push_str(part);
-                    if seen_directories.insert(prefix.clone()) && !hidden {
-                        let directory = prefix.clone();
-                        let collapsed = self.collapsed_directories.contains(&directory);
-                        content = content.child(
-                            button(part)
-                                .key(format!("directory-{staged}-{directory}"))
-                                .h(ui(26.))
-                                .pl(ui(12. + depth as f32 * 14.))
-                                .child(crate::ui::icon(if collapsed {
-                                    &icons::CHEVRON_RIGHT
-                                } else {
-                                    &icons::CHEVRON_DOWN
-                                }))
-                                .on_press_tx(act(&self.path, move |view, _| {
-                                    if !view.collapsed_directories.remove(&directory) {
-                                        view.collapsed_directories.insert(directory.clone());
-                                    }
-                                    view.keyboard_scope = "sidebar";
-                                })),
-                        );
-                    }
-                    hidden |= self.collapsed_directories.contains(&prefix);
-                    depth += 1;
-                }
-            }
-            if hidden {
-                continue;
-            }
-            let ink = Ink::new(11.);
-            let mut name = row().grow(1.).shrink().clip_rounded(0.).items_center();
-            if !self.tree_files {
-                name = name.child(
-                    row()
-                        .grow(1.)
-                        .shrink()
-                        .clip_rounded(0.)
-                        .justify_end()
-                        .child(label(
-                            ink.hex(0xebebeb80),
-                            path.rfind('/')
-                                .map(|end| path[..end + 1].to_owned())
-                                .unwrap_or_default(),
-                        )),
-                );
-            }
-            name = name.child(
-                ink.color(rgb(0xffffff))
-                    .line_text(path.rsplit('/').next().unwrap_or(&path).to_owned())
-                    .shrink(),
-            );
-            let fill_key = format!("changed-file-{staged}-{i}");
-            let mut file_row = row()
-                .key(fill_key.clone())
-                .role("button")
-                .label(match &original {
-                    Some(original) => format!("{change}: {original} → {path}"),
-                    None => format!("{change}: {path}"),
-                })
-                .h(ui(26.))
-                .items_center()
-                .gap(ui(8.))
-                .pr(ui(12.))
-                .pl(ui(12. + depth as f32 * 14.))
-                .cursor(rune::Cursor::Pointer);
-            file_row = if selected {
-                crate::ui::swap_fill(
-                    file_row,
-                    &fill_key,
-                    Some(rgba(0xebebeb17)),
-                    rgba(0xebebeb0d),
-                )
-            } else {
-                file_row.hover(rgba(0xebebeb0d))
-            };
-            file_row = file_row
-                .child(icon_sized(glyph, 12.).color(rgb(tint)))
-                .child(name)
-                .child(label(
-                    ink.color(rgb(colors::ADDED)),
-                    format!("+{additions}"),
-                ))
-                .child(label(
-                    ink.color(rgb(colors::DELETED)),
-                    format!("−{deletions}"),
-                ));
-            if self.selected.is_none() {
-                let action_path = path.clone();
-                let mut stage = button("")
-                    .key(format!("stage-{staged}-{i}"))
-                    .label(format!(
-                        "{} {action_path}",
-                        if staged { "Unstage" } else { "Stage" }
-                    ))
-                    .h(ui(22.))
-                    .w(ui(22.))
-                    .padding(ui(4.))
-                    .justify_center()
-                    .child(icon_sized(
-                        if staged { &icons::MINUS } else { &icons::PLUS },
-                        14.,
-                    ))
-                    .on_press_tx(act(&self.path, move |view, _| {
-                        view.keyboard_scope = "sidebar";
-                        view.stage(Some(action_path.clone()), staged)
-                    }));
-                if self.mutating {
-                    stage = stage.opacity(0.4);
-                }
-                file_row = file_row.child(stage);
-            }
-            let open_path = path.clone();
-            content = content.child(file_row.on_press_tx(act(&self.path, move |view, tx| {
-                view.keyboard_scope = "sidebar";
-                view.open_file(open_path.clone(), staged, tx)
-            })));
-        }
-        col()
+        let list = col()
             .key(format!("changed-files-{group}"))
             .grow(1.)
             .min_h(0.)
@@ -323,8 +340,70 @@ impl RepositoryView {
                 if let Some(view) = s.current_repository_mut() {
                     view.keyboard_scope = "sidebar";
                 }
-            })
-            .child(content)
+            });
+        if files.is_empty() {
+            return list.child(
+                col()
+                    .padding(ui(16.))
+                    .child(Ink::new(12.).hex(0xebebeb80).text(
+                        if self.selected.is_some() && self.details.is_none() {
+                            "Loading commit…"
+                        } else {
+                            "No changes"
+                        },
+                    )),
+            );
+        }
+        let mut rows = Vec::new();
+        let mut seen_directories = HashSet::new();
+        for (index, file) in files.into_iter().enumerate() {
+            let mut hidden = false;
+            let mut depth = 0;
+            if self.tree_files {
+                let mut prefix = String::new();
+                let parts: Vec<_> = file.0.split('/').collect();
+                for part in &parts[..parts.len().saturating_sub(1)] {
+                    if !prefix.is_empty() {
+                        prefix.push('/');
+                    }
+                    prefix.push_str(part);
+                    if seen_directories.insert(prefix.clone()) && !hidden {
+                        rows.push(FileRow::Directory {
+                            name: (*part).to_owned(),
+                            directory: prefix.clone(),
+                            collapsed: self.collapsed_directories.contains(&prefix),
+                            staged: file.4,
+                            depth,
+                        });
+                    }
+                    hidden |= self.collapsed_directories.contains(&prefix);
+                    depth += 1;
+                }
+            }
+            if !hidden {
+                rows.push(FileRow::File { index, file, depth });
+            }
+        }
+        let rows = Rc::new(FileList {
+            path: self.path.clone(),
+            rows,
+            selected: self.file.clone().map(|file| (file, self.selected_staged)),
+            stageable: self.selected.is_none(),
+            mutating: self.mutating,
+            tree: self.tree_files,
+        });
+        let keys = rows.clone();
+        list.child(
+            col()
+                .key(format!("changed-file-rows-{group}"))
+                .growth(rune::GrowthSpec::default())
+                .virtual_rows(
+                    rows.rows.len(),
+                    ui(26.),
+                    move |_: &Workspace, i| Cow::Owned(keys.key(i)),
+                    move |_: &Workspace, i| rows.row(i),
+                ),
+        )
     }
 
     fn commit_description(&self, body_height: Option<f32>) -> El {

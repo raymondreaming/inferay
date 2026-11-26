@@ -488,7 +488,29 @@ fn get_git_revision_hunk_diff(
     ]);
     args.extend(old_revision);
     args.extend([new_revision, "--", file_path]);
-    let raw_patch = run_git_timed(&args, cwd, Duration::from_secs(5))?;
+    let text = !is_image_file(file_path);
+    let (raw_patch, old_guess, new_guess) = std::thread::scope(|scope| {
+        let deadline = git_exec::current_git_deadline();
+        let old = scope.spawn(move || {
+            git_exec::with_git_deadline_until(deadline, || {
+                old_revision
+                    .filter(|_| text)
+                    .and_then(|revision| git_file_content(cwd, revision, file_path))
+            })
+        });
+        let new = scope.spawn(move || {
+            git_exec::with_git_deadline_until(deadline, || {
+                text.then(|| git_file_content(cwd, new_revision, file_path))
+                    .flatten()
+            })
+        });
+        (
+            run_git_timed(&args, cwd, Duration::from_secs(5)),
+            old.join().expect("Git blob worker panicked"),
+            new.join().expect("Git blob worker panicked"),
+        )
+    });
+    let raw_patch = raw_patch?;
     if raw_patch.trim().is_empty() {
         return None;
     }
@@ -511,10 +533,18 @@ fn get_git_revision_hunk_diff(
     }
     let old_content = old_revision
         .filter(|_| !is_new)
-        .and_then(|revision| git_file_content(cwd, revision, &old_path))
+        .and_then(|revision| {
+            if old_path == file_path {
+                old_guess
+            } else {
+                git_file_content(cwd, revision, &old_path)
+            }
+        })
         .unwrap_or_default();
     let new_content = if is_deleted {
         String::new()
+    } else if new_path == file_path {
+        new_guess.unwrap_or_default()
     } else {
         git_file_content(cwd, new_revision, &new_path).unwrap_or_default()
     };
@@ -663,7 +693,28 @@ pub fn get_git_hunk_diff(
     let Some(requested_path) = allowed_paths.resolve_allowed_child_path(cwd, file_path) else {
         return too_large_diff("Access denied", false);
     };
-    let (raw_patch, original_path) = get_raw_git_patch(cwd, file_path, staged);
+    let text = !is_image_file(file_path);
+    let old_revision = if staged { "HEAD" } else { "" };
+    let ((raw_patch, original_path), old_guess, staged_content) = std::thread::scope(|scope| {
+        let deadline = git_exec::current_git_deadline();
+        let old = scope.spawn(move || {
+            git_exec::with_git_deadline_until(deadline, || {
+                text.then(|| git_file_content(cwd, old_revision, file_path))
+            })
+        });
+        let new = scope.spawn(move || {
+            git_exec::with_git_deadline_until(deadline, || {
+                (text && staged)
+                    .then(|| git_file_content(cwd, "", file_path))
+                    .flatten()
+            })
+        });
+        (
+            get_raw_git_patch(cwd, file_path, staged),
+            old.join().expect("Git blob worker panicked"),
+            new.join().expect("Git blob worker panicked"),
+        )
+    });
     let old_path = original_path.as_deref().unwrap_or(file_path);
     let deleted_patch = raw_patch
         .lines()
@@ -741,7 +792,10 @@ pub fn get_git_hunk_diff(
     let merge_conflict_content =
         has_merge_conflict_markers(&current_content).then(|| current_content.clone());
 
-    let old_result = git_file_content(cwd, if staged { "HEAD" } else { "" }, old_path);
+    let old_result = match old_guess {
+        Some(guess) if old_path == file_path => guess,
+        _ => git_file_content(cwd, old_revision, old_path),
+    };
     // `git show :path` can return success with an empty result when an untracked
     // path contains pathspec metacharacters such as `[...path]`. Confirm the
     // ambiguous empty case with a literal status lookup instead of treating the
@@ -752,7 +806,7 @@ pub fn get_git_hunk_diff(
             && is_untracked_git_file(cwd, file_path));
     let old_content = old_result.unwrap_or_default();
     let new_content = if staged {
-        git_file_content(cwd, "", file_path).unwrap_or_default()
+        staged_content.unwrap_or_default()
     } else {
         current_content
     };

@@ -1,3 +1,4 @@
+use super::changes::FileEntry;
 use super::*;
 use crate::colors;
 use crate::syntax::{LineStyles, Paint};
@@ -15,6 +16,7 @@ pub(super) struct PreparedDiff {
     pub(super) colored: bool,
     split_ranges: Arc<[[usize; 2]]>,
     inline_ranges: Arc<[[usize; 2]]>,
+    pub(super) file_rows: [Arc<[usize]>; 2],
     pub(super) split_minimap: Arc<[inferay_native_diff::MinimapSegment]>,
     pub(super) inline_minimap: Arc<[inferay_native_diff::MinimapSegment]>,
 }
@@ -125,7 +127,15 @@ impl PreparedDiff {
                 * 0.61
                 + 8.
         });
+        let file_rows = [&diff.old_lines, &diff.new_lines].map(|lines| {
+            lines
+                .iter()
+                .enumerate()
+                .filter_map(|(i, line)| line.number.map(|_| i))
+                .collect()
+        });
         Self {
+            file_rows,
             line_widths,
             split_ranges,
             inline_ranges,
@@ -143,19 +153,19 @@ impl PreparedDiff {
     }
 
     pub(super) fn retheme(&self, theme: &str) -> Self {
+        self.colored_rows(theme, usize::MAX)
+    }
+
+    fn colored_rows(&self, theme: &str, rows: usize) -> Self {
         let mut next = self.clone();
-        let [old, new] = crate::syntax::diff_highlights(
-            [
-                &Self::source_lines(&self.diff.old_lines),
-                &Self::source_lines(&self.diff.new_lines),
-            ],
-            &self.path,
-            theme,
-        );
+        let [old, new] = [&self.diff.old_lines, &self.diff.new_lines]
+            .map(|lines| Self::source_lines(&lines[..rows.min(lines.len())]));
+        let [old, new] = crate::syntax::diff_highlights([&old, &new], &self.path, theme);
+        next.colored =
+            old.len() == self.diff.old_lines.len() && new.len() == self.diff.new_lines.len();
         next.old = old.into();
         next.new = new.into();
         next.theme = theme.into();
-        next.colored = true;
         next
     }
 
@@ -166,6 +176,14 @@ impl PreparedDiff {
         next.theme = theme.into();
         next.colored = false;
         next
+    }
+
+    pub(super) fn ranges(&self, split: bool) -> &[[usize; 2]] {
+        if split {
+            &self.split_ranges
+        } else {
+            &self.inline_ranges
+        }
     }
 
     pub(super) fn inline_styles(&self, index: usize) -> &[(std::ops::Range<usize>, Paint)] {
@@ -304,24 +322,38 @@ impl RepositoryView {
         let theme = self.syntax_theme.clone();
         let key = self.diff_key(data.path.clone(), self.selected_staged);
         let cache = self.diff_cache.clone();
+        let path = self.path.clone();
+        let head = data.split_ranges.first().map_or(0, |range| range[0]) + 200;
         self.theme_task = Some(self.spawn(
             move || {
+                if data.diff.old_lines.len().max(data.diff.new_lines.len()) > head * 2 {
+                    let early = Arc::new(data.colored_rows(&theme, head));
+                    crate::task::update(move |s, _| {
+                        if let Some(view) = s.repository_views.get_mut(&path) {
+                            view.accept_colors(early);
+                        }
+                    });
+                }
                 let prepared = Arc::new(data.retheme(&theme));
                 cache.lock().unwrap().publish_colors(key, prepared.clone());
                 prepared
             },
             |view, prepared, _| {
                 view.theme_task = None;
-                if view.syntax_theme == prepared.theme
-                    && view
-                        .diff
-                        .as_ref()
-                        .is_some_and(|current| Arc::ptr_eq(&current.diff, &prepared.diff))
-                {
-                    view.diff = Some(prepared);
-                }
+                view.accept_colors(prepared);
             },
         ));
+    }
+
+    fn accept_colors(&mut self, prepared: Arc<PreparedDiff>) {
+        if self.syntax_theme == prepared.theme
+            && self.diff.as_ref().is_some_and(|current| {
+                Arc::ptr_eq(&current.diff, &prepared.diff)
+                    && !(current.colored && current.theme == prepared.theme)
+            })
+        {
+            self.diff = Some(prepared);
+        }
     }
 
     pub(super) fn prefetch_diffs(&mut self) {
@@ -354,26 +386,23 @@ impl RepositoryView {
         ));
     }
 
+    pub(super) fn selected_entry(&self) -> Option<FileEntry> {
+        self.file_entries().into_iter().find(|file| {
+            self.file.as_deref() == Some(file.0.as_str()) && file.4 == self.selected_staged
+        })
+    }
+
     pub(super) fn effective_split_diff(&self) -> bool {
-        self.split_diff
-            && !self.file_entries().iter().any(|file| {
-                self.file.as_deref() == Some(file.0.as_str())
-                    && file.4 == self.selected_staged
-                    && matches!(file.1.as_str(), "A" | "D" | "?" | "??")
-            })
+        self.split_diff && !self.selected_entry().as_ref().is_some_and(single_sided)
     }
 
     pub(super) fn diff_ranges(&self) -> &[[usize; 2]] {
         if self.file_view {
             return &[];
         }
-        self.diff.as_ref().map_or(&[], |data| {
-            if self.effective_split_diff() {
-                &data.split_ranges
-            } else {
-                &data.inline_ranges
-            }
-        })
+        self.diff
+            .as_ref()
+            .map_or(&[], |data| data.ranges(self.effective_split_diff()))
     }
 
     pub(super) fn jump_diff_change(&mut self, index: usize, tx: &mut Tx) {
@@ -416,6 +445,10 @@ impl RepositoryView {
         tx.scroll_to_y("diff-lines", max * progress);
         self.diff_change = None;
     }
+}
+
+pub(super) fn single_sided(file: &FileEntry) -> bool {
+    matches!(file.1.as_str(), "A" | "D" | "?" | "??")
 }
 
 pub(super) fn thumb(height: f32, offset: f32, max: f32, viewport: f32) -> (f32, f32) {

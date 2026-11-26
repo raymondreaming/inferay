@@ -12,7 +12,6 @@ struct DiffRows {
     data: Option<Arc<PreparedDiff>>,
     file_view: bool,
     file_new: bool,
-    file_rows: Vec<usize>,
     split: bool,
     active: Option<[usize; 2]>,
     count: usize,
@@ -62,7 +61,7 @@ impl DiffRows {
         };
         let diff = &data.diff;
         if self.file_view {
-            let index = self.file_rows[i];
+            let index = data.file_rows[usize::from(self.file_new)][i];
             let source = if self.file_new {
                 &diff.new_lines[index]
             } else {
@@ -112,14 +111,13 @@ impl DiffRows {
                                 self.code_width,
                             ))
                             .child(
-                                row()
-                                    .w(ui(data.line_widths[side]).max(self.code_width))
-                                    .live_offset(offset)
-                                    .child(code(
-                                        source.map_or("", |l| l.content.as_str()),
-                                        styles.get(i).map_or(&[], Vec::as_slice),
-                                        ink,
-                                    )),
+                                code(
+                                    source.map_or("", |l| l.content.as_str()),
+                                    styles.get(i).map_or(&[], Vec::as_slice),
+                                    ink,
+                                )
+                                .w(ui(data.line_widths[side]).max(self.code_width))
+                                .live_offset(offset),
                             ),
                     ),
                 );
@@ -164,22 +162,18 @@ fn horizontal_wheel(
 }
 
 impl RepositoryView {
-    fn image_preview(&self) -> El {
+    fn image_preview(&self, split: bool) -> El {
         let Some(data) = &self.diff else {
             return el();
         };
         let endpoints = [&data.diff.old_image, &data.diff.new_image];
-        let mut preview = if self.effective_split_diff() {
-            row()
-        } else {
-            col()
-        }
-        .key("diff-images")
-        .grow(1.)
-        .min_h(0.)
-        .min_w(0.)
-        .gap(ui(8.))
-        .padding(ui(8.));
+        let mut preview = if split { row() } else { col() }
+            .key("diff-images")
+            .grow(1.)
+            .min_h(0.)
+            .min_w(0.)
+            .gap(ui(8.))
+            .padding(ui(8.));
         for side in (0..2).filter(|&side| {
             endpoints[side].is_some()
                 && (!self.file_view || side == usize::from(endpoints[1].is_some()))
@@ -211,7 +205,7 @@ impl RepositoryView {
         preview
     }
 
-    fn diff_minimap(&self) -> El {
+    fn diff_minimap(&self, split: bool) -> El {
         let height = rune::memo::layout_size("diff-minimap").map_or(0., |size| size[1]);
         let mut rail = border_left(
             col()
@@ -225,7 +219,6 @@ impl RepositoryView {
         );
         let width = ui(12.) - 1.;
         if let Some(data) = &self.diff {
-            let split = self.effective_split_diff();
             let (segments, count) = if split {
                 (
                     &data.split_minimap,
@@ -235,22 +228,33 @@ impl RepositoryView {
                 (&data.inline_minimap, data.inline.len())
             };
             if count > 0 && height > 0. {
+                let mut marks: Vec<(f32, u32, f32, f32)> = Vec::new();
                 for segment in segments.iter() {
                     let left = if segment.side == "right" { 0.5 } else { 0. };
-                    let span = if segment.side == "full" { 1. } else { 0.5 };
-                    let top = height * (segment.start_line as f32 / count as f32);
-                    let size = (height
-                        * ((segment.end_line - segment.start_line) as f32 / count as f32))
-                        .max(ui(1.));
                     let color = if segment.r#type == "add" {
                         colors::DIFF_ADDED_BACKGROUND
                     } else {
                         colors::DIFF_REMOVED_BACKGROUND
                     };
+                    let top = height * (segment.start_line as f32 / count as f32);
+                    let bottom = (top
+                        + (height
+                            * ((segment.end_line - segment.start_line) as f32 / count as f32))
+                            .max(ui(1.)))
+                    .min(height);
+                    match marks.iter_mut().rev().find(|mark| mark.0 == left) {
+                        Some(mark) if mark.1 == color && top <= mark.3 => {
+                            mark.3 = mark.3.max(bottom)
+                        }
+                        _ => marks.push((left, color, top, bottom)),
+                    }
+                }
+                let span = if split { 0.5 } else { 1. };
+                for (left, color, top, bottom) in marks {
                     rail = rail.child(
                         el().pin(Some(width * left), Some(top), None, None)
                             .w(width * span)
-                            .h(size.min(height - top))
+                            .h(bottom - top)
                             .fill(rgba(color)),
                     );
                 }
@@ -290,32 +294,13 @@ impl RepositoryView {
         let image_diff = diff
             .as_ref()
             .is_some_and(|data| data.diff.is_image == Some(true));
-        let entries = self.file_entries();
-        let file_new = !entries.iter().any(|file| {
-            self.file.as_deref() == Some(file.0.as_str())
-                && file.4 == self.selected_staged
-                && file.1 == "D"
-        });
+        let entry = self.selected_entry();
+        let file_new = entry.as_ref().is_none_or(|file| file.1 != "D");
         let file_view = self.file_view;
-        let file_rows: Vec<usize> =
-            diff.as_ref()
-                .filter(|_| file_view)
-                .map_or_else(Vec::new, |d| {
-                    let lines = if file_new {
-                        &d.diff.new_lines
-                    } else {
-                        &d.diff.old_lines
-                    };
-                    lines
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(i, l)| l.number.map(|_| i))
-                        .collect()
-                });
-        let split = self.effective_split_diff();
+        let split = self.split_diff && !entry.as_ref().is_some_and(diff::single_sided);
         let count = diff.as_ref().map_or(0, |d| {
             if file_view {
-                file_rows.len()
+                d.file_rows[usize::from(file_new)].len()
             } else if split {
                 d.diff.old_lines.len().max(d.diff.new_lines.len())
             } else {
@@ -324,8 +309,8 @@ impl RepositoryView {
         });
         let active = self
             .diff_change
-            .and_then(|i| self.diff_ranges().get(i))
-            .copied();
+            .zip(diff.as_ref().filter(|_| !file_view))
+            .and_then(|(i, d)| d.ranges(split).get(i).copied());
         let half = (self.diff_list_width / 2.).max(0.);
         let code_width = (half - 1. - ui(colors::DIFF_GUTTER) - ui(8.)).max(0.);
         let mut toolbar = row()
@@ -346,11 +331,7 @@ impl RepositoryView {
             )
             .child({
                 let path = self.file.clone().unwrap_or_default();
-                let original = self
-                    .file_entries()
-                    .into_iter()
-                    .find(|file| file.0 == path && file.4 == self.selected_staged)
-                    .and_then(|file| file.5);
+                let original = entry.and_then(|file| file.5);
                 // A rename names both sides: where the file was and where it is now.
                 let mut title = row()
                     .key("diff-title")
@@ -451,7 +432,7 @@ impl RepositoryView {
             );
         }
         if image_diff {
-            view = view.child(self.image_preview());
+            view = view.child(self.image_preview(split));
         }
         if image_diff {
             return view;
@@ -460,7 +441,6 @@ impl RepositoryView {
             data: diff,
             file_view,
             file_new,
-            file_rows,
             split,
             active,
             count,
@@ -505,7 +485,7 @@ impl RepositoryView {
             .on_wheel(act_wheel(&self.path))
             .child(list);
         if !file_view {
-            body = body.child(self.diff_minimap());
+            body = body.child(self.diff_minimap(split));
         }
         view.child(body)
     }
