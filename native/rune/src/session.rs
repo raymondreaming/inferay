@@ -37,12 +37,14 @@ pub struct Session {
     pub repository_graph_preferences: HashMap<String, serde_json::Value>,
 }
 pub fn profile() -> PathBuf {
-    std::env::var_os("INFERAY_USER_DATA_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(std::env::var_os("HOME").expect("home directory"))
-                .join("Library/Application Support/Inferay")
-        })
+    if let Some(directory) = std::env::var_os("INFERAY_USER_DATA_DIR") {
+        return PathBuf::from(directory);
+    }
+    if cfg!(test) {
+        return std::env::temp_dir().join(format!("inferay-test-profile-{}", std::process::id()));
+    }
+    PathBuf::from(std::env::var_os("HOME").expect("home directory"))
+        .join("Library/Application Support/Inferay")
 }
 fn open(path: &Path) -> Result<Connection> {
     let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
@@ -301,6 +303,13 @@ pub fn transcript(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn test_builds_never_resolve_the_real_profile() {
+        if std::env::var_os("INFERAY_USER_DATA_DIR").is_none() {
+            assert!(super::profile().starts_with(std::env::temp_dir()));
+        }
+    }
+
     #[test]
     fn empty_profile_opens_without_creating_stores() {
         let root = tempfile::tempdir().unwrap();
