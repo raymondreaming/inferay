@@ -166,32 +166,38 @@ fn code_card(lang: &str, text: &Prepared, id: &str, ink: Ink) -> El {
     )
 }
 
+/// Columns size like an HTML table: each takes a share of the message width
+/// in proportion to its longest line, never narrower than its longest word, and
+/// wraps inside that share. The table scrolls only when those minimums overflow.
 fn table(rows: &[Vec<Prepared>], id: &str, ink: Ink) -> El {
     let columns = rows.iter().map(Vec::len).max().unwrap_or(0);
-    let widths: Vec<f32> = (0..columns)
-        .map(|column| {
-            let characters = rows
-                .iter()
-                .filter_map(|row| row.get(column))
-                .flat_map(|text| text.content().lines())
-                .map(|line| line.chars().count())
-                .max()
-                .unwrap_or(0);
-            (characters as f32 * 7. + 16.).clamp(64., 240.)
-        })
+    let longest = |column: usize, split: fn(&str) -> Vec<&str>| {
+        rows.iter()
+            .filter_map(|row| row.get(column))
+            .flat_map(|text| split(text.content()))
+            .map(|part| part.chars().count())
+            .max()
+            .unwrap_or(0) as f32
+            * 7.
+            + 16.
+    };
+    let shares: Vec<f32> = (0..columns)
+        .map(|column| longest(column, |text| text.lines().collect()).clamp(64., 320.))
         .collect();
-    let width: f32 = widths.iter().sum();
+    let minimums: Vec<f32> = (0..columns)
+        .map(|column| longest(column, |text| text.split_whitespace().collect()).clamp(56., 160.))
+        .collect();
     let cell_ink = ink.size(CHAT_SMALL).line(18.);
-    let body = col()
-        .w(ui(width))
-        .children(rows.iter().enumerate().map(|(r, cells)| {
-            row()
-                .w(ui(width))
-                .children(cells.iter().enumerate().map(|(c, text)| {
+    let body =
+        col()
+            .grow(1.)
+            .min_w(ui(minimums.iter().sum()))
+            .children(rows.iter().enumerate().map(|(r, cells)| {
+                row().w_full().children((0..columns).map(|c| {
                     let mut cell = col()
                         .key(format!("chat-table-cell-{r}-{c}"))
-                        .w(ui(widths[c]))
-                        .min_w(0.)
+                        .grow(shares[c])
+                        .min_w(ui(minimums[c]))
                         .px(ui(8.))
                         .py(ui(3.))
                         .border_sides([0., 0., 1., 0.], rgba(0xebebeb18))
@@ -201,11 +207,16 @@ fn table(rows: &[Vec<Prepared>], id: &str, ink: Ink) -> El {
                         text_ink = text_ink.weight(SEMIBOLD);
                         cell = cell.fill(rgba(0xffffff08));
                     }
-                    cell.child(text.render(format!("inline-{id}-{r}-{c}"), text_ink))
+                    match cells.get(c) {
+                        Some(text) => {
+                            cell.child(text.render(format!("inline-{id}-{r}-{c}"), text_ink))
+                        }
+                        None => cell,
+                    }
                 }))
-        }));
+            }));
     border(
-        col()
+        row()
             .key("chat-table")
             .w_full()
             .min_w(0.)

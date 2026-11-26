@@ -66,7 +66,7 @@ fn wide_tables_scroll_inside_the_message() {
     let _serial = serial();
     let (mut rt, _) = show(
         RichText::prepare(
-            "| Name | Description | Details | More |\n| --- | --- | --- | --- |\n| A | A longer description that should wrap within its column | More details to read | Last column |",
+            "| Identifier | Description | Requirements | Measurements | Observations | Recommendation |\n| --- | --- | --- | --- | --- | --- |\n| A | Wrapped | Wrapped | Wrapped | Wrapped | Wrapped |",
             "vscode-black",
         ),
         "table",
@@ -304,3 +304,64 @@ fn combined_runs_layer_word_changes_over_syntax() {
 }
 
 use crate::colors::rgb;
+
+fn table_cells(rt: &Runtime<Workspace>, row: usize, columns: usize) -> Vec<[f32; 4]> {
+    (0..columns)
+        .map(|c| rect(rt, &format!("chat-table-cell-{row}-{c}")).unwrap())
+        .collect()
+}
+
+#[test]
+fn narrow_tables_fill_the_message_width() {
+    let _serial = serial();
+    let (rt, _) = show(
+        RichText::prepare(
+            "| Share | What |\n| --- | --- |\n| 12% | Rebuilding the whole app shell |\n| 7% | Recomputing the sidebar scope |",
+            "vscode-black",
+        ),
+        "table",
+        (600., 300.),
+    );
+    let table = rect(&rt, "chat-table").unwrap();
+    for row in 0..3 {
+        let cells = table_cells(&rt, row, 2);
+        let right = cells[1][0] + cells[1][2];
+        assert!(
+            (table[0] + table[2] - right).abs() <= 2.,
+            "row {row} ends at {right}, table at {}",
+            table[0] + table[2]
+        );
+    }
+}
+
+#[test]
+fn wide_tables_wrap_every_column_inside_the_message() {
+    let _serial = serial();
+    let (rt, _) = show(
+        RichText::prepare(
+            "| Area | Finding | Verdict |\n| --- | --- | --- |\n| Startup | About 3 s to settled; about 1 s of that is main-thread work, mostly SwiftUI building and drawing the first frame | Fair; could be faster with deferred work |\n| Memory peak at launch | About 450 MB, every launch, settling to 220-245 MB | Worth fixing: spikes once |",
+            "vscode-black",
+        ),
+        "table",
+        (560., 400.),
+    );
+    let table = rect(&rt, "chat-table").unwrap();
+    let line = rect(&rt, "chat-table-cell-0-2").unwrap()[3];
+    for row in 0..3 {
+        let cells = table_cells(&rt, row, 3);
+        let right = cells[2][0] + cells[2][2];
+        assert!(
+            (table[0] + table[2] - right).abs() <= 2.,
+            "row {row}: the last column must end at the table edge, not past it"
+        );
+    }
+    // Rows lay out separately but keep shared column edges.
+    let header = table_cells(&rt, 0, 3);
+    for row in 1..3 {
+        for (cell, top) in table_cells(&rt, row, 3).iter().zip(&header) {
+            assert!((cell[0] - top[0]).abs() < 0.5 && (cell[2] - top[2]).abs() < 0.5);
+        }
+    }
+    // The long verdicts wrap within their column instead of running off the edge.
+    assert!(rect(&rt, "chat-table-cell-1-2").unwrap()[3] > line);
+}
