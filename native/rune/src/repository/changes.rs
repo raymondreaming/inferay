@@ -46,6 +46,7 @@ enum FileRow {
         collapsed: bool,
         staged: bool,
         depth: usize,
+        changes: [usize; 3],
     },
     File {
         index: usize,
@@ -74,34 +75,56 @@ impl FileList {
     }
 
     fn row(&self, i: usize) -> El {
-        let (index, (path, status, additions, deletions, staged, original), depth) =
-            match &self.rows[i] {
-                FileRow::Directory {
-                    name,
-                    directory,
-                    collapsed,
-                    depth,
-                    ..
-                } => {
-                    let directory = directory.clone();
-                    return button(name)
-                        .key(self.key(i))
-                        .h(ui(26.))
-                        .pl(ui(12. + *depth as f32 * 14.))
-                        .child(crate::ui::icon(if *collapsed {
-                            &icons::CHEVRON_RIGHT
-                        } else {
-                            &icons::CHEVRON_DOWN
-                        }))
-                        .on_press_tx(act(&self.path, move |view, _| {
-                            if !view.collapsed_directories.remove(&directory) {
-                                view.collapsed_directories.insert(directory.clone());
-                            }
-                            view.keyboard_scope = "sidebar";
-                        }));
+        let (index, (path, status, additions, deletions, staged, original), depth) = match &self
+            .rows[i]
+        {
+            FileRow::Directory {
+                name,
+                directory,
+                collapsed,
+                depth,
+                changes,
+                ..
+            } => {
+                let directory = directory.clone();
+                let mut folder = button(name)
+                    .key(self.key(i))
+                    .h(ui(26.))
+                    .pl(ui(12. + *depth as f32 * 14.))
+                    .child(crate::ui::icon(if *collapsed {
+                        &icons::CHEVRON_RIGHT
+                    } else {
+                        &icons::CHEVRON_DOWN
+                    }));
+                if *collapsed {
+                    for ((glyph, tint), count) in [
+                        (&icons::PENCIL, colors::MODIFIED),
+                        (&icons::PLUS, colors::ADDED),
+                        (&icons::MINUS, colors::DELETED),
+                    ]
+                    .into_iter()
+                    .zip(*changes)
+                    .filter(|(_, count)| *count > 0)
+                    {
+                        folder = folder.child(
+                            row()
+                                .items_center()
+                                .gap(ui(3.))
+                                .ml(ui(6.))
+                                .child(icon_sized(glyph, 12.).color(rgb(tint)))
+                                .child(label(Ink::new(11.).color(rgb(tint)), count.to_string())),
+                        );
+                    }
                 }
-                FileRow::File { index, file, depth } => (index, file, depth),
-            };
+                return folder.on_press_tx(act(&self.path, move |view, _| {
+                    if !view.collapsed_directories.remove(&directory) {
+                        view.collapsed_directories.insert(directory.clone());
+                    }
+                    view.keyboard_scope = "sidebar";
+                }));
+            }
+            FileRow::File { index, file, depth } => (index, file, depth),
+        };
         let staged = *staged;
         let selected = self
             .selected
@@ -354,6 +377,19 @@ impl RepositoryView {
                     )),
             );
         }
+        let mut changes: HashMap<String, [usize; 3]> = HashMap::new();
+        if self.tree_files {
+            for file in &files {
+                let kind = match file.1.as_str() {
+                    "A" | "?" | "??" => 1,
+                    "D" => 2,
+                    _ => 0,
+                };
+                for (end, _) in file.0.match_indices('/') {
+                    changes.entry(file.0[..end].to_owned()).or_default()[kind] += 1;
+                }
+            }
+        }
         let mut rows = Vec::new();
         let mut seen_directories = HashSet::new();
         for (index, file) in files.into_iter().enumerate() {
@@ -374,6 +410,7 @@ impl RepositoryView {
                             collapsed: self.collapsed_directories.contains(&prefix),
                             staged: file.4,
                             depth,
+                            changes: changes.get(&prefix).copied().unwrap_or_default(),
                         });
                     }
                     hidden |= self.collapsed_directories.contains(&prefix);

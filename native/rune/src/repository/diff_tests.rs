@@ -408,3 +408,58 @@ fn rows_near_the_first_change_are_colored_before_the_whole_diff() {
     assert_eq!(full.old.len(), 1000);
     assert_eq!(full.old[..210], early.old[..]);
 }
+
+#[test]
+fn collapsed_tree_folders_count_their_edited_added_and_removed_files() {
+    let _serial = serial();
+    let mut view = RepositoryView::new(
+        "/not-a-repository".into(),
+        json!({}),
+        "vscode-black".into(),
+        crate::colors::CANVAS,
+    );
+    view.task = None;
+    view.loading = false;
+    view.selected = Some("0123456789012345678901234567890123456789".into());
+    view.details = Some(
+        serde_json::from_value(json!({
+            "hash": "0123456789012345678901234567890123456789",
+            "message": "", "body": "", "author": "", "authorEmail": "", "authoredAt": "",
+            "files": [
+                {"path":"src/app/main.rs","status":"M","additions":1,"deletions":1},
+                {"path":"src/app/new.rs","status":"A","additions":3,"deletions":0},
+                {"path":"src/lib.rs","status":"M","additions":1,"deletions":0},
+                {"path":"src/old.rs","status":"D","additions":0,"deletions":4},
+                {"path":"docs/guide.md","status":"A","additions":2,"deletions":0},
+            ],
+        }))
+        .unwrap(),
+    );
+    view.history = false;
+    view.changes = true;
+    view.tree_files = true;
+    let mut rt = harness(view, (900., 600.));
+    let counts = |rt: &rune::Runtime<Workspace>, directory: &str| -> Vec<String> {
+        let key = format!("directory-false-{directory}");
+        rt.elements()
+            .into_iter()
+            .filter(|e| e.path.contains(&key) && e.key.as_deref() != Some(key.as_str()))
+            .filter_map(|e| e.text)
+            .filter(|text| text.chars().all(|c| c.is_ascii_digit()) && !text.is_empty())
+            .collect()
+    };
+    assert!(
+        counts(&rt, "src").is_empty(),
+        "an open folder lists its files instead"
+    );
+    click(&mut rt, "directory-false-src");
+    frames(&mut rt, 2);
+    assert_eq!(counts(&rt, "src"), ["2", "1", "1"]);
+    click(&mut rt, "directory-false-docs");
+    frames(&mut rt, 2);
+    assert_eq!(
+        counts(&rt, "docs"),
+        ["1"],
+        "only kinds that changed are shown"
+    );
+}
