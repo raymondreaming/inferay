@@ -95,6 +95,7 @@ pub struct RepositoryView {
     status: Option<GitStatusResult>,
     graph: GitGraphSnapshot,
     graph_images: Vec<Arc<graph_images::GraphImage>>,
+    graph_key: Option<u64>,
     details: Option<GitCommitDetails>,
     selected: Option<String>,
     selected_item: Option<String>,
@@ -187,6 +188,7 @@ impl RepositoryView {
             status: None,
             graph: Default::default(),
             graph_images: vec![],
+            graph_key: None,
             details: None,
             selected: None,
             selected_item: None,
@@ -297,12 +299,29 @@ impl RepositoryView {
         let preferences = self.preferences.clone();
         let background = self.node_background;
         let previous = self.graph_images.clone();
+        let known = self.graph_key;
         self.task = Some(self.spawn(
             move || {
                 let started = std::time::Instant::now();
                 let missing = std::fs::metadata(&cwd)
                     .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound);
                 let input = inferay_native_diff::prepare_git_graph(&cwd);
+                let key = {
+                    use std::hash::{Hash, Hasher};
+                    let mut hasher = std::hash::DefaultHasher::new();
+                    (
+                        &input.revision,
+                        limit,
+                        preferences.to_string(),
+                        background,
+                        missing,
+                    )
+                        .hash(&mut hasher);
+                    hasher.finish()
+                };
+                if known == Some(key) {
+                    return None;
+                }
                 let status = input
                     .worktrees
                     .iter()
@@ -341,10 +360,15 @@ impl RepositoryView {
                         graph.commits.len()
                     );
                 }
-                (status, graph, images, presentation, missing)
+                Some((status, graph, images, presentation, missing, key))
             },
-            |view, (status, graph, images, presentation, missing), _| {
+            |view, result, _| {
                 view.loading = false;
+                let Some((status, graph, images, presentation, missing, key)) = result else {
+                    return;
+                };
+                view.graph_key =
+                    (!missing && graph.state_error.is_none() && status.is_some()).then_some(key);
                 view.missing = missing;
                 view.error = if missing {
                     Some(format!("Repository folder is missing: {}. Use Locate folder to reconnect it. Existing automation references are preserved; changed locations require execution review.", view.path))

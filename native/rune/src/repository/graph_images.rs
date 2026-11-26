@@ -118,11 +118,15 @@ pub(super) fn images(
     background: u32,
     previous: &[Arc<GraphImage>],
 ) -> Vec<Arc<GraphImage>> {
+    let previous: HashMap<&str, &Arc<GraphImage>> = previous
+        .iter()
+        .map(|image| (image.svg.as_str(), image))
+        .collect();
     (0..graph.commits.len())
         .map(|i| {
             let svg = svg(graph, display, background, i);
-            if let Some(image) = previous.get(i).filter(|image| image.svg == svg) {
-                image.clone()
+            if let Some(image) = previous.get(svg.as_str()) {
+                Arc::clone(image)
             } else {
                 let pixels = rasterize_svg(svg.as_bytes(), 2.).unwrap_or_default();
                 Arc::new(GraphImage { svg, pixels })

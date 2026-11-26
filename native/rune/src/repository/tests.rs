@@ -233,6 +233,38 @@ fn refresh_observes_external_checkout_with_unchanged_file_counts() {
 }
 
 #[test]
+fn unchanged_repositories_keep_their_graph_and_changes_still_refresh_it() {
+    let _serial = serial();
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().canonicalize().unwrap();
+    init_repo(&root, "main");
+    std::fs::write(root.join("file.txt"), "base\n").unwrap();
+    git(&root, &["add", "."]);
+    git(&root, &["commit", "-m", "Initial"]);
+    let view_state = with_avatar(RepositoryView::new(
+        root.to_string_lossy().into_owned(),
+        Value::Null,
+        "vscode-black".into(),
+        0,
+    ));
+    let mut rt = harness(view_state, (800., 600.));
+    let idle = |s: &Workspace| !s.repository_views.values().next().unwrap().loading;
+    run_until(&mut rt, idle);
+    update(&mut rt, |view, _| {
+        view.graph.commits[0].message = "retained".into();
+        view.refresh();
+    });
+    run_until(&mut rt, idle);
+    assert_eq!(repo(&rt).graph.commits[0].message, "retained");
+    std::fs::write(root.join("file.txt"), "changed\n").unwrap();
+    update(&mut rt, |view, _| view.refresh());
+    run_until(&mut rt, idle);
+    let view = repo(&rt);
+    assert_ne!(view.graph.commits[0].message, "retained");
+    assert_eq!(view.status.as_ref().unwrap().files.len(), 1);
+}
+
+#[test]
 fn repository_geometry_uses_global_zoom_and_logical_viewport_width() {
     let _serial = serial();
     let directory = tempfile::tempdir().unwrap();

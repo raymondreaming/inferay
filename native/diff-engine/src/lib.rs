@@ -2051,15 +2051,31 @@ pub fn get_git_commit_details_for_parent(
     hash: &str,
     requested_parent: Option<&str>,
 ) -> Option<GitCommitDetails> {
-    let info = run_git(
-        &[
-            "show",
-            "-s",
-            "--format=%H%x1f%P%x1f%aN%x1f%aE%x1f%aI%x1f%s%x1f%b",
-            hash,
-        ],
-        cwd,
-    )?;
+    let first_parent = format!("{hash}^1");
+    let (info, speculative) = std::thread::scope(|scope| {
+        let deadline = git_exec::current_git_deadline();
+        let first_parent = first_parent.as_str();
+        let files = scope.spawn(move || {
+            git_exec::with_git_deadline_until(deadline, || {
+                requested_parent
+                    .is_none()
+                    .then(|| git_change_files(cwd, Some(first_parent), Some(hash)))
+            })
+        });
+        (
+            run_git(
+                &[
+                    "show",
+                    "-s",
+                    "--format=%H%x1f%P%x1f%aN%x1f%aE%x1f%aI%x1f%s%x1f%b",
+                    hash,
+                ],
+                cwd,
+            ),
+            files.join().expect("Git files worker panicked"),
+        )
+    });
+    let info = info?;
     if info.is_empty() {
         return None;
     }
@@ -2080,7 +2096,10 @@ pub fn get_git_commit_details_for_parent(
     let authored_at = info_parts.next().unwrap_or("").to_string();
     let message = info_parts.next().unwrap_or("").to_string();
     let body = info_parts.next().unwrap_or("").trim().to_string();
-    let files = git_change_files(cwd, diff_parent.as_deref(), Some(hash));
+    let files = match speculative {
+        Some(files) if !parents.is_empty() => files,
+        _ => git_change_files(cwd, diff_parent.as_deref(), Some(hash)),
+    };
     Some(GitCommitDetails {
         file_presentation: Some(GitFilePresentation::from_paths(
             files.iter().map(|file| file.path.clone()).collect(),
@@ -2867,12 +2886,15 @@ pub struct GitGraphInput {
     pub revision: String,
     pub operation: GitRepositoryOperationState,
     refs_by_target: HashMap<String, Vec<GitGraphRef>>,
+    stashes: Vec<GitStash>,
 }
 
 pub fn prepare_git_graph(cwd: &str) -> GitGraphInput {
     let mut worktrees = get_git_worktrees(cwd);
-    let (operation, refs_by_target, statuses) = std::thread::scope(|scope| {
+    let (operation, refs_by_target, stashes, statuses) = std::thread::scope(|scope| {
         let deadline = git_exec::current_git_deadline();
+        let stashes = scope
+            .spawn(move || git_exec::with_git_deadline_until(deadline, || get_git_stashes(cwd)));
         let operation = scope.spawn(move || {
             git_exec::with_git_deadline_until(deadline, || get_git_repository_operation_state(cwd))
         });
@@ -2912,6 +2934,7 @@ pub fn prepare_git_graph(cwd: &str) -> GitGraphInput {
         (
             operation.join().expect("Git operation worker panicked"),
             refs.join().expect("Git refs worker panicked"),
+            stashes.join().expect("Git stash worker panicked"),
             statuses,
         )
     });
@@ -2921,6 +2944,7 @@ pub fn prepare_git_graph(cwd: &str) -> GitGraphInput {
     let mut parts = vec![
         serde_json::to_string(&ordered_refs).unwrap_or_default(),
         format!("{operation:?}"),
+        serde_json::to_string(&stashes).unwrap_or_default(),
     ];
     for (worktree, status) in worktrees.iter_mut().zip(statuses) {
         worktree.change_summary = status.as_ref().map(GitStatusResult::change_summary);
@@ -2932,6 +2956,7 @@ pub fn prepare_git_graph(cwd: &str) -> GitGraphInput {
         revision: stable_revision_token(&parts),
         operation,
         refs_by_target,
+        stashes,
     }
 }
 
@@ -2955,7 +2980,7 @@ pub fn get_git_graph_snapshot_with_query(
         };
     }
     let worktrees = input.worktrees;
-    let stashes = get_git_stashes(cwd);
+    let stashes = input.stashes;
     let requested_history = limit
         .saturating_add(1)
         .saturating_add(stashes.len().saturating_mul(2));
