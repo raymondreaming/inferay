@@ -453,23 +453,14 @@ fn catalog() -> &'static AgentCatalog {
             })
             .collect(),
         },
-        // AFK accepts any model via `--model`; show the same Claude catalog
-        // it uses by default plus its named slots.
         afk: AgentDefinition {
             kind: WorkspaceAgentKind::Afk,
             label: "AFK".into(),
             icon_key: AgentIconKey::Agent,
             commands: vec![],
             native_slash_commands: vec![],
-            models: models(&[
-                ("claude-opus-5-5", "Opus 5.5", "Most capable", Some("Opus")),
-                ("claude-sonnet-4-6", "Sonnet 4.6", "★ Default", Some("Sonnet")),
-                ("claude-haiku-5-5", "Haiku 5.5", "Fastest Claude", Some("Haiku")),
-                ("gpt-6-astra", "GPT-6 Astra", "Complex agentic work", Some("Astra")),
-                ("gpt-6-sol", "GPT-6 Sol", "Everyday coding", Some("Sol")),
-                ("gpt-6-luna", "GPT-6 Luna", "Fast & affordable", Some("Luna")),
-            ]),
-            default_model: "claude-sonnet-4-6".into(),
+            models: vec![],
+            default_model: String::new(),
             reasoning_levels: vec![],
         },
     });
@@ -521,8 +512,6 @@ pub fn resolve(input: &Value) -> ProviderSettings {
     ProviderSettings {
         agent_kind: agent.kind.clone(),
         model: model.into(),
-        // AFK has no reasoning levels; suppress the value so the composer
-        // bar does not show a stale "low" selector.
         reasoning_level: if agent.reasoning_levels.is_empty() {
             String::new()
         } else {

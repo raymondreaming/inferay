@@ -60,7 +60,6 @@ fn auth_config_candidates(home: &Path, kind: AgentKind) -> Vec<PathBuf> {
             home.join(".codex/config.toml"),
             home.join(".config/codex"),
         ],
-        // AFK reads model credentials from its own configuration directory.
         AgentKind::Afk => vec![home.join(".afk/config")],
     }
 }

@@ -83,7 +83,12 @@ pub(super) async fn run_afk(
         .await;
     let mut cmd = provider_command(run.binary);
     cmd.arg("acp");
-    if let Some(model) = run.invocation.model.as_deref() {
+    if let Some(model) = run
+        .invocation
+        .model
+        .as_deref()
+        .filter(|model| !model.is_empty())
+    {
         cmd.args(["--model", model]);
     }
     let cwd = if run.invocation.cwd.as_os_str().is_empty() {
@@ -145,18 +150,13 @@ pub(super) async fn run_afk(
                 )
                 .await
                 .map_err(|error| format!("Could not resume AFK session {id}: {error}"))?;
-            // Use the returned sessionId (AFK may remap on expiry); fall back to the input id.
             resumed["sessionId"]
                 .as_str()
                 .filter(|s| !s.is_empty())
                 .map(str::to_owned)
                 .unwrap_or_else(|| id.clone())
         } else {
-            let mut new_params = json!({"cwd":cwd,"mcpServers":[]});
-            if let Some(instructions) = &run.invocation.developer_instructions {
-                new_params["systemPrompt"] = json!(instructions);
-            }
-            rpc.request("session/new", new_params)
+            rpc.request("session/new", json!({"cwd":cwd,"mcpServers":[]}))
                 .await?["sessionId"]
                 .as_str()
                 .filter(|id| !id.is_empty())
@@ -220,7 +220,6 @@ pub(super) async fn run_afk(
                             }
                         }
                         Some(ProviderControl::Interrupt) => {
-                            // The protocol requires the client to cancel its open permission requests.
                             if rpc.write(json!({"method":"session/cancel","params":{"sessionId":session_id}})).await.is_err()
                                 || cancel_requests(handle, &mut rpc).await.is_err()
                             {
@@ -254,7 +253,6 @@ pub(super) async fn run_afk(
                                 if params["update"]["sessionUpdate"] == "tool_call_update"
                                     && matches!(params["update"]["status"].as_str(), Some("completed" | "failed"))
                                 {
-                                    // AFK resolved this approval itself (timeout or denial); drop its stale card.
                                     let tool = &params["update"]["toolCallId"];
                                     let changed = {
                                         let mut requests = handle.requests.lock().expect("provider requests");
@@ -281,7 +279,8 @@ pub(super) async fn run_afk(
                                 let _ = emissions.send(ProtocolEmission::Requests(handle.pending_requests())).await;
                             }
                             (Some(_), Some(rpc_id)) => {
-                                if rpc.write(json!({"id":rpc_id,"error":{"code":-32601,"message":"Method not found"}})).await.is_err() {
+                                let reply = json!({"id":rpc_id,"error":{"code":-32601,"message":"Method not found"}});
+                                if rpc.write(reply).await.is_err() {
                                     break;
                                 }
                             }

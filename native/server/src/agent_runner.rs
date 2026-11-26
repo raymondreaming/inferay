@@ -1478,8 +1478,6 @@ fn provider_request_reply(
             }
             json!({"decision":decision})
         }
-        // Approve once and decline map onto the options AFK offered; an
-        // "always" grant is deliberately not exposed through this card.
         "session/request_permission" => {
             let kind = match answer.as_str() {
                 Some("accept") => "allow_once",

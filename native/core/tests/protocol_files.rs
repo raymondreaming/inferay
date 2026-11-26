@@ -314,3 +314,58 @@ fn provider_hooks_are_visible_until_completion() {
     }
     assert!(buffer.messages()[0].content.contains("completed"));
 }
+
+#[test]
+fn afk_updates_become_reply_progress_and_one_tool_row_with_its_changed_file_once() {
+    let mut state = inferay_core::agent_protocol::AfkProtocolState::default();
+    let mut context = AgentProtocolContext::new("/repo");
+    context.session_id = Some("s1".into());
+    for update in [
+        json!({"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"Planning"}}),
+        json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Editing "}}),
+        json!({"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"now."}}),
+        json!({"sessionUpdate":"tool_call","toolCallId":"t1","title":"write_file a.rs","status":"pending",
+            "content":[{"type":"diff","path":"/repo/a.rs","oldText":"","newText":"x"}]}),
+        json!({"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed",
+            "content":[{"type":"diff","path":"/repo/a.rs","oldText":"","newText":"x"},
+                {"type":"content","content":{"type":"text","text":"wrote a.rs"}}]}),
+    ] {
+        state.handle_update(&mut context, &update);
+    }
+    state.finalize_open_block(&mut context);
+    let emissions = context.take_emissions();
+    let chats: Vec<_> = emissions
+        .iter()
+        .filter_map(|emission| match emission {
+            ProtocolEmission::Chat(value) => Some(value),
+            _ => None,
+        })
+        .collect();
+    assert!(chats.iter().any(|chat| chat["type"] == "inferay.progress"
+        && chat["id"] == "afk-thought:s1:1"
+        && chat["delta"] == "Planning"));
+    let tools: Vec<_> = chats
+        .iter()
+        .filter(|chat| chat["type"] == "inferay.tool")
+        .collect();
+    assert_eq!(tools.len(), 2);
+    assert!(
+        tools
+            .iter()
+            .all(|tool| tool["id"] == "afk-tool:t1" && tool["name"] == "write_file a.rs")
+    );
+    assert_eq!(
+        (tools[0]["done"].clone(), tools[1]["done"].clone()),
+        (json!(false), json!(true))
+    );
+    assert_eq!(tools[1]["output"], "wrote a.rs");
+    let changes: Vec<_> = emissions
+        .iter()
+        .filter_map(|emission| match emission {
+            ProtocolEmission::FileChange(paths) => Some(paths.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(changes, [vec![PathBuf::from("/repo/a.rs")]]);
+    assert_eq!(state.last_assistant_message(), "Editing now.");
+}

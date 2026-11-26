@@ -159,31 +159,10 @@ impl AgentCommandResolver {
                 }
             }
         }
-        // No hardcoded candidate matched.  Fall back to a shell PATH search so
-        // that installs via volta, fnm, or any other location not in our list
-        // still resolve to an absolute path.  An absolute path is required
-        // because Command::new resolves bare names against the *parent* process
-        // PATH at spawn time — before env_clear()/envs() takes effect — so a
-        // bare "afk" fails with ENOENT when the parent inherits the minimal
-        // launchd PATH (/usr/bin:/bin:/usr/sbin:/sbin) used by .app bundles.
-        // Claude and Codex are native binaries whose candidates always match, so
-        // they never reach this branch; AFK is a Node.js shebang script whose
-        // symlink target may be missing or installed outside the candidate list.
-        if !self.is_windows {
-            if let Ok(output) = std::process::Command::new("which")
-                .arg(kind.as_str())
-                .stdin(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .output()
-            {
-                let path = std::str::from_utf8(&output.stdout)
-                    .unwrap_or("")
-                    .trim()
-                    .to_string();
-                if !path.is_empty() {
-                    return PathBuf::from(path);
-                }
-            }
+        if let Some(found) = std::env::var_os("PATH")
+            .and_then(|path| resolve_local_program(kind.as_str(), &path).ok())
+        {
+            return found;
         }
         PathBuf::from(if self.is_windows {
             format!("{}.cmd", kind.as_str())
@@ -328,75 +307,6 @@ fn mcp_controls_persist_per_provider_and_feed_agent_launches() {
         crate::agent_mcp::overrides(&restored.create_agent_env(AgentKind::Codex)).get("linear"),
         Some(&false)
     );
-}
-
-/// When no hardcoded candidate exists (e.g. the binary is installed via volta,
-/// fnm, or any path not in our list), resolve_agent_binary must still return an
-/// absolute path.  A bare name like "afk" would be resolved by Command::new
-/// against the *parent* process PATH at spawn time — before env_clear()/envs()
-/// rewrites the child environment — so it fails with ENOENT under the minimal
-/// launchd PATH inherited by .app bundles (/usr/bin:/bin:/usr/sbin:/sbin).
-/// Claude/Codex are native binaries whose hardcoded candidates always exist, so
-/// they never hit this branch; AFK is a Node.js shebang script that may be
-/// installed outside the candidate list or have a broken symlink target.
-#[cfg(all(test, unix))]
-#[test]
-fn resolve_agent_binary_falls_back_to_absolute_path_not_bare_name() {
-    use std::os::unix::fs::PermissionsExt;
-
-    // We need to exercise the `which` fallback path without being able to
-    // remove /opt/homebrew/bin/afk from the filesystem.  Strategy: install a
-    // uniquely-named fake binary via a tempdir, then verify that the `which`
-    // branch returns its absolute path.  We call resolve_agent_binary for the
-    // known-absent AgentKind::Afk variant with the name temporarily overridden
-    // — but since we can't rename the kind, we directly test the fallback
-    // mechanism: the `which` subprocess call used in the fallback branch.
-    //
-    // Concretely: verify that `which` (invoked the same way the fallback does)
-    // returns an absolute path.  This is the contract the fix relies on.
-    let root = tempfile::tempdir().unwrap();
-    let fake_bin = root.path().join("bin");
-    std::fs::create_dir_all(&fake_bin).unwrap();
-    // A unique name guaranteed not to exist in any hardcoded candidate list.
-    let fake_name = format!("inferay-afk-test-{}", std::process::id());
-    let fake_binary = fake_bin.join(&fake_name);
-    std::fs::write(&fake_binary, "#!/bin/sh\n").unwrap();
-    std::fs::set_permissions(&fake_binary, std::fs::Permissions::from_mode(0o755)).unwrap();
-
-    // Run `which` exactly as the fallback does, but restricted to only the
-    // fake bin dir so it finds our binary.
-    let original_path = std::env::var_os("PATH").unwrap_or_default();
-    let isolated_path = format!(
-        "{}:{}",
-        fake_bin.display(),
-        original_path.to_string_lossy()
-    );
-    // SAFETY: single-threaded test; no other threads read PATH concurrently.
-    unsafe { std::env::set_var("PATH", &isolated_path) };
-    let output = std::process::Command::new("which")
-        .arg(&fake_name)
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .output();
-    unsafe { std::env::set_var("PATH", original_path) };
-
-    let output = output.expect("`which` must be available on Unix");
-    let found = std::str::from_utf8(&output.stdout)
-        .unwrap_or("")
-        .trim()
-        .to_string();
-    assert!(
-        !found.is_empty(),
-        "`which` must find a binary on a prepended PATH; \
-         the resolve_agent_binary fallback relies on this"
-    );
-    let found_path = PathBuf::from(&found);
-    assert!(
-        found_path.is_absolute(),
-        "the `which` fallback must return an absolute path so Command::new \
-         does not search the parent process PATH at spawn time; got {found:?}"
-    );
-    assert_eq!(found_path, fake_binary);
 }
 
 #[cfg(all(test, target_os = "macos"))]
