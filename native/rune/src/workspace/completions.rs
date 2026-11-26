@@ -189,8 +189,6 @@ impl Workspace {
                 .key(format!("slash-{index}-{selected}"))
                 .role("button")
                 .label(command.name.clone())
-                .focusable(true)
-                .no_focus_ring()
                 .w_full()
                 .px(ui(9.))
                 .py(ui(6.))
@@ -229,6 +227,9 @@ impl Workspace {
         }
         let above = rune::memo::layout_size(&super::composer::composer_key(index))
             .map_or(0., |[_, height]| height);
+        // The menu exists only while the composer is focused, so its rows and
+        // button stay unfocusable: pressing them must not move focus away and
+        // remove the menu before the click lands. Keys reach it through the composer.
         menu_surface()
             .key(format!("slash-menu-{index}"))
             .pin(Some(ui(12.)), None, Some(ui(12.)), Some(above))
@@ -236,6 +237,7 @@ impl Workspace {
             .child(
                 button("Manage skills…")
                     .key(format!("manage-skills-{index}"))
+                    .focusable(false)
                     .preserve_focus_on_press(true)
                     .on_press(move |view: &mut Workspace| {
                         view.conversations[index].completion.menu["show"] = json!(false);
@@ -243,5 +245,65 @@ impl Workspace {
                         view.settings_page("skills");
                     }),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::task::testing::{serial, view_runtime};
+
+    /// A real click: the pointer arrives, presses and releases across frames.
+    fn click(rt: &mut rune::Runtime<Workspace>, key: &str) {
+        let (x, y) = rt.find(key).unwrap_or_else(|| panic!("no element {key}"));
+        rt.pointer_move(x, y);
+        rt.frame(1. / 60.);
+        rt.pointer_down(x, y);
+        rt.frame(1. / 60.);
+        rt.frame(1. / 60.);
+        rt.pointer_up(x, y);
+        rt.frame(1. / 60.);
+        rt.frame(1. / 60.);
+    }
+
+    fn slash_menu() -> rune::Runtime<Workspace> {
+        let mut view = Workspace::empty();
+        let chat = &mut view.conversations[0];
+        chat.input.set_content("/");
+        chat.input.focus();
+        chat.completion.menu = json!({"show":true,"selectedIdx":0,"index":0,"query":""});
+        chat.completion.commands = serde_json::from_value(json!([
+            {"name":"review","description":"Review the code"},
+            {"name":"ship","description":"Production-ready cleanup","isFromLibrary":true}
+        ]))
+        .unwrap();
+        let mut rt = view_runtime(view, (1200., 800.));
+        rt.frame(1. / 60.);
+        rt
+    }
+
+    #[test]
+    fn manage_skills_opens_the_skills_settings() {
+        let _serial = serial();
+        let mut rt = slash_menu();
+        click(&mut rt, "manage-skills-0");
+        assert!(rt.state.settings, "Manage skills opens Settings");
+        let selected = |page: &str| {
+            rt.elements()
+                .into_iter()
+                .any(|e| e.key.as_deref() == Some(page) && e.fill.a > 0.)
+        };
+        assert!(selected("skills"), "on the Skills page");
+        assert!(!selected("agents"));
+        assert_eq!(rt.state.conversations[0].completion.menu["show"], false);
+    }
+
+    #[test]
+    fn clicking_a_skill_inserts_it_into_the_draft() {
+        let _serial = serial();
+        let mut rt = slash_menu();
+        click(&mut rt, "slash-0-1");
+        assert_eq!(rt.state.conversations[0].input.content(), "/ship ");
+        assert!(rt.state.conversations[0].input.is_focused());
     }
 }
