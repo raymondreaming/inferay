@@ -3,6 +3,7 @@
 pub enum AgentKind {
     Claude,
     Codex,
+    Afk,
 }
 
 impl AgentKind {
@@ -10,6 +11,7 @@ impl AgentKind {
         match self {
             Self::Claude => "claude",
             Self::Codex => "codex",
+            Self::Afk => "afk",
         }
     }
 }

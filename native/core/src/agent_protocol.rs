@@ -625,6 +625,158 @@ impl CodexProtocolState {
     }
 }
 
+/// Translates AFK's Agent Client Protocol `session/update` notifications into
+/// the same transcript events as Codex, reusing its block bookkeeping.
+#[derive(Debug, Default)]
+pub struct AfkProtocolState {
+    text: CodexProtocolState,
+    tools: HashMap<String, Value>,
+    changed: HashSet<(String, PathBuf)>,
+    thought: Option<usize>,
+    thoughts: usize,
+    /// A3: set after the first assistant title has been emitted so it fires once.
+    title_emitted: bool,
+}
+
+impl AfkProtocolState {
+    pub fn last_assistant_message(&self) -> &str {
+        &self.text.last_assistant_message
+    }
+
+    pub fn finalize_open_block(&mut self, context: &mut AgentProtocolContext) {
+        self.text.finalize_open_block(context);
+    }
+
+    pub fn handle_update(&mut self, context: &mut AgentProtocolContext, update: &Value) {
+        let kind = string_field(update, "sessionUpdate");
+        if kind != "agent_thought_chunk" {
+            self.thought = None;
+        }
+        let text = update.pointer("/content/text").and_then(Value::as_str);
+        match kind {
+            "agent_message_chunk" => {
+                // A3: derive a session title from the first ~60 chars of the
+                // first assistant message chunk, emitted exactly once.
+                if !self.title_emitted {
+                    if let Some(chunk) = text.filter(|s| !s.is_empty()) {
+                        let raw = self.text.last_assistant_message.clone() + chunk;
+                        let candidate = raw.trim();
+                        if !candidate.is_empty() {
+                            let title: String = candidate
+                                .find('\n')
+                                .map(|i| &candidate[..i])
+                                .unwrap_or(candidate)
+                                .chars()
+                                .take(60)
+                                .collect();
+                            if !title.is_empty() {
+                                self.title_emitted = true;
+                                context
+                                    .emissions
+                                    .push(ProtocolEmission::Title(title));
+                            }
+                        }
+                    }
+                }
+                self.text.assistant_delta(context, text.unwrap_or_default());
+                self.text.emit_status(context, "responding", true);
+            }
+            "agent_thought_chunk" if text.is_some_and(|text| !text.is_empty()) => {
+                let index = *self.thought.get_or_insert_with(|| {
+                    self.thoughts += 1;
+                    self.thoughts
+                });
+                context.emissions.push(ProtocolEmission::Chat(json!({
+                    "type":"inferay.progress", "id":format!("afk-thought:{}:{index}", context.session_id.as_deref().unwrap_or_default()), "delta":text
+                })));
+            }
+            // A1: wire usage_update to inferay.usage
+            "usage_update" => {
+                let used = update["used"].as_u64().unwrap_or(0);
+                let size = update["size"].as_u64().unwrap_or(0);
+                let cost = &update["cost"];
+                context.emissions.push(ProtocolEmission::Chat(json!({
+                    "type": "inferay.usage",
+                    "provider": "afk",
+                    "usage": { "contextTokens": used, "contextLimit": size },
+                    "cost": cost
+                })));
+            }
+            "tool_call" | "tool_call_update" => self.tool_update(context, update),
+            _ => {}
+        }
+    }
+
+    fn tool_update(&mut self, context: &mut AgentProtocolContext, update: &Value) {
+        let id = string_field(update, "toolCallId");
+        if id.is_empty() {
+            return;
+        }
+        let announced = self.tools.contains_key(id);
+        let tool = self.tools.entry(id.to_owned()).or_insert_with(|| json!({}));
+        for (key, value) in update.as_object().into_iter().flatten() {
+            tool[key] = value.clone();
+        }
+        let tool = tool.clone();
+        // A2: prefer the richer `title` field (e.g. "skill review \"Find callers\"")
+        // over the bare `name` field (e.g. "skill"), falling back gracefully.
+        let name = first_string(&tool, &["title", "name"]);
+        let event = |done: bool, output: Value| {
+            ProtocolEmission::Chat(json!({
+                "type":"inferay.tool", "id":format!("afk-tool:{id}"), "name":name,
+                "input":tool.get("rawInput").cloned().unwrap_or_else(|| json!({"title":tool["title"]})),
+                "output":output, "done":done
+            }))
+        };
+        if !announced {
+            close_block(context, &mut self.text.assistant_open);
+            self.text
+                .emit_status(context, &format!("tool:{name}"), true);
+            context.emissions.push(event(false, Value::Null));
+            // A4: plan mode — `exit_plan_mode` / `switch_mode` signals the agent
+            // is committing a plan; surface it via the same progress renderer
+            // Codex uses for turn plans.
+            let raw_name = string_field(&tool, "name");
+            if raw_name == "switch_mode" || raw_name == "exit_plan_mode" {
+                context.emissions.push(ProtocolEmission::Chat(json!({
+                    "type": "inferay.progress",
+                    "id": "afk-mode",
+                    "text": "Mode: plan"
+                })));
+            }
+        }
+        // ACP diffs are render-only hunks; the checkpointed file on disk is the
+        // source for Inferay's inline diff, as for Codex file changes.
+        let paths: Vec<PathBuf> = update["content"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|item| item["type"] == "diff")
+            .filter_map(|diff| diff["path"].as_str().filter(|path| !path.is_empty()))
+            .map(PathBuf::from)
+            .filter(|path| self.changed.insert((id.to_owned(), path.clone())))
+            .collect();
+        if !paths.is_empty() {
+            context.emissions.push(ProtocolEmission::FileChange(paths));
+        }
+        if matches!(update["status"].as_str(), Some("completed" | "failed")) {
+            let output = tool["content"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|item| item.pointer("/content/text").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let output = if output.is_empty() {
+                tool["rawOutput"].clone()
+            } else {
+                json!(output)
+            };
+            context.emissions.push(event(true, output));
+        }
+    }
+}
+
 fn string_field<'a>(record: &'a Value, key: &str) -> &'a str {
     record.get(key).and_then(Value::as_str).unwrap_or("")
 }

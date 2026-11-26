@@ -922,10 +922,10 @@ async fn default_chat_kind(state: &ServerState) -> &'static str {
         .and_then(Value::as_str)
         .and_then(|value| serde_json::from_str::<Value>(value).ok())
         .unwrap_or(Value::Null);
-    if defaults["agentKind"] == "claude" {
-        "claude"
-    } else {
-        "codex"
+    match defaults["agentKind"].as_str() {
+        Some("claude") => "claude",
+        Some("afk") => "afk",
+        _ => "codex",
     }
 }
 

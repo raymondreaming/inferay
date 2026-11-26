@@ -81,6 +81,7 @@ impl Workspace {
         let definition = match chat.config.agent_kind {
             inferay_core::provider_config::WorkspaceAgentKind::Claude => catalog.agents.claude,
             inferay_core::provider_config::WorkspaceAgentKind::Agent => catalog.agents.agent,
+            inferay_core::provider_config::WorkspaceAgentKind::Afk => catalog.agents.afk,
             _ => catalog.agents.codex,
         };
         let model = definition
@@ -275,7 +276,10 @@ impl Workspace {
             ("provider", provider),
             ("model", model),
             ("reasoning", reasoning),
-        ] {
+        ]
+        .into_iter()
+        .filter(|(_, v)| !v.is_empty())
+        {
             let mut option = button("")
                 .key(format!("{name}-{index}"))
                 .label(format!("{name}: {value}"))
@@ -556,12 +560,14 @@ impl Workspace {
         let definition = match config.agent_kind.as_str() {
             "claude" => catalog.agents.claude,
             "agent" => catalog.agents.agent,
+            "afk" => catalog.agents.afk,
             _ => catalog.agents.codex,
         };
         let options: Vec<(String, String)> = match name {
             "provider" => vec![
                 ("codex".into(), "Codex".into()),
                 ("claude".into(), "Claude".into()),
+                ("afk".into(), "AFK".into()),
             ],
             "model" => definition
                 .models

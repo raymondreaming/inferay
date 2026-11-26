@@ -8,6 +8,7 @@ pub enum WorkspaceAgentKind {
     Agent,
     Claude,
     Codex,
+    Afk,
 }
 
 impl WorkspaceAgentKind {
@@ -16,6 +17,7 @@ impl WorkspaceAgentKind {
             Self::Agent => "agent",
             Self::Claude => "claude",
             Self::Codex => "codex",
+            Self::Afk => "afk",
         }
     }
 }
@@ -83,6 +85,7 @@ pub struct AgentCatalog {
     pub agent: AgentDefinition,
     pub claude: AgentDefinition,
     pub codex: AgentDefinition,
+    pub afk: AgentDefinition,
 }
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
@@ -154,37 +157,41 @@ pub fn settings_view(input: &Value) -> ProviderSettingsView {
             }
         )
     };
-    let providers = [WorkspaceAgentKind::Claude, WorkspaceAgentKind::Codex]
-        .into_iter()
-        .map(|provider| {
-            let name = provider.as_str();
-            let definition = agent_definition(name).unwrap();
-            let label = &definition.label;
-            let status = status(name);
-            let health = status.and_then(|status| status["health"].as_str());
-            let detail = if loading && status.is_none() {
-                "Checking…"
-            } else {
-                match health {
-                    Some("ready") => "Connected",
-                    Some("needs-login") => "Login needed",
-                    _ => "Not installed",
-                }
-            };
-            ProviderSettingsChoice {
-                selected: name == kind,
-                disabled: if status.is_some() {
-                    health != Some("ready")
-                } else {
-                    loading
-                },
-                model: definition.default_model.clone(),
-                label: label.clone(),
-                title: format!("{label} · {detail}"),
-                kind: provider,
+    let providers = [
+        WorkspaceAgentKind::Claude,
+        WorkspaceAgentKind::Codex,
+        WorkspaceAgentKind::Afk,
+    ]
+    .into_iter()
+    .map(|provider| {
+        let name = provider.as_str();
+        let definition = agent_definition(name).unwrap();
+        let label = &definition.label;
+        let status = status(name);
+        let health = status.and_then(|status| status["health"].as_str());
+        let detail = if loading && status.is_none() {
+            "Checking…"
+        } else {
+            match health {
+                Some("ready") => "Connected",
+                Some("needs-login") => "Login needed",
+                _ => "Not installed",
             }
-        })
-        .collect();
+        };
+        ProviderSettingsChoice {
+            selected: name == kind,
+            disabled: if status.is_some() {
+                health != Some("ready")
+            } else {
+                loading
+            },
+            model: definition.default_model.clone(),
+            label: label.clone(),
+            title: format!("{label} · {detail}"),
+            kind: provider,
+        }
+    })
+    .collect();
     let mut fields = vec![ProviderSettingsField {
         key: ProviderSettingsFieldKey::Model,
         label: "Model".into(),
@@ -232,7 +239,12 @@ pub struct ProviderCatalog {
 /// Shared serializer for the native endpoint and the build's prerender snapshot.
 pub fn renderer_catalog(defaults: &Value, skills: &[crate::prompts::Prompt]) -> ProviderCatalog {
     let mut agents = catalog().clone();
-    for definition in [&mut agents.agent, &mut agents.claude, &mut agents.codex] {
+    for definition in [
+        &mut agents.agent,
+        &mut agents.claude,
+        &mut agents.codex,
+        &mut agents.afk,
+    ] {
         definition.commands = composer_commands(definition.kind.as_str(), skills);
     }
     ProviderCatalog {
@@ -441,6 +453,25 @@ fn catalog() -> &'static AgentCatalog {
             })
             .collect(),
         },
+        // AFK accepts any model via `--model`; show the same Claude catalog
+        // it uses by default plus its named slots.
+        afk: AgentDefinition {
+            kind: WorkspaceAgentKind::Afk,
+            label: "AFK".into(),
+            icon_key: AgentIconKey::Agent,
+            commands: vec![],
+            native_slash_commands: vec![],
+            models: models(&[
+                ("claude-opus-5-5", "Opus 5.5", "Most capable", Some("Opus")),
+                ("claude-sonnet-4-6", "Sonnet 4.6", "★ Default", Some("Sonnet")),
+                ("claude-haiku-5-5", "Haiku 5.5", "Fastest Claude", Some("Haiku")),
+                ("gpt-6-astra", "GPT-6 Astra", "Complex agentic work", Some("Astra")),
+                ("gpt-6-sol", "GPT-6 Sol", "Everyday coding", Some("Sol")),
+                ("gpt-6-luna", "GPT-6 Luna", "Fast & affordable", Some("Luna")),
+            ]),
+            default_model: "claude-sonnet-4-6".into(),
+            reasoning_levels: vec![],
+        },
     });
     &CATALOG
 }
@@ -451,6 +482,7 @@ fn agent_definition(kind: &str) -> Option<&'static AgentDefinition> {
         "agent" => Some(&agents.agent),
         "claude" => Some(&agents.claude),
         "codex" => Some(&agents.codex),
+        "afk" => Some(&agents.afk),
         _ => None,
     }
 }
@@ -459,7 +491,7 @@ pub fn resolve(input: &Value) -> ProviderSettings {
     let defaults = &input["defaults"];
     let default_kind = defaults["agentKind"]
         .as_str()
-        .filter(|kind| matches!(*kind, "claude" | "codex"))
+        .filter(|kind| matches!(*kind, "claude" | "codex" | "afk"))
         .unwrap_or("codex");
     let agent = input["agentKind"]
         .as_str()
@@ -489,7 +521,13 @@ pub fn resolve(input: &Value) -> ProviderSettings {
     ProviderSettings {
         agent_kind: agent.kind.clone(),
         model: model.into(),
-        reasoning_level: reasoning.into(),
+        // AFK has no reasoning levels; suppress the value so the composer
+        // bar does not show a stale "low" selector.
+        reasoning_level: if agent.reasoning_levels.is_empty() {
+            String::new()
+        } else {
+            reasoning.into()
+        },
     }
 }
 

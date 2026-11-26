@@ -41,7 +41,7 @@ pub struct Group {
 pub struct Pane {
     pub id: String,
     title: String,
-    #[ts(type = "'agent' | 'claude' | 'codex'")]
+    #[ts(type = "'agent' | 'claude' | 'codex' | 'afk'")]
     pub agent_kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
@@ -71,7 +71,7 @@ pub fn repository_path(path: &str) -> &str {
 }
 
 fn kind(value: &str) -> Result<&str, String> {
-    if matches!(value, "claude" | "codex" | "agent") {
+    if matches!(value, "claude" | "codex" | "afk" | "agent") {
         Ok(value)
     } else {
         Err("Unknown agentKind".into())
