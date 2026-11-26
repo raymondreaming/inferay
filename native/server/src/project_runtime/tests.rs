@@ -3367,3 +3367,54 @@ for _ in sys.stdin:
         1
     );
 }
+
+#[tokio::test]
+#[cfg(unix)]
+async fn chats_the_user_starts_never_wait_for_automation_capacity() {
+    let profile = tempfile::tempdir().unwrap();
+    let (project, _) = chat_fixture(profile.path());
+    let binary = profile.path().join(".local/bin/claude");
+    let script = std::fs::read_to_string(&binary).unwrap().replace(
+        "assert 'Captured skill instructions' in str(args), args",
+        "# ordinary chat fixture",
+    );
+    std::fs::write(binary, script).unwrap();
+    let runtime = runtime(profile.path());
+    let chat = chats(&runtime, profile.path());
+    let cwd = profile.path().join("projects").join(project);
+    std::fs::write(cwd.join("block"), "").unwrap();
+    let mut running = Vec::new();
+    for i in 0..6 {
+        let owner = chat.clone();
+        let input = crate::chat_runtime::SendMessageInput {
+            pane_id: format!("pane-{i}"),
+            agent_kind: "claude".into(),
+            text: format!("Task {i}"),
+            cwd: cwd.clone(),
+            cwd_provided: true,
+            ..Default::default()
+        };
+        running.push(tokio::spawn(async move { owner.send_message(input).await }));
+    }
+    let invocations = || {
+        std::fs::read_to_string(cwd.join("invocations.jsonl"))
+            .unwrap_or_default()
+            .lines()
+            .count()
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while invocations() < 6 {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("every chat starts its provider while four others are busy");
+    assert_eq!(runtime.capacity.available_permits(), 4);
+    std::fs::remove_file(cwd.join("block")).unwrap();
+    for task in running {
+        tokio::time::timeout(std::time::Duration::from_secs(20), task)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+}

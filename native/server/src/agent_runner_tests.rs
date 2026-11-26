@@ -1094,3 +1094,29 @@ async fn goal_continuation_accepts_steering_and_stop_on_the_new_turn() {
     assert!(requests.contains("turn/steer"));
     assert!(requests.contains("turn/interrupt"));
 }
+
+#[tokio::test]
+#[cfg(unix)]
+async fn a_stop_before_the_provider_starts_ends_it_as_soon_as_it_spawns() {
+    let root = tempfile::tempdir().unwrap();
+    let handle = AgentProcessHandle::with_skills(Arc::new(tokio::sync::Mutex::new(
+        PromptStore::open(
+            root.path().join("bundled.json"),
+            root.path().join("local.json"),
+        )
+        .unwrap(),
+    )));
+    // Stop lands while the turn is still preparing: there is no process to signal.
+    handle.stop_claude();
+    let mut child = tokio::process::Command::new("sleep")
+        .arg("30")
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    handle.set_pid(child.id());
+    let exited = tokio::time::timeout(std::time::Duration::from_secs(5), child.wait()).await;
+    assert!(
+        exited.is_ok(),
+        "a provider started after Stop must not keep running"
+    );
+}

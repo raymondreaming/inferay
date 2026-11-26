@@ -1300,18 +1300,24 @@ impl ChatRuntime {
         checkpoint_id: Option<&str>,
         turn_instructions: Option<&str>,
     ) -> String {
-        let admission = self.projects.capacity.clone().acquire_owned();
-        tokio::pin!(admission);
-        let _permit = loop {
-            tokio::select! {
-                permit = &mut admission => match permit {
-                    Ok(permit) => break permit,
-                    Err(_) => return String::new(),
-                },
-                _ = tokio::time::sleep(Duration::from_millis(100)) => {
-                    if session.lock().await.cancelled { return String::new(); }
+        // Automation runs share the bounded project capacity. Chats the user
+        // starts run at once; waiting for a slot left them silently stalled.
+        let _permit = if session.lock().await.automation.is_some() {
+            let admission = self.projects.capacity.clone().acquire_owned();
+            tokio::pin!(admission);
+            Some(loop {
+                tokio::select! {
+                    permit = &mut admission => match permit {
+                        Ok(permit) => break permit,
+                        Err(_) => return String::new(),
+                    },
+                    _ = tokio::time::sleep(Duration::from_millis(100)) => {
+                        if session.lock().await.cancelled { return String::new(); }
+                    }
                 }
-            }
+            })
+        } else {
+            None
         };
         let (agent_kind, invocation, handle, mut diagnostics, pane_id) = {
             let mut state = session.lock().await;

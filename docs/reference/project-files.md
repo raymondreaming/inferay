@@ -364,7 +364,7 @@ Kept in `projects.sqlite3`, not copied with a folder:
 - which folder each repository ID means on this Mac
 - runs, run events, artifacts and conversation associations
 
-Run states: `queued`, `running`, `succeeded`, `failed`, `waiting_input`, `cancelled`, `interrupted`, `skipped`. A restart marks unfinished runs `interrupted` (or `cancelled` if a stop was requested), never `succeeded`. Up to 4 chat and background operations run at once, at most 2 of them background runs.
+Run states: `queued`, `running`, `succeeded`, `failed`, `waiting_input`, `cancelled`, `interrupted`, `skipped`. A restart marks unfinished runs `interrupted` (or `cancelled` if a stop was requested), never `succeeded`. Up to 4 automation runs (agent chats and background operations) run at once, at most 2 of them background runs. Chats you start yourself never wait for this capacity.
 
 ## Extension status
 

@@ -445,6 +445,13 @@ impl AgentProcessHandle {
 
     fn set_pid(&self, pid: Option<u32>) {
         self.pid.store(pid.unwrap_or(0), Ordering::Release);
+        // A stop that arrived while the process was starting had nothing to
+        // signal; without this the provider ran the whole turn unseen.
+        if let Some(pid) = pid
+            && self.is_cancelled()
+        {
+            tree_kill(pid);
+        }
     }
 
     pub(crate) fn set_control(&self, sender: mpsc::UnboundedSender<ProviderControl>) {
