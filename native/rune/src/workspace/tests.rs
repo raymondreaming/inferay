@@ -339,7 +339,23 @@ fn project_tabs_show_change_totals_and_glow_while_running() {
         "totals show with the sidebar open too"
     );
     assert!(rt.find("project-beam-0").is_none());
-    rt.update(|s, _| s.repository_stats.clear());
+    rt.update(|s, _| s.close_repository("/repos/app".into()));
+    rt.frame(1. / 60.);
+    assert_eq!(
+        texts(&rt),
+        ["+5", "−0"],
+        "closed repositories leave the total"
+    );
+    rt.update(|s, _| s.close_repository("/repos/site".into()));
+    rt.frame(1. / 60.);
+    assert!(
+        texts(&rt).is_empty(),
+        "no numbers once every changed repository is closed"
+    );
+    rt.update(|s, _| {
+        s.reopen_repositories();
+        s.repository_stats.clear();
+    });
     rt.frame(1. / 60.);
     assert!(texts(&rt).is_empty(), "no numbers when nothing changed");
 }

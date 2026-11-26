@@ -205,11 +205,11 @@ impl Workspace {
             tab = tab
                 .child(icon(&icons::FOLDER))
                 .child(Ink::small().weight(MEDIUM).line_text(name.clone()));
-            // Each tab carries its repositories' total changes; none when unchanged.
             {
                 let (additions, deletions) = project
                     .repositories
                     .iter()
+                    .filter(|(_, path)| self.repository_open_in(i, path))
                     .filter_map(|(_, path)| self.repository_stats.get(path))
                     .fold((0, 0), |(a, d), stats| {
                         (a + stats.additions, d + stats.deletions)

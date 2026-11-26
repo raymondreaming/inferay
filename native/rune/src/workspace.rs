@@ -503,16 +503,23 @@ impl Workspace {
                 tokio::time::sleep(std::time::Duration::from_secs(60)).await;
             }
         }));
-        // Every open project tab shows its totals, not only the current one.
-        let mut paths = self
+        let workspace = &*self;
+        let mut paths = workspace
             .projects
             .iter()
-            .filter(|project| {
-                !self
+            .enumerate()
+            .filter(|(_, project)| {
+                !workspace
                     .closed_projects
                     .contains(project.id.as_deref().unwrap_or(""))
             })
-            .flat_map(|project| project.repositories.iter().map(|(_, path)| path.clone()))
+            .flat_map(|(index, project)| {
+                project
+                    .repositories
+                    .iter()
+                    .filter(move |(_, path)| workspace.repository_open_in(index, path))
+                    .map(|(_, path)| path.clone())
+            })
             .collect::<Vec<_>>();
         paths.sort();
         paths.dedup();
@@ -553,9 +560,13 @@ impl Workspace {
     }
 
     pub(crate) fn repository_is_open(&self, path: &str) -> bool {
+        self.repository_open_in(self.project, path)
+    }
+
+    pub(crate) fn repository_open_in(&self, project: usize, path: &str) -> bool {
         !self
             .closed_repositories
-            .get(self.projects[self.project].id.as_deref().unwrap_or(""))
+            .get(self.projects[project].id.as_deref().unwrap_or(""))
             .is_some_and(|paths| paths.contains(path))
     }
 
