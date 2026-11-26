@@ -186,7 +186,14 @@ impl Workspace {
             format!("composer-input-{index}"),
             move |s: &mut Workspace| &mut s.conversations[index].input,
         )
-        .on_input_key(move |s: &mut Workspace, event, tx| s.completion_key(index, event, tx))
+        .on_input_key(move |s: &mut Workspace, event, tx| {
+            // → from an empty composer moves to the graph; with text it moves the caret.
+            let to_graph = matches!(event.key, rune::Key::Right)
+                && event.mods == rune::Mods::default()
+                && s.conversations[index].input.content().is_empty()
+                && s.conversations[index].images.is_empty();
+            (to_graph && s.show_graph(tx)) || s.completion_key(index, event, tx)
+        })
         .on_input_change(move |s: &mut Workspace, _| s.draft_changed(index));
         field = if chat.input.submit_on_enter {
             field.on_submit(move |s: &mut Workspace, tx| s.send_chat(index, false, tx))

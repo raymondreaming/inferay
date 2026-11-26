@@ -552,6 +552,10 @@ impl Workspace {
                     )
                     .on_press_tx(move |s: &mut Workspace, tx| {
                         s.project_pages.page = None;
+                        // A full-screen graph hides the chats; choosing one returns to them.
+                        if s.repository_expanded {
+                            s.repository = false;
+                        }
                         s.selected = i;
                         s.projects[s.project].selected = i;
                         s.persist_workspace_preferences(None);

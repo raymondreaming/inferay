@@ -824,8 +824,42 @@ impl Workspace {
         view.backend = backend;
         view.has_closed_repositories = repositories.len() < total;
         view.repositories = repositories;
-        self.repository_expanded = view.expanded;
+        view.expanded = self.repository_expanded;
         self.repository_view = Some(path);
+    }
+
+    /// Opens the selected repository's graph, keeping the current full-screen
+    /// choice, and hands the arrow keys to it.
+    pub(crate) fn show_graph(&mut self, tx: &mut Tx) -> bool {
+        let project = &self.projects[self.project];
+        let Some(path) = self
+            .repository_view
+            .clone()
+            .filter(|path| project.repositories.iter().any(|(_, p)| p == path))
+            .or_else(|| project.selected_repository.clone())
+            .or_else(|| project.repositories.first().map(|(_, p)| p.clone()))
+        else {
+            return false;
+        };
+        self.project_pages.page = None;
+        self.repository = true;
+        self.open_repository(path);
+        for chat in &mut self.conversations {
+            chat.input.edit.focused = false;
+        }
+        if let Some(view) = self.current_repository_mut() {
+            view.focus_graph();
+        }
+        tx.focus("repository", false);
+        true
+    }
+
+    /// Closes the graph and returns the keyboard to the selected chat.
+    pub(crate) fn close_graph(&mut self) {
+        self.repository = false;
+        if let Some(chat) = self.conversations.get_mut(self.selected) {
+            chat.input.focus();
+        }
     }
 
     pub(crate) fn repository_event(
@@ -841,7 +875,12 @@ impl Workspace {
                     .insert(path.to_owned(), preferences);
                 self.persist_workspace_preferences(None);
             }
-            RepositoryEvent::Expand => self.repository_expanded = !self.repository_expanded,
+            RepositoryEvent::Expand => {
+                self.repository_expanded = !self.repository_expanded;
+                if let Some(view) = self.repository_views.get_mut(path) {
+                    view.expanded = self.repository_expanded;
+                }
+            }
             RepositoryEvent::Select(path) => self.open_repository(path),
             RepositoryEvent::Add => self.edit_repository(None, tx),
             RepositoryEvent::Relink(path) => self.edit_repository_location(Some(path), true, tx),

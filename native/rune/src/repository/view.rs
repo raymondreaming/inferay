@@ -138,10 +138,7 @@ impl RepositoryView {
                     14.,
                 ))
                 .on_press_tx(move |s: &mut Workspace, tx| {
-                    if let Some(view) = s.repository_views.get_mut(&path) {
-                        view.expanded = !view.expanded;
-                        s.repository_event(&path, RepositoryEvent::Expand, tx);
-                    }
+                    s.repository_event(&path, RepositoryEvent::Expand, tx)
                 })
         })
     }
@@ -310,10 +307,11 @@ impl RepositoryView {
         )
         .on_key(
             move |s: &mut Workspace, event: &rune::KeyEvent, tx: &mut Tx| {
-                s.repository_views.get_mut(&path).is_some_and(|view| {
-                    view.keyboard_active = true;
-                    view.navigate(event, tx)
-                })
+                let Some(view) = s.repository_views.get_mut(&path) else {
+                    return false;
+                };
+                view.keyboard_active = true;
+                super::keyboard::handle_key(s, &path, event, tx)
             },
         )
         .on_layout(layout_watch(&self.path))

@@ -24,6 +24,14 @@ fn key_name(event: &KeyEvent) -> Option<String> {
 }
 
 impl RepositoryView {
+    /// Shows the graph with the arrow keys on it.
+    pub(crate) fn focus_graph(&mut self) {
+        self.show_diff = false;
+        self.history = true;
+        self.keyboard_scope = "graph";
+        self.keyboard_active = true;
+    }
+
     pub(super) fn navigate_file(&mut self, direction: i32, tx: &mut Tx) {
         let files = self.file_entries();
         let current = files.iter().position(|file| {
@@ -50,7 +58,9 @@ impl RepositoryView {
             .any(|draft| draft.input.is_focused())
     }
 
-    pub(super) fn navigate(&mut self, event: &KeyEvent, tx: &mut Tx) -> bool {
+    /// Returns `None` when the key is not the repository's, otherwise whether
+    /// the graph should close back to the chats.
+    pub(super) fn navigate(&mut self, event: &KeyEvent, tx: &mut Tx) -> Option<bool> {
         if matches!(event.key, Key::Escape)
             && (self.branch_menu.is_some()
                 || self.git_menu.is_some()
@@ -59,14 +69,12 @@ impl RepositoryView {
         {
             self.close_menus();
             tx.focus("repository", false);
-            return true;
+            return Some(false);
         }
         if self.git_prompt.is_some() || self.commit_drafts_focused() {
-            return false;
+            return None;
         }
-        let Some(key) = key_name(event) else {
-            return false;
-        };
+        let key = key_name(event)?;
         let modifiers = event.mods;
         let mut input = json!({"key":key,"meta":modifiers.logo,"ctrl":modifiers.ctrl,"alt":modifiers.alt,"shift":modifiers.shift,"repeat":tx.key_repeat(),
             "graphFocused":self.keyboard_scope == "graph", "sidebarFocused":self.keyboard_scope == "sidebar",
@@ -80,11 +88,7 @@ impl RepositoryView {
                 self.keyboard_scope = "graph";
                 self.open_after_selection = false;
             }
-            Some("closeGraph") => {
-                self.history = false;
-                self.changes = true;
-                self.keyboard_scope = "sidebar";
-            }
+            Some("closeGraph") => return Some(true),
             Some("toggle") => {
                 if let Some(path) = self.file.clone() {
                     self.stage(Some(path), self.selected_staged);
@@ -113,7 +117,7 @@ impl RepositoryView {
                 let next =
                     serde_json::to_value(inferay_presentation::graph::navigation(&input)).unwrap();
                 if next["handled"] != true {
-                    return false;
+                    return None;
                 }
                 if let Some(id) = next["selectItem"].as_str()
                     && let Some(index) =
@@ -135,17 +139,24 @@ impl RepositoryView {
             Some("stepDiffChange") => {
                 self.step_diff_change(action["direction"].as_i64().unwrap() as i32, tx)
             }
-            _ => return false,
+            _ => return None,
         }
         self.keyboard_active = true;
         tx.focus("repository", false);
-        true
+        Some(false)
     }
 }
 
 pub fn on_key(s: &mut Workspace, event: &KeyEvent, tx: &mut Tx) -> bool {
-    if !s.repository || s.settings || s.project_pages.page.is_some() {
+    if s.settings || s.project_pages.page.is_some() {
         return false;
+    }
+    if !s.repository {
+        // → with nothing focused opens the graph; the composer handles its own.
+        return matches!(event.key, Key::Right)
+            && event.mods == rune::Mods::default()
+            && tx.focused().is_none()
+            && s.show_graph(tx);
     }
     let Some(path) = s.repository_view.clone() else {
         return false;
@@ -160,5 +171,22 @@ pub fn on_key(s: &mut Workspace, event: &KeyEvent, tx: &mut Tx) -> bool {
     if !view.keyboard_active {
         return false;
     }
-    view.navigate(event, tx)
+    handle_key(s, &path, event, tx)
+}
+
+/// The focused panel and window-level keys share one path: ← on the graph
+/// closes it back to the chats.
+pub(super) fn handle_key(s: &mut Workspace, path: &str, event: &KeyEvent, tx: &mut Tx) -> bool {
+    let Some(view) = s.repository_views.get_mut(path) else {
+        return false;
+    };
+    match view.navigate(event, tx) {
+        None => false,
+        Some(close) => {
+            if close {
+                s.close_graph();
+            }
+            true
+        }
+    }
 }

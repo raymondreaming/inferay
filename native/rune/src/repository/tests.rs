@@ -587,3 +587,116 @@ fn keyboard_scrolling_under_a_resting_pointer_lights_only_the_selection() {
     frames(&mut rt, 3);
     assert_eq!(lit(&rt).len(), 2);
 }
+
+fn current(s: &Workspace) -> &RepositoryView {
+    &s.repository_views[s.repository_view.as_ref().unwrap()]
+}
+
+/// A project with two committed repositories and one focused chat, as the full window.
+fn repository_workspace(root: &std::path::Path) -> (rune::Runtime<Workspace>, String, String) {
+    let mut paths = Vec::new();
+    for name in ["first", "second"] {
+        let path = root.join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        init_repo(&path, "main");
+        for i in 0..3 {
+            std::fs::write(path.join("file.txt"), format!("{i}\n")).unwrap();
+            git(&path, &["add", "."]);
+            git(&path, &["commit", "-m", &format!("Commit {i}")]);
+        }
+        paths.push(path.to_string_lossy().into_owned());
+    }
+    let mut state = Workspace::empty();
+    state.projects[0].repositories = vec![
+        ("first".into(), paths[0].clone()),
+        ("second".into(), paths[1].clone()),
+    ];
+    state.conversations[0].input.focus();
+    let mut rt = crate::task::testing::view_runtime(state, (1400., 800.));
+    rt.on_key = Some(crate::on_key);
+    frames(&mut rt, 2);
+    (rt, paths[0].clone(), paths[1].clone())
+}
+
+fn wait_for_graph(rt: &mut rune::Runtime<Workspace>) {
+    run_until(rt, |s| {
+        s.repository_view
+            .as_ref()
+            .and_then(|path| s.repository_views.get(path))
+            .is_some_and(|view| !view.loading && !view.graph.commits.is_empty())
+    });
+    frames(rt, 3);
+}
+
+#[test]
+fn arrow_keys_move_from_chat_into_the_graph_and_back_in_its_current_mode() {
+    let _serial = serial();
+    let directory = tempfile::tempdir().unwrap();
+    let (mut rt, first, _) = repository_workspace(directory.path());
+    rt.state.repository_expanded = true;
+    let arrow = |rt: &mut rune::Runtime<Workspace>, key: Key| press(rt, key, Mods::default());
+    // → with text in the composer moves the caret, not the view.
+    rt.state.conversations[0].input.set_content("draft");
+    arrow(&mut rt, Key::Right);
+    assert!(!rt.state.repository);
+    rt.state.conversations[0].input.clear();
+    arrow(&mut rt, Key::Right);
+    assert!(rt.state.repository);
+    assert!(
+        rt.state.repository_expanded,
+        "the graph keeps its full-screen mode"
+    );
+    assert_eq!(rt.state.repository_view.as_deref(), Some(first.as_str()));
+    assert!(current(&rt.state).expanded);
+    assert!(!rt.state.conversations[0].input.is_focused());
+    wait_for_graph(&mut rt);
+    arrow(&mut rt, Key::Down);
+    assert!(
+        current(&rt.state).selected_item.is_some(),
+        "↓ moves through the graph"
+    );
+    arrow(&mut rt, Key::Right);
+    assert_eq!(current(&rt.state).keyboard_scope, "sidebar");
+    arrow(&mut rt, Key::Left);
+    assert_eq!(current(&rt.state).keyboard_scope, "graph");
+    assert!(rt.state.repository);
+    arrow(&mut rt, Key::Left);
+    assert!(!rt.state.repository, "← on the graph returns to the chats");
+    assert!(rt.state.repository_expanded);
+    assert!(rt.state.conversations[0].input.is_focused());
+    assert!(rect(&rt, "sidebar-chat-0").is_some());
+}
+
+#[test]
+fn full_screen_follows_every_repository_and_choosing_a_chat_returns_to_it() {
+    let _serial = serial();
+    let directory = tempfile::tempdir().unwrap();
+    let (mut rt, first, second) = repository_workspace(directory.path());
+    click(&mut rt, "repo-0");
+    assert!(rt.state.repository);
+    assert_eq!(rt.state.repository_view.as_deref(), Some(first.as_str()));
+    wait_for_graph(&mut rt);
+    click(&mut rt, "expand-git");
+    assert!(rt.state.repository_expanded);
+    click(&mut rt, "repo-1");
+    assert_eq!(rt.state.repository_view.as_deref(), Some(second.as_str()));
+    assert!(
+        current(&rt.state).expanded,
+        "the other repository opens full screen too"
+    );
+    click(&mut rt, "sidebar-chat-0");
+    assert!(
+        !rt.state.repository,
+        "choosing a chat leaves the full-screen graph"
+    );
+    click(&mut rt, "repo-0");
+    assert!(current(&rt.state).expanded);
+    wait_for_graph(&mut rt);
+    click(&mut rt, "expand-git");
+    assert!(!rt.state.repository_expanded);
+    click(&mut rt, "repo-1");
+    assert!(!current(&rt.state).expanded);
+    // Beside the chats, choosing a chat keeps the graph open.
+    click(&mut rt, "sidebar-chat-0");
+    assert!(rt.state.repository);
+}
