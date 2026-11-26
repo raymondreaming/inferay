@@ -385,8 +385,9 @@ impl ChatRuntime {
                         state.clients.insert(client_id, sender);
                     }
                     (state.turn_active
-                        && state.agent_kind == "codex"
-                        && input.agent_kind == "codex"
+                        && !state.cancelled
+                        && state.agent_kind == input.agent_kind
+                        && matches!(input.agent_kind.as_str(), "codex" | "claude")
                         && !state.requires_new_session(&input)
                         && state.cwd == input.cwd
                         && state.reference_paths == input.reference_paths
@@ -416,7 +417,7 @@ impl ChatRuntime {
                     )
                     .await;
                     if handle
-                        .steer_codex(input.text.clone(), input.images.clone())
+                        .steer(input.text.clone(), input.images.clone())
                         .await
                         .is_ok()
                     {
@@ -589,18 +590,11 @@ impl ChatRuntime {
                 && let Some(command) = parse_goal_command(&input.text)
             {
                 self.handle_goal_command(&session, command).await
-            } else if input.agent_kind != "codex" && !input.images.is_empty() {
-                // Claude sees attachments only through their paths; without them an
-                // image-only turn resumes with an empty prompt and Claude rejects it.
-                let paths = paths_to_strings(&input.images).join("\n");
-                Some(
-                    format!(
-                        "{}\n\nHere are the images at these paths:\n{paths}",
-                        input.text
-                    )
-                    .trim_start()
-                    .to_owned(),
-                )
+            } else if input.agent_kind != "codex" {
+                Some(crate::agent_runner::claude_message(
+                    &input.text,
+                    &input.images,
+                ))
             } else {
                 Some(input.text.clone())
             };
@@ -702,6 +696,7 @@ impl ChatRuntime {
                 }
             } else {
                 handle.stop_claude();
+                self.requeue_pending_steers(&session).await;
             }
         }
         let should_emit = {
@@ -1454,7 +1449,11 @@ impl ChatRuntime {
         {
             eprintln!("Could not save provider timings: {error}");
         }
-        self.flush_pending_steers(session).await;
+        if session.lock().await.agent_kind == "claude" {
+            self.requeue_pending_steers(session).await;
+        } else {
+            self.flush_pending_steers(session).await;
+        }
         executed
     }
 
@@ -1544,6 +1543,39 @@ impl ChatRuntime {
         };
         self.promote_pending_steer(session, pending).await;
         true
+    }
+
+    /// Claude reads a steer at its next tool boundary or right after its reply.
+    /// One it never read (the turn was stopped or the process ended) returns to
+    /// the head of the queue rather than appearing delivered.
+    async fn requeue_pending_steers(&self, session: &Arc<Mutex<ChatSession>>) {
+        let (pane, pending) = {
+            let mut state = session.lock().await;
+            (
+                state.pane_id.clone(),
+                std::mem::take(&mut state.pending_steers),
+            )
+        };
+        if pending.is_empty() {
+            return;
+        }
+        let queued = pending
+            .into_iter()
+            .map(|pending| QueuedMessageInfo {
+                id: pending.id,
+                text: pending.text,
+                display_text: pending.display_text,
+                images: (!pending.images.is_empty())
+                    .then(|| pending.images.into_iter().map(PathBuf::from).collect()),
+                execution: None,
+                interrupted: false,
+            })
+            .collect();
+        if let Err(error) = self.persistence.enqueue_runtime(&pane, queued, true).await {
+            self.emit_system(session, &format!("Message could not be queued: {error}"))
+                .await;
+        }
+        self.broadcast_queue(&pane).await;
     }
 
     async fn flush_pending_steers(&self, session: &Arc<Mutex<ChatSession>>) {

@@ -748,9 +748,12 @@ fn display_paths(paths: &[PathBuf]) -> Vec<String> {
 /// than none, and servers that are unauthenticated still pay connection cost while
 /// exposing no tools. `mcp_config` points at a minimal config written for this run
 /// so `--strict-mcp-config` can ignore the ambient ones.
+///
+/// Prompts arrive on stdin as stream-json user messages, so a running turn can be
+/// steered: Claude reads a new message at its next tool boundary, or answers it
+/// as a follow-up turn, and replays each message it accepts.
 pub fn build_claude_invocation_args(
     binary: &Path,
-    prompt: &str,
     model: Option<&str>,
     session_id: Option<&str>,
     mcp_config: Option<&Path>,
@@ -758,7 +761,9 @@ pub fn build_claude_invocation_args(
     let mut arguments = vec![
         binary.to_string_lossy().into_owned(),
         "-p".into(),
-        prompt.into(),
+        "--input-format".into(),
+        "stream-json".into(),
+        "--replay-user-messages".into(),
         "--dangerously-skip-permissions".into(),
         "--output-format".into(),
         "stream-json".into(),

@@ -525,7 +525,7 @@ async fn interrupt_terminates_a_server_that_never_completes_the_turn() {
             ),
             async {
                 loop {
-                    let ready = handle.codex_control.lock().unwrap().is_some();
+                    let ready = handle.control.lock().unwrap().is_some();
                     if ready {
                         break;
                     }
@@ -926,7 +926,7 @@ async fn stop_deadline_kills_provider_even_when_control_consumer_is_blocked() {
         .unwrap();
     handle.set_pid(child.id());
     let (sender, _blocked_receiver) = mpsc::unbounded_channel();
-    handle.set_codex_control(sender);
+    handle.set_control(sender);
     assert!(handle.stop_codex());
     let status = tokio::time::timeout(std::time::Duration::from_secs(8), child.wait())
         .await
@@ -1072,10 +1072,7 @@ async fn goal_continuation_accepts_steering_and_stop_on_the_new_turn() {
                     }
                     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                 }
-                handle
-                    .steer_codex("Keep working".into(), vec![])
-                    .await
-                    .unwrap();
+                handle.steer("Keep working".into(), vec![]).await.unwrap();
                 assert!(handle.stop_codex());
             }
         );

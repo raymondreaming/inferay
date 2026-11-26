@@ -2605,8 +2605,10 @@ assert '--tools' not in args, args
 assert 'provider-native filesystem tools and shell access are disabled' not in str(args)
 assert '<available-skills>' in str(args), args
 assert 'Captured skill instructions' in str(args), args
+# Like Claude with --input-format stream-json, the prompt arrives on stdin.
+prompt = json.loads(sys.stdin.readline())['message']['content']
 with Path('invocations.jsonl').open('a') as f:
-    f.write(json.dumps(args) + '\n')
+    f.write(json.dumps(args + [prompt]) + '\n')
 print(json.dumps({'type':'system','subtype':'init','session_id':'automation-session'}), flush=True)
 Path('started').write_text('yes')
 while Path('block').exists():
@@ -2616,6 +2618,11 @@ if Path('fail').exists():
     sys.exit(1)
 Path('normal-chat-write').write_text('written')
 print(json.dumps({'type':'result','result':'follow-up complete' if '--resume' in args else 'task complete','usage':{'input_tokens':10,'output_tokens':5}}), flush=True)
+# Messages written during the turn are replayed and answered until stdin closes.
+for line in sys.stdin:
+    text = json.loads(line)['message']['content']
+    print(json.dumps({'type':'user','isReplay':True,'message':{'role':'user','content':text}}), flush=True)
+    print(json.dumps({'type':'result','result':'follow-up complete','usage':{'input_tokens':10,'output_tokens':5}}), flush=True)
 "#).unwrap();
     std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
     assert_eq!(
@@ -2795,12 +2802,17 @@ async fn manual_and_scheduled_agents_are_durable_regular_chats() {
                 .iter()
                 .any(|message| message.content == "Continue with my follow-up")
         );
+        // The follow-up sent while running steered the live process instead of
+        // waiting for a second one.
+        assert!(transcript.iter().any(
+            |message| message.role == "user" && message.content == "A follow-up while running"
+        ));
         assert_eq!(
             std::fs::read_to_string(root.join("invocations.jsonl"))
                 .unwrap()
                 .lines()
                 .count(),
-            3
+            2
         );
     }
 }
@@ -3268,5 +3280,90 @@ async fn sending_while_a_stop_unwinds_runs_first_then_resumes_the_queue() {
             vec!["Queued one"],
             vec!["Queued two"]
         ]
+    );
+}
+
+#[tokio::test]
+#[cfg(unix)]
+async fn claude_reads_a_message_sent_mid_turn_at_its_next_tool_boundary() {
+    let profile = tempfile::tempdir().unwrap();
+    let (project, _) = chat_fixture(profile.path());
+    // Claude takes stdin messages at tool boundaries and replays each it accepts.
+    std::fs::write(
+        profile.path().join(".local/bin/claude"),
+        r#"#!/usr/bin/python3
+import json, select, sys, time
+from pathlib import Path
+args = sys.argv[1:]
+prompt = json.loads(sys.stdin.readline())['message']['content']
+with Path('invocations.jsonl').open('a') as f:
+    f.write(json.dumps(args + [prompt]) + '\n')
+print(json.dumps({'type':'system','subtype':'init','session_id':'steer-session'}), flush=True)
+Path('started').write_text('yes')
+while Path('block').exists():
+    time.sleep(.02)
+steer = None
+if select.select([sys.stdin], [], [], 5)[0]:
+    steer = json.loads(sys.stdin.readline())['message']['content']
+    print(json.dumps({'type':'user','isReplay':True,'message':{'role':'user','content':steer}}), flush=True)
+print(json.dumps({'type':'result','result':f'done with {steer}','usage':{'input_tokens':10,'output_tokens':5}}), flush=True)
+for _ in sys.stdin:
+    pass
+"#,
+    )
+    .unwrap();
+    let runtime = runtime(profile.path());
+    let chat = chats(&runtime, profile.path());
+    let cwd = profile.path().join("projects").join(project);
+    std::fs::write(cwd.join("block"), "").unwrap();
+    let message = |text: &str| crate::chat_runtime::SendMessageInput {
+        pane_id: "claude-steer".into(),
+        agent_kind: "claude".into(),
+        text: text.into(),
+        client_message_id: Some(text.into()),
+        cwd: cwd.clone(),
+        cwd_provided: true,
+        ..Default::default()
+    };
+    let owner = chat.clone();
+    let first = message("Start the work");
+    let running = tokio::spawn(async move { owner.send_message(first).await });
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while !cwd.join("started").exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    chat.send_message(message("Use the newer approach")).await;
+    let persistence = crate::chat_persistence::ChatPersistence::new(profile.path().into());
+    assert!(
+        persistence
+            .read_queue("claude-steer")
+            .await
+            .unwrap()
+            .is_empty(),
+        "a same-settings message steers the running turn instead of queueing"
+    );
+    std::fs::remove_file(cwd.join("block")).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(20), running)
+        .await
+        .unwrap()
+        .unwrap();
+    let transcript = persistence.read_transcript("claude-steer").await.unwrap();
+    let position = |content: &str| {
+        transcript
+            .iter()
+            .position(|message| message.content == content)
+            .unwrap_or_else(|| panic!("{content} missing from {transcript:#?}"))
+    };
+    assert!(position("Start the work") < position("Use the newer approach"));
+    assert!(position("Use the newer approach") < position("done with Use the newer approach"));
+    assert_eq!(
+        std::fs::read_to_string(cwd.join("invocations.jsonl"))
+            .unwrap()
+            .lines()
+            .count(),
+        1
     );
 }

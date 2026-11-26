@@ -195,6 +195,7 @@ pub(super) async fn run_btw_chat_message(
             ],
             cwd,
             &resolver.create_agent_env(AgentKind::Claude),
+            std::process::Stdio::null(),
         )?;
 
         let stdout = child.stdout.take().expect("piped Claude stdout");

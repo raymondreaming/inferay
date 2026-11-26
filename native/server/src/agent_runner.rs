@@ -158,7 +158,7 @@ where
 pub struct AgentProcessHandle {
     pid: Arc<AtomicU32>,
     cancelled: Arc<AtomicBool>,
-    codex_control: Arc<Mutex<Option<mpsc::UnboundedSender<CodexControl>>>>,
+    control: Arc<Mutex<Option<mpsc::UnboundedSender<ProviderControl>>>>,
     requests: Arc<Mutex<HashMap<String, PendingProviderRequest>>>,
     started: std::time::Instant,
     timings: Arc<Mutex<serde_json::Map<String, Value>>>,
@@ -184,7 +184,7 @@ struct PendingProviderRequest {
     params: Value,
 }
 
-pub(crate) enum CodexControl {
+pub(crate) enum ProviderControl {
     Steer {
         text: String,
         images: Vec<PathBuf>,
@@ -207,7 +207,7 @@ impl AgentProcessHandle {
             tools: None,
             pid: Arc::default(),
             cancelled: Arc::default(),
-            codex_control: Arc::default(),
+            control: Arc::default(),
             requests: Arc::default(),
             started: std::time::Instant::now(),
             timings: Arc::default(),
@@ -363,28 +363,28 @@ impl AgentProcessHandle {
         });
     }
 
-    /// Appends input to the currently running Codex turn. This is the same
-    /// active-turn steering contract used by Codex's own rich clients; it does
-    /// not create a second turn or wait in Inferay's persisted queue.
-    pub async fn steer_codex(&self, text: String, images: Vec<PathBuf>) -> Result<(), String> {
+    /// Appends input to the provider's running turn: Codex steers its active
+    /// turn, and Claude reads it at its next tool boundary (or answers it right
+    /// after the current reply). It does not wait in Inferay's persisted queue.
+    pub async fn steer(&self, text: String, images: Vec<PathBuf>) -> Result<(), String> {
         let sender = self
-            .codex_control
+            .control
             .lock()
-            .expect("codex control lock")
+            .expect("provider control lock")
             .clone()
-            .ok_or_else(|| "Codex turn is not steerable".to_string())?;
+            .ok_or_else(|| "This turn is not steerable".to_string())?;
         let (response, receiver) = oneshot::channel();
         sender
-            .send(CodexControl::Steer {
+            .send(ProviderControl::Steer {
                 text,
                 images,
                 response,
             })
-            .map_err(|_| "Codex turn has already ended".to_string())?;
+            .map_err(|_| "The turn has already ended".to_string())?;
         tokio::time::timeout(std::time::Duration::from_secs(5), receiver)
             .await
-            .map_err(|_| "Codex steering timed out".to_string())?
-            .map_err(|_| "Codex turn ended before steering completed".to_string())?
+            .map_err(|_| "Steering timed out".to_string())?
+            .map_err(|_| "The turn ended before steering completed".to_string())?
     }
 
     pub(crate) fn pending_requests(&self) -> Vec<Value> {
@@ -399,14 +399,14 @@ impl AgentProcessHandle {
 
     pub(crate) async fn respond(&self, id: String, answer: Value) -> Result<(), String> {
         let sender = self
-            .codex_control
+            .control
             .lock()
-            .expect("codex control")
+            .expect("provider control lock")
             .clone()
             .ok_or("Provider request is no longer active")?;
         let (response, receiver) = oneshot::channel();
         sender
-            .send(CodexControl::Respond {
+            .send(ProviderControl::Respond {
                 id,
                 answer,
                 response,
@@ -428,16 +428,16 @@ impl AgentProcessHandle {
                 handle.kill();
             }
         });
-        self.codex_control
+        self.control
             .lock()
-            .expect("codex control lock")
+            .expect("provider control lock")
             .as_ref()
-            .is_some_and(|sender| sender.send(CodexControl::Interrupt).is_ok())
+            .is_some_and(|sender| sender.send(ProviderControl::Interrupt).is_ok())
     }
 
     pub fn kill(&self) {
         self.cancelled.store(true, Ordering::Release);
-        self.clear_codex_control();
+        self.clear_control();
         if let Some(pid) = self.pid() {
             tree_kill(pid);
         }
@@ -447,16 +447,13 @@ impl AgentProcessHandle {
         self.pid.store(pid.unwrap_or(0), Ordering::Release);
     }
 
-    pub(crate) fn set_codex_control(&self, sender: mpsc::UnboundedSender<CodexControl>) {
-        *self.codex_control.lock().expect("codex control lock") = Some(sender);
+    pub(crate) fn set_control(&self, sender: mpsc::UnboundedSender<ProviderControl>) {
+        *self.control.lock().expect("provider control lock") = Some(sender);
     }
 
-    fn clear_codex_control(&self) {
+    fn clear_control(&self) {
         self.requests.lock().expect("provider requests").clear();
-        self.codex_control
-            .lock()
-            .expect("codex control lock")
-            .take();
+        self.control.lock().expect("provider control lock").take();
     }
 }
 
@@ -554,7 +551,7 @@ async fn run_claude(
             bridge.config.path().to_string_lossy().into_owned(),
         ]);
     }
-    let spawn = spawn_direct(&arguments, &run.invocation.cwd, run.env);
+    let spawn = spawn_direct(&arguments, &run.invocation.cwd, run.env, Stdio::piped());
     let mut child = match spawn {
         Ok(child) => child,
         Err(error) => {
@@ -569,29 +566,76 @@ async fn run_claude(
     handle.mark("processSpawned");
     let stderr = tokio::spawn(drain_bounded(child.stderr.take().expect("piped stderr")));
     let mut stdout = ProviderFrames::new(child.stdout.take().expect("piped stdout"));
+    let mut stdin = child.stdin.take();
+    if let Err(error) = write_claude_message(stdin.as_mut(), run.prompt).await {
+        emit_error(
+            context,
+            format!("Claude did not accept the prompt: {error}"),
+        );
+        stdin = None;
+    }
     let mut protocol = ClaudeProtocolState::default();
+    let (control_tx, mut control_rx) = mpsc::unbounded_channel();
+    handle.set_control(control_tx);
+    let mut control_open = true;
+    // Steers written to stdin and not yet replayed by Claude: (written, original).
+    let mut steering: Vec<(String, String)> = Vec::new();
 
     loop {
-        match stdout.next().await {
-            Ok(None) => break,
-            Ok(Some(line)) => {
-                if let Some(event) = parse_ndjson(&line) {
+        tokio::select! {
+            control = control_rx.recv(), if control_open => match control {
+                Some(ProviderControl::Steer { text, images, response }) => {
+                    let written = claude_message(&text, &images);
+                    let result = write_claude_message(stdin.as_mut(), &written).await;
+                    if result.is_ok() {
+                        steering.push((written, text));
+                    }
+                    let _ = response.send(result);
+                }
+                Some(ProviderControl::Respond { response, .. }) => {
+                    let _ = response.send(Err("Claude has no pending provider requests".into()));
+                }
+                Some(ProviderControl::Interrupt) => {}
+                None => control_open = false,
+            },
+            read = stdout.next() => match read {
+                Ok(None) => break,
+                Ok(Some(line)) => {
+                    let Some(event) = parse_ndjson(&line) else { continue };
                     if event["type"] == "stream_event" || event["type"] == "assistant" {
                         handle.mark("firstOutput");
+                    }
+                    if event["type"] == "user"
+                        && event["isReplay"] == true
+                        && let Some(text) = event.pointer("/message/content").and_then(Value::as_str)
+                        && let Some(index) = steering.iter().position(|(written, _)| written == text)
+                    {
+                        let (_, original) = steering.remove(index);
+                        context
+                            .emissions
+                            .push(ProtocolEmission::UserInputAcknowledged { text: original });
+                    }
+                    // Closing stdin ends Claude once its reply is done. A steer it
+                    // has not read yet keeps it open for one more turn.
+                    if event["type"] == "result" && (steering.is_empty() || handle.is_cancelled()) {
+                        stdin = None;
+                        handle.clear_control();
                     }
                     protocol.handle_event(context, &event);
                     flush_emissions(context, emissions).await;
                 }
-            }
-            Err(error) => {
-                if !handle.is_cancelled() {
-                    emit_error(context, error.to_string());
+                Err(error) => {
+                    if !handle.is_cancelled() {
+                        emit_error(context, error.to_string());
+                    }
+                    let _ = child.start_kill();
+                    break;
                 }
-                let _ = child.start_kill();
-                break;
-            }
+            },
         }
     }
+    handle.clear_control();
+    drop(stdin);
     let exit = child.wait().await;
     handle.set_pid(None);
     let stderr = stderr.await.unwrap_or_default().0.trim().to_string();
@@ -612,7 +656,6 @@ async fn run_claude(
 fn claude_invocation_args(run: &ProviderRun<'_>, mcp_config: Option<&Path>) -> Vec<String> {
     let mut arguments = build_claude_invocation_args(
         run.binary,
-        run.prompt,
         run.invocation.model.as_deref(),
         run.invocation.session_id.as_deref(),
         mcp_config,
@@ -630,6 +673,36 @@ fn claude_invocation_args(run: &ProviderRun<'_>, mcp_config: Option<&Path>) -> V
         ),
     ]);
     arguments
+}
+
+/// Claude sees attachments only through their paths; without them an
+/// image-only message would reach it empty.
+pub(crate) fn claude_message(text: &str, images: &[PathBuf]) -> String {
+    if images.is_empty() {
+        return text.to_owned();
+    }
+    let paths = images
+        .iter()
+        .map(|path| path.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("{text}\n\nHere are the images at these paths:\n{paths}")
+        .trim_start()
+        .to_owned()
+}
+
+async fn write_claude_message(
+    stdin: Option<&mut tokio::process::ChildStdin>,
+    text: &str,
+) -> Result<(), String> {
+    let stdin = stdin.ok_or("Claude has finished this turn")?;
+    let mut line = json!({"type":"user","message":{"role":"user","content":text}}).to_string();
+    line.push('\n');
+    stdin
+        .write_all(line.as_bytes())
+        .await
+        .map_err(|error| error.to_string())?;
+    stdin.flush().await.map_err(|error| error.to_string())
 }
 
 pub(crate) const DIRECT_INTEGRATIONS: &str = "You are running inside Inferay through the installed provider harness. Inferay owns the conversation, project bindings, queue and approval cards. Use native Inferay tools for app-owned resources; ordinary coding needs no app tools. A proposal is pending user action, not a saved change. Use absolute Markdown file links for local outputs. Inferay uses local Git and the GitHub CLI directly. GitKraken tools are disabled in Inferay. Use the direct Linear MCP tools for Linear; discover the available tools before claiming access is missing. If a direct integration is unavailable, report that specific connection failure rather than asking the user to connect GitKraken.";
@@ -825,7 +898,7 @@ async fn run_codex(
         let mut continuation_deadline = None;
         let mut seen_turns = std::collections::HashSet::from([turn_id.clone()]);
         let (control_tx, mut control_rx) = mpsc::unbounded_channel();
-        handle.set_codex_control(control_tx);
+        handle.set_control(control_tx);
         let mut pending_steers = HashMap::<u64, oneshot::Sender<Result<(), String>>>::new();
         let mut completed = false;
         let mut interrupt_deadline = None;
@@ -852,7 +925,7 @@ async fn run_codex(
                 }
                 control = control_rx.recv() => {
                     match control {
-                        Some(CodexControl::Steer { text, images, response }) => {
+                        Some(ProviderControl::Steer { text, images, response }) => {
                             if waiting_for_continuation {
                                 let _ = response.send(Err("Codex is between goal turns; retry when the next turn starts.".into()));
                                 continue;
@@ -867,7 +940,7 @@ async fn run_codex(
                                 Err(error) => { let _ = response.send(Err(error)); }
                             }
                         }
-                        Some(CodexControl::Respond { id, answer, response }) => {
+                        Some(ProviderControl::Respond { id, answer, response }) => {
                             let request = handle.requests.lock().expect("provider requests").get(&id).cloned();
                             let result = match request {
                                 None => Err("This request was already answered or its turn ended".into()),
@@ -885,7 +958,7 @@ async fn run_codex(
                                 let _ = emissions.send(ProtocolEmission::Requests(handle.pending_requests())).await;
                             }
                         }
-                        Some(CodexControl::Interrupt) => {
+                        Some(ProviderControl::Interrupt) => {
                             if rpc.send("turn/interrupt", json!({"threadId":thread_id,"turnId":turn_id})).await.is_err() {
                                 break;
                             }
@@ -1039,7 +1112,7 @@ async fn run_codex(
                 }
             }
         }
-        handle.clear_codex_control();
+        handle.clear_control();
         for (_, response) in pending_steers {
             let _ = response.send(Err("Codex turn ended before steering completed".into()));
         }
@@ -1430,7 +1503,7 @@ async fn finish_codex_child(
     ),
 ) -> String {
     let (context, state, emissions) = protocol;
-    handle.clear_codex_control();
+    handle.clear_control();
     if let Some(pid) = pid {
         tree_kill(pid);
     }
@@ -1501,6 +1574,7 @@ pub(crate) fn spawn_direct(
     arguments: &[impl AsRef<OsStr>],
     cwd: &Path,
     env: &HashMap<OsString, OsString>,
+    stdin: Stdio,
 ) -> std::io::Result<tokio::process::Child> {
     let (binary, arguments) = arguments.split_first().ok_or_else(|| {
         std::io::Error::new(std::io::ErrorKind::InvalidInput, "missing agent binary")
@@ -1510,7 +1584,7 @@ pub(crate) fn spawn_direct(
         .current_dir(cwd)
         .env_clear()
         .envs(env)
-        .stdin(Stdio::null())
+        .stdin(stdin)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true)
