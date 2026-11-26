@@ -700,3 +700,94 @@ fn full_screen_follows_every_repository_and_choosing_a_chat_returns_to_it() {
     click(&mut rt, "sidebar-chat-0");
     assert!(rt.state.repository);
 }
+
+#[test]
+fn renamed_files_show_where_they_came_from_in_the_diff_header() {
+    let _serial = serial();
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().canonicalize().unwrap();
+    init_repo(&root, "main");
+    std::fs::write(root.join("old.sql"), "select 1;\nselect 2;\nselect 3;\n").unwrap();
+    std::fs::write(root.join("kept.sql"), "select 4;\n").unwrap();
+    std::fs::write(root.join("moved.sql"), "select 6;\nselect 7;\nselect 8;\n").unwrap();
+    git(&root, &["add", "."]);
+    git(&root, &["commit", "-m", "Initial"]);
+    git(&root, &["mv", "old.sql", "new.sql"]);
+    // An unstaged rename: the file was simply moved on disk.
+    std::fs::rename(root.join("moved.sql"), root.join("arrived.sql")).unwrap();
+    std::fs::write(root.join("kept.sql"), "select 5;\n").unwrap();
+    let path = root.to_string_lossy().into_owned();
+    let mut view_state = with_avatar(idle_view(&root));
+    view_state.status = inferay_native_diff::get_git_status(&path);
+    view_state.graph = inferay_native_diff::get_git_graph_snapshot_with_query(
+        &path,
+        200,
+        inferay_native_diff::prepare_git_graph(&path),
+        "",
+    );
+    let mut rt = harness(view_state, (1000., 600.));
+    let text = |rt: &rune::Runtime<Workspace>, key: &str| {
+        rt.elements()
+            .into_iter()
+            .find(|e| !e.exiting && e.key.as_deref() == Some(key))
+            .and_then(|e| e.text)
+    };
+    let label = |rt: &rune::Runtime<Workspace>, wanted: &str| {
+        rt.elements()
+            .into_iter()
+            .any(|e| e.label.as_deref() == Some(wanted))
+    };
+    update(&mut rt, |view, tx| {
+        view.open_file("new.sql".into(), true, tx)
+    });
+    assert_eq!(text(&rt, "diff-original-path").as_deref(), Some("old.sql"));
+    assert_eq!(text(&rt, "diff-path").as_deref(), Some("new.sql"));
+    assert!(label(&rt, "Renamed: old.sql → new.sql"));
+    update(&mut rt, |view, tx| {
+        view.open_file("arrived.sql".into(), false, tx)
+    });
+    assert_eq!(
+        text(&rt, "diff-original-path").as_deref(),
+        Some("moved.sql")
+    );
+    assert_eq!(text(&rt, "diff-path").as_deref(), Some("arrived.sql"));
+    update(&mut rt, |view, tx| {
+        view.open_file("kept.sql".into(), false, tx)
+    });
+    assert_eq!(text(&rt, "diff-path").as_deref(), Some("kept.sql"));
+    assert!(text(&rt, "diff-original-path").is_none());
+
+    // The same rename, viewed from history.
+    run_until_idle(&mut rt);
+    git(&root, &["add", "-A"]);
+    git(&root, &["commit", "-qm", "Rename the query"]);
+    update(&mut rt, |view, _| {
+        view.status = inferay_native_diff::get_git_status(&path);
+        view.graph = inferay_native_diff::get_git_graph_snapshot_with_query(
+            &path,
+            200,
+            inferay_native_diff::prepare_git_graph(&path),
+            "",
+        );
+        let index = view
+            .graph
+            .commits
+            .iter()
+            .position(|commit| commit.message == "Rename the query")
+            .unwrap();
+        view.select_commit(index);
+    });
+    run_until(&mut rt, |s| {
+        s.repository_views
+            .values()
+            .next()
+            .unwrap()
+            .details
+            .is_some()
+    });
+    update(&mut rt, |view, tx| {
+        view.open_file("new.sql".into(), false, tx)
+    });
+    assert_eq!(text(&rt, "diff-original-path").as_deref(), Some("old.sql"));
+    assert_eq!(text(&rt, "diff-path").as_deref(), Some("new.sql"));
+}

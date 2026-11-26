@@ -72,6 +72,8 @@ Open repositories in the selected project fetch all remotes on entry and every m
 
 Native highlighting uses Syntect's Oniguruma engine and matching bundled grammars. Selected-file highlighting runs at foreground worker priority, while speculative adjacent-file reads remain low priority. The ignored `benchmark_source_highlighting` test measures cold and warm source classification in release builds.
 
+For a renamed file (staged, unstaged or in history), the diff header shows the original path dimmed, an arrow, then the current path; the file row's label names both.
+
 Split and Unified are compact segmented diff choices, aligned in height with File and the History, Changes and Git controls. File toggles the complete selected file version without change tinting or alignment spacers, retaining syntax highlights and line numbers. It uses the index for staged files, the selected commit for history, and the prior version for deleted files; emptied files remain empty. These controls reuse the prepared diff without additional reads.
 
 Git history column boundaries resize on drag with hover and active feedback. The toolbar column menu toggles Date, Branch, Graph, Message, Author and SHA; widths and visibility persist per repository across launches. Horizontal offsets are clamped during resize so expanding or narrowing the panel does not leave stale blank space. Message fills remaining viewport width, while narrow layouts retain horizontal scrolling.

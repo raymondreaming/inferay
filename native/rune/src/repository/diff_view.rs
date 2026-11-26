@@ -344,12 +344,34 @@ impl RepositoryView {
                         tx.focus("repository", false);
                     })),
             )
-            .child(
-                Ink::new(11.)
-                    .line_text(self.file.clone().unwrap_or_default())
+            .child({
+                let path = self.file.clone().unwrap_or_default();
+                let original = self
+                    .file_entries()
+                    .into_iter()
+                    .find(|file| file.0 == path && file.4 == self.selected_staged)
+                    .and_then(|file| file.5);
+                // A rename names both sides: where the file was and where it is now.
+                let mut title = row()
+                    .key("diff-title")
+                    .items_center()
+                    .gap(ui(6.))
                     .grow(1.)
-                    .shrink(),
-            );
+                    .min_w(0.);
+                if let Some(original) = original {
+                    title = title
+                        .label(format!("Renamed from {original} to {path}"))
+                        .child(
+                            Ink::new(11.)
+                                .hex(0xebebeb80)
+                                .line_text(original)
+                                .key("diff-original-path")
+                                .shrink(),
+                        )
+                        .child(Ink::new(11.).hex(0xebebeb80).line_text("→"));
+                }
+                title.child(Ink::new(11.).line_text(path).key("diff-path").shrink())
+            });
         let mut modes = row().items_center().gap(ui(2.));
         for (mode, text) in [(true, "Split"), (false, "Unified")] {
             let selected = split == mode && !file_view;

@@ -5,7 +5,8 @@ use crate::ui::{Ink, button, icon_sized, plain_button};
 use crate::zoom::ui;
 use rune::{El, ScrollSpec, col, el, row};
 
-pub(super) type FileEntry = (String, String, usize, usize, bool);
+/// Path, status, additions, deletions, staged, and the path a rename came from.
+pub(super) type FileEntry = (String, String, usize, usize, bool, Option<String>);
 
 pub(super) fn label(ink: Ink, content: impl Into<String>) -> El {
     rune::text(content).font(ink.style()).color(ink.color)
@@ -49,6 +50,7 @@ impl RepositoryView {
                         f.additions,
                         f.deletions,
                         false,
+                        f.original_path.clone(),
                     )
                 })
                 .collect()
@@ -72,6 +74,7 @@ impl RepositoryView {
                                 f.additions.unwrap_or(0),
                                 f.deletions.unwrap_or(0),
                                 f.staged,
+                                f.original_path.clone(),
                             )
                         })
                         .collect()
@@ -172,7 +175,9 @@ impl RepositoryView {
                 ),
             ));
         }
-        for (i, (path, status, additions, deletions, staged)) in files.into_iter().enumerate() {
+        for (i, (path, status, additions, deletions, staged, original)) in
+            files.into_iter().enumerate()
+        {
             let selected = self.file.as_ref() == Some(&path) && self.selected_staged == staged;
             let (glyph, tint, change) = match status.as_str() {
                 "A" | "?" | "??" => (&icons::PLUS, colors::ADDED, "Added"),
@@ -244,7 +249,10 @@ impl RepositoryView {
             let mut file_row = row()
                 .key(fill_key.clone())
                 .role("button")
-                .label(format!("{change}: {path}"))
+                .label(match &original {
+                    Some(original) => format!("{change}: {original} → {path}"),
+                    None => format!("{change}: {path}"),
+                })
                 .h(ui(26.))
                 .items_center()
                 .gap(ui(8.))
