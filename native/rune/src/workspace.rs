@@ -2,6 +2,7 @@ mod attachments;
 mod completions;
 mod composer;
 mod conversation;
+mod directory;
 mod grid;
 mod lifecycle;
 mod live;
@@ -45,6 +46,8 @@ pub(crate) struct Conversation {
     pub(crate) images: Vec<std::path::PathBuf>,
     pub(crate) project: usize,
     pub(crate) pane: Option<String>,
+    /// Display copy of the saved pane's working directory.
+    pub(crate) cwd: Option<String>,
     pub(crate) loading: bool,
     pub(crate) error: Option<String>,
     pub(crate) task: Option<Task>,
@@ -90,6 +93,7 @@ impl Conversation {
             close_task: None,
             images: vec![],
             pane: None,
+            cwd: None,
             loading: false,
             error: None,
             task: None,
@@ -182,6 +186,7 @@ pub struct Workspace {
     pub(crate) scene_task: Option<Task>,
     pub(crate) scene_dim: f32,
     pub(crate) menu: Option<(usize, &'static str)>,
+    pub(crate) directory_picks: directory::Picks,
     pub(crate) expanded: HashSet<String>,
     pub(crate) proposals: HashMap<String, proposals::State>,
     pub(crate) skill_proposals: HashMap<String, proposals::SkillState>,
@@ -310,6 +315,7 @@ impl Workspace {
             scene_task: None,
             scene_dim: 0.,
             menu: None,
+            directory_picks: Default::default(),
             expanded: HashSet::new(),
             proposals: Default::default(),
             skill_proposals: Default::default(),
@@ -369,6 +375,7 @@ impl Workspace {
                 });
                 let mut chat = Conversation::new(project, input, config);
                 chat.pane = Some(pane.id);
+                chat.cwd = pane.cwd;
                 chat.title = pane
                     .summary
                     .filter(|s| !s.is_empty())

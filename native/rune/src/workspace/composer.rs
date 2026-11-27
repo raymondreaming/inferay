@@ -251,8 +251,10 @@ impl Workspace {
         if chat.completion.menu["show"] == true && chat.input.is_focused() {
             composer = composer.child(self.completion_popup(index));
         }
-        if let Some((_, name)) = self.menu.filter(|(pane, _)| *pane == index) {
-            composer = composer.child(self.popup(index, name));
+        match self.menu.filter(|(pane, _)| *pane == index) {
+            Some((_, "directory")) => composer = composer.child(self.directory_menu(index)),
+            Some((_, name)) => composer = composer.child(self.popup(index, name)),
+            None => {}
         }
         composer
     }
@@ -309,7 +311,7 @@ impl Workspace {
                 });
             options = options.child(option);
         }
-        options
+        options.child(self.directory_button(index))
     }
 
     fn provider_requests(&self, index: usize) -> El {
