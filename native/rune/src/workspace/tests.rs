@@ -359,3 +359,77 @@ fn project_tabs_show_change_totals_and_glow_while_running() {
     rt.frame(1. / 60.);
     assert!(texts(&rt).is_empty(), "no numbers when nothing changed");
 }
+
+#[test]
+fn clicking_a_chat_pane_activates_its_message_box_but_text_stays_selectable() {
+    let _serial = serial();
+    let mut view = Workspace::empty();
+    view.conversations[0].loaded = true;
+    let message: inferay_core::chat_protocol::ChatTranscriptMessage = serde_json::from_value(
+        serde_json::json!({"id":"answer","role":"assistant","content":"The build is green."}),
+    )
+    .unwrap();
+    view.conversations[0].transcript.publish(
+        crate::transcript::PreparedTranscript::prepare(
+            0,
+            [std::sync::Arc::new(message)],
+            "vscode-black",
+        ),
+        None,
+    );
+    let mut rt = view_runtime(view, (1200., 800.));
+    let clipboard = rune::clipboard::memory();
+    rt.use_clipboard(&clipboard);
+    for _ in 0..3 {
+        rt.frame(1. / 60.);
+    }
+    let press = |rt: &mut Runtime<Workspace>, (x, y): (f32, f32)| {
+        rt.pointer_move(x, y);
+        rt.frame(1. / 60.);
+        rt.pointer_down(x, y);
+        rt.frame(1. / 60.);
+        rt.pointer_up(x, y);
+        rt.frame(1. / 60.);
+        rt.frame(1. / 60.);
+    };
+    assert!(!rt.state.conversations[0].input.is_focused());
+    // Empty space in the pane, well away from the message.
+    let pane = rt
+        .elements()
+        .into_iter()
+        .find(|e| e.key.as_deref() == Some("chat-pane-0"))
+        .unwrap()
+        .rect;
+    press(&mut rt, (pane[0] + pane[2] / 2., pane[1] + pane[3] * 0.6));
+    assert!(
+        rt.state.conversations[0].input.is_focused(),
+        "a click in the pane activates its message box"
+    );
+    // The message text keeps its own focus for selection and copying.
+    let text = rt
+        .elements()
+        .into_iter()
+        .find(|e| e.text.as_deref() == Some("The build is green."))
+        .unwrap()
+        .rect;
+    // A click on the message itself hands it the keyboard, even from a focused message box.
+    press(&mut rt, (text[0] + 10., text[1] + text[3] / 2.));
+    assert!(!rt.state.conversations[0].input.is_focused());
+    for c in ['a', 'c'] {
+        rt.key(rune::KeyEvent {
+            key: rune::Key::Command(c),
+            mods: rune::Mods {
+                cmd: true,
+                ..rune::Mods::default()
+            },
+        });
+        rt.frame(1. / 60.);
+    }
+    assert_eq!(
+        clipboard.text().as_deref().map(String::as_str),
+        Some("The build is green.")
+    );
+    // Empty space again returns the cursor to the message box.
+    press(&mut rt, (pane[0] + pane[2] / 2., pane[1] + pane[3] * 0.6));
+    assert!(rt.state.conversations[0].input.is_focused());
+}

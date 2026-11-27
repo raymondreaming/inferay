@@ -390,6 +390,13 @@ impl Workspace {
                 .w_full()
                 .max_w(ui(624.))
                 .px(ui(12.))
+                // A click on a message keeps the keyboard for it (⌘A / ⌘C select
+                // and copy its text) rather than activating the message box.
+                .on_press_tx(move |s: &mut Workspace, tx| {
+                    s.select_chat_pane(index);
+                    s.conversations[index].input.edit.focused = false;
+                    tx.blur();
+                })
                 .child(content),
         )
     }

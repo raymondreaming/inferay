@@ -192,7 +192,15 @@ impl Workspace {
             .on_drop_files(move |s: &mut Workspace, paths, _| {
                 s.attach_images(index, paths.to_vec())
             })
-            .on_press(move |s: &mut Workspace| s.select_chat_pane(index))
+            // A click anywhere in the pane puts the cursor in its message box,
+            // unless it landed on something that took focus itself: selectable
+            // message text (for ⌘A / ⌘C) or a control.
+            .on_press_tx(move |s: &mut Workspace, tx| {
+                s.select_chat_pane(index);
+                if tx.focused().is_none() {
+                    s.conversations[index].input.focus();
+                }
+            })
             .child(self.transcript(index))
             .child(self.composer(index))
     }
