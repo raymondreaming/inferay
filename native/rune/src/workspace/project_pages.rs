@@ -605,6 +605,7 @@ impl Workspace {
                         }
                         let mut chat = Conversation::new(project, input, config);
                         chat.pane = Some(pane.clone());
+                        chat.cwd.clone_from(&saved_pane.cwd);
                         chat.title = saved_pane
                             .summary
                             .unwrap_or_else(|| "Automation run".into());

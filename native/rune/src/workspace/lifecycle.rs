@@ -299,6 +299,14 @@ impl Workspace {
         let project = self.projects[self.conversations[index].project].id.clone();
         let config = self.conversations[index].config.clone();
         let existing = self.conversations[index].pane.clone();
+        let managed = project.as_ref().map(|id| {
+            profile
+                .join("projects")
+                .join(id)
+                .to_string_lossy()
+                .into_owned()
+        });
+        let managed_cwd = managed.clone();
         self.conversations[index].loading = true;
         self.conversations[index].task = Some(crate::task::spawn(
             async move {
@@ -309,16 +317,10 @@ impl Workspace {
                     .request(Method::POST, "/api/agent/state/initialize", Some(json!({})))
                     .await?;
                 let pane = if let Some(pane) = existing {
-                    if let Some(project_id) = &project {
+                    if let Some(path) = &managed {
                         let action = AgentWorkspaceAction::DirectorySelected {
                             pane_id: pane.clone(),
-                            path: Some(
-                                profile
-                                    .join("projects")
-                                    .join(project_id)
-                                    .to_string_lossy()
-                                    .into_owned(),
-                            ),
+                            path: Some(path.clone()),
                             reference_paths: None,
                         };
                         backend
@@ -334,13 +336,7 @@ impl Workspace {
                     let action = AgentWorkspaceAction::AddPane {
                         group_id: None,
                         agent_kind: Some(config.agent_kind.clone()),
-                        cwd: project.as_ref().map(|id| {
-                            profile
-                                .join("projects")
-                                .join(id)
-                                .to_string_lossy()
-                                .into_owned()
-                        }),
+                        cwd: managed.clone(),
                         reference_paths: None,
                     };
                     let response = backend
@@ -394,6 +390,9 @@ impl Workspace {
                 match result {
                     Ok((pane, error)) => {
                         chat.pane = Some(pane);
+                        if managed_cwd.is_some() {
+                            chat.cwd = managed_cwd;
+                        }
                         chat.draft = None;
                         chat.error = error;
                         chat.loaded = true;
