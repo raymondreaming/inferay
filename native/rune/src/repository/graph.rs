@@ -348,25 +348,36 @@ impl RepositoryView {
                     tint,
                     has_connector,
                 ),
-                "message" => {
+                "message" => 'cell: {
                     let content = ui(w) - ui(24.);
-                    let text = if commit.item_kind == GitGraphItemKind::WorktreeWip {
-                        format!(
-                            "WIP · {} files · {}",
-                            commit
-                                .change_summary
-                                .as_ref()
-                                .map_or(0, |summary| summary.files),
-                            self.graph
-                                .worktrees
-                                .iter()
-                                .find(|w| Some(&w.path) == commit.worktree_path.as_ref())
-                                .and_then(|w| w.branch.as_deref())
-                                .unwrap_or("detached HEAD")
-                        )
-                    } else {
-                        commit.message.clone()
-                    };
+                    if commit.item_kind == GitGraphItemKind::WorktreeWip {
+                        // Work in progress reads like a commit summary: what kinds of
+                        // change are waiting, then which branch they are on.
+                        let worktree = commit.worktree_path.as_deref().unwrap_or(&self.path);
+                        let branch = self
+                            .graph
+                            .worktrees
+                            .iter()
+                            .find(|w| w.path == worktree)
+                            .and_then(|w| w.branch.as_deref())
+                            .unwrap_or("detached HEAD");
+                        break 'cell cell
+                            .px(ui(12.))
+                            .gap(ui(10.))
+                            .clip_rounded(0.)
+                            .child(Ink::new(11.).weight(MEDIUM).line_text("WIP"))
+                            .child(
+                                super::changes::change_counts(self.worktree_changes(worktree))
+                                    .key(format!("wip-changes-{worktree}")),
+                            )
+                            .child(
+                                Ink::small()
+                                    .hex(0xebebeb80)
+                                    .line_text(branch.to_owned())
+                                    .shrink(),
+                            );
+                    }
+                    let text = commit.message.clone();
                     let mut cell = cell.px(ui(12.)).gap(ui(8.)).clip_rounded(0.).child(
                         Ink::new(11.)
                             .line_text(text)

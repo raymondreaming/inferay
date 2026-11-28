@@ -66,7 +66,7 @@ Git branch labels support double-click checkout (including remote tracking-branc
 
 Graph row hover follows real pointer movement: rows that keyboard navigation scrolls beneath a resting pointer stay unhovered, so only the selection is lit until the mouse moves. Changing the selected row clears the previous row at once; its lane image never inherits the selection connector's fading fill.
 
-WIP rows show their graph circle without a branch badge or a horizontal branch connector.
+WIP rows show their graph circle without a branch badge or a horizontal branch connector. Their message reads WIP, then an icon and count for each kind of change (edited, added, deleted, renamed — the file rows' icons and colours, shared with collapsed tree folders), then the checkout's branch.
 
 Open repositories in the selected project fetch all remotes on entry and every minute, independently of the five-second local status refresh. Shared worktrees reuse the same fetch cooldown, fetches do not overlap graph actions, and failures back off to at most one attempt per sixteen minutes. Fetching never pulls or pushes. The manual Fetch all remotes action still targets the selected repository. Push and force-push target only the current branch's configured upstream, regardless of additional configured push refspecs; force-push uses an explicit expected upstream commit.
 

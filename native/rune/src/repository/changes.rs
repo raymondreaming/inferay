@@ -10,6 +10,45 @@ use std::rc::Rc;
 /// Path, status, additions, deletions, staged, and the path a rename came from.
 pub(super) type FileEntry = (String, String, usize, usize, bool, Option<String>);
 
+/// A file change's kind, in display order: edited, added, deleted, renamed.
+pub(super) fn change_kind(status: &str) -> usize {
+    match status {
+        "A" | "?" | "??" => 1,
+        "D" => 2,
+        status if status.starts_with('R') => 3,
+        _ => 0,
+    }
+}
+
+/// Each change kind's file-row icon, colour and name.
+pub(super) fn change_style(kind: usize) -> (&'static rune::Icon, u32, &'static str) {
+    [
+        (&icons::PENCIL, colors::MODIFIED, "Modified"),
+        (&icons::PLUS, colors::ADDED, "Added"),
+        (&icons::MINUS, colors::DELETED, "Deleted"),
+        (&icons::RENAME, colors::RENAMED, "Renamed"),
+    ][kind]
+}
+
+/// An icon and count for each change kind with files, as collapsed folders
+/// and the work-in-progress row summarise them.
+pub(super) fn change_counts(counts: [usize; 4]) -> El {
+    row().items_center().gap(ui(6.)).children(
+        counts
+            .into_iter()
+            .enumerate()
+            .filter(|(_, count)| *count > 0)
+            .map(|(kind, count)| {
+                let (glyph, tint, _) = change_style(kind);
+                row()
+                    .items_center()
+                    .gap(ui(3.))
+                    .child(icon_sized(glyph, 12.).color(rgb(tint)))
+                    .child(label(Ink::new(11.).color(rgb(tint)), count.to_string()))
+            }),
+    )
+}
+
 pub(super) fn label(ink: Ink, content: impl Into<String>) -> El {
     rune::text(content).font(ink.style()).color(ink.color)
 }
@@ -46,7 +85,7 @@ enum FileRow {
         collapsed: bool,
         staged: bool,
         depth: usize,
-        changes: [usize; 3],
+        changes: [usize; 4],
     },
     File {
         index: usize,
@@ -75,67 +114,44 @@ impl FileList {
     }
 
     fn row(&self, i: usize) -> El {
-        let (index, (path, status, additions, deletions, staged, original), depth) = match &self
-            .rows[i]
-        {
-            FileRow::Directory {
-                name,
-                directory,
-                collapsed,
-                depth,
-                changes,
-                ..
-            } => {
-                let directory = directory.clone();
-                let mut folder = button(name)
-                    .key(self.key(i))
-                    .h(ui(26.))
-                    .pl(ui(12. + *depth as f32 * 14.))
-                    .child(crate::ui::icon(if *collapsed {
-                        &icons::CHEVRON_RIGHT
-                    } else {
-                        &icons::CHEVRON_DOWN
+        let (index, (path, status, additions, deletions, staged, original), depth) =
+            match &self.rows[i] {
+                FileRow::Directory {
+                    name,
+                    directory,
+                    collapsed,
+                    depth,
+                    changes,
+                    ..
+                } => {
+                    let directory = directory.clone();
+                    let mut folder = button(name)
+                        .key(self.key(i))
+                        .h(ui(26.))
+                        .pl(ui(12. + *depth as f32 * 14.))
+                        .child(crate::ui::icon(if *collapsed {
+                            &icons::CHEVRON_RIGHT
+                        } else {
+                            &icons::CHEVRON_DOWN
+                        }));
+                    if *collapsed {
+                        folder = folder.child(change_counts(*changes).ml(ui(6.)));
+                    }
+                    return folder.on_press_tx(act(&self.path, move |view, _| {
+                        if !view.collapsed_directories.remove(&directory) {
+                            view.collapsed_directories.insert(directory.clone());
+                        }
+                        view.keyboard_scope = "sidebar";
                     }));
-                if *collapsed {
-                    for ((glyph, tint), count) in [
-                        (&icons::PENCIL, colors::MODIFIED),
-                        (&icons::PLUS, colors::ADDED),
-                        (&icons::MINUS, colors::DELETED),
-                    ]
-                    .into_iter()
-                    .zip(*changes)
-                    .filter(|(_, count)| *count > 0)
-                    {
-                        folder = folder.child(
-                            row()
-                                .items_center()
-                                .gap(ui(3.))
-                                .ml(ui(6.))
-                                .child(icon_sized(glyph, 12.).color(rgb(tint)))
-                                .child(label(Ink::new(11.).color(rgb(tint)), count.to_string())),
-                        );
-                    }
                 }
-                return folder.on_press_tx(act(&self.path, move |view, _| {
-                    if !view.collapsed_directories.remove(&directory) {
-                        view.collapsed_directories.insert(directory.clone());
-                    }
-                    view.keyboard_scope = "sidebar";
-                }));
-            }
-            FileRow::File { index, file, depth } => (index, file, depth),
-        };
+                FileRow::File { index, file, depth } => (index, file, depth),
+            };
         let staged = *staged;
         let selected = self
             .selected
             .as_ref()
             .is_some_and(|(file, in_index)| file == path && *in_index == staged);
-        let (glyph, tint, change) = match status.as_str() {
-            "A" | "?" | "??" => (&icons::PLUS, colors::ADDED, "Added"),
-            "D" => (&icons::MINUS, colors::DELETED, "Deleted"),
-            status if status.starts_with('R') => (&icons::RENAME, colors::RENAMED, "Renamed"),
-            _ => (&icons::PENCIL, colors::MODIFIED, "Modified"),
-        };
+        let (glyph, tint, change) = change_style(change_kind(status));
         let ink = Ink::new(11.);
         let mut name = row().grow(1.).shrink().clip_rounded(0.).items_center();
         if !self.tree {
@@ -227,6 +243,26 @@ impl FileList {
 }
 
 impl RepositoryView {
+    /// How many files of each change kind a checkout has; a file both staged
+    /// and unstaged counts once.
+    pub(super) fn worktree_changes(&self, worktree: &str) -> [usize; 4] {
+        let status = self
+            .graph
+            .worktrees
+            .iter()
+            .find(|tree| tree.path == worktree)
+            .and_then(|tree| tree.status.as_ref())
+            .or(self.status.as_ref().filter(|_| worktree == self.path));
+        let mut counts = [0; 4];
+        let mut seen = HashSet::new();
+        for file in status.into_iter().flat_map(|status| &status.files) {
+            if seen.insert(file.path.as_str()) {
+                counts[change_kind(&file.status)] += 1;
+            }
+        }
+        counts
+    }
+
     pub(super) fn file_entries(&self) -> Vec<FileEntry> {
         let mut files: Vec<_> = if let Some(details) = &self.details {
             details
@@ -377,14 +413,10 @@ impl RepositoryView {
                     )),
             );
         }
-        let mut changes: HashMap<String, [usize; 3]> = HashMap::new();
+        let mut changes: HashMap<String, [usize; 4]> = HashMap::new();
         if self.tree_files {
             for file in &files {
-                let kind = match file.1.as_str() {
-                    "A" | "?" | "??" => 1,
-                    "D" => 2,
-                    _ => 0,
-                };
+                let kind = change_kind(&file.1);
                 for (end, _) in file.0.match_indices('/') {
                     changes.entry(file.0[..end].to_owned()).or_default()[kind] += 1;
                 }

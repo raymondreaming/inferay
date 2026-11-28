@@ -872,3 +872,49 @@ fn the_graph_starts_on_the_current_row_and_keys_keep_working_after_clicks() {
     arrow(&mut rt, Key::Down);
     assert_eq!(selected(&rt), below);
 }
+
+#[test]
+fn work_in_progress_row_counts_each_kind_of_change_with_its_icon() {
+    let _serial = serial();
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().canonicalize().unwrap();
+    init_repo(&root, "main");
+    for name in ["a.txt", "b.txt", "c.txt", "old.txt"] {
+        std::fs::write(root.join(name), format!("{name}\nline two\nline three\n")).unwrap();
+    }
+    git(&root, &["add", "."]);
+    git(&root, &["commit", "-m", "Initial"]);
+    std::fs::write(root.join("a.txt"), "edited\n").unwrap();
+    std::fs::write(root.join("b.txt"), "staged edit\n").unwrap();
+    git(&root, &["add", "b.txt"]);
+    std::fs::write(root.join("b.txt"), "staged edit, then more\n").unwrap();
+    std::fs::remove_file(root.join("c.txt")).unwrap();
+    git(&root, &["mv", "old.txt", "new.txt"]);
+    std::fs::write(root.join("fresh.txt"), "new\n").unwrap();
+    let path = root.to_string_lossy().into_owned();
+    let mut view_state = with_avatar(idle_view(&root));
+    view_state.status = inferay_native_diff::get_git_status(&path);
+    view_state.graph = inferay_native_diff::get_git_graph_snapshot_with_query(
+        &path,
+        200,
+        inferay_native_diff::prepare_git_graph(&path),
+        "",
+    );
+    let rt = harness(view_state, (1200., 600.));
+    let key = format!("wip-changes-{path}");
+    let counts: Vec<String> = rt
+        .elements()
+        .into_iter()
+        .filter(|e| !e.exiting && e.path.contains(&key))
+        .filter_map(|e| e.text)
+        .collect();
+    assert_eq!(
+        counts,
+        ["2", "1", "1", "1"],
+        "edited, added, deleted, renamed"
+    );
+    let texts: Vec<String> = rt.elements().into_iter().filter_map(|e| e.text).collect();
+    assert!(texts.iter().any(|text| text == "WIP"));
+    assert!(texts.iter().any(|text| text == "main"));
+    assert!(!texts.iter().any(|text| text.starts_with("WIP ·")));
+}
